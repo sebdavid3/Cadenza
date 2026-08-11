@@ -1,0 +1,218 @@
+% =====================================================================
+%  Cadenza — Introducción (borrador v0.1 convertido a LaTeX)
+%  Plantilla: IEEEtran (conference) — mismo documento que el template.
+%
+%  Compilación (pdflatex, sin bibtex — bibliografía inline):
+%    pdflatex introduccion
+%
+%  Notas:
+%  - Las citas [1]–[12] están en \begin{thebibliography} al final;
+%    migrar a referencias.bib cuando se estructure el documento completo.
+%  - Las entradas marcadas con % VERIFICAR requieren confirmar datos
+%    (ver docs/literatura/ en el repo).
+%  - Título acordado: "Cadenza: reconocimiento, validación y aprendizaje
+%    en la digitalización de partituras".
+% =====================================================================
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+% Paquetes para español:
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+
+\begin{document}
+
+% ---------------------------------------------------------------------
+% TÍTULO
+% ---------------------------------------------------------------------
+\title{Cadenza: reconocimiento, validación y aprendizaje en la
+digitalización de partituras}
+
+% ---------------------------------------------------------------------
+% AUTORES — completar datos (Integrante 1, Integrante 2, Director)
+% ---------------------------------------------------------------------
+\author{\IEEEauthorblockN{Integrante 1 [COMPLETAR]}
+\IEEEauthorblockA{\textit{Ingenier\'ia de Sistemas} \\
+\textit{Universidad del Norte}\\
+Barranquilla, Colombia \\
+correo@uninorte.edu.co}
+\and
+\IEEEauthorblockN{Integrante 2 [COMPLETAR]}
+\IEEEauthorblockA{\textit{Ingenier\'ia de Sistemas} \\
+\textit{Universidad del Norte}\\
+Barranquilla, Colombia \\
+correo@uninorte.edu.co}
+\and
+\IEEEauthorblockN{Director(a) [COMPLETAR]}
+\IEEEauthorblockA{\textit{Ingenier\'ia de Sistemas} \\
+\textit{Universidad del Norte}\\
+Barranquilla, Colombia \\
+correo@uninorte.edu.co}
+}
+
+\maketitle
+
+% ---------------------------------------------------------------------
+% INTRODUCCIÓN (borrador v0.1 — estructura de 6 bloques)
+% ---------------------------------------------------------------------
+\section{Introducci\'on}
+
+La digitalizaci\'on del patrimonio musical constituye una necesidad
+creciente para archivos, bibliotecas, academias y agrupaciones musicales
+que conservan partituras f\'isicas en papel. El reconocimiento \'optico de
+m\'usica (OMR, por sus siglas en ingl\'es) es la disciplina que aborda la
+conversi\'on autom\'atica de im\'agenes de partituras en representaciones
+simb\'olicas editables, y ha sido objeto de investigaci\'on durante m\'as de
+cinco d\'ecadas \cite{omr2020}, evolucionando desde sistemas basados en
+reglas hasta \emph{pipelines} de aprendizaje profundo que transcriben
+partituras completas de forma autom\'atica \cite{rebelo2012}\cite{calvo2018}.
+
+A pesar de estos avances, los sistemas OMR modernos cometen errores que
+impiden su uso directo en entornos reales: notas con alturas o duraciones
+incorrectas, compases desbalanceados, armaduras inconsistentes y s\'imbolos
+omitidos \cite{calvo2018}. Los modelos de reconocimiento se estudian
+predominantemente desde la precisi\'on de su salida autom\'atica, mientras
+que la integraci\'on del reconocimiento en el trabajo pr\'actico de un
+transcriptor ha recibido mucha menos atenci\'on \cite{rizo2023}. Como
+consecuencia, quien digitaliza partituras debe revisar manualmente cada
+s\'imbolo en un editor musical convencional --- un proceso tan lento como la
+transcripci\'on manual --- o aceptar resultados err\'oneos sin verificarlos.
+En el caso de los manuscritos musicales modernos, esta situaci\'on se
+agudiza, pues la variabilidad de la escritura degrada a\'un m\'as la
+confiabilidad del reconocimiento autom\'atico \cite{ricordi2024}. Del mismo
+modo, el aprovechamiento de las correcciones del usuario para mejorar el
+sistema --- mediante ciclos de aprendizaje activo --- es un problema
+pr\'acticamente inexplorado en OMR, con resultados iniciales incluso
+contradictorios \cite{mlsp2025}.
+
+Para la evaluaci\'on del sistema se dispone de conjuntos de datos
+p\'ublicos de referencia que cubren el alcance del proyecto. PrIMuS y
+Camera-PrIMuS \cite{calvo2018} proveen 87\,678 incipits de partituras
+impresas monof\'onicas --- el segundo con distorsiones que simulan
+fotograf\'ias tomadas en condiciones reales --- con \emph{ground truth}
+simb\'olico en m\'ultiples formatos. El Sheet Music Benchmark (SMB)
+\cite{smb2026} estandariza la evaluaci\'on con 685 p\'aginas que incluyen
+monofon\'ia y \emph{pianoform}, divisiones predefinidas y una m\'etrica de
+error detallada por elemento musical (OMR-NED). Para el subconjunto
+manuscrito, MUSCIMA++ \cite{muscima2017} ofrece m\'as de 91\,000 s\'imbolos
+anotados sobre partituras escritas a mano por m\'usicos actuales. La
+disponibilidad de \emph{ground truth} anotado en estos conjuntos permite
+evaluar la plataforma de forma cuantitativa y reproducible, siguiendo los
+protocolos de la literatura de OMR. De manera complementaria, se contempla
+un piloto sobre un conjunto reducido de partituras reales (fotograf\'ias)
+para evaluar la usabilidad del flujo completo de correcci\'on, sin requerir
+\emph{ground truth} anotado.
+
+Desde el punto de vista disciplinar, un sistema de digitalizaci\'on
+asistida de partituras puede estructurarse sobre tres pilares: el
+\emph{pipeline} cl\'asico de OMR --- preprocesado, detecci\'on de
+pentagramas, detecci\'on y clasificaci\'on de s\'imbolos, ensamblaje y
+reconstrucci\'on musical \cite{omr2020} ---, la validaci\'on de la salida
+mediante reglas de teor\'ia musical \cite{cuthbert2010}, y la correcci\'on
+asistida por un humano en el ciclo \cite{amershi2014}. La validaci\'on
+autom\'atica permite detectar errores estructurales (m\'etrica, duraciones,
+armaduras) sin intervenci\'on humana, reduciendo el espacio de revisi\'on a
+los puntos sospechosos. El aprendizaje activo complementa el ciclo al
+seleccionar qu\'e correcciones del usuario tienen mayor valor para mejorar
+el reconocimiento \cite{mlsp2025}.
+
+En este contexto, el presente proyecto propone el dise\~no e
+implementaci\'on de \textbf{Cadenza}, una plataforma de digitalizaci\'on
+asistida de partituras que integra cuatro componentes: un modelo OMR base
+(oemer \cite{oemer2021}) encargado de la transcripci\'on autom\'atica a
+MusicXML; un motor de validaci\'on basado en reglas musicales que detecta y
+se\~nala errores probables; una interfaz de correcci\'on asistida que
+permite al usuario revisar y corregir la transcripci\'on sobre la imagen
+original; y un ciclo de aprendizaje activo que aprovecha las correcciones
+del usuario para priorizar la revisi\'on y mejorar progresivamente el
+sistema. La plataforma se orienta a partituras impresas y escritas a mano
+actuales, monof\'onicas o de piano simple, excluyendo orquestaciones
+completas y manuscritos hist\'oricos, cuyo tratamiento excede el alcance de
+este trabajo.
+
+El aporte principal de este proyecto consiste en transformar un modelo de
+reconocimiento de investigaci\'on en un sistema realmente usable,
+integrando validaci\'on autom\'atica y un ciclo de retroalimentaci\'on con
+el usuario. De esta manera, Cadenza contribuye a cerrar la brecha entre la
+precisi\'on del reconocimiento y su aplicabilidad en el trabajo real de
+digitalizaci\'on de partituras. El presente documento desarrolla la
+fundamentaci\'on te\'orica (Secci\'on 2), el estado del arte (Secci\'on 3),
+la metodolog\'ia y el dise\~no de la plataforma (Secciones 4 y 5), la
+experimentaci\'on (Secci\'on 6) y las conclusiones (Secci\'on 7).
+
+% ---------------------------------------------------------------------
+% REFERENCIAS — mapeadas a las fichas de docs/literatura/
+% ---------------------------------------------------------------------
+\begin{thebibliography}{12}
+
+\bibitem{omr2020}
+J. Calvo-Zaragoza, J. Haji\v{c} Jr., and A. Pacha, ``Understanding Optical
+Music Recognition,'' \emph{ACM Computing Surveys}, vol.~53, no.~4, pp.~1--35,
+2020. % ficha OMR-001
+
+\bibitem{rebelo2012}
+A. Rebelo, I. Fujinaga, F. Paszkiewicz, A. R. S. Mar\c{c}al, C. Guedes, and
+J. S. Cardoso, ``Optical music recognition: State-of-the-art and open
+issues,'' \emph{Int. J. Multimedia Information Retrieval}, vol.~1, no.~3,
+pp.~173--190, 2012. % ficha OMR-002
+
+\bibitem{calvo2018}
+J. Calvo-Zaragoza and D. Rizo, ``End-to-End Neural Optical Music
+Recognition of Monophonic Scores,'' \emph{Applied Sciences}, vol.~8, no.~4,
+art.~606, 2018. % ficha DL-001 (introduce PrIMuS)
+
+\bibitem{riosvila2026}
+A. R\'ios-Vila, J. Calvo-Zaragoza, and E. Paquet, ``End-to-End Full-Page
+Optical Music Recognition for Pianoform Sheet Music,'' \emph{Int. J.
+Computer Vision}, 2026. % VERIFICAR autores — ficha DL-009
+
+\bibitem{rizo2023}
+D. Rizo, J. Calvo-Zaragoza, J. C. Mart\'inez-Sevilla, A. Rosell\'o, and
+E. Fuentes-Mart\'inez, ``Design of a music recognition, encoding, and
+transcription online tool,'' in \emph{Proc. CMMR 2023}, Tokyo, Japan, 2023;
+Springer volume, 2026. % ficha HITL-005
+
+\bibitem{cuthbert2010}
+M. S. Cuthbert and C. Ariza, ``music21: A toolkit for computer-aided
+musicology and symbolic music data,'' in \emph{Proc. 11th Int. Society for
+Music Information Retrieval Conf. (ISMIR)}, 2010, pp.~637--642. % ficha VAL-001
+
+\bibitem{amershi2014}
+S. Amershi, M. Cakmak, W. B. Knox, and T. Kulesza, ``Power to the people:
+The role of humans in interactive machine learning,'' \emph{AI Magazine},
+vol.~35, no.~4, pp.~105--120, 2014. % ficha HITL-001
+
+\bibitem{mlsp2025}
+``Experimenting Active and Sequential Learning in a Medieval Music
+Manuscript,'' in \emph{Proc. IEEE Machine Learning for Signal Processing
+Workshop (MLSP)}, 2025. % VERIFICAR autores — ficha AL-003
+
+\bibitem{oemer2021}
+BreezeWhite, ``oemer: A Python library for end-to-end optical music
+recognition,'' GitHub repository, 2021. [Online]. Available:
+https://github.com/BreezeWhite/oemer % ficha OMR-003
+
+\bibitem{ricordi2024}
+``Optical Music Recognition in Manuscripts from the Ricordi Archive,''
+ACM, 2024. % VERIFICAR autores — ficha DS-005
+
+\bibitem{smb2026}
+J. C. Martinez-Sevilla, J. Cerveto-Serrano, N. Luna, G. Chapman, C. Sapp,
+D. Rizo, and J. Calvo-Zaragoza, ``Sheet Music Benchmark (SMB): Standardized
+Optical Music Recognition Evaluation,'' 2026, DOI 10.5281/zenodo.17706531.
+% ficha FM-005
+
+\bibitem{muscima2017}
+J. Haji\v{c} Jr. and P. Pecina, ``The MUSCIMA++ dataset for handwritten
+optical music recognition,'' in \emph{Proc. 14th Int. Conf. Document
+Analysis and Recognition (ICDAR)}, 2017, pp.~39--46. % ficha DS-009
+
+\end{thebibliography}
+
+\end{document}
