@@ -17,10 +17,10 @@ graph LR
 
     %% Nodos
     Usuario["👤 Usuario (Transcriptor)"]:::actor
-    Entrada["🖼️ Imagen de Partitura\n(Foto, Scan, Datasets)"]:::format
-    Cadenza["📦 Plataforma Cadenza\n(Caja Negra)"]:::system
-    MusicXML["📄 Exportación MusicXML\n(Editable)"]:::format
-    MIDI["🎵 Exportación MIDI\n(Reproducción)"]:::format
+    Entrada["🖼️ Imagen de Partitura<br/>(Foto, Scan, Datasets)"]:::format
+    Cadenza["📦 Plataforma Cadenza<br/>(Caja Negra)"]:::system
+    MusicXML["📄 Exportación MusicXML<br/>(Editable)"]:::format
+    MIDI["🎵 Exportación MIDI<br/>(Reproducción)"]:::format
 
     %% Relaciones
     Entrada -->|"1. Carga partitura"| Cadenza
@@ -54,28 +54,28 @@ graph TD
     SalidaXML["📄 Archivo MusicXML (Editable)"]:::external
     SalidaMIDI["🎵 Archivo MIDI (Reproducción)"]:::external
 
-    subgraph Plataforma Cadenza [Plataforma de Digitalización Asistida]
+    subgraph Plataforma_Cadenza ["Plataforma de Digitalización Asistida"]
         %% Frontend
-        subgraph Capa de Presentación (Frontend - Cliente UI)
+        subgraph presentation_layer ["Capa de Presentación (Frontend - Cliente UI)"]
             UI["💻 UI de Corrección Asistida (HITL)"]:::client
             Visor["🎼 Visor Interactivo (Renderizado SVG/Canvas)"]:::client
             Editor["🛠️ Panel de Edición de Símbolos"]:::client
         end
 
         %% Backend
-        subgraph Capa de Lógica de Negocio (Backend API Server)
+        subgraph backend_layer ["Capa de Lógica de Negocio (Backend API Server)"]
             Orquestador["⚙️ Orquestador & API Gateway"]:::server
             
-            subgraph Motor de Transcripción (OMR)
+            subgraph omr_motor ["Motor de Transcripción (OMR)"]
                 OemerWrapper["🤖 Wrapper OMR (oemer)"]:::server
             end
 
-            subgraph Motor de Validación Musical
+            subgraph validation_motor ["Motor de Validación Musical"]
                 Validador["🎼 Reglas de Teoría Musical (music21)"]:::server
                 Auditor["🔍 Auditor de Inconsistencias"]:::server
             end
 
-            subgraph Módulo de Aprendizaje Activo (Active Learning)
+            subgraph active_learning_module ["Módulo de Aprendizaje Activo (Active Learning)"]
                 ALEngine["🧠 Módulo AL (YOLO/oemer fine-tuning)"]:::server
                 Selector["🎯 Selector de Muestras de Valor"]:::server
             end
@@ -84,12 +84,8 @@ graph TD
         end
 
         %% Persistencia
-        subgraph Capa de Datos (Almacenamiento Local)
-            DB[("💾 Base de Datos Local (SQLite/Archivos)
-            - Imágenes de Partituras
-            - MusicXML Intermedios
-            - Historial de Correcciones
-            - Modelos de OMR")]:::data
+        subgraph data_layer ["Capa de Datos (Almacenamiento Local)"]
+            DB[("💾 Base de Datos Local (SQLite/Archivos)<br/>- Imágenes de Partituras<br/>- MusicXML Intermedios<br/>- Historial de Correcciones<br/>- Modelos de OMR")]:::data
         end
     end
 
