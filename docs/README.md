@@ -15,6 +15,7 @@ inteligente y retroalimentación del usuario.
 | Ruta | Descripción |
 |---|---|
 | `introduccion-borrador.md` | Borrador de la introducción de la tesis (plantilla de 6 bloques) |
+| `revision-literatura-prisma.md` | Revisión sistemática de la literatura bajo el modelo PRISMA |
 | `arquitectura-dbb.md` | Diseño de la arquitectura general extremo a extremo (E2E) con diagramas DBB |
 | `literatura/` | Colección de artículos, abstracts y referencias organizados por tema (revisión de literatura / estado del arte) |
 
