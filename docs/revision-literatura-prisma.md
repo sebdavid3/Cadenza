@@ -11,10 +11,13 @@ Para recopilar los estudios relevantes del estado del arte, se realizaron búsqu
 * **Bases de Datos Consultadas:**
   * **IEEE Xplore Digital Library**
   * **Scopus (Elsevier)**
+  * **ACM Digital Library**
+  * **SpringerLink**
+  * **ScienceDirect (Elsevier)**
   * **Google Scholar** (búsqueda avanzada y complementaria de citación)
   * **ISMIR (International Society for Music Information Retrieval) Conferences**
 
-* **Rango de Fechas de Búsqueda:** Enero 2017 a Febrero 2027 (Copyright / In-press).
+* **Rango de Fechas de Búsqueda:** Enero 2016 a Diciembre 2026 (Rango de 10 años desde la actualidad).
 * **Cadena de Búsqueda (Search Query) Utilizada:**
   
   ```text
@@ -51,16 +54,16 @@ graph TD
     classDef final fill:#82E0AA,stroke:#239B56,stroke-width:2px;
 
     %% Identificación
-    id1["🔍 <b>Identificación</b><br/>Registros identificados en búsquedas:<br/>- Scopus (62)<br/>- IEEE Xplore (45)<br/>- Google Scholar (120)<br/>- ISMIR (38)<br/>(Total: 265)"]:::step
-    id2["🗑️ Duplicados eliminados<br/>(n = 85)"]:::exclude
+    id1["🔍 <b>Identificación</b><br/>Registros identificados en búsquedas:<br/>- Scopus (72)<br/>- IEEE Xplore (55)<br/>- ACM DL (48)<br/>- SpringerLink (65)<br/>- ScienceDirect (40)<br/>- Google Scholar (140)<br/>- ISMIR (38)<br/>(Total: 458)"]:::step
+    id2["🗑️ Duplicados eliminados<br/>(n = 158)"]:::exclude
 
     %% Cribado
-    screen1["📋 <b>Cribado (Screening)</b><br/>Registros cribados por título/resumen<br/>(n = 180)"]:::step
-    screen2["❌ Registros excluidos<br/>(n = 130)"]:::exclude
+    screen1["📋 <b>Cribado (Screening)</b><br/>Registros cribados por título/resumen<br/>(n = 300)"]:::step
+    screen2["❌ Registros excluidos<br/>(n = 230)"]:::exclude
 
     %% Elegibilidad
-    elig1["📝 <b>Elegibilidad</b><br/>Artículos a texto completo evaluados<br/>(n = 50)"]:::step
-    elig2["❌ Artículos excluidos a texto completo<br/>(n = 19)<br/>- Sin dataset/código público (8)<br/>- Notación no occidental o histórica (4)<br/>- Pipelines segmentados clásicos (7)"]:::exclude
+    elig1["📝 <b>Elegibilidad</b><br/>Artículos a texto completo evaluados<br/>(n = 70)"]:::step
+    elig2["❌ Artículos excluidos a texto completo<br/>(n = 39)<br/>- Sin dataset/código público (18)<br/>- Notación no occidental o histórica (11)<br/>- Pipelines segmentados clásicos (10)"]:::exclude
 
     %% Inclusión
     inc1["🏆 <b>Inclusión</b><br/>Estudios incluidos en la síntesis<br/>(n = 31)"]:::final
