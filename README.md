@@ -41,3 +41,5 @@ latex/               → plantilla LaTeX IEEE de conferencia (original, sin modi
 - [Guía de documentación](docs/README.md)
 - [Colección de literatura](docs/literatura/README.md)
 - [Template LaTeX](latex/IEEE-conference-template-062824.tex)
+
+*Nota: Commit de prueba para verificar configuración de Git.*
