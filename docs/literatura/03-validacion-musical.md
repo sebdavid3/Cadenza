@@ -4,7 +4,7 @@ Reglas musicales automáticas, detección y corrección de errores en la salida 
 (notas fuera de compás, duraciones inválidas, armaduras inconsistentes, voces que no cierran, etc.).
 Alimenta el **Motor de Validación** de Cadenza, el componente central del aporte del proyecto.
 
-> ⚠️ Este es el tema con **menos literatura consolidada específica de OMR** — y justamente ahí está el
+> Este es el tema con **menos literatura consolidada específica de OMR** — y justamente ahí está el
 > aporte de Cadenza. Las fichas de herramientas/formatos son seguras; los papers marcados como
 > "verificar" son candidatos a confirmar.
 

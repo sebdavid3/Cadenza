@@ -37,6 +37,25 @@ Otros directorios relevantes del repo:
 | [06](literatura/06-datasets-corpus.md) | Datasets y corpus | Corpus objetivo + evaluación |
 | [07](literatura/07-formatos-evaluacion.md) | Formatos (MusicXML/MIDI) y métricas | Salida del sistema + evaluación |
 
+## Corpus y datasets del proyecto
+
+Datasets identificados en la revisión de literatura (fichas `DS-*` y `FM-005` de [06-datasets-corpus.md](literatura/06-datasets-corpus.md) y [07-formatos-evaluacion.md](literatura/07-formatos-evaluacion.md)) y su rol en Cadenza:
+
+| ID | Dataset | Tipo | Rol en Cadenza |
+|---|---|---|---|
+| DS-008 | **PrIMuS / Camera-PrIMuS** | Impresas monofónicas — 87.678 incipits reales (RISM), con y sin distorsión de foto | **Se trabaja — terna oficial de evaluación** |
+| FM-005 | **Sheet Music Benchmark (SMB)** | Impresas — monofonía + pianoform, con splits estándar | **Se trabaja — terna oficial de evaluación** |
+| DS-009 | **MUSCIMA++ / CVC-MUSCIMA** | Manuscritas modernas — 140 páginas anotadas a nivel de símbolo (MuNG) | **Se trabaja — terna oficial de evaluación** |
+| DS-001 | DeepScores | Partituras sintetizadas con MuseScore (~250.000 páginas) | Complementario — detección de objetos y pruebas |
+| DS-002 | CAPTAIN | Sintéticas (procedimiento Camera-Printer) | Complementario — corpus inicial (verificar) |
+| DS-003 | HOMUS | Símbolos manuscritos online (~15.200 muestras) | Complementario — clasificador de símbolos manuscritos |
+| DS-004 | PRinS | Impresas reales (libros de piano) | Candidato — verificar disponibilidad pública |
+| DS-005 | Ricordi Archive | Manuscritos del archivo Ricordi (Verdi, Donizetti, Puccini) | Referencial — caso de estudio metodológico (históricos, fuera del alcance del corpus) |
+| DS-006 | MuNG Studio | Herramienta web de anotación MuNG | Herramienta — anotar/editar datos MUSCIMA++ |
+| DS-007 | Smashcima | Sintetizador de páginas manuscritas desde MusicXML | Herramienta — aumentación de datos para reentrenamiento |
+
+**Decisión del equipo (2026):** el corpus de evaluación sobre el que **se trabajará** es la terna oficial **PrIMuS/Camera-PrIMuS, SMB y MUSCIMA++** — datasets públicos con ground truth que cubren el alcance del proyecto (impresas monofónicas/pianoform y manuscritas modernas). Se complementa con un piloto real de 10–20 partituras (fotos/escaneos, sin ground truth) para la evaluación de usabilidad. El resto de datasets cumplen roles de apoyo (detección, clasificación de símbolos, aumentación) o sirven de referencia metodológica.
+
 ## Próximos pasos sugeridos
 
 1. Leer el survey principal de OMR ([01-omr-estado-del-arte.md](literatura/01-omr-estado-del-arte.md), entrada OMR-001) para tener el panorama general.

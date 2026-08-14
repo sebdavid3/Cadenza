@@ -4,7 +4,7 @@
 el humano para mejorar el modelo con el menor esfuerzo posible. Alimenta el componente de
 **Aprendizaje Activo** de Cadenza — el ciclo de mejora continua con feedback del usuario.
 
-> 💡 **Estado del hueco (actualizado 2026):** el aprendizaje activo aplicado específicamente a OMR
+> **Estado del hueco (actualizado 2026):** el aprendizaje activo aplicado específicamente a OMR
 > sigue siendo muy escaso, pero ya existe un primer estudio directo ([AL-003](#al-003-experimenting-active-and-sequential-learning-in-a-medieval-music-manuscript), 2025)
 > con resultados **mixtos e importantes**: la selección por incertidumbre NO fue efectiva en su
 > manuscrito medieval, y los autores recomiendan métodos más utilizables en escenarios de datos

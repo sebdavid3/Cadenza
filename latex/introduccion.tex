@@ -6,7 +6,7 @@
 %    pdflatex introduccion
 %
 %  Notas:
-%  - Las citas [1]–[12] están en \begin{thebibliography} al final;
+%  - Las citas [1]–[13] están en \begin{thebibliography} al final;
 %    migrar a referencias.bib cuando se estructure el documento completo.
 %  - Las entradas marcadas con % VERIFICAR requieren confirmar datos
 %    (ver docs/literatura/ en el repo).
@@ -71,7 +71,8 @@ conversi\'on autom\'atica de im\'agenes de partituras en representaciones
 simb\'olicas editables, y ha sido objeto de investigaci\'on durante m\'as de
 cinco d\'ecadas \cite{omr2020}, evolucionando desde sistemas basados en
 reglas hasta \emph{pipelines} de aprendizaje profundo que transcriben
-partituras completas de forma autom\'atica \cite{rebelo2012}\cite{calvo2018}.
+partituras completas de forma autom\'atica
+\cite{rebelo2012}\cite{calvo2018}\cite{riosvila2026}.
 
 A pesar de estos avances, los sistemas OMR modernos cometen errores que
 impiden su uso directo en entornos reales: notas con alturas o duraciones
@@ -90,6 +91,18 @@ modo, el aprovechamiento de las correcciones del usuario para mejorar el
 sistema --- mediante ciclos de aprendizaje activo --- es un problema
 pr\'acticamente inexplorado en OMR, con resultados iniciales incluso
 contradictorios \cite{mlsp2025}.
+
+% COMPLETAR: párrafo de contexto local — personalizar con datos reales de la
+% institución/colección objetivo (ver docs/introduccion-borrador.md, bloque 3).
+En el contexto global, instituciones conservan colecciones de partituras
+impresas y escritas a mano que requieren digitalizaci\'on para su
+preservaci\'on, consulta y difusi\'on. La transcripci\'on manual de estas
+colecciones representa un costo de tiempo considerable, y las herramientas
+de reconocimiento existentes no ofrecen un flujo de trabajo que garantice
+la calidad del resultado. La digitalizaci\'on de colecciones musicales en
+archivos ha sido abordada recientemente con metodolog\'ias de anotaci\'on y
+clasificaci\'on autom\'atica \cite{ricordi2024}, lo que evidencia tanto la
+viabilidad como la necesidad de sistemas adaptados a este tipo de corpus.
 
 Para la evaluaci\'on del sistema se dispone de conjuntos de datos
 p\'ublicos de referencia que cubren el alcance del proyecto. PrIMuS y
@@ -120,7 +133,7 @@ autom\'atica permite detectar errores estructurales (m\'etrica, duraciones,
 armaduras) sin intervenci\'on humana, reduciendo el espacio de revisi\'on a
 los puntos sospechosos. El aprendizaje activo complementa el ciclo al
 seleccionar qu\'e correcciones del usuario tienen mayor valor para mejorar
-el reconocimiento \cite{mlsp2025}.
+el reconocimiento \cite{settles2009}.
 
 En este contexto, el presente proyecto propone el dise\~no e
 implementaci\'on de \textbf{Cadenza}, una plataforma de digitalizaci\'on
@@ -129,7 +142,8 @@ asistida de partituras que integra cuatro componentes: un modelo OMR base
 MusicXML; un motor de validaci\'on basado en reglas musicales que detecta y
 se\~nala errores probables; una interfaz de correcci\'on asistida que
 permite al usuario revisar y corregir la transcripci\'on sobre la imagen
-original; y un ciclo de aprendizaje activo que aprovecha las correcciones
+original, con reproducci\'on autom\'atica de la partitura digitalizada; y un ciclo
+de aprendizaje activo que aprovecha las correcciones
 del usuario para priorizar la revisi\'on y mejorar progresivamente el
 sistema. La plataforma se orienta a partituras impresas y escritas a mano
 actuales, monof\'onicas o de piano simple, excluyendo orquestaciones
@@ -149,7 +163,7 @@ experimentaci\'on (Secci\'on 6) y las conclusiones (Secci\'on 7).
 % ---------------------------------------------------------------------
 % REFERENCIAS — mapeadas a las fichas de docs/literatura/
 % ---------------------------------------------------------------------
-\begin{thebibliography}{12}
+\begin{thebibliography}{13}
 
 \bibitem{omr2020}
 J. Calvo-Zaragoza, J. Haji\v{c} Jr., and A. Pacha, ``Understanding Optical
@@ -170,13 +184,13 @@ art.~606, 2018. % ficha DL-001 (introduce PrIMuS)
 \bibitem{riosvila2026}
 A. R\'ios-Vila, J. Calvo-Zaragoza, and E. Paquet, ``End-to-End Full-Page
 Optical Music Recognition for Pianoform Sheet Music,'' \emph{Int. J.
-Computer Vision}, 2026. % VERIFICAR autores — ficha DL-009
+Computer Vision}, 2026, DOI 10.1007/s11263-025-02654-6. % VERIFICAR autores — ficha DL-009
 
 \bibitem{rizo2023}
 D. Rizo, J. Calvo-Zaragoza, J. C. Mart\'inez-Sevilla, A. Rosell\'o, and
 E. Fuentes-Mart\'inez, ``Design of a music recognition, encoding, and
 transcription online tool,'' in \emph{Proc. CMMR 2023}, Tokyo, Japan, 2023;
-Springer volume, 2026. % ficha HITL-005
+Springer volume, 2026, DOI 10.1007/978-3-032-02042-0_24. % ficha HITL-005
 
 \bibitem{cuthbert2010}
 M. S. Cuthbert and C. Ariza, ``music21: A toolkit for computer-aided
@@ -191,7 +205,7 @@ vol.~35, no.~4, pp.~105--120, 2014. % ficha HITL-001
 \bibitem{mlsp2025}
 ``Experimenting Active and Sequential Learning in a Medieval Music
 Manuscript,'' in \emph{Proc. IEEE Machine Learning for Signal Processing
-Workshop (MLSP)}, 2025. % VERIFICAR autores — ficha AL-003
+Workshop (MLSP)}, 2025, DOI 10.1109/MLSP62443.2025.11204321. % VERIFICAR autores — ficha AL-003
 
 \bibitem{oemer2021}
 BreezeWhite, ``oemer: A Python library for end-to-end optical music
@@ -200,7 +214,7 @@ https://github.com/BreezeWhite/oemer % ficha OMR-003
 
 \bibitem{ricordi2024}
 ``Optical Music Recognition in Manuscripts from the Ricordi Archive,''
-ACM, 2024. % VERIFICAR autores — ficha DS-005
+ACM, 2024, DOI 10.1145/3678299.3678324. % VERIFICAR autores — ficha DS-005
 
 \bibitem{smb2026}
 J. C. Martinez-Sevilla, J. Cerveto-Serrano, N. Luna, G. Chapman, C. Sapp,
@@ -212,6 +226,10 @@ Optical Music Recognition Evaluation,'' 2026, DOI 10.5281/zenodo.17706531.
 J. Haji\v{c} Jr. and P. Pecina, ``The MUSCIMA++ dataset for handwritten
 optical music recognition,'' in \emph{Proc. 14th Int. Conf. Document
 Analysis and Recognition (ICDAR)}, 2017, pp.~39--46. % ficha DS-009
+
+\bibitem{settles2009}
+B. Settles, ``Active Learning Literature Survey,'' Computer Sciences
+Technical Report 1648, University of Wisconsin--Madison, 2009. % ficha AL-001
 
 \end{thebibliography}
 

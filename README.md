@@ -12,7 +12,7 @@ inteligente** y **retroalimentación del usuario**.
 
 | Componente | Descripción |
 |---|---|
-| Modelo OMR base | [oemer](https://github.com/BreezeWhite/oemer) como punto de partida |
+| Motor OMR base — Wrapper DWR | Envoltorio del motor OMR (punto de partida: [oemer](https://github.com/BreezeWhite/oemer)) |
 | Motor de validación | Reglas musicales automáticas (detección de errores) |
 | Interfaz de corrección | Asistencia humana en el flujo (HITL) |
 | Aprendizaje activo | Mejora continua con feedback del usuario |

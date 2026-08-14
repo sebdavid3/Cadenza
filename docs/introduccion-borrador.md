@@ -7,8 +7,11 @@
 > **Marcas `[COMPLETAR: ...]`:** datos que deben confirmarse con la institución del corpus o el
 > director antes de usar el texto.
 >
-> **Citas:** numeradas [1]–[10]; la lista de referencias está al final y mapea a las fichas de
+> **Citas:** numeradas [1]–[13]; la lista de referencias está al final y mapea a las fichas de
 > `docs/literatura/`. Los números se trasladan a BibTeX cuando se estructure el documento LaTeX.
+>
+> **Versión LaTeX:** la conversión actualizada está en `latex/introduccion.tex` (13 referencias,
+> DOIs completados). Este borrador se mantiene como fuente con las marcas `[COMPLETAR: ...]`.
 
 ---
 
@@ -84,14 +87,19 @@ partituras.
 | [8] | AL-003 | "Experimenting Active and Sequential Learning in a Medieval Music Manuscript", IEEE MLSP 2025. *(autores por verificar)* |
 | [9] | OMR-003 | BreezeWhite, "oemer: A Python Library for End-to-End Optical Music Recognition", GitHub. |
 | [10] | DS-005 | "Optical Music Recognition in Manuscripts from the Ricordi Archive", ACM, 2024. *(autores por verificar)* |
+| [11] | FM-005 | J. C. Martínez-Sevilla et al., "Sheet Music Benchmark (SMB): Standardized Optical Music Recognition Evaluation", 2026, DOI 10.5281/zenodo.17706531. |
+| [12] | DS-009 | J. Hajič Jr., P. Pecina, "The MUSCIMA++ Dataset for Handwritten Optical Music Recognition", ICDAR 2017. |
+| [13] | AL-001 | B. Settles, "Active Learning Literature Survey", Computer Sciences Technical Report 1648, Univ. of Wisconsin–Madison, 2009. |
 
 ## Notas para revisión
 
-1. **[8] se usa en dos lugares** (hueco del aprendizaje activo y fundamentación) — verificar si el
-   paper de MLSP 2025 es la mejor cita para ambos; alternativas: Settles 2009 (AL-001).
+1. **Resuelto en la versión LaTeX:** [8] (AL-003) se usaba en dos lugares; quedó solo en el hueco
+   del aprendizaje activo y la fundamentación cita ahora [13] Settles (AL-001), la referencia
+   canónica de active learning.
 2. **El párrafo de contexto local es el que hay que personalizar** con datos reales de la
    institución del corpus — es el análogo de las cifras de Barranquilla en el ejemplo de
    siniestros viales.
 3. **Revisar coherencia con el título elegido** (ver análisis de títulos) y con la estructura de
    secciones del documento final.
-4. Las referencias [4], [8] y [10] siguen marcadas "verificar" en las fichas de literatura.
+4. Los DOIs de [4], [8] y [10] se completaron en la versión LaTeX; siguen marcadas "verificar"
+   únicamente por los **autores**.

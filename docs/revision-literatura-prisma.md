@@ -2,6 +2,8 @@
 
 Este documento detalla la metodología de revisión sistemática de la literatura utilizada para el proyecto **Cadenza**, siguiendo la estructura del modelo **PRISMA** (Preferred Reporting Items for Systematic Reviews and Meta-Analyses).
 
+> **Diagramas:** escritos en [D2](https://d2lang.com/). Para renderizarlos, copiar el bloque `d2` a un archivo `.d2` y ejecutar `d2 archivo.d2` (o usar el [playground](https://play.d2lang.com)).
+
 ---
 
 ## 1. Estrategia de Búsqueda y Fuentes de Información
@@ -47,34 +49,52 @@ Para tamizar los resultados y seleccionar únicamente aquellos artículos que ap
 
 A continuación se detalla cuantitativamente el embudo de selección de los artículos del proyecto, representados en las 4 etapas del modelo PRISMA:
 
-```mermaid
-graph TD
-    classDef step fill:#85C1E9,stroke:#2E86C1,stroke-width:2px;
-    classDef exclude fill:#F1948A,stroke:#C0392B,stroke-width:2px;
-    classDef final fill:#82E0AA,stroke:#239B56,stroke-width:2px;
+```d2
+direction: down
 
-    %% Identificación
-    id1["🔍 <b>Identificación</b><br/>Registros identificados en búsquedas:<br/>- Scopus (72)<br/>- IEEE Xplore (55)<br/>- ACM DL (48)<br/>- SpringerLink (65)<br/>- ScienceDirect (40)<br/>- Google Scholar (140)<br/>- ISMIR (38)<br/>(Total: 458)"]:::step
-    id2["🗑️ Duplicados eliminados<br/>(n = 158)"]:::exclude
+classes: {
+  step: {
+    style.fill: "#85C1E9"
+    style.stroke: "#2E86C1"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  exclude: {
+    style.fill: "#F1948A"
+    style.stroke: "#C0392B"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  final: {
+    style.fill: "#82E0AA"
+    style.stroke: "#239B56"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+}
 
-    %% Cribado
-    screen1["📋 <b>Cribado (Screening)</b><br/>Registros cribados por título/resumen<br/>(n = 300)"]:::step
-    screen2["❌ Registros excluidos<br/>(n = 230)"]:::exclude
+Identificacion: "Identificación\nRegistros identificados en búsquedas:\n- Scopus (72)\n- IEEE Xplore (55)\n- ACM DL (48)\n- SpringerLink (65)\n- ScienceDirect (40)\n- Google Scholar (140)\n- ISMIR (38)\n(Total: 458)"
+Duplicados: "Duplicados eliminados\n(n = 158)"
+Cribado: "Cribado (Screening)\nRegistros cribados por título/resumen\n(n = 300)"
+ExcluidosCribado: "Registros excluidos\n(n = 230)"
+Elegibilidad: "Elegibilidad\nArtículos a texto completo evaluados\n(n = 70)"
+ExcluidosTexto: "Artículos excluidos a texto completo\n(n = 39)\n- Sin dataset/código público (18)\n- Notación no occidental o histórica (11)\n- Pipelines segmentados clásicos (10)"
+Inclusion: "Inclusión\nEstudios incluidos en la síntesis\n(n = 31)"
 
-    %% Elegibilidad
-    elig1["📝 <b>Elegibilidad</b><br/>Artículos a texto completo evaluados<br/>(n = 70)"]:::step
-    elig2["❌ Artículos excluidos a texto completo<br/>(n = 39)<br/>- Sin dataset/código público (18)<br/>- Notación no occidental o histórica (11)<br/>- Pipelines segmentados clásicos (10)"]:::exclude
+Identificacion.class: step
+Duplicados.class: exclude
+Cribado.class: step
+ExcluidosCribado.class: exclude
+Elegibilidad.class: step
+ExcluidosTexto.class: exclude
+Inclusion.class: final
 
-    %% Inclusión
-    inc1["🏆 <b>Inclusión</b><br/>Estudios incluidos en la síntesis<br/>(n = 31)"]:::final
-
-    %% Relaciones del diagrama
-    id1 --> id2
-    id1 --> screen1
-    screen1 --> screen2
-    screen1 --> elig1
-    elig1 --> elig2
-    elig1 --> inc1
+Identificacion -> Duplicados
+Identificacion -> Cribado
+Cribado -> ExcluidosCribado
+Cribado -> Elegibilidad
+Elegibilidad -> ExcluidosTexto
+Elegibilidad -> Inclusion
 ```
 
 ---
@@ -90,3 +110,9 @@ Los **31 estudios finales** incluidos en la revisión sistemática mapean exacta
 | **Interfaz de Corrección** | HITL-001 a HITL-005 | Diseño de la UI web interactiva sobre la partitura original para control de esfuerzo cognitivo (HITL). |
 | **Aprendizaje Activo** | AL-001 a AL-004 | Estrategias de selección de muestras complejas/diversas y pseudo-etiquetado. |
 | **Corpus y Métricas** | DS-001 a DS-009<br/>FM-001 a FM-005 | Configuración de la terna de evaluación (PrIMuS, SMB y MUSCIMA++) y uso de métricas SER y OMR-NED. |
+
+> **Nota de conteo:** las 43 fichas de `docs/literatura/` incluyen además entradas que no son
+> estudios de investigación evaluados a texto completo (especificaciones de formatos FM-001 a
+> FM-003, herramientas como MuNG Studio DS-006 o Smashcima DS-007, y software de referencia como
+> Audiveris OMR-004). El embudo PRISMA (n = 31) corresponde a los **artículos científicos**
+> incluidos en la síntesis; las fichas restantes cumplen roles de apoyo o referencia.
