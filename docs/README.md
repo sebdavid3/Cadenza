@@ -15,6 +15,7 @@ inteligente y retroalimentación del usuario.
 | Ruta | Descripción |
 |---|---|
 | `introduccion-borrador.md` | Borrador de la introducción de la tesis (plantilla de 6 bloques) |
+| `notas-investigacion.md` | Análisis de la literatura y síntesis de la idea principal del proyecto |
 | `literatura/` | Colección de artículos, abstracts y referencias organizados por tema (revisión de literatura / estado del arte) |
 
 Otros directorios relevantes del repo:
