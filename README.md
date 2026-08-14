@@ -30,6 +30,7 @@ un sistema realmente usable, con validación automática y ciclo de retroaliment
 
 ```
 docs/                → documentación del proyecto (etapa actual)
+  arquitectura-dbb.md → arquitectura general E2E y diagramas DBB
   literatura/        → artículos, abstracts y referencias por tema
 latex/               → plantilla LaTeX IEEE de conferencia (original, sin modificar)
   IEEE-conference-template-062824.tex → template de conferencia
@@ -39,6 +40,7 @@ latex/               → plantilla LaTeX IEEE de conferencia (original, sin modi
 ```
 
 - [Guía de documentación](docs/README.md)
+- [Arquitectura general (DBB)](docs/arquitectura-dbb.md)
 - [Colección de literatura](docs/literatura/README.md)
 - [Template LaTeX](latex/IEEE-conference-template-062824.tex)
 

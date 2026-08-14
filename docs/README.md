@@ -16,6 +16,7 @@ inteligente y retroalimentación del usuario.
 |---|---|
 | `introduccion-borrador.md` | Borrador de la introducción de la tesis (plantilla de 6 bloques) |
 | `notas-investigacion.md` | Análisis de la literatura y síntesis de la idea principal del proyecto |
+| `arquitectura-dbb.md` | Diseño de la arquitectura general extremo a extremo (E2E) con diagramas DBB |
 | `literatura/` | Colección de artículos, abstracts y referencias organizados por tema (revisión de literatura / estado del arte) |
 
 Otros directorios relevantes del repo:
