@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8010:8000"
+    volumes:
+      - /tmp/homr-proto:/tmp/homr-proto
+      - homr_torch_cache_cpu:/root/.cache/torch
+      - homr_models_cache_cpu:/root/.cache/homr
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5180:5173"
+    environment:
+      - VITE_PROXY_TARGET=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  homr_torch_cache_cpu:
+  homr_models_cache_cpu:

@@ -1,0 +1,38 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.gpu
+    ports:
+      - "8010:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - /tmp/homr-proto:/tmp/homr-proto
+      - homr_torch_cache:/root/.cache/torch
+      - homr_models_cache:/root/.cache/homr
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5180:5173"
+    environment:
+      - VITE_PROXY_TARGET=http://backend:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  homr_torch_cache:
+  homr_models_cache:

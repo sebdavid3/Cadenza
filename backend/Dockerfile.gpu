@@ -1,0 +1,49 @@
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+
+# Evitar prompts interactivos durante la instalación de paquetes
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Instalar dependencias del sistema, Python 3.11 y bibliotecas de visión/audio
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    curl \
+    git \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configurar python3.11 como python por defecto
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+WORKDIR /app
+
+# Actualizar pip
+RUN python -m pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Copiar requirements-gpu.txt e instalar dependencias con soporte CUDA 12.1
+COPY requirements-gpu.txt .
+RUN pip install --no-cache-dir -r requirements-gpu.txt
+
+# Directorios para cache de modelos de PyTorch y HOMR
+ENV TORCH_HOME=/root/.cache/torch
+ENV HOMR_CACHE_DIR=/root/.cache/homr
+RUN mkdir -p /tmp/homr-proto /root/.cache/torch /root/.cache/homr
+
+# Copiar código fuente del backend
+COPY main.py check_gpu.py ./
+
+# Exponer puerto del backend
+EXPOSE 8000
+
+# Ejecución del servidor FastAPI con Uvicorn
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
