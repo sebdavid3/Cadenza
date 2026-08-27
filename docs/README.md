@@ -1,65 +1,54 @@
-# Documentación — Cadenza
+# Documentación Técnica — Cadenza
 
 Documentación del proyecto de grado **Cadenza: Plataforma de Digitalización Asistida de Partituras**.
 
-> **Estado actual:** etapa de documentación y análisis de la idea (sin código).
+---
 
-## Objetivo del proyecto
+## Objetivo del Proyecto
 
-Convertir partituras físicas — fotos, escaneos y manuscritos — a formato editable
-(MusicXML / MIDI) mediante OMR (reconocimiento óptico de música) con validación
-inteligente y retroalimentación del usuario.
+Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos editables y reproducibles (**MusicXML 4.0** y **MIDI 1.0**) mediante OMR (*Optical Music Recognition*) con validación sintáctica de teoría musical y un ciclo de aprendizaje activo con retroalimentación humana (*Human-in-the-Loop*).
 
-## Contenido de la carpeta
+---
 
-| Ruta | Descripción |
-|---|---|
-| `introduccion-borrador.md` | Borrador de la introducción de la tesis (plantilla de 6 bloques) |
-| `revision-literatura-prisma.md` | Revisión sistemática de la literatura bajo el modelo PRISMA |
-| `arquitectura-dbb.md` | Diseño de la arquitectura general extremo a extremo (E2E) con diagramas DBB |
-| `literatura/` | Colección de artículos, abstracts y referencias organizados por tema (revisión de literatura / estado del arte) |
-
-Otros directorios relevantes del repo:
+## Contenido de la Carpeta
 
 | Ruta | Descripción |
 |---|---|
-| `../latex/` | Plantilla LaTeX IEEE de conferencia (original, sin modificar) — base para el documento de tesis |
+| [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
+| [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). |
+| [`literatura/`](literatura/) | Colección de 43 fichas bibliográficas organizadas por área temática y componentes del sistema. |
 
-## Temas de literatura
+---
 
-| # | Tema | Componente del proyecto que alimenta |
-|---|---|---|
-| [01](literatura/01-omr-estado-del-arte.md) | OMR: estado del arte | Modelo OMR base (oemer) |
-| [02](literatura/02-modelos-deep-learning.md) | Modelos de aprendizaje profundo para OMR | Modelo OMR base |
-| [03](literatura/03-validacion-musical.md) | Validación musical y corrección de errores | Motor de validación |
-| [04](literatura/04-human-in-the-loop.md) | Interfaz de corrección humana (HITL) | Interfaz de corrección |
-| [05](literatura/05-aprendizaje-activo.md) | Aprendizaje activo | Ciclo de mejora continua |
-| [06](literatura/06-datasets-corpus.md) | Datasets y corpus | Corpus objetivo + evaluación |
-| [07](literatura/07-formatos-evaluacion.md) | Formatos (MusicXML/MIDI) y métricas | Salida del sistema + evaluación |
+## Áreas Temáticas de la Literatura
 
-## Corpus y datasets del proyecto
-
-Datasets identificados en la revisión de literatura (fichas `DS-*` y `FM-005` de [06-datasets-corpus.md](literatura/06-datasets-corpus.md) y [07-formatos-evaluacion.md](literatura/07-formatos-evaluacion.md)) y su rol en Cadenza:
-
-| ID | Dataset | Tipo | Rol en Cadenza |
+| # | Archivo | Foco Principal | Componente de Cadenza |
 |---|---|---|---|
-| DS-008 | **PrIMuS / Camera-PrIMuS** | Impresas monofónicas — 87.678 incipits reales (RISM), con y sin distorsión de foto | **Se trabaja — terna oficial de evaluación** |
-| FM-005 | **Sheet Music Benchmark (SMB)** | Impresas — monofonía + pianoform, con splits estándar | **Se trabaja — terna oficial de evaluación** |
-| DS-009 | **MUSCIMA++ / CVC-MUSCIMA** | Manuscritas modernas — 140 páginas anotadas a nivel de símbolo (MuNG) | **Se trabaja — terna oficial de evaluación** |
-| DS-001 | DeepScores | Partituras sintetizadas con MuseScore (~250.000 páginas) | Complementario — detección de objetos y pruebas |
-| DS-002 | CAPTAIN | Sintéticas (procedimiento Camera-Printer) | Complementario — corpus inicial (verificar) |
-| DS-003 | HOMUS | Símbolos manuscritos online (~15.200 muestras) | Complementario — clasificador de símbolos manuscritos |
-| DS-004 | PRinS | Impresas reales (libros de piano) | Candidato — verificar disponibilidad pública |
-| DS-005 | Ricordi Archive | Manuscritos del archivo Ricordi (Verdi, Donizetti, Puccini) | Referencial — caso de estudio metodológico (históricos, fuera del alcance del corpus) |
-| DS-006 | MuNG Studio | Herramienta web de anotación MuNG | Herramienta — anotar/editar datos MUSCIMA++ |
-| DS-007 | Smashcima | Sintetizador de páginas manuscritas desde MusicXML | Herramienta — aumentación de datos para reentrenamiento |
+| 01 | [`01-omr-estado-del-arte.md`](literatura/01-omr-estado-del-arte.md) | Evolución histórica y taxonomía del OMR | Pipeline base de transcripción |
+| 02 | [`02-modelos-deep-learning.md`](literatura/02-modelos-deep-learning.md) | Redes CNN, CRNN, Transformers y Mamba-2 | Motor de reconocimiento OMR |
+| 03 | [`03-validacion-musical.md`](literatura/03-validacion-musical.md) | Validación sintáctica y corrección de errores | Motor de reglas (`music21`) |
+| 04 | [`04-human-in-the-loop.md`](literatura/04-human-in-the-loop.md) | Interfaces interactivas y control de esfuerzo cognitivo | UI de corrección asistida |
+| 05 | [`05-aprendizaje-activo.md`](literatura/05-aprendizaje-activo.md) | Muestreo por incertidumbre y ajuste fino continuo | Módulo de *Active Learning* (TFLite) |
+| 06 | [`06-datasets-corpus.md`](literatura/06-datasets-corpus.md) | Corpus públicos y delimitación de alcance | Terna de evaluación |
+| 07 | [`07-formatos-evaluacion.md`](literatura/07-formatos-evaluacion.md) | Formatos simbólicos y métricas (SER, OMR-NED) | Protocolo de experimentación |
 
-**Decisión del equipo (2026):** el corpus de evaluación sobre el que **se trabajará** es la terna oficial **PrIMuS/Camera-PrIMuS, SMB y MUSCIMA++** — datasets públicos con ground truth que cubren el alcance del proyecto (impresas monofónicas/pianoform y manuscritas modernas). Se complementa con un piloto real de 10–20 partituras (fotos/escaneos, sin ground truth) para la evaluación de usabilidad. El resto de datasets cumplen roles de apoyo (detección, clasificación de símbolos, aumentación) o sirven de referencia metodológica.
+---
 
-## Próximos pasos sugeridos
+## Corpus y Datasets Oficiales de Evaluación
 
-1. Leer el survey principal de OMR ([01-omr-estado-del-arte.md](literatura/01-omr-estado-del-arte.md), entrada OMR-001) para tener el panorama general.
-2. Estudiar oemer (OMR-003) y sus limitaciones conocidas → insumos para el capítulo de Estado del Arte.
-3. Revisar `03-validacion-musical.md` y `05-aprendizaje-activo.md`: son los temas con menos literatura consolidada y donde está el aporte del proyecto.
-4. Descargar y preparar el corpus de evaluación (datasets públicos: PrIMuS/Camera-PrIMuS, SMB, MUSCIMA++) con los criterios de `06-datasets-corpus.md`.
-5. Estructurar el documento de tesis sobre la plantilla `../latex/IEEE-conference-template-062824.tex` (secciones y bibliografía en BibTeX cuando se defina).
+El protocolo experimental de Cadenza se estructura sobre la **terna oficial de datasets públicos con ground truth**:
+
+| Dataset | Tipo de Partitura | Volumen / Contenido | Rol en la Evaluación |
+|---|---|---|---|
+| **PrIMuS / Camera-PrIMuS** | Impresas monofónicas | 87.678 incipits reales con y sin distorsiones fotográficas | Evaluación cuantitativa de transcripción base y robustez visual |
+| **Sheet Music Benchmark (SMB)** | Impresas (monofonía y pianoform) | 685 páginas completas con divisiones estándar y métrica OMR-NED | Evaluación de página completa y análisis de errores estructurados |
+| **MUSCIMA++** | Manuscritas modernas | 140 páginas con más de 91.000 símbolos anotados a nivel de glifo | Evaluación de adaptabilidad a trazos manuscritos modernos |
+
+---
+
+## Articulación con el Documento de Tesis (LaTeX)
+
+El contenido teórico y metodológico de esta carpeta alimenta directamente el documento maestro de tesis en [`../latex/main.tex`](../latex/main.tex):
+* **Revisión PRISMA:** Secciones de Estado del Arte y Metodología.
+* **Arquitectura DBB:** Capítulo de Diseño e Implementación del Sistema.
+* **Corpus y Métricas:** Capítulo de Diseño Experimental y Resultados.
