@@ -1,0 +1,108 @@
+% =====================================================================
+% V. METODOLOGÍA DE REVISIÓN SISTEMÁTICA (RSL)
+% =====================================================================
+\section{Metodolog\'ia de Revisi\'on Sistem\'atica (RSL)}
+\label{sec:metodologia-rsl}
+
+Para la construcci\'on del marco te\'orico y la fundamentaci\'on conceptual y t\'ecnica de la plataforma Cadenza, se realiz\'o una Revisi\'on Sistem\'atica de Literatura (RSL) siguiendo las directrices metodol\'ogicas del protocolo PRISMA 2020 \cite{prisma2020}.
+
+\subsection{Estrategia de B\'usqueda}
+\label{sec:estrategia-busqueda}
+
+Se realizaron b\'usquedas exhaustivas en las principales bases de datos acad\'emicas y repositorios cient\'ificos de alta indexaci\'on en las \'areas de ciencias de la computaci\'on, procesamiento de se\~nales e inform\'atica musical: IEEE Xplore Digital Library, Scopus (Elsevier), ACM Digital Library, SpringerLink, ScienceDirect, Google Scholar y las actas de conferencias de la International Society for Music Information Retrieval (ISMIR).
+
+El per\'iodo de b\'usqueda comprendi\'o la producci\'on cient\'ifica entre enero de 2016 y el a\~no en curso (2026), capturando una d\'ecada de avances tecnol\'ogicos. Se estructur\'o una cadena de b\'usqueda booleana orientada a identificar trabajos que combinaran modelos neuronales, validaci\'on y flujos interactivos:
+
+\begin{quote}
+\footnotesize
+\texttt{("optical music recognition" OR "OMR") AND ("deep learning" OR "neural network" OR "interactive" OR "validation" OR "human-in-the-loop" OR "active learning")}
+\end{quote}
+
+\subsection{Criterios de Selecci\'on}
+\label{sec:criterios-seleccion}
+
+Se aplicaron filtros estrictos para garantizar la calidad, actualidad y pertinencia de las fuentes respecto a los objetivos de Cadenza, como se detalla en la Tabla~\ref{tab:criterios-prisma}.
+
+\begin{table}[htbp]
+\caption{Criterios de Inclusi\'on y Exclusi\'on}
+\label{tab:criterios-prisma}
+\centering
+\footnotesize
+\begin{tabular}{|p{3.8cm}|p{3.8cm}|}
+\hline
+\textbf{Criterios de Inclusi\'on} & \textbf{Criterios de Exclusi\'on} \\
+\hline
+Art\'iculos publicados entre 2016 y 2026 en revistas indexadas o conferencias internacionales con revisi\'on por pares. & Art\'iculos de opini\'on, cartas al editor, reportes preliminares o res\'umenes sin texto completo accesible. \\
+\hline
+Estudios enfocados en reconocimiento \'optico de m\'usica (OMR) mediante t\'ecnicas de \emph{Deep Learning} (CNN, CRNN, Transformers, SSM/Mamba-2). & Tecnolog\'ias obsoletas, pipelines segmentados tradicionales o sistemas basados exclusivamente en audio (AMT). \\
+\hline
+Propuestas sobre interfaces \emph{Human-in-the-Loop} (HITL), edici\'on interactiva asistida o aprendizaje activo en documentos. & Estudios sobre manuscritos hist\'oricos medievales o notaciones antiguas (mensural/canto llano). \\
+\hline
+Mecanismos de validaci\'on sint\'actica, consistencia de reglas musicales y posprocesamiento simb\'olico. & Software comercial propietario o patentes sin metodolog\'ia reproducible ni c\'odigo/datos abiertos. \\
+\hline
+Investigaciones que introduzcan o utilicen datasets p\'ublicos con \emph{ground truth} y m\'etricas cuantitativas (SER, OMR-NED). & Documentos que no aporten a la digitalizaci\'on de partituras en notaci\'on moderna. \\
+\hline
+Fuentes en idioma ingl\'es y espa\~nol. & Registros duplicados o reportes metodol\'ogicamente deficientes. \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Resultados del Flujo PRISMA}
+\label{sec:resultados-prisma}
+
+El proceso de selecci\'on de la informaci\'on sigui\'o las cuatro fases del flujo PRISMA 2020 (Identificaci\'on, Cribado, Elegibilidad e Inclusi\'on), resultando en la selecci\'on final de 31 estudios primarios a partir de 458 registros inicialmente identificados. La Tabla~\ref{tab:resumen-prisma} resume cuantitativamente los resultados obtenidos en cada etapa con el correspondiente detalle de exclusi\'on.
+
+\begin{table}[htbp]
+\caption{Tabla Resumen del Flujo PRISMA}
+\label{tab:resumen-prisma}
+\centering
+\footnotesize
+\begin{tabular}{|l|p{4.8cm}|c|}
+\hline
+\textbf{Fase PRISMA} & \textbf{Detalle del Proceso} & \textbf{Cant.} \\
+\hline
+\textbf{Identificaci\'on} & Registros identificados en bases de datos (Scopus: 72, IEEE Xplore: 55, SpringerLink: 65, ACM DL: 48, ScienceDirect: 40, Google Scholar: 140, ISMIR: 38) & 458 \\
+\cline{2-3}
+& \emph{(-) Registros duplicados eliminados} & 158 \\
+\hline
+\textbf{Cribado} & Registros cribados por t\'itulo y resumen & 300 \\
+\cline{2-3}
+& \emph{(-) Excluidos por no ser relevantes} & 230 \\
+\hline
+\textbf{Elegibilidad} & Art\'iculos de texto completo evaluados & 70 \\
+\cline{2-3}
+& \emph{(-) Excluidos a texto completo:} & 39 \\
+& \quad $\bullet$ Sin dataset ni c\'odigo p\'ublico accesible (18) & \\
+& \quad $\bullet$ Notaci\'on no occidental o hist\'orica (11) & \\
+& \quad $\bullet$ Pipelines segmentados cl\'asicos obsoletos (10) & \\
+\hline
+\textbf{Inclusi\'on} & \textbf{Estudios incluidos en la s\'intesis} & \textbf{31} \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{S\'intesis Tem\'atica y Clasificaci\'on de la Literatura}
+\label{sec:sintesis-literatura}
+
+Los 31 estudios primarios seleccionados fueron organizados y sintetizados a lo largo de siete ejes tem\'aticos fundamentales, los cuales articulan directamente cada m\'odulo arquitectural de Cadenza:
+
+\subsubsection{OMR y Estado del Arte}
+Los surveys fundamentales de Calvo-Zaragoza et al. \cite{omr2020} y Rebelo et al. \cite{rebelo2012} establecen la taxonom\'ia cl\'asica del OMR en cuatro etapas: preprocesamiento, detecci\'on de pentagramas y glifos, clasificaci\'on y ensamblaje sint\'actico. Estos antecedentes evidencian la transici\'on de los enfoques heur\'isticos segmentados hacia sistemas unificados end-to-end como \texttt{oemer} \cite{oemer2021}, identificando como reto persistente la correcci\'on de errores estructurales en partituras reales.
+
+\subsubsection{Modelos de Aprendizaje Profundo}
+La literatura analiza la evoluci\'on de redes neuronales convolucionales y recurrentes (CRNN con p\'erdida CTC) para partituras monof\'onicas \cite{calvo2018}, detectores densos de objetos musicales basados en segmentaci\'on \cite{tuggener2020}, y arquitecturas avanzadas de transformadores visuales y modelos de espacio de estados (Mamba-2) para partituras polif\'onicas a p\'agina completa (\emph{pianoform}) \cite{riosvila2026}. Estos modelos fundamentan la selecci\'on de la l\'inea base de inferencia y la delimitaci\'on del alcance a partituras monof\'onicas y sistemas a dos pentagramas.
+
+\subsubsection{Validaci\'on Musical y Reglas Sint\'acticas}
+A diferencia de los modelos probabil\'isticos de lenguaje musical \cite{omr2020}, la integraci\'on de motores deterministas de reglas como \texttt{music21} \cite{cuthbert2010} permite verificar autom\'aticamente la consistencia sint\'actica de la notaci\'on: balance m\'etrico de compases, correspondencia de armaduras y duraciones v\'alidas en representaciones simb\'olicas (MusicXML), sirviendo de base al motor de validaci\'on autom\'atica de Cadenza.
+
+\subsubsection{Interfaz de Correcci\'on Humana (HITL)}
+Bajo el paradigma de \emph{Interactive Machine Learning} formulado por Amershi et al. \cite{amershi2014} y Holzinger \cite{holzinger2016}, se justifica la necesidad de involucrar al usuario experto en puntos cr\'iticos de incertidumbre. Sistemas previos como MuRET \cite{rizo2023} demuestran la viabilidad de interfaces web de edici\'on asistida, sobre las cuales Cadenza innova al cerrar el ciclo mediante la recolecci\'on de correcciones expl\'icitas sobre el documento visual.
+
+\subsubsection{Aprendizaje Activo y Adaptaci\'on Continua}
+El marco te\'orico de Settles \cite{settles2009} describe estrategias de selecci\'on por incertidumbre (\emph{uncertainty sampling}) y consulta por lote (\emph{pool-based}). Investigaciones recientes en transcripci\'on de documentos musicales \cite{mlsp2025} se\~nalan que la incertidumbre simple en el reconocimiento de objetos no siempre correlaciona con la mejora global, justificando la estrategia de Cadenza de priorizar muestras con anomal\'ias detectadas por el motor de validaci\'on sint\'actica.
+
+\subsubsection{Corpus y Datasets Oficiales de Evaluaci\'on}
+El protocolo experimental adopta la terna est\'andar de la comunidad cient\'ifica: \emph{PrIMuS / Camera-PrIMuS} \cite{calvo2018} (87.678 incipits impresos monof\'onicos con distorsiones visuales), \emph{Sheet Music Benchmark (SMB)} \cite{smb2026} (685 p\'aginas completas de piano con partici\'on estandarizada) y \emph{MUSCIMA++} \cite{muscima2017} (140 p\'aginas manuscritas modernas con 91.000 s\'imbolos anotados), garantizando la reproducibilidad sobre partituras impresas y manuscritas.
+
+\subsubsection{Formatos Simb\'olicos y M\'etricas Estandarizadas}
+El sistema estandariza sus salidas en \emph{MusicXML 4.0} \cite{musicxml2021} (formato editable de intercambio) y \emph{MIDI 1.0} \cite{midi1996} (s\'intesis y reproducci\'on auditiva en tiempo real). Para la evaluaci\'on cuantitativa se establecen la tasa de error simb\'olico (SER) y la distancia de edici\'on normalizada OMR-NED \cite{smb2026}, complementadas con m\'etricas de esfuerzo humano en tiempo de edici\'on y n\'umero de intervenciones manuales por comp\'as.
