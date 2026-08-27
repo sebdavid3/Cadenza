@@ -1,4 +1,7 @@
 @echo off
+set "ROOT_DIR=%~dp0.."
+cd /d "%ROOT_DIR%"
+
 echo ==========================================================
 echo     Configuracion Local de Cadenza OMR (HOMR + GPU)
 echo ==========================================================
@@ -25,5 +28,5 @@ python backend\check_gpu.py
 
 echo.
 echo >> Instalacion completada.
-echo >> Para iniciar ejecuta: run-local.bat
+echo >> Para iniciar ejecuta: scripts\run-local.bat
 pause

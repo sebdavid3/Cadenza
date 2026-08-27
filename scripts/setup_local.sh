@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -e
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 echo "=========================================================="
 echo "    Configuración Local de Cadenza OMR (HOMR + GPU)       "
 echo "=========================================================="
@@ -49,4 +52,4 @@ echo ""
 echo ">> ¡Instalación completada con éxito!"
 echo ">> Para iniciar la aplicación localmente:"
 echo "   conda activate homr-proto"
-echo "   ./run-local.sh"
+echo "   ./scripts/run-local.sh"

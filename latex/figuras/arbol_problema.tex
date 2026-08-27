@@ -1,0 +1,70 @@
+% ---------------------------------------------------------------------
+% FIGURA 1: árbol del problema (flotante a página completa).
+% ---------------------------------------------------------------------
+\begin{figure*}[!t]
+    \centering
+    \begin{tikzpicture}[
+        % Configuración general de fuente y distancias
+        font=\sffamily\scriptsize,
+        node distance=0.4cm and 1.5cm,
+        % Estilo base para todas las cajas
+        caja/.style={draw, thick, align=center, inner sep=6pt, rounded corners=3pt},
+        % Estilos específicos
+        cat/.style={caja, fill=red!15, draw=red!50!black, font=\scriptsize\bfseries, text width=5cm},
+        subcausa/.style={caja, fill=red!5, draw=red!30, text width=5cm, align=left, font=\tiny},
+        problema/.style={caja, fill=orange!20, draw=orange!80!black, very thick, text width=5cm, font=\scriptsize, inner sep=8pt},
+        efecto/.style={caja, fill=blue!10, draw=blue!50!black, text width=4.8cm},
+        % Estilo de las flechas
+        flecha/.style={-{Stealth[scale=1.2]}, thick, draw=gray!70!black}
+    ]
+
+    % ===============================
+    % CAUSAS (Columna Izquierda)
+    % ===============================
+    
+    % Causa 1
+    \node[cat] (cat1) {1. Modelos OMR y LLMs/VLMs};
+    \node[subcausa, below=0.1cm of cat1] (c1) {$\bullet$ \emph{Domain shift} en CRNNs/Transformers sobre p\'aginas completas.\\ $\bullet$ Alucinaciones y falta de anclaje espacial en LLMs multimodales.};
+
+    % Causa 2
+    \node[cat, below=0.4cm of c1] (cat2) {2. Validaci\'on Sem\'antica Simb\'olica};
+    \node[subcausa, below=0.1cm of cat2] (c2) {$\bullet$ Inferencia probabil\'istica sin garant\'ias sint\'acticas.\\ $\bullet$ Ausencia de parsers de teor\'ia musical (reglas \emph{music21}).};
+
+    % Causa 3
+    \node[cat, below=0.4cm of c2] (cat3) {3. Ciclo de Aprendizaje en el Borde};
+    \node[subcausa, below=0.1cm of cat3] (c3) {$\bullet$ Descarte de retroalimentaci\'on \emph{Human-in-the-Loop} (HITL).\\ $\bullet$ Falta de pipelines de ajuste fino \emph{on-device} (TFLite).};
+
+    % ===============================
+    % PROBLEMA CENTRAL (Columna Central)
+    % ===============================
+    
+    % Se posiciona a la derecha de Causa 2 para quedar centrado verticalmente
+    \node[problema, right=1.2cm of c2] (p) {\textbf{Ineficiencia y fragmentaci\'on tecnol\'ogica en OMR:}\\[6pt] Elevado esfuerzo de correcci\'on manual debido a la desconexi\'on entre modelos neuronales, validadores formales y reentrenamiento activo};
+
+    % ===============================
+    % EFECTOS (Columna Derecha)
+    % ===============================
+    
+    % Se posiciona el efecto central y luego los demás arriba y abajo
+    \node[efecto, right=1.2cm of p] (e2) {\textbf{Corrupci\'on de esquemas MusicXML:}\\ Archivos no reproducibles con compases r\'itmicamente desbalanceados};
+    \node[efecto, above=0.5cm of e2] (e1) {\textbf{Bajo rendimiento en Benchmarks:}\\ Altas tasas de error SER, CER y OMR-NED en corpus est\'andar (PrIMuS, SMB, MUSCIMA++)};
+    \node[efecto, below=0.5cm of e2] (e3) {\textbf{Desperdicio de supervisi\'on:}\\ P\'erdida de pares de correcci\'on de alto costo para el aprendizaje continuo};
+
+    % ===============================
+    % CONEXIONES (Flechas)
+    % ===============================
+    
+    % Conexiones de Causas a Problema (curvas de salida 0 grados, entrada 180 grados)
+    \draw[flecha] (c1.east) to[out=0, in=180] (p.west);
+    \draw[flecha] (c2.east) to[out=0, in=180] (p.west);
+    \draw[flecha] (c3.east) to[out=0, in=180] (p.west);
+
+    % Conexiones de Problema a Efectos
+    \draw[flecha] (p.east) to[out=0, in=180] (e1.west);
+    \draw[flecha] (p.east) to[out=0, in=180] (e2.west);
+    \draw[flecha] (p.east) to[out=0, in=180] (e3.west);
+
+    \end{tikzpicture}
+    \caption{\'Arbol de problemas tecnol\'ogico y multidimensional: arquitecturas de aprendizaje profundo / LLMs, verificaci\'on neuro-simb\'olica y evaluaci\'on estandarizada.}
+    \label{fig:arbol}
+\end{figure*}

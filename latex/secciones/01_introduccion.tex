@@ -1,0 +1,90 @@
+% =====================================================================
+% I. INTRODUCCIÓN
+% =====================================================================
+\section{Introducci\'on}
+
+La digitalizaci\'on del patrimonio musical constituye una necesidad
+creciente para archivos, bibliotecas, academias y agrupaciones musicales
+que conservan partituras f\'isicas en papel. El reconocimiento \'optico de
+m\'usica (OMR, por sus siglas en ingl\'es) es la disciplina que aborda la
+conversi\'on autom\'atica de im\'agenes de partituras en representaciones
+simb\'olicas editables, y ha sido objeto de investigaci\'on durante m\'as de
+cinco d\'ecadas \cite{omr2020}, evolucionando desde sistemas basados en
+reglas hasta \emph{pipelines} de aprendizaje profundo que transcriben
+partituras completas de forma autom\'atica
+\cite{rebelo2012}\cite{calvo2018}\cite{riosvila2026}.
+
+A pesar de estos avances, los sistemas OMR modernos cometen errores que
+impiden su uso directo en entornos reales: notas con alturas o duraciones
+incorrectas, compases desbalanceados, armaduras inconsistentes y s\'imbolos
+omitidos \cite{calvo2018}. Los modelos de reconocimiento se estudian
+predominantemente desde la precisi\'on de su salida autom\'atica, mientras
+que la integraci\'on del reconocimiento en el trabajo pr\'actico de un
+transcriptor ha recibido mucha menos atenci\'on \cite{rizo2023}. Como
+consecuencia, quien digitaliza partituras termina revisando manualmente
+cada s\'imbolo en un editor musical convencional, un proceso tan lento como
+la transcripci\'on manual, o acepta resultados err\'oneos sin verificarlos.
+En el caso de los manuscritos musicales modernos, esta situaci\'on se
+agudiza, pues la variabilidad de la escritura degrada a\'un m\'as la
+confiabilidad del reconocimiento autom\'atico \cite{ricordi2024}. Del mismo
+modo, el aprovechamiento de las correcciones del usuario para mejorar el
+sistema mediante ciclos de aprendizaje activo sigue siendo poco explorado
+en OMR, donde los primeros estudios arrojan resultados incluso
+contradictorios \cite{mlsp2025}.
+
+En el contexto global, instituciones conservan colecciones de partituras
+impresas y escritas a mano que requieren digitalizaci\'on para su
+preservaci\'on, consulta y difusi\'on. La transcripci\'on manual de estas
+colecciones representa un costo de tiempo considerable, y las herramientas
+de reconocimiento existentes no ofrecen un flujo de trabajo que garantice
+la calidad del resultado. La digitalizaci\'on de colecciones musicales ha
+sido abordada recientemente desde la arch\'istica con metodolog\'ias de
+anotaci\'on y clasificaci\'on autom\'atica \cite{ricordi2024}; a\'un as\'i,
+faltan herramientas de transcripci\'on asistida pensadas para el trabajo
+del transcriptor.
+
+Para la evaluaci\'on del sistema se dispone de conjuntos de datos
+p\'ublicos de referencia que cubren el alcance del proyecto. PrIMuS y
+Camera-PrIMuS \cite{calvo2018} proveen 87\,678 incipits de partituras
+impresas monof\'onicas, el segundo con distorsiones que simulan fotograf\'ias
+tomadas en condiciones reales, y \emph{ground truth} simb\'olico en
+m\'ultiples formatos. El Sheet Music Benchmark (SMB)
+\cite{smb2026} estandariza la evaluaci\'on con 685 p\'aginas que incluyen
+monofon\'ia y \emph{pianoform}, divisiones predefinidas y una m\'etrica de
+error detallada por elemento musical (OMR-NED). Para el subconjunto
+manuscrito, MUSCIMA++ \cite{muscima2017} ofrece m\'as de 91\,000 s\'imbolos
+anotados sobre partituras escritas a mano por m\'usicos actuales. La
+disponibilidad de \emph{ground truth} anotado en estos conjuntos permite
+evaluar la plataforma de forma cuantitativa y reproducible, siguiendo los
+protocolos de la literatura de OMR. De manera complementaria, se contempla
+un piloto sobre un conjunto reducido de partituras reales (fotograf\'ias)
+para evaluar la usabilidad del flujo completo de correcci\'on, sin requerir
+\emph{ground truth} anotado.
+
+Desde el punto de vista disciplinar, un sistema de digitalizaci\'on
+asistida de partituras puede estructurarse sobre tres pilares: el
+\emph{pipeline} cl\'asico de OMR (preprocesado, detecci\'on de pentagramas,
+detecci\'on y clasificaci\'on de s\'imbolos, ensamblaje y reconstrucci\'on
+musical \cite{omr2020}), la validaci\'on de la salida
+mediante reglas de teor\'ia musical \cite{cuthbert2010}, y la correcci\'on
+asistida por un humano en el ciclo \cite{amershi2014}. La validaci\'on
+autom\'atica permite detectar errores estructurales (m\'etrica, duraciones,
+armaduras) sin intervenci\'on humana, reduciendo el espacio de revisi\'on a
+los puntos sospechosos. El aprendizaje activo complementa el ciclo al
+seleccionar qu\'e correcciones del usuario tienen mayor valor para mejorar
+el reconocimiento \cite{settles2009}.
+
+En este contexto, el presente proyecto propone el dise\~no e
+implementaci\'on de \textbf{Cadenza}, una plataforma de digitalizaci\'on
+asistida de partituras que integra cuatro componentes: un modelo OMR base
+(oemer \cite{oemer2021}) encargado de la transcripci\'on autom\'atica a
+MusicXML; un motor de validaci\'on basado en reglas musicales que detecta y
+se\~nala errores probables; una interfaz de correcci\'on asistida que
+permite al usuario revisar y corregir la transcripci\'on sobre la imagen
+original, con reproducci\'on autom\'atica de la partitura digitalizada; y un ciclo
+de aprendizaje activo que aprovecha las correcciones
+del usuario para priorizar la revisi\'on y mejorar progresivamente el
+sistema. La plataforma se orienta a partituras impresas y escritas a mano
+actuales, monof\'onicas o de piano simple, excluyendo orquestaciones
+completas y manuscritos hist\'oricos, cuyo tratamiento excede el alcance de
+este trabajo.

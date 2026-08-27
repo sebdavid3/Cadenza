@@ -1,23 +1,17 @@
 % =====================================================================
-%  Cadenza — Documento principal de tesis (versión fusionada)
+%  Cadenza — Documento principal de tesis (Modular)
 %  Plantilla: IEEEtran (conference)
 %
-%  Contenido actual (única fuente de verdad — no editar introduccion.tex):
-%    I.   Introducción
-%    II.  Planteamiento del Problema
-%
-%  Secciones pendientes de fusionar aquí cuando existan:
-%    III. Revisión sistemática de literatura (docs/revision-literatura-prisma.md)
-%    IV.  Arquitectura general DBB          (docs/arquitectura-dbb.md)
-%
-%  Bibliografía: UNA SOLA lista al final (13 entradas); todas las citas
-%  del texto apuntan a estas claves — sin referencias huérfanas.
+%  Estructura modular:
+%    - Figuras:   figuras/arbol_problema.tex
+%    - Sección I:  secciones/01_introduccion.tex
+%    - Sección II: secciones/02_planteamiento.tex
+%    - Sección III: secciones/03_justificacion.tex
+%    - Sección IV: secciones/04_objetivos.tex
+%    - Referencias: secciones/referencias.tex
 %
 %  Compilación (pdflatex, sin bibtex — bibliografía inline):
 %    pdflatex main
-%
-%  Referencias VERIFICAR (confirmar autores/DOI antes de entrega):
-%    riosvila2026, mlsp2025, ricordi2024  (ver docs/literatura/)
 % =====================================================================
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
@@ -39,14 +33,10 @@
 \begin{document}
 
 % ---------------------------------------------------------------------
-% TÍTULO
+% TÍTULO Y AUTORES
 % ---------------------------------------------------------------------
-\title{Cadenza: reconocimiento, validación y aprendizaje en la
-digitalización de partituras}
+\title{Cadenza: reconocimiento, validación y aprendizaje en la digitalización de partituras}
 
-% ---------------------------------------------------------------------
-% AUTORES
-% ---------------------------------------------------------------------
 \author{\IEEEauthorblockN{Andr\'es Carrero Mart\'inez}
 \IEEEauthorblockA{\textit{Ingenier\'ia de Sistemas} \\
 \textit{Universidad del Norte}\\
@@ -69,283 +59,21 @@ carlosrojano@uninorte.edu.co}
 \maketitle
 
 % ---------------------------------------------------------------------
-% FIGURA 1: árbol del problema (flotante a página completa).
-% Se declara aquí arriba para que LaTeX la ubique al inicio de las
-% primeras páginas y NO caiga sobre la bibliografía al final.
+% FIGURA 1: Árbol del problema (TikZ flotante a página completa)
 % ---------------------------------------------------------------------
-\begin{figure*}[!t]
-\centering
-\begin{tikzpicture}[
-  font=\footnotesize,
-  node distance=0.55cm and 1.0cm,
-  caja/.style={draw, thick, align=center, text width=4.6cm, inner sep=5pt},
-  causa/.style={caja, fill=red!12},
-  problema/.style={caja, fill=orange!30, text width=4.4cm, font=\footnotesize\bfseries},
-  efecto/.style={caja, fill=blue!10}
-]
-\node[causa] (c1) {Salida OMR ruidosa: alturas, duraciones, armaduras y s\'imbolos err\'oneos};
-\node[causa, below=of c1] (c2) {Las correcciones del usuario se descartan: el sistema no mejora con el uso};
-\node[causa, below=of c2] (c3) {Ausencia de verificaci\'on autom\'atica de reglas de teor\'ia musical};
-\node[problema, right=of c2] (p) {Digitalizaci\'on de partituras lenta y poco confiable: correcci\'on manual s\'imbolo a s\'imbolo en editores convencionales};
-\node[efecto, right=of p] (e2) {Transcripciones MusicXML con inconsistencias estructurales};
-\node[efecto, above=of e2] (e1) {Cuellos de botella en la preservaci\'on y difusi\'on de archivos musicales};
-\node[efecto, below=of e2] (e3) {Abandono de herramientas OMR y retorno a la transcripci\'on manual};
-\draw[-{Stealth}, thick] (c1.east) -- (p.west);
-\draw[-{Stealth}, thick] (c2.east) -- (p.west);
-\draw[-{Stealth}, thick] (c3.east) -- (p.west);
-\draw[-{Stealth}, thick] (p.east) -- (e1.west);
-\draw[-{Stealth}, thick] (p.east) -- (e2.west);
-\draw[-{Stealth}, thick] (p.east) -- (e3.west);
-\end{tikzpicture}
-\caption{\'Arbol del problema de la digitalizaci\'on asistida de partituras.}
-\label{fig:arbol}
-\end{figure*}
+\input{figuras/arbol_problema.tex}
 
-% =====================================================================
-% I. INTRODUCCIÓN
-% =====================================================================
-\section{Introducci\'on}
+% ---------------------------------------------------------------------
+% SECCIONES DEL DOCUMENTO
+% ---------------------------------------------------------------------
+\input{secciones/01_introduccion.tex}
+\input{secciones/02_planteamiento.tex}
+\input{secciones/03_justificacion.tex}
+\input{secciones/04_objetivos.tex}
 
-La digitalizaci\'on del patrimonio musical constituye una necesidad
-creciente para archivos, bibliotecas, academias y agrupaciones musicales
-que conservan partituras f\'isicas en papel. El reconocimiento \'optico de
-m\'usica (OMR, por sus siglas en ingl\'es) es la disciplina que aborda la
-conversi\'on autom\'atica de im\'agenes de partituras en representaciones
-simb\'olicas editables, y ha sido objeto de investigaci\'on durante m\'as de
-cinco d\'ecadas \cite{omr2020}, evolucionando desde sistemas basados en
-reglas hasta \emph{pipelines} de aprendizaje profundo que transcriben
-partituras completas de forma autom\'atica
-\cite{rebelo2012}\cite{calvo2018}\cite{riosvila2026}.
-
-A pesar de estos avances, los sistemas OMR modernos cometen errores que
-impiden su uso directo en entornos reales: notas con alturas o duraciones
-incorrectas, compases desbalanceados, armaduras inconsistentes y s\'imbolos
-omitidos \cite{calvo2018}. Los modelos de reconocimiento se estudian
-predominantemente desde la precisi\'on de su salida autom\'atica, mientras
-que la integraci\'on del reconocimiento en el trabajo pr\'actico de un
-transcriptor ha recibido mucha menos atenci\'on \cite{rizo2023}. Como
-consecuencia, quien digitaliza partituras termina revisando manualmente
-cada s\'imbolo en un editor musical convencional, un proceso tan lento como
-la transcripci\'on manual, o acepta resultados err\'oneos sin verificarlos.
-En el caso de los manuscritos musicales modernos, esta situaci\'on se
-agudiza, pues la variabilidad de la escritura degrada a\'un m\'as la
-confiabilidad del reconocimiento autom\'atico \cite{ricordi2024}. Del mismo
-modo, el aprovechamiento de las correcciones del usuario para mejorar el
-sistema mediante ciclos de aprendizaje activo sigue siendo poco explorado
-en OMR, donde los primeros estudios arrojan resultados incluso
-contradictorios \cite{mlsp2025}.
-
-% COMPLETAR: párrafo de contexto local — personalizar con datos reales de la
-% institución/colección objetivo (ver docs/introduccion-borrador.md, bloque 3).
-En el contexto global, instituciones conservan colecciones de partituras
-impresas y escritas a mano que requieren digitalizaci\'on para su
-preservaci\'on, consulta y difusi\'on. La transcripci\'on manual de estas
-colecciones representa un costo de tiempo considerable, y las herramientas
-de reconocimiento existentes no ofrecen un flujo de trabajo que garantice
-la calidad del resultado. La digitalizaci\'on de colecciones musicales ha
-sido abordada recientemente desde la arch\'istica con metodolog\'ias de
-anotaci\'on y clasificaci\'on autom\'atica \cite{ricordi2024}; a\'un as\'i,
-faltan herramientas de transcripci\'on asistida pensadas para el trabajo
-del transcriptor.
-
-Para la evaluaci\'on del sistema se dispone de conjuntos de datos
-p\'ublicos de referencia que cubren el alcance del proyecto. PrIMuS y
-Camera-PrIMuS \cite{calvo2018} proveen 87\,678 incipits de partituras
-impresas monof\'onicas, el segundo con distorsiones que simulan fotograf\'ias
-tomadas en condiciones reales, y \emph{ground truth} simb\'olico en
-m\'ultiples formatos. El Sheet Music Benchmark (SMB)
-\cite{smb2026} estandariza la evaluaci\'on con 685 p\'aginas que incluyen
-monofon\'ia y \emph{pianoform}, divisiones predefinidas y una m\'etrica de
-error detallada por elemento musical (OMR-NED). Para el subconjunto
-manuscrito, MUSCIMA++ \cite{muscima2017} ofrece m\'as de 91\,000 s\'imbolos
-anotados sobre partituras escritas a mano por m\'usicos actuales. La
-disponibilidad de \emph{ground truth} anotado en estos conjuntos permite
-evaluar la plataforma de forma cuantitativa y reproducible, siguiendo los
-protocolos de la literatura de OMR. De manera complementaria, se contempla
-un piloto sobre un conjunto reducido de partituras reales (fotograf\'ias)
-para evaluar la usabilidad del flujo completo de correcci\'on, sin requerir
-\emph{ground truth} anotado.
-
-Desde el punto de vista disciplinar, un sistema de digitalizaci\'on
-asistida de partituras puede estructurarse sobre tres pilares: el
-\emph{pipeline} cl\'asico de OMR (preprocesado, detecci\'on de pentagramas,
-detecci\'on y clasificaci\'on de s\'imbolos, ensamblaje y reconstrucci\'on
-musical \cite{omr2020}), la validaci\'on de la salida
-mediante reglas de teor\'ia musical \cite{cuthbert2010}, y la correcci\'on
-asistida por un humano en el ciclo \cite{amershi2014}. La validaci\'on
-autom\'atica permite detectar errores estructurales (m\'etrica, duraciones,
-armaduras) sin intervenci\'on humana, reduciendo el espacio de revisi\'on a
-los puntos sospechosos. El aprendizaje activo complementa el ciclo al
-seleccionar qu\'e correcciones del usuario tienen mayor valor para mejorar
-el reconocimiento \cite{settles2009}.
-
-En este contexto, el presente proyecto propone el dise\~no e
-implementaci\'on de \textbf{Cadenza}, una plataforma de digitalizaci\'on
-asistida de partituras que integra cuatro componentes: un modelo OMR base
-(oemer \cite{oemer2021}) encargado de la transcripci\'on autom\'atica a
-MusicXML; un motor de validaci\'on basado en reglas musicales que detecta y
-se\~nala errores probables; una interfaz de correcci\'on asistida que
-permite al usuario revisar y corregir la transcripci\'on sobre la imagen
-original, con reproducci\'on autom\'atica de la partitura digitalizada; y un ciclo
-de aprendizaje activo que aprovecha las correcciones
-del usuario para priorizar la revisi\'on y mejorar progresivamente el
-sistema. La plataforma se orienta a partituras impresas y escritas a mano
-actuales, monof\'onicas o de piano simple, excluyendo orquestaciones
-completas y manuscritos hist\'oricos, cuyo tratamiento excede el alcance de
-este trabajo.
-
-% =====================================================================
-% II. PLANTEAMIENTO DEL PROBLEMA
-% =====================================================================
-\section{Planteamiento del Problema}
-
-En la pr\'actica, la digitalizaci\'on de partituras contin\'ua siendo un
-proceso predominantemente reactivo y dependiente del esfuerzo humano.
-Aunque el reconocimiento \'optico de m\'usica ha evolucionado desde sistemas
-basados en reglas hasta \emph{pipelines} de aprendizaje profundo capaces de
-transcribir p\'aginas completas de forma autom\'atica
-\cite{omr2020}\cite{calvo2018}\cite{riosvila2026}, su salida a\'un comete
-errores frecuentes que impiden usarla directamente \cite{calvo2018}: alturas
-o duraciones incorrectas, compases desbalanceados, armaduras inconsistentes
-y s\'imbolos omitidos. Por eso, quien digitaliza termina corrigiendo
-s\'imbolo por s\'imbolo en un editor convencional, con un costo de tiempo
-cercano al de la transcripci\'on manual, o bien acepta resultados sin
-verificaci\'on alguna. En el caso de los manuscritos modernos esta situaci\'on se
-agrava: la irregularidad del trazo, la inclinaci\'on de las plicas y la
-variabilidad geom\'etrica de los s\'imbolos degradan a\'un m\'as la
-confiabilidad del reconocimiento autom\'atico \cite{ricordi2024}.
-
-Esta condici\'on evidencia una brecha disciplinar: los modelos de
-reconocimiento se estudian predominantemente desde la precisi\'on de su
-salida autom\'atica, mientras que su integraci\'on en el trabajo pr\'actico
-de un transcriptor ha recibido mucha menos atenci\'on \cite{rizo2023}. El
-objeto de estudio de este proyecto es, por tanto, el dise\~no de un sistema
-de informaci\'on que resuelva la fragmentaci\'on actual entre tres
-dimensiones que hoy operan de manera aislada: (i) los \emph{modelos de
-reconocimiento OMR}, evaluados casi exclusivamente mediante m\'etricas de
-precisi\'on simb\'olica; (ii) las t\'ecnicas de \emph{validaci\'on musical},
-capaces de detectar errores estructurales de m\'etrica, duraciones y
-armaduras mediante reglas de teor\'ia musical sin intervenci\'on humana
-\cite{cuthbert2010}; y (iii) los \emph{mecanismos de interacci\'on humana},
-que permiten al usuario corregir la transcripci\'on sobre la imagen
-original, pero cuyas correcciones, en los sistemas actuales, se descartan
-sin alimentar con ellas la mejora progresiva del sistema mediante
-aprendizaje activo, enfoque pr\'acticamente inexplorado en OMR y con
-resultados iniciales incluso contradictorios \cite{amershi2014}%
-\cite{settles2009}\cite{mlsp2025}.
-
-A nivel de ingenier\'ia, el problema se concreta en la inexistencia de una
-plataforma tecnol\'ogica integrada que articule estas dimensiones. En el
-marco experimental de este estudio, las variables se definen de la
-siguiente manera: la \emph{Variable Independiente} es la modalidad del
-flujo de digitalizaci\'on aplicada a cada entrada, entendida como la
-comparaci\'on entre una l\'inea base OMR no asistida y el flujo asistido
-con validaci\'on musical y aprendizaje activo, sobre partituras impresas
-estructuradas y manuscritas modernas; la \emph{Variable Mediadora} es el
-procesamiento anal\'itico de la salida, es decir, la detecci\'on de
-anomal\'ias mediante reglas de teor\'ia musical y la selecci\'on activa de
-muestras para el reentrenamiento; y las \emph{Variables Dependientes} son
-el esfuerzo
-de correcci\'on humana, cuantificado en tiempo de edici\'on e
-intervenciones manuales por comp\'as, y la fidelidad de la transcripci\'on
-final (MusicXML/MIDI), medida mediante la tasa de error simb\'olico
-(\emph{Symbol Error Rate}, SER).
-
-En el contexto regional, esta necesidad afecta a archivos, academias y
-agrupaciones musicales que conservan colecciones de partituras impresas y
-escritas a mano cuya transcripci\'on manual representa costos de tiempo
-considerables, y que cuentan \'unicamente con editores convencionales, sin
-mecanismos de verificaci\'on autom\'atica ni de mejora continua. La
-experiencia reciente de digitalizaci\'on de colecciones musicales,
-abordada con metodolog\'ias de anotaci\'on y clasificaci\'on autom\'atica
-\cite{ricordi2024}, confirma que el problema es real y abordable desde la
-ingenier\'ia. A ello se suma que los conjuntos de datos p\'ublicos con
-\emph{ground truth}, como PrIMuS/Camera-PrIMuS \cite{calvo2018}, Sheet
-Music Benchmark \cite{smb2026} y MUSCIMA++ \cite{muscima2017}, permiten
-evaluar la soluci\'on propuesta de forma cuantitativa y reproducible,
-siguiendo los protocolos de la literatura de OMR.
-
-\textbf{Pregunta de Investigaci\'on:} \textquestiondown De qu\'e manera el
-dise\~no e implementaci\'on de una plataforma de digitalizaci\'on asistida
-de partituras, que integre reconocimiento \'optico de m\'usica, validaci\'on
-autom\'atica mediante reglas de teor\'ia musical y un ciclo de aprendizaje
-activo a partir de las correcciones del usuario, permite reducir el
-esfuerzo de revisi\'on humana y mejorar la fidelidad de la transcripci\'on
-digital (MusicXML/MIDI), medida en tasa de error simb\'olico y tiempo de
-edici\'on, en partituras impresas y manuscritos modernos de complejidad
-monof\'onica o piano simple?
-
-% =====================================================================
-% REFERENCIAS — única bibliografía del documento (mapeada a docs/literatura/)
-% =====================================================================
-\begin{thebibliography}{13}
-
-\bibitem{omr2020}
-J. Calvo-Zaragoza, J. Haji\v{c} Jr., and A. Pacha, ``Understanding Optical
-Music Recognition,'' \emph{ACM Computing Surveys}, vol.~53, no.~4, pp.~1--35,
-2020. % ficha OMR-001
-
-\bibitem{rebelo2012}
-A. Rebelo, I. Fujinaga, F. Paszkiewicz, A. R. S. Mar\c{c}al, C. Guedes, and
-J. S. Cardoso, ``Optical music recognition: State-of-the-art and open
-issues,'' \emph{Int. J. Multimedia Information Retrieval}, vol.~1, no.~3,
-pp.~173--190, 2012. % ficha OMR-002
-
-\bibitem{calvo2018}
-J. Calvo-Zaragoza and D. Rizo, ``End-to-End Neural Optical Music
-Recognition of Monophonic Scores,'' \emph{Applied Sciences}, vol.~8, no.~4,
-art.~606, 2018. % ficha DL-001 (introduce PrIMuS)
-
-\bibitem{riosvila2026}
-A. R\'ios-Vila, J. Calvo-Zaragoza, and E. Paquet, ``End-to-End Full-Page
-Optical Music Recognition for Pianoform Sheet Music,'' \emph{Int. J.
-Computer Vision}, 2026, DOI 10.1007/s11263-025-02654-6. % VERIFICAR autores — ficha DL-009
-
-\bibitem{rizo2023}
-D. Rizo, J. Calvo-Zaragoza, J. C. Mart\'inez-Sevilla, A. Rosell\'o, and
-E. Fuentes-Mart\'inez, ``Design of a music recognition, encoding, and
-transcription online tool,'' in \emph{Proc. CMMR 2023}, Tokyo, Japan, 2023;
-Springer volume, 2026, DOI 10.1007/978-3-032-02042-0\_24. % ficha HITL-005
-
-\bibitem{cuthbert2010}
-M. S. Cuthbert and C. Ariza, ``music21: A toolkit for computer-aided
-musicology and symbolic music data,'' in \emph{Proc. 11th Int. Society for
-Music Information Retrieval Conf. (ISMIR)}, 2010, pp.~637--642. % ficha VAL-001
-
-\bibitem{amershi2014}
-S. Amershi, M. Cakmak, W. B. Knox, and T. Kulesza, ``Power to the people:
-The role of humans in interactive machine learning,'' \emph{AI Magazine},
-vol.~35, no.~4, pp.~105--120, 2014. % ficha HITL-001
-
-\bibitem{mlsp2025}
-``Experimenting Active and Sequential Learning in a Medieval Music
-Manuscript,'' in \emph{Proc. IEEE Machine Learning for Signal Processing
-Workshop (MLSP)}, 2025, DOI 10.1109/MLSP62443.2025.11204321. % VERIFICAR autores — ficha AL-003
-
-\bibitem{oemer2021}
-BreezeWhite, ``oemer: A Python library for end-to-end optical music
-recognition,'' GitHub repository, 2021. [Online]. Available:
-https://github.com/BreezeWhite/oemer % ficha OMR-003
-
-\bibitem{ricordi2024}
-``Optical Music Recognition in Manuscripts from the Ricordi Archive,''
-ACM, 2024, DOI 10.1145/3678299.3678324. % VERIFICAR autores — ficha DS-005
-
-\bibitem{smb2026}
-J. C. Martinez-Sevilla, J. Cerveto-Serrano, N. Luna, G. Chapman, C. Sapp,
-D. Rizo, and J. Calvo-Zaragoza, ``Sheet Music Benchmark (SMB): Standardized
-Optical Music Recognition Evaluation,'' 2026, DOI 10.5281/zenodo.17706531.
-% ficha FM-005
-
-\bibitem{muscima2017}
-J. Haji\v{c} Jr. and P. Pecina, ``The MUSCIMA++ dataset for handwritten
-optical music recognition,'' in \emph{Proc. 14th Int. Conf. Document
-Analysis and Recognition (ICDAR)}, 2017, pp.~39--46. % ficha DS-009
-
-\bibitem{settles2009}
-B. Settles, ``Active Learning Literature Survey,'' Computer Sciences
-Technical Report 1648, University of Wisconsin--Madison, 2009. % ficha AL-001
-
-\end{thebibliography}
+% ---------------------------------------------------------------------
+% REFERENCIAS BIBLIOGRÁFICAS
+% ---------------------------------------------------------------------
+\input{secciones/referencias.tex}
 
 \end{document}

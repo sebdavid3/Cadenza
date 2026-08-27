@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
-# Función para terminar procesos al presionar Ctrl+C
+# Ir a la raíz del repositorio
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 cleanup() {
     echo ""
     echo ">> Deteniendo servidores Backend y Frontend..."
@@ -22,17 +25,15 @@ fi
 
 # 1. Iniciar Backend FastAPI
 echo "[*] Iniciando Backend en http://localhost:8000 ..."
-cd backend
+cd "$ROOT_DIR/backend"
 python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
 BACKEND_PID=$!
-cd ..
 
 # 2. Iniciar Frontend Vite
 echo "[*] Iniciando Frontend en http://localhost:5173 ..."
-cd frontend
+cd "$ROOT_DIR/frontend"
 npm run dev -- --host 0.0.0.0 --port 5173 &
 FRONTEND_PID=$!
-cd ..
 
 echo "=========================================================="
 echo ">> Backend corriendo en:  http://localhost:8000 (Docs: /docs)"
@@ -40,5 +41,4 @@ echo ">> Frontend corriendo en: http://localhost:5173"
 echo ">> Presiona Ctrl+C para detener ambos servidores."
 echo "=========================================================="
 
-# Esperar a que los procesos hijos terminen
 wait $BACKEND_PID $FRONTEND_PID

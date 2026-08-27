@@ -27,14 +27,17 @@ homr-music-proto / Cadenza
 │   ├── package.json
 │   ├── vite.config.js
 │   └── Dockerfile
+├── docs/                        # Documentación técnica, estado del arte y arquitectura
+├── latex/                       # Documento maestro de tesis en LaTeX (IEEEtran)
+├── scripts/                     # Scripts de instalación y lanzamiento
+│   ├── setup_local.sh           # Instalador automatizado Conda + CUDA 12.1 (Linux/macOS/WSL)
+│   ├── setup_local.bat          # Instalador automatizado para Windows nativo
+│   ├── run-local.sh             # Lanzador local concurrent (Linux/macOS/WSL)
+│   ├── run-local.bat            # Lanzador local para Windows nativo
+│   ├── run-docker-gpu.sh        # Lanzador Docker con GPU
+│   └── run-docker-cpu.sh        # Lanzador Docker CPU Fallback
 ├── docker-compose.yml           # Despliegue con GPU NVIDIA (nvidia container runtime)
-├── docker-compose.cpu.yml       # Despliegue en CPU (sin requisitos NVIDIA)
-├── setup_local.sh               # Instalador automatizado Conda + CUDA 12.1 (Linux/macOS/WSL)
-├── setup_local.bat              # Instalador automatizado para Windows nativo
-├── run-local.sh                 # Lanzador local concurrent (Linux/macOS/WSL)
-├── run-local.bat                # Lanzador local para Windows nativo
-├── run-docker-gpu.sh            # Lanzador Docker con GPU
-└── run-docker-cpu.sh            # Lanzador Docker CPU Fallback
+└── docker-compose.cpu.yml       # Despliegue en CPU (sin requisitos NVIDIA)
 ```
 
 ---
@@ -50,13 +53,13 @@ homr-music-proto / Cadenza
 
 En Linux / WSL / macOS:
 ```bash
-chmod +x setup_local.sh run-local.sh run-docker-gpu.sh run-docker-cpu.sh
-./setup_local.sh
+chmod +x scripts/*.sh
+./scripts/setup_local.sh
 ```
 
 En Windows (CMD / PowerShell):
 ```cmd
-setup_local.bat
+scripts\setup_local.bat
 ```
 
 ### Pasos Manuales (si prefieres paso a paso)
@@ -85,10 +88,10 @@ cd ..
 
 ```bash
 # En Linux/WSL:
-./run-local.sh
+./scripts/run-local.sh
 
 # En Windows:
-run-local.bat
+scripts\run-local.bat
 ```
 
 * **Frontend:** [http://localhost:5173](http://localhost:5173)
@@ -110,7 +113,7 @@ run-local.bat
 ### Levantar Contenedores con GPU
 
 ```bash
-./run-docker-gpu.sh
+./scripts/run-docker-gpu.sh
 # O manualmente:
 docker compose -f docker-compose.yml up --build
 ```
@@ -122,7 +125,7 @@ docker compose -f docker-compose.yml up --build
 Si no cuentas con GPU NVIDIA o estás en un entorno de integración continua:
 
 ```bash
-./run-docker-cpu.sh
+./scripts/run-docker-cpu.sh
 # O manualmente:
 docker compose -f docker-compose.cpu.yml up --build
 ```

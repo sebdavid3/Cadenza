@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
 echo "=========================================================="
-echo "      Levantando Cadenza OMR en Docker con GPU NVIDIA     "
+echo "      Levantando Cadenza OMR en Docker en Modo CPU        "
 echo "=========================================================="
 
 # Verificar docker compose
@@ -12,4 +15,4 @@ else
     DOCKER_CMD="docker compose"
 fi
 
-$DOCKER_CMD -f docker-compose.yml up --build
+$DOCKER_CMD -f docker-compose.cpu.yml up --build
