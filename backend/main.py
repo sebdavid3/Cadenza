@@ -18,7 +18,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
-logger = logging.getLogger("homr-backend")
+logger = logging.getLogger("cadenza-backend")
 
 # Detección de GPU PyTorch
 def get_gpu_status() -> Dict[str, Any]:
