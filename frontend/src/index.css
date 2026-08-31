@@ -3,32 +3,144 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    color-scheme: dark;
+    /* Reglas hairline: el equivalente visual de una linea de pentagrama */
+    --rule: rgba(232, 230, 225, 0.10);
+    --rule-strong: rgba(232, 230, 225, 0.22);
+    --staff-gap: 13px;
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 min-h-screen;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-ink text-bone antialiased font-sans;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: theme('colors.brass.DEFAULT');
+    color: theme('colors.ink.DEFAULT');
+  }
+
+  /* Foco visible y sobrio, sin halos de color */
+  :focus-visible {
+    outline: 1px solid theme('colors.brass.DEFAULT');
+    outline-offset: 2px;
   }
 }
 
-/* Custom scrollbars for viewer and containers */
-::-webkit-scrollbar {
-  width: 8px;
+@layer components {
+  /* ---- Primitivas de notacion ---- */
+
+  /* Pentagrama: exactamente cinco lineas, dibujadas con un gradiente repetido
+     y acotadas por background-size para que no se repita fuera del bloque. */
+  .staff-lines {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--rule) 0,
+      var(--rule) 1px,
+      transparent 1px,
+      transparent var(--staff-gap)
+    );
+    background-repeat: no-repeat;
+    /* 4 espacios + el grosor de la quinta linea */
+    background-size: 100% calc(var(--staff-gap) * 4 + 1px);
+    background-position: center;
+  }
+
+  /* Regla simple: divide sin encerrar */
+  .rule {
+    height: 1px;
+    background: var(--rule);
+  }
+
+  /* Doble barra: separa secciones mayores */
+  .rule-double {
+    height: 4px;
+    background:
+      linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 3px, var(--rule) 3px 4px);
+  }
+}
+
+@layer utilities {
+  /* Etiquetas versalitas en mono: para datos, no para prosa */
+  .label {
+    @apply font-mono text-[10px] uppercase tracking-label text-bone-faint;
+  }
+}
+
+/* ---- Controles de rango: pista de un pixel, pulsador con forma de cabeza de nota ---- */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
   height: 8px;
+  border-radius: 50%;
+  background: #C9A227;
+  margin-top: -3.5px;
+  transition: transform 120ms ease;
+}
+
+input[type="range"]:hover::-webkit-slider-thumb,
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: var(--rule-strong);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 11px;
+  height: 8px;
+  border: 0;
+  border-radius: 50%;
+  background: #C9A227;
+  transition: transform 120ms ease;
+}
+
+input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.25);
+}
+
+/* ---- Barras de desplazamiento discretas ---- */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
-  border-radius: 4px;
+  background: rgba(232, 230, 225, 0.14);
+  border: 3px solid #0E0E10;
+  border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.9);
+  background: rgba(232, 230, 225, 0.26);
 }
 
-/* Smooth transitions */
-* {
-  box-sizing: border-box;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

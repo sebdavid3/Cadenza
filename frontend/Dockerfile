@@ -2,11 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package.json ./
+# Copiar manifiesto y lockfile: el lockfile es lo que hace reproducible la imagen
+COPY package.json package-lock.json ./
 
-# Instalar dependencias
-RUN npm install
+# npm ci instala exactamente las versiones del lockfile y falla si ambos divergen,
+# a diferencia de npm install, que puede resolver versiones nuevas en cada build
+RUN npm ci
 
 # Copiar código fuente
 COPY . .
