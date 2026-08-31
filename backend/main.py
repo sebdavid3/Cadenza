@@ -1,16 +1,20 @@
 import os
 import sys
+import json
 import uuid
 import base64
 import shutil
+import asyncio
 import logging
 import tempfile
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from collections import deque
+from typing import Dict, Any, Optional, Deque, Set
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # Configuración de Logging
@@ -19,6 +23,86 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("cadenza-backend")
+
+# Difusión de registro en vivo
+# ---------------------------------------------------------------------------
+# El motor OMR escribe su progreso real por stderr mientras trabaja. En lugar de
+# capturarlo entero al final, se retransmite línea a línea a los clientes
+# conectados, de modo que la interfaz muestre lo que de verdad está ocurriendo.
+
+MAX_LINE_CHARS = 500      # el motor emite líneas de varios KB al volcar el XML
+BACKLOG_SIZE = 200        # historial que recibe quien se conecta a mitad de proceso
+QUEUE_SIZE = 1000
+
+
+class LogBroker:
+    """Reparte líneas de registro a los clientes suscritos.
+
+    `publish` es seguro desde cualquier hilo: el trabajo pesado del motor corre
+    fuera del bucle de eventos, así que las líneas llegan desde otro hilo y hay
+    que reinyectarlas en el bucle para tocar las colas de asyncio.
+    """
+
+    def __init__(self) -> None:
+        self._subscribers: Set[asyncio.Queue] = set()
+        self._backlog: Deque[str] = deque(maxlen=BACKLOG_SIZE)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_SIZE)
+        self._subscribers.add(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        self._subscribers.discard(queue)
+
+    def backlog(self) -> list:
+        return list(self._backlog)
+
+    def publish(self, line: str) -> None:
+        line = line.rstrip()
+        if not line:
+            return
+        if len(line) > MAX_LINE_CHARS:
+            line = line[:MAX_LINE_CHARS] + f" … (+{len(line) - MAX_LINE_CHARS} caracteres)"
+        if self._loop is None:
+            self._backlog.append(line)
+            return
+        try:
+            self._loop.call_soon_threadsafe(self._fanout, line)
+        except RuntimeError:
+            # El bucle se cerró mientras el motor seguía escribiendo
+            pass
+
+    def _fanout(self, line: str) -> None:
+        self._backlog.append(line)
+        for queue in list(self._subscribers):
+            try:
+                queue.put_nowait(line)
+            except asyncio.QueueFull:
+                # Un cliente lento no debe frenar la transcripción
+                pass
+
+
+log_broker = LogBroker()
+
+
+class BrokerLogHandler(logging.Handler):
+    """Envía al difusor lo que el propio backend registra."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            log_broker.publish(self.format(record))
+        except Exception:
+            pass
+
+
+_broker_handler = BrokerLogHandler()
+_broker_handler.setFormatter(logging.Formatter("%(asctime)s  %(message)s", datefmt="%H:%M:%S"))
+logger.addHandler(_broker_handler)
 
 # Detección de GPU PyTorch
 def get_gpu_status() -> Dict[str, Any]:
@@ -101,11 +185,45 @@ class TranscribeResponse(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
-    gpu_info = get_gpu_status()
-    if gpu_info["cuda_available"]:
-        logger.info(f"🚀 Backend iniciado con aceleración GPU: {gpu_info['device_name']} (CUDA {gpu_info['cuda_version']})")
-    else:
-        logger.info("⚠️ Backend iniciado en modo CPU (CUDA no disponible).")
+    # El difusor necesita el bucle de eventos para poder recibir líneas desde el
+    # hilo en el que corre el motor
+    log_broker.bind_loop(asyncio.get_running_loop())
+    logger.info("Servicio iniciado.")
+
+
+@app.get("/logs")
+async def stream_logs():
+    """Registro en vivo por Server-Sent Events.
+
+    Quien se conecta recibe primero el historial reciente y después cada línea
+    nueva a medida que se produce. El comentario periódico mantiene viva la
+    conexión frente a proxies que cierran conexiones ociosas.
+    """
+
+    async def event_source():
+        queue = log_broker.subscribe()
+        try:
+            for line in log_broker.backlog():
+                yield f"data: {json.dumps(line)}\n\n"
+            while True:
+                try:
+                    line = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {json.dumps(line)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+        finally:
+            log_broker.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Evita que un proxy intermedio acumule la respuesta antes de enviarla
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 @app.get("/health")
 def health_check():
@@ -135,39 +253,54 @@ def run_homr_process(image_path: Path, output_dir: Path) -> Path:
     ]
 
     last_error = ""
-    stdout_output = ""
     stderr_output = ""
 
     # Buscar comando ejecutable
     executed = False
     for cmd in cmd_candidates:
         try:
-            logger.info(f"Ejecutando HOMR con comando: {' '.join(cmd)}")
-            proc = subprocess.run(
+            logger.info(f"Ejecutando motor: {' '.join(cmd)}")
+            # Popen en lugar de run: el motor tarda decenas de segundos y escribe
+            # su progreso mientras trabaja. Leyendo línea a línea se puede
+            # retransmitir en vivo en vez de esperar al volcado final.
+            proc = subprocess.Popen(
                 cmd,
                 cwd=str(output_dir),
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,  # una sola corriente, en orden cronológico
                 text=True,
-                timeout=180  # 3 minutos máximo por imagen
+                bufsize=1,                 # por líneas
+                errors="replace"
             )
-            stdout_output = proc.stdout
-            stderr_output = proc.stderr
-            logger.info(f"HOMR stdout: {stdout_output}")
-            if stderr_output:
-                logger.warning(f"HOMR stderr: {stderr_output}")
 
-            if proc.returncode == 0:
+            collected = []
+            try:
+                assert proc.stdout is not None
+                for raw_line in proc.stdout:
+                    line = raw_line.rstrip()
+                    if not line:
+                        continue
+                    collected.append(line)
+                    log_broker.publish(line)
+                returncode = proc.wait(timeout=180)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise HTTPException(
+                    status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail="Tiempo de espera agotado al procesar la imagen (>180s)."
+                )
+
+            stderr_output = "\n".join(collected[-40:])
+
+            if returncode == 0:
                 executed = True
                 break
-            else:
-                last_error = f"Código de salida {proc.returncode}. Stderr: {stderr_output}. Stdout: {stdout_output}"
+            last_error = f"Código de salida {returncode}. Salida: {stderr_output}"
         except FileNotFoundError:
             continue
-        except subprocess.TimeoutExpired:
-            raise HTTPException(
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                detail="Tiempo de espera agotado al procesar la imagen con HOMR (>180s)."
-            )
+        except HTTPException:
+            raise
         except Exception as ex:
             last_error = str(ex)
 
@@ -245,7 +378,10 @@ async def transcribe(file: UploadFile = File(...)):
         logger.info(f"[{request_id}] Iniciando transcripción OMR de {file.filename} (Tamaño: {len(content)} bytes). Modo: {gpu_status['mode']}")
 
         # 1. Ejecutar HOMR
-        musicxml_path = run_homr_process(input_image_path, req_dir)
+        # A un hilo aparte: el motor bloquea decenas de segundos y, ejecutado
+        # directamente aquí, congelaría el bucle de eventos —dejando sin responder
+        # al resto de peticiones y, en particular, al registro en vivo—.
+        musicxml_path = await asyncio.to_thread(run_homr_process, input_image_path, req_dir)
 
         # 2. Leer contenido de MusicXML
         with open(musicxml_path, "r", encoding="utf-8", errors="replace") as f_xml:

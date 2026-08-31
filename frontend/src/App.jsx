@@ -3,6 +3,7 @@ import DropZone from './components/DropZone';
 import ScoreViewer from './components/ScoreViewer';
 import AudioPlayer from './components/AudioPlayer';
 import Transcribing from './components/Transcribing';
+import LogConsole from './components/LogConsole';
 import { Wordmark, Rule, DoubleRule, FinalBarline } from './components/Notation';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -176,6 +177,7 @@ export default function App() {
             )}
           </div>
         )}
+        <LogConsole />
       </main>
 
       <footer className="mt-auto">

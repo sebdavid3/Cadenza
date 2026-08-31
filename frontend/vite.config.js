@@ -24,6 +24,14 @@ export default defineConfig({
         target: backendTarget,
         changeOrigin: true,
       },
+      // Registro en vivo por SSE: la conexion queda abierta indefinidamente
+      '/logs': {
+        target: backendTarget,
+        changeOrigin: true,
+        // Sin esto el proxy cierra la corriente de eventos por inactividad
+        timeout: 0,
+        proxyTimeout: 0,
+      },
     }
   },
   preview: {
@@ -43,6 +51,14 @@ export default defineConfig({
       '/gpu-info': {
         target: backendTarget,
         changeOrigin: true,
+      },
+      // Registro en vivo por SSE: la conexion queda abierta indefinidamente
+      '/logs': {
+        target: backendTarget,
+        changeOrigin: true,
+        // Sin esto el proxy cierra la corriente de eventos por inactividad
+        timeout: 0,
+        proxyTimeout: 0,
       },
     }
   }
