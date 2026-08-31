@@ -6,8 +6,8 @@
   :root {
     color-scheme: dark;
     /* Reglas hairline: el equivalente visual de una linea de pentagrama */
-    --rule: rgba(232, 230, 225, 0.10);
-    --rule-strong: rgba(232, 230, 225, 0.22);
+    --rule: rgba(255, 255, 255, 0.12);
+    --rule-strong: rgba(255, 255, 255, 0.26);
     --staff-gap: 13px;
   }
 
@@ -18,13 +18,13 @@
   }
 
   ::selection {
-    background: theme('colors.brass.DEFAULT');
+    background: theme('colors.bone.DEFAULT');
     color: theme('colors.ink.DEFAULT');
   }
 
   /* Foco visible y sobrio, sin halos de color */
   :focus-visible {
-    outline: 1px solid theme('colors.brass.DEFAULT');
+    outline: 1px solid theme('colors.bone.DEFAULT');
     outline-offset: 2px;
   }
 }
@@ -89,7 +89,7 @@ input[type="range"]::-webkit-slider-thumb {
   width: 11px;
   height: 8px;
   border-radius: 50%;
-  background: #C9A227;
+  background: #FFFFFF;
   margin-top: -3.5px;
   transition: transform 120ms ease;
 }
@@ -109,7 +109,7 @@ input[type="range"]::-moz-range-thumb {
   height: 8px;
   border: 0;
   border-radius: 50%;
-  background: #C9A227;
+  background: #FFFFFF;
   transition: transform 120ms ease;
 }
 
@@ -128,13 +128,13 @@ input[type="range"]:hover::-moz-range-thumb {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(232, 230, 225, 0.14);
-  border: 3px solid #0E0E10;
+  background: rgba(255, 255, 255, 0.16);
+  border: 3px solid #000000;
   border-radius: 999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(232, 230, 225, 0.26);
+  background: rgba(255, 255, 255, 0.30);
 }
 
 @media (prefers-reduced-motion: reduce) {

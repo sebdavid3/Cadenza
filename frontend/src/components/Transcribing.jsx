@@ -25,7 +25,7 @@ export default function Transcribing() {
         {/* Cabeza de nota recorriendo el pentagrama */}
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-3 pointer-events-none">
           <span
-            className="absolute top-0 w-[11px] h-2 rounded-[50%] bg-brass animate-staff-travel"
+            className="absolute top-0 w-[11px] h-2 rounded-[50%] bg-bone animate-staff-travel"
             style={{ transform: 'rotate(-18deg)' }}
             aria-hidden="true"
           />

@@ -6,29 +6,34 @@ export default {
   ],
   theme: {
     extend: {
+      // Sistema estrictamente monocromo: negro, blanco y la escala entre ambos.
+      // Al no haber color, la jerarquia la marcan el contraste y la tipografia:
+      // blanco = enfasis e interaccion, grises = texto secundario y estados
+      // inactivos, cursiva serif = advertencia.
       colors: {
-        // Tinta: fondos, de más oscuro a menos
+        // Tinta: fondos, del negro puro hacia arriba
         ink: {
-          DEFAULT: '#0E0E10',
-          900: '#141416',
-          800: '#1C1C1F',
-          700: '#26262A',
+          DEFAULT: '#000000',
+          900: '#0A0A0A',
+          800: '#141414',
+          700: '#1F1F1F',
         },
-        // Hueso: texto, de más presente a más tenue
+        // Hueso: texto, del blanco puro hacia abajo
         bone: {
-          DEFAULT: '#E8E6E1',
-          dim: '#9B9892',
-          faint: '#6B6862',
+          DEFAULT: '#FFFFFF',
+          dim: '#A1A1A1',
+          // 4.8:1 sobre negro puro. Un gris mas oscuro caeria por debajo del
+          // minimo accesible para texto pequeño, que es donde se usa (.label)
+          faint: '#787878',
         },
-        // Latón: único acento del sistema
-        brass: {
-          DEFAULT: '#C9A227',
-          dim: '#8A701A',
-        },
-        // Ladrillo: único color de error, deliberadamente apagado
-        brick: '#C1554A',
         // Papel: exclusivo del lienzo de partitura
-        paper: '#F7F5F0',
+        paper: '#FFFFFF',
+      },
+      // Tailwind declara un azul por defecto para el anillo de foco. Aqui el
+      // foco se dibuja con outline, asi que la variable no llega a usarse, pero
+      // se neutraliza para que la hoja compilada no contenga ningun color.
+      ringColor: {
+        DEFAULT: '#FFFFFF',
       },
       fontFamily: {
         display: ['Spectral', 'Georgia', 'serif'],

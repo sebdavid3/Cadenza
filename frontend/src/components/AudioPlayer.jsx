@@ -203,7 +203,7 @@ export default function AudioPlayer({ midiBase64, filename = 'partitura' }) {
         <h2 className="font-display text-lg text-bone">Audio</h2>
         <button
           onClick={handleDownload}
-          className="text-sm text-brass hover:text-bone transition-colors"
+          className="text-sm text-bone hover:text-bone-dim transition-colors"
         >
           Descargar MIDI
         </button>
@@ -232,7 +232,7 @@ export default function AudioPlayer({ midiBase64, filename = 'partitura' }) {
           <div className="flex items-center gap-5">
             <button
               onClick={togglePlay}
-              className="w-10 h-10 rounded-full bg-brass text-ink flex items-center justify-center hover:bg-bone transition-colors"
+              className="w-10 h-10 rounded-full bg-bone text-ink flex items-center justify-center hover:bg-bone-dim transition-colors"
               aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
             >
               {isPlaying
@@ -248,7 +248,7 @@ export default function AudioPlayer({ midiBase64, filename = 'partitura' }) {
             </button>
             <button
               onClick={() => setIsLooping(!isLooping)}
-              className={`transition-colors ${isLooping ? 'text-brass' : 'text-bone-dim hover:text-bone'}`}
+              className={`transition-colors ${isLooping ? 'text-bone' : 'text-bone-dim hover:text-bone'}`}
               aria-label="Repetir"
               aria-pressed={isLooping}
             >
@@ -265,7 +265,7 @@ export default function AudioPlayer({ midiBase64, filename = 'partitura' }) {
                   key={value}
                   onClick={() => handleTempo(value)}
                   className={`font-mono text-xs tabular-nums transition-colors ${
-                    bpm === value ? 'text-brass' : 'text-bone-faint hover:text-bone'
+                    bpm === value ? 'text-bone' : 'text-bone-faint hover:text-bone'
                   }`}
                 >
                   {value}
@@ -279,7 +279,7 @@ export default function AudioPlayer({ midiBase64, filename = 'partitura' }) {
             <button
               onClick={toggleMute}
               className={`font-display italic text-sm transition-colors ${
-                isMuted ? 'text-brass' : 'text-bone-faint hover:text-bone'
+                isMuted ? 'text-bone' : 'text-bone-faint hover:text-bone'
               }`}
               aria-label={isMuted ? 'Restablecer volumen' : 'Silenciar'}
               aria-pressed={isMuted}

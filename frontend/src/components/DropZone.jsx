@@ -198,7 +198,7 @@ export default function DropZone({ onFileSelect, onTranscribe, selectedFile, dis
               <button
                 onClick={onTranscribe}
                 disabled={disabled}
-                className="px-5 py-2.5 rounded-sm bg-brass text-ink text-sm font-medium hover:bg-bone transition-colors disabled:opacity-40 disabled:hover:bg-brass"
+                className="px-5 py-2.5 rounded-sm bg-bone text-ink text-sm font-medium hover:bg-bone-dim transition-colors disabled:opacity-40 disabled:hover:bg-bone"
               >
                 Transcribir
               </button>
@@ -226,7 +226,7 @@ export default function DropZone({ onFileSelect, onTranscribe, selectedFile, dis
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
         className="relative min-h-[240px] flex flex-col items-center justify-center text-center px-6 staff-lines transition-colors"
-        style={isDragOver ? { '--rule': 'rgba(201, 162, 39, 0.55)' } : undefined}
+        style={isDragOver ? { '--rule': 'rgba(255, 255, 255, 0.6)' } : undefined}
       >
         <input
           ref={fileInputRef}
@@ -238,7 +238,7 @@ export default function DropZone({ onFileSelect, onTranscribe, selectedFile, dis
         />
 
         {isDragOver ? (
-          <p className="font-display text-xl text-brass">Suelta para empezar</p>
+          <p className="font-display text-xl text-bone">Suelta para empezar</p>
         ) : (
           <>
             <p className="font-display text-xl text-bone mb-6">
@@ -246,7 +246,7 @@ export default function DropZone({ onFileSelect, onTranscribe, selectedFile, dis
             </p>
             <label
               htmlFor="sheet-music-input"
-              className="px-5 py-2.5 rounded-sm bg-brass text-ink text-sm font-medium hover:bg-bone transition-colors cursor-pointer"
+              className="px-5 py-2.5 rounded-sm bg-bone text-ink text-sm font-medium hover:bg-bone-dim transition-colors cursor-pointer"
             >
               Seleccionar imagen
             </label>
@@ -276,7 +276,7 @@ export default function DropZone({ onFileSelect, onTranscribe, selectedFile, dis
       </div>
 
       {localError && (
-        <p className="mt-4 text-sm text-brick animate-fade-in">{localError}</p>
+        <p className="mt-4 text-sm font-display italic text-bone animate-fade-in">{localError}</p>
       )}
     </div>
   );

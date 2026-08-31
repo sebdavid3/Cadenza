@@ -98,7 +98,7 @@ export default function App() {
 
       {online === false && (
         <div className="bg-ink-900">
-          <p className="max-w-4xl mx-auto px-6 py-2.5 text-xs text-brick">
+          <p className="max-w-4xl mx-auto px-6 py-2.5 text-xs font-display italic text-bone-dim">
             Sin conexión con el servidor. Las transcripciones no estarán disponibles hasta que se restablezca.
           </p>
           <Rule />
@@ -131,12 +131,12 @@ export default function App() {
           <div className="mt-10 animate-fade-in">
             <Rule />
             <div className="py-5">
-              <p className="text-sm text-brick mb-4">{error}</p>
+              <p className="text-sm font-display italic text-bone mb-4">{error}</p>
               <div className="flex flex-wrap gap-6">
                 <button
                   onClick={handleTranscribe}
                   disabled={!selectedFile}
-                  className="text-sm text-brass hover:text-bone transition-colors disabled:opacity-40 disabled:hover:text-brass"
+                  className="text-sm text-bone hover:text-bone-dim transition-colors disabled:opacity-40 disabled:hover:text-bone"
                 >
                   Reintentar
                 </button>
@@ -160,7 +160,7 @@ export default function App() {
               </h1>
               <button
                 onClick={handleReset}
-                className="text-sm text-brass hover:text-bone transition-colors"
+                className="text-sm text-bone hover:text-bone-dim transition-colors"
               >
                 Nueva partitura
               </button>

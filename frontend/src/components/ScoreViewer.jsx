@@ -109,7 +109,7 @@ export default function ScoreViewer({ musicxml, filename = 'partitura' }) {
 
           <button
             onClick={handleDownload}
-            className="text-sm text-brass hover:text-bone transition-colors"
+            className="text-sm text-bone hover:text-bone-dim transition-colors"
           >
             Descargar MusicXML
           </button>
@@ -119,7 +119,7 @@ export default function ScoreViewer({ musicxml, filename = 'partitura' }) {
       <Rule />
 
       {renderError && (
-        <p className="pt-4 text-sm text-brick">{renderError}</p>
+        <p className="pt-4 text-sm font-display italic text-bone">{renderError}</p>
       )}
 
       {/* La hoja: papel sobre la mesa, sin marco ni recuadro */}
