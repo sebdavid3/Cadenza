@@ -28,6 +28,12 @@ class ValidationEngine:
     def rules(self) -> tuple[ValidationRule, ...]:
         return self._rules
 
+    @property
+    def rules_version(self) -> str:
+        """Huella estable de las reglas cargadas, para `Provenance.rules_version`."""
+
+        return ",".join(sorted({rule.rule_id for rule in self._rules}))
+
     def validate(self, document: ScoreDocument) -> list[Finding]:
         findings: list[Finding] = []
         for rule in self._rules:

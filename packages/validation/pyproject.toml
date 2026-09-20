@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Motor de validación sintáctica/semántica de Cadenza: reglas puras sobre ScoreDocument."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["cadenza-domain", "music21>=10"]
+dependencies = ["cadenza-domain"]
 
 [build-system]
 requires = ["hatchling"]

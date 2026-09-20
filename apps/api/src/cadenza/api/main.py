@@ -8,18 +8,22 @@ guarda. Las correcciones se registran como `EditEvent` inmutables (ADR-0007).
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import uuid
 from collections.abc import Iterator, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
-from cadenza.domain import EditEvent
+from cadenza.domain import EditEvent, ScoreIR, UnsupportedEditOpError, materialize
 from cadenza.omr import FakeOMREngine, OMREngine
 from cadenza.persistence import (
-    EditEventRecord,
+    EditEventRepository,
     FindingRecord,
     SessionFactory,
+    SqlAlchemyEditEventRepository,
     create_engine_for_url,
     create_schema,
     create_session_factory,
@@ -27,7 +31,7 @@ from cadenza.persistence import (
 from cadenza.persistence import Session as SessionRecord
 from cadenza.validation import MeasureBalanceRule, ValidationEngine, ValidationRule
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
@@ -57,6 +61,18 @@ def get_db(request: Request) -> Iterator[DbSession]:
 DbDep = Annotated[DbSession, Depends(get_db)]
 
 
+def _project(document: dict[str, Any], edits: Sequence[EditEvent]) -> dict[str, Any] | None:
+    """Materializa el `ScoreIR` actual aplicando el log; `None` si no es proyectable."""
+
+    if not edits:
+        return None
+    try:
+        score = ScoreIR.from_primitive(document["score"])
+        return materialize(score, edits).to_primitive()
+    except (UnsupportedEditOpError, KeyError, IndexError, ValueError):
+        return None
+
+
 def create_app(
     session_factory: SessionFactory,
     *,
@@ -81,8 +97,17 @@ def create_app(
         engine: OMREngine = request.app.state.omr_engine
         validator: ValidationEngine = request.app.state.validator
 
-        document = engine.transcribe(Path(file.filename or "upload.png"))
+        with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
+            upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
+            with upload_path.open("wb") as handle:
+                shutil.copyfileobj(file.file, handle)
+            document = engine.transcribe(upload_path)
+
         findings = validator.validate(document)
+        document = replace(
+            document,
+            provenance=replace(document.provenance, rules_version=validator.rules_version),
+        )
 
         session_id = str(uuid.uuid4())
         record = SessionRecord(
@@ -121,18 +146,15 @@ def create_app(
             .where(FindingRecord.session_id == session_id)
             .order_by(FindingRecord.id)
         ).all()
-        edits = db.scalars(
-            select(EditEventRecord)
-            .where(EditEventRecord.session_id == session_id)
-            .order_by(EditEventRecord.seq)
-        ).all()
+        events = SqlAlchemyEditEventRepository(db).list_events(session_id)
         return SessionDetailRead(
             session_id=record.id,
             document_id=record.document_id,
             omr_engine=record.omr_engine,
             document=record.document,
             findings=[FindingRead.from_record(row) for row in findings],
-            edits=[EditEventRead.from_record(row) for row in edits],
+            edits=[EditEventRead.from_edit(edit, session_id) for edit in events],
+            current_score=_project(record.document, events),
         )
 
     @app.get("/sessions/{session_id}/findings", response_model=list[FindingRead])
@@ -156,15 +178,11 @@ def create_app(
         if record is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
 
-        max_seq = db.scalar(
-            select(func.coalesce(func.max(EditEventRecord.seq), 0)).where(
-                EditEventRecord.session_id == session_id
-            )
-        )
+        repository: EditEventRepository = SqlAlchemyEditEventRepository(db)
         edit = EditEvent(
             id=str(uuid.uuid4()),
             document_id=record.document_id,
-            seq=int(max_seq or 0) + 1,
+            seq=repository.next_seq(session_id),
             anchor=payload.anchor.to_anchor(),
             op=payload.op,
             author=payload.author,
@@ -172,20 +190,8 @@ def create_app(
             before=payload.before,
             after=payload.after,
         )
-        row = EditEventRecord(
-            id=edit.id,
-            session_id=session_id,
-            seq=edit.seq,
-            op=edit.op.value,
-            author=edit.author,
-            anchor=edit.anchor.to_primitive(),
-            before=None if edit.before is None else dict(edit.before),
-            after=None if edit.after is None else dict(edit.after),
-            created_at=edit.created_at,
-        )
-        db.add(row)
-        db.flush()
-        return EditEventRead.from_record(row)
+        repository.append(session_id, edit)
+        return EditEventRead.from_edit(edit, session_id)
 
     return app
 

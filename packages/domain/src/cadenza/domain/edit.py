@@ -59,8 +59,8 @@ class EditEvent:
             object.__setattr__(self, "after", MappingProxyType(dict(self.after)))
 
     def __hash__(self) -> int:
-        # Excluye los mappings (no hashables) pero mantiene la identidad del
-        # evento; la igualdad generada sí los considera.
+        # Incluye una huella estable de ``before``/``after`` para mantener la
+        # coherencia con la igualdad generada (dos eventos iguales hashean igual).
         return hash(
             (
                 self.id,
@@ -70,6 +70,8 @@ class EditEvent:
                 self.op,
                 self.author,
                 self.created_at,
+                None if self.before is None else hash(frozenset(self.before.items())),
+                None if self.after is None else hash(frozenset(self.after.items())),
             )
         )
 

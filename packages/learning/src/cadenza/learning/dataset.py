@@ -32,19 +32,24 @@ class TrainingSample:
         return (self.document_id, *(str(part) for part in self.anchor.sort_key()))
 
 
-def _event_counts(document: ScoreDocument) -> dict[int, int]:
-    counts: dict[int, int] = {}
-    for part in document.score.parts:
-        for staff in part.staves:
+MeasureKey = tuple[int, int, int]
+
+
+def _event_counts(document: ScoreDocument) -> dict[MeasureKey, int]:
+    counts: dict[MeasureKey, int] = {}
+    for part_index, part in enumerate(document.score.parts):
+        for staff_index, staff in enumerate(part.staves):
             for measure in staff.measures:
-                counts[measure.number] = counts.get(measure.number, 0) + len(measure.events)
+                key = (part_index, staff_index, measure.number)
+                counts[key] = counts.get(key, 0) + len(measure.events)
     return counts
 
 
-def _finding_counts(findings: Sequence[Finding]) -> dict[int, int]:
-    counts: dict[int, int] = {}
+def _finding_counts(findings: Sequence[Finding]) -> dict[MeasureKey, int]:
+    counts: dict[MeasureKey, int] = {}
     for finding in findings:
-        counts[finding.anchor.measure] = counts.get(finding.anchor.measure, 0) + 1
+        key = (finding.anchor.part, finding.anchor.staff, finding.anchor.measure)
+        counts[key] = counts.get(key, 0) + 1
     return counts
 
 
@@ -69,9 +74,9 @@ class DatasetBuilder:
             before_pitch = before if isinstance(before, str) else None
             after_pitch = after if isinstance(after, str) else None
 
-            measure = edit.anchor.measure
-            events = event_counts.get(measure, 0)
-            error_density = finding_counts.get(measure, 0) / events if events else 0.0
+            key = (edit.anchor.part, edit.anchor.staff, edit.anchor.measure)
+            events = event_counts.get(key, 0)
+            error_density = finding_counts.get(key, 0) / events if events else 0.0
 
             samples.append(
                 TrainingSample(
@@ -82,7 +87,7 @@ class DatasetBuilder:
                     correction_magnitude=semitone_distance(before_pitch, after_pitch),
                     error_density=error_density,
                     features=(
-                        float(measure),
+                        float(edit.anchor.measure),
                         float(edit.anchor.voice),
                         float(edit.anchor.event_index),
                         float(pitch_to_midi(before_pitch) or 0),

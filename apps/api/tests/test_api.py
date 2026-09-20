@@ -144,3 +144,27 @@ def test_get_session_includes_appended_edits(client: TestClient) -> None:
 
 def test_get_session_unknown_returns_404(client: TestClient) -> None:
     assert client.get("/sessions/unknown").status_code == 404
+
+
+def test_get_session_materializes_current_score_from_log(client: TestClient) -> None:
+    session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
+    payload = {
+        "op": "SetPitch",
+        "anchor": ANCHOR,
+        "author": "tester",
+        "before": {"pitch": "C4"},
+        "after": {"pitch": "F#4"},
+    }
+    client.post(f"/sessions/{session_id}/edits", json=payload)
+
+    detail = client.get(f"/sessions/{session_id}").json()
+    raw = detail["document"]["score"]["parts"][0]["staves"][0]["measures"][0]["events"]
+    current = detail["current_score"]["parts"][0]["staves"][0]["measures"][0]["events"]
+    assert raw[0]["pitch"] == "C4"
+    assert current[0]["pitch"] == "F#4"
+
+
+def test_transcribe_records_rules_version(client: TestClient) -> None:
+    session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
+    detail = client.get(f"/sessions/{session_id}").json()
+    assert detail["document"]["provenance"]["rules_version"] == "measure.balance"

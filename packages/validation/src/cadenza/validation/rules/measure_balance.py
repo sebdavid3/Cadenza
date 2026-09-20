@@ -1,9 +1,9 @@
 """Regla de balance de compás (M2).
 
 Comprueba que la suma de duraciones de notas y silencios de un compás coincida
-con su métrica. Interpreta la signatura con `music21.meter.TimeSignature` y opera
-las duraciones con los `Fraction` del dominio. La regla es de **solo lectura** y
-ancla el hallazgo al primer evento del compás problemático.
+con su métrica. La duración esperada la aporta el propio valor de dominio
+`TimeSignature.quarter_length`, sin dependencias externas. La regla es de **solo
+lectura** y ancla el hallazgo al primer evento del compás problemático.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from cadenza.domain import (
     Severity,
     TimeSignature,
 )
-from music21 import meter
 
 from . import ValidationRule
 
@@ -29,10 +28,9 @@ _DURATION_KINDS = frozenset({EventKind.NOTE, EventKind.REST})
 
 
 def _expected_quarter_length(signature: TimeSignature) -> Fraction:
-    """Duración esperada del compás en negras, según `music21`."""
+    """Duración esperada del compás en negras, derivada del dominio."""
 
-    parsed = meter.TimeSignature(f"{signature.beats}/{signature.beat_type}")
-    return Fraction(parsed.barDuration.quarterLength).limit_denominator(1000)
+    return signature.quarter_length
 
 
 def _durations_sum(measure: Measure) -> Fraction | None:

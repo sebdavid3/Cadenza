@@ -51,7 +51,11 @@ class FakeTrainer(Trainer):
 
     def train(self, samples: Sequence[TrainingSample], config: TrainingConfig) -> TrainedArtifact:
         dataset_hash = _digest(
-            *(f"{sample.document_id}:{sample.anchor.sort_key()}" for sample in samples)
+            *(
+                f"{sample.document_id}:{sample.anchor.sort_key()}:"
+                f"{sample.before_pitch}:{sample.after_pitch}:{sample.features}"
+                for sample in samples
+            )
         )
         config_hash = _digest(str(config.seed), str(config.epochs), str(config.learning_rate))
         return TrainedArtifact(

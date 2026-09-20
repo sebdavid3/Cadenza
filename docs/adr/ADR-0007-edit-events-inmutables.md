@@ -98,6 +98,17 @@ sequenceDiagram
   desplazan índices: requiere reasignar o estabilizar anclas, tema de diseño a
   cuidar en la implementación de M3.
 
+## Nota de implementación
+
+La inmutabilidad se refuerza en dos frentes. En el ORM, `EditEventRecord` registra
+listeners `before_update`/`before_delete` que lanzan `ImmutableEditEventError`, y
+la relación de la sesión ya no usa `delete-orphan` para no arrastrar el log. En la
+base de datos, la migración `0002_edit_events_append_only` añade la restricción
+`UNIQUE(session_id, seq)` y cambia la clave foránea a `ondelete="RESTRICT"`. La
+proyección del log sobre el `ScoreIR` crudo se implementa en la función pura
+`cadenza.domain.projection.materialize`, que reconstruye el estado actual sin
+mutar el original.
+
 ## Alternativas consideradas
 
 1. **Guardar solo el MusicXML corregido (estado final).** Descartado: pierde la

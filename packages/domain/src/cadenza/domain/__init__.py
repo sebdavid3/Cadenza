@@ -10,6 +10,7 @@ from __future__ import annotations
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .edit import EditEvent, EditOp
 from .finding import Finding, Severity
+from .projection import UnsupportedEditOpError, apply_edit, materialize
 from .provenance import Provenance
 from .score import (
     Event,
@@ -40,5 +41,8 @@ __all__ = [
     "Severity",
     "Staff",
     "TimeSignature",
+    "UnsupportedEditOpError",
+    "apply_edit",
     "build_anchor_index",
+    "materialize",
 ]

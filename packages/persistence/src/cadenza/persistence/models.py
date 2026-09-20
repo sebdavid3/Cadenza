@@ -10,12 +10,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 JsonDocument = JSON().with_variant(JSONB(), "postgresql")
+
+
+class ImmutableEditEventError(RuntimeError):
+    """Se intentó mutar o borrar un `EditEvent` ya persistido (ADR-0007)."""
 
 
 class Base(DeclarativeBase):
@@ -38,9 +42,9 @@ class Session(Base):
     findings: Mapped[list[FindingRecord]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
-    edits: Mapped[list[EditEventRecord]] = relationship(
-        back_populates="session", cascade="all, delete-orphan"
-    )
+    # Sin `delete-orphan`: el log de ediciones es inmutable y no se borra con la
+    # sesión (ADR-0007). La FK con `ondelete="RESTRICT"` lo refuerza en la base.
+    edits: Mapped[list[EditEventRecord]] = relationship(back_populates="session")
 
 
 class FindingRecord(Base):
@@ -68,10 +72,13 @@ class EditEventRecord(Base):
     """Corrección humana inmutable (append-only) anclada a un evento (ADR-0007)."""
 
     __tablename__ = "edit_events"
+    __table_args__ = (
+        UniqueConstraint("session_id", "seq", name="uq_edit_events_session_seq"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(
-        ForeignKey("sessions.id", ondelete="CASCADE"), index=True, nullable=False
+        ForeignKey("sessions.id", ondelete="RESTRICT"), index=True, nullable=False
     )
     seq: Mapped[int] = mapped_column(Integer, nullable=False)
     op: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -82,3 +89,17 @@ class EditEventRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     session: Mapped[Session] = relationship(back_populates="edits")
+
+
+@event.listens_for(EditEventRecord, "before_update")
+def _forbid_edit_event_update(*_args: object) -> None:
+    raise ImmutableEditEventError(
+        "EditEventRecord es inmutable: no se permite UPDATE sobre eventos pasados (ADR-0007)."
+    )
+
+
+@event.listens_for(EditEventRecord, "before_delete")
+def _forbid_edit_event_delete(*_args: object) -> None:
+    raise ImmutableEditEventError(
+        "EditEventRecord es inmutable: no se permite DELETE de eventos pasados (ADR-0007)."
+    )

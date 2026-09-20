@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from cadenza.domain import Anchor, EditOp
+from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -92,6 +92,20 @@ class EditEventRead(BaseModel):
             created_at=record.created_at,
         )
 
+    @classmethod
+    def from_edit(cls, edit: EditEvent, session_id: str) -> EditEventRead:
+        return cls(
+            id=edit.id,
+            session_id=session_id,
+            seq=edit.seq,
+            op=edit.op.value,
+            author=edit.author,
+            anchor=edit.anchor.to_primitive(),
+            before=None if edit.before is None else dict(edit.before),
+            after=None if edit.after is None else dict(edit.after),
+            created_at=edit.created_at,
+        )
+
 
 class SessionDetailRead(BaseModel):
     """Documento persistido + findings + correcciones de una sesión (HITL)."""
@@ -102,3 +116,4 @@ class SessionDetailRead(BaseModel):
     document: dict[str, Any]
     findings: list[FindingRead]
     edits: list[EditEventRead]
+    current_score: dict[str, Any] | None = None

@@ -71,7 +71,7 @@ explicit_package_bases = true
 exclude = '/(backend|frontend|\.opencode|packages/persistence/migrations)/'
 
 [[tool.mypy.overrides]]
-module = ["homr", "homr.*", "onnxruntime.*", "cv2.*", "numpy.*", "music21", "music21.*"]
+module = ["homr", "homr.*", "onnxruntime.*", "cv2.*", "numpy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -23,10 +23,17 @@ class AcquisitionStrategy(ABC):
 
 
 def feature_distance(left: TrainingSample, right: TrainingSample) -> float:
-    """Distancia euclídea entre los vectores de features de dos muestras."""
+    """Distancia euclídea entre los vectores de features de dos muestras.
+
+    Falla de forma explícita si los vectores tienen distinta dimensionalidad: un
+    `0.0` silencioso enmascararía un *drift* del esquema de features.
+    """
 
     if len(left.features) != len(right.features):
-        return 0.0
+        raise ValueError(
+            "feature vectors must share dimensionality: "
+            f"{len(left.features)} != {len(right.features)}"
+        )
     return math.sqrt(sum((a - b) ** 2 for a, b in zip(left.features, right.features, strict=True)))
 
 
