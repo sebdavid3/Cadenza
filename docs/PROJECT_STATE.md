@@ -6,9 +6,10 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 0 — Refactorización del Dominio Core |
-| **Último hito completado** | Arquitectura y ADRs definidos (`docs/ARCHITECTURE.md` + `docs/adr/0001–0008`) |
-| **Próximo paso inmediato** | Aislar los modelos de dominio sin romper el prototipo actual |
+| **Fase actual** | Fase 1 — Adaptador OMR (`OMREngine`) |
+| **Último hito completado** | Dominio core aislado (`packages/domain`): modelos puros, tests, lint y tipado estricto; workspace `uv` operativo |
+| **Próximo paso inmediato** | Definir el puerto `OMREngine` e implementar `FakeEngine`, manteniendo el prototipo intacto |
+| **Rama activa** | `refactor/domain-core` |
 | **Deuda técnica / Blockers activos** | *(vacío)* |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
@@ -37,7 +38,7 @@ Reglas:
 | Módulo | Componente | Fase objetivo | Estado actual |
 |---|---|---|---|
 | — | Arquitectura + ADRs | Fase 0 | Completado |
-| **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent) | Fase 0 | En curso |
+| **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent) | Fase 0 | Completado |
 | **M1** | `OMREngine` (HOMR/ONNX + oemer baseline) | Fase 1 | Pendiente |
 | **M2** | Motor de validación por reglas | Fase 2 | Pendiente |
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3 | Pendiente |
@@ -61,7 +62,7 @@ Reglas:
 |---|---|---|---|
 | 2026-09-20 | Diagnóstico del MVP y definición de arquitectura desde cero | — | `docs/ARCHITECTURE.md`, `docs/adr/` |
 | 2026-09-20 | Estructura de memoria de estado y fases creada | Fase 0 | `docs/PROJECT_STATE.md`, `docs/phases/` |
-| — | Aislar modelos de dominio | Fase 0 | `docs/phases/phase_0_core_domain/prompts/01_refactor_domain.md` |
+| 2026-09-20 | Dominio core aislado: workspace `uv`, modelos puros y 21 tests verdes (pytest/ruff/black/mypy strict) | Fase 0 | `packages/domain/`, `pyproject.toml`, `uv.lock` |
 
 ---
 
