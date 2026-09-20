@@ -12,7 +12,7 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
-members = ["packages/domain"]
+members = ["packages/domain", "packages/omr"]
 
 # ---------------------------------------------------------------------------
 # Configuración única de calidad (un solo punto de verdad del repositorio).
@@ -21,6 +21,7 @@ members = ["packages/domain"]
 [dependency-groups]
 dev = [
     "cadenza-domain",
+    "cadenza-omr",
     "pytest>=8.2",
     "ruff>=0.6",
     "black>=24.4",
@@ -29,6 +30,7 @@ dev = [
 
 [tool.uv.sources]
 cadenza-domain = { workspace = true }
+cadenza-omr = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -47,8 +49,13 @@ extend-exclude = '/(backend|frontend|\.opencode)/'
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "packages/domain/src"
+mypy_path = "packages/domain/src:packages/omr/src"
+explicit_package_bases = true
 exclude = '/(backend|frontend|\.opencode)/'
+
+[[tool.mypy.overrides]]
+module = ["homr", "homr.*", "onnxruntime.*", "cv2.*", "numpy.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["packages"]

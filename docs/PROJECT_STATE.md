@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 1 — Adaptador OMR (`OMREngine`) |
-| **Último hito completado** | Dominio core aislado (`packages/domain`): modelos puros, tests, lint y tipado estricto; workspace `uv` operativo |
-| **Próximo paso inmediato** | Definir el puerto `OMREngine` e implementar `FakeEngine`, manteniendo el prototipo intacto |
-| **Rama activa** | `refactor/domain-core` |
-| **Deuda técnica / Blockers activos** | *(vacío)* |
+| **Fase actual** | Fase 1 — Adaptador OMR (`OMREngine`) — **cerrada** (alcance acordado: Fake + HOMR in-process) |
+| **Último hito completado** | Adaptador OMR aislado (`packages/omr`): puerto `OMREngine` + `FakeOMREngine` + `HOMREngine` in-process y puente MusicXML→`ScoreIR`; 35 tests verdes (pytest/ruff/black/mypy strict) |
+| **Próximo paso inmediato** | Iniciar Fase 2 (Validación con `music21`): puerto `Validator` y catálogo de reglas puras sobre `ScoreIR` |
+| **Rama activa** | `feature/omr-adapter` (integrada a `dev`) |
+| **Deuda técnica / Blockers activos** | D1–D5 (ver sección *Deuda técnica / Blockers*) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
 
@@ -39,7 +39,7 @@ Reglas:
 |---|---|---|---|
 | — | Arquitectura + ADRs | Fase 0 | Completado |
 | **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent) | Fase 0 | Completado |
-| **M1** | `OMREngine` (HOMR/ONNX + oemer baseline) | Fase 1 | Pendiente |
+| **M1** | `OMREngine` (HOMR/ONNX + oemer baseline) | Fase 1 | Completado (núcleo: Fake + HOMR); pendiente Oemer/preproc/device/bbox (D1–D4) |
 | **M2** | Motor de validación por reglas | Fase 2 | Pendiente |
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3 | Pendiente |
 | **M4** | Active Learning + Model Registry | Fase 4 | Pendiente |
@@ -50,7 +50,11 @@ Reglas:
 
 | ID | Descripción | Impacto | Estado |
 |---|---|---|---|
-| — | Sin blockers activos | — | — |
+| D1 | `OemerEngine` (línea base OMR para comparación experimental) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
+| D2 | Preprocesado configurable (deskew, binarización, control de DPI) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
+| D3 | Reporte del dispositivo efectivo desde `onnxruntime.get_available_providers()` no expuesto | Fase 1 / M1 | Pendiente (sub-tarea) |
+| D4 | Anclas sin `bbox`: el puente MusicXML→`ScoreIR` mapea sin coordenadas por evento | Fase 1 / M3 | Pendiente (sub-tarea de enriquecimiento) |
+| D5 | `HOMREngine` no verificado E2E (requiere extra `homr` + GPU/pesos); validado por gating de import y mapper | Fase 1 | Pendiente (entorno) |
 
 *(Se agregan filas aquí a medida que surgen; se eliminan al resolverse.)*
 
@@ -63,6 +67,7 @@ Reglas:
 | 2026-09-20 | Diagnóstico del MVP y definición de arquitectura desde cero | — | `docs/ARCHITECTURE.md`, `docs/adr/` |
 | 2026-09-20 | Estructura de memoria de estado y fases creada | Fase 0 | `docs/PROJECT_STATE.md`, `docs/phases/` |
 | 2026-09-20 | Dominio core aislado: workspace `uv`, modelos puros y 21 tests verdes (pytest/ruff/black/mypy strict) | Fase 0 | `packages/domain/`, `pyproject.toml`, `uv.lock` |
+| 2026-09-20 | Adaptador OMR: puerto `OMREngine`, `FakeOMREngine` determinista y `HOMREngine` in-process (API Python, sin subprocess), namespace `cadenza` PEP 420 y 35 tests verdes | Fase 1 | `packages/omr/`, `pyproject.toml`, `uv.lock` |
 
 ---
 
