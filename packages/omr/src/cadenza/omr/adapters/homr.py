@@ -18,7 +18,6 @@ from typing import Any
 from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 
 from ..engine import OMREngine
-from .musicxml import musicxml_to_score_ir
 
 ENGINE_ID = "homr"
 TITLE_DETECTION = False
@@ -102,6 +101,10 @@ class HOMREngine(OMREngine):
         return ENGINE_ID
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
+        # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
+        # se usa el motor real (FakeOMREngine no lo necesita).
+        from cadenza.interchange import musicxml_to_score_ir
+
         if not image_path.is_file():
             raise FileNotFoundError(f"image not found: {image_path}")
 

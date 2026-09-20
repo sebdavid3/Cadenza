@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Adaptador OMR de Cadenza: puerto OMREngine + adaptadores HOMR (in-process) y fake."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["cadenza-domain"]
+dependencies = ["cadenza-domain", "cadenza-interchange"]
 
 # Dependencias pesadas de inferencia como extra opcional: la suite de tests y la
 # CI usan FakeOMREngine y no necesitan modelos, GPU ni onnxruntime.

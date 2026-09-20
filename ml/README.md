@@ -9,9 +9,13 @@ ejecutan con `uv run` y consumen los paquetes `cadenza-*` del workspace.
 ```text
 ml/
 └── experiments/
-    ├── exp_01_effort.py          # Reducción de esfuerzo: manual vs. asistido
-    └── exp_02_active_learning.py # Comparación de estrategias de AL
-results/                          # Salidas generadas (ignoradas por git)
+    ├── exp_01_effort.py           # Fase 5: reducción de esfuerzo (sintético)
+    ├── exp_02_active_learning.py  # Fase 5: comparación de estrategias de AL
+    ├── corpus.py                  # Fase 6: registro, descarga y manifiesto de corpus
+    ├── exp_03_omr_quality.py      # Fase 6: calidad OMR (OMR-NED oficial)
+    └── exp_04_homr_transcribe.py  # Fase 6: transcripción real con HOMR (GPU)
+results/                           # Salidas generadas (ignoradas por git)
+data/                              # Corpus descargado (ignorado por git)
 ```
 
 ## Ejecución
@@ -45,8 +49,55 @@ muestras elegidas (compás, densidad de error, magnitud de corrección). El resu
 impreso en consola reporta la media de error, magnitud y **diversidad media por
 par**, evidencia de que la híbrida balancea criticidad y cobertura.
 
+## Fase 6 — Validación empírica sobre corpus real
+
+Requiere el extra de métricas (`musicdiff`), ya incluido en el entorno de
+desarrollo:
+
+```powershell
+uv sync        # instala cadenza-learning[metrics] vía el grupo dev
+```
+
+### `corpus.py` — registro, descarga y manifiesto
+
+```powershell
+uv run python ml/experiments/corpus.py info
+uv run python ml/experiments/corpus.py fetch --url <URL_ARCHIVO> --corpus primus
+uv run python ml/experiments/corpus.py manifest --corpus primus --limit 100
+```
+
+Estructura esperada tras la descarga: `data/<corpus>/images/*.png` y
+`data/<corpus>/ground_truth/*.{mei,krn,musicxml}`. El manifiesto
+(`data/manifest.json`) guarda el sha256 de cada par para reproducibilidad.
+Corpus registrados: PrIMuS, Camera-PrIMuS (MEI) y SMB (**kern). La descarga
+directa se pasa con `--url` porque los enlaces cambian; las URLs de aterrizaje
+oficiales están en el registro.
+
+### `exp_03_omr_quality.py` — OMR-NED oficial
+
+```powershell
+uv run python ml/experiments/exp_03_omr_quality.py
+```
+
+Sin corpus corre en modo *smoke* con un fixture; con `data/manifest.json` y
+predicciones en `data/<corpus>/predictions/<id>.musicxml`, mide OMR-NED por par
+y escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
+
+### `exp_04_homr_transcribe.py` — transcripción real (GPU)
+
+```powershell
+uv sync --extra homr          # instala HOMR + onnxruntime (pesado)
+uv run python ml/experiments/exp_04_homr_transcribe.py --limit 20
+uv run python ml/experiments/exp_03_omr_quality.py
+```
+
+Transcribe cada imagen del corpus con `HOMREngine`, exporta la predicción a
+MusicXML (`score_ir_to_musicxml`) y la deja para que `exp_03` la puntúe. Usa
+`--cpu` para forzar inferencia en CPU si la GPU no está disponible.
+
 ## Reproducibilidad
 
-Ambos usan `SEED = 20260920` y no dependen de red, GPU ni base de datos, por lo
-que son deterministas y aptos para CI. Las salidas en `results/` están ignoradas
-por git (ver `.gitignore`); sus valores se citan en la tesis.
+Los experimentos de Fase 5 usan `SEED = 20260920` y no dependen de red, GPU ni
+base de datos. Los de Fase 6 fijan el corpus por hash en `data/manifest.json`.
+Las salidas en `results/` y el corpus en `data/` están ignorados por git (ver
+`.gitignore`); sus valores se citan en la tesis.

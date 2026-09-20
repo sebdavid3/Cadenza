@@ -6,6 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = ["cadenza-domain"]
 
+# Métrica oficial OMR-NED (Sheet Music Benchmark) para el capítulo experimental.
+# Extra opcional: el núcleo de aprendizaje no depende de musicdiff.
+[project.optional-dependencies]
+metrics = ["musicdiff>=5.2", "converter21>=4.0.1"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

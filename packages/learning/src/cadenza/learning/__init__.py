@@ -9,6 +9,7 @@ from .acquisition.uncertainty import UncertaintyAcquisition
 from .config import load_training_config
 from .dataset import DatasetBuilder, TrainingSample
 from .evaluation import normalized_edit_distance, symbol_error_rate
+from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
 from .registry import (
     EvaluationMetrics,
@@ -26,8 +27,10 @@ __all__ = [
     "EvaluationMetrics",
     "FakeTrainer",
     "HybridAcquisition",
+    "MetricsExtraMissing",
     "ModelRegistry",
     "ModelVersion",
+    "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
     "TrainedArtifact",
@@ -38,6 +41,8 @@ __all__ = [
     "feature_distance",
     "load_training_config",
     "normalized_edit_distance",
+    "omr_ned_batch",
+    "omr_ned_pair",
     "pitch_to_midi",
     "semitone_distance",
     "symbol_error_rate",
