@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 3A — Backend API + Persistencia — **cerrada**; Fase 3B (Frontend HITL) preparada |
-| **Último hito completado** | API + persistencia (`apps/api`, `packages/persistence`): 3 endpoints FastAPI, modelos SQLAlchemy/JSONB con Alembic y flujo E2E Fake→Validation→SQLite; D4 mitigada (bbox sintético) y D7 resuelta; 61 tests verdes (pytest/ruff/black/mypy strict) |
-| **Próximo paso inmediato** | Fase 3B: frontend React HITL (visor OSMD, overlays con `bbox`, editor de `EditEvent`) contra la API |
-| **Rama activa** | `feature/hitl-api-backend` (integrada a `dev`) |
-| **Deuda técnica / Blockers activos** | D1–D6, D8–D10 (D4 mitigada, D7 resuelta) |
+| **Fase actual** | Fase 3B — Frontend HITL — **cerrada**; Fase 4 (Active Learning) preparada |
+| **Último hito completado** | SPA HITL (`apps/web`, React 18 + TS + Zustand + TanStack Query): overlays sobre imagen con `bbox`, edición `SetPitch` persistida, undo/redo y métricas de esfuerzo; endpoint `GET /sessions/{id}`; flujo E2E verificado en navegador; 64 pytest + 8 vitest + build verdes |
+| **Próximo paso inmediato** | Fase 4 (Active Learning + Model Registry): `DatasetBuilder`, `AcquisitionStrategy` y `Trainer` |
+| **Rama activa** | `feature/hitl-frontend` (integrada a `dev`) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8–D13 (D4 mitigada, D7 resuelta) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
 
@@ -41,8 +41,8 @@ Reglas:
 | **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent, TimeSignature) | Fase 0 | Completado |
 | **M1** | `OMREngine` (HOMR/ONNX + oemer baseline) | Fase 1 | Completado (núcleo: Fake + HOMR); pendiente Oemer/preproc/device/bbox (D1–D4) |
 | **M2** | Motor de validación por reglas | Fase 2 | Completado (núcleo: motor + balance); pendiente catálogo/métricas (D6, D8) |
-| **M3-A** | API Gateway + persistencia (`apps/api`, `packages/persistence`) | Fase 3A | Completado (núcleo: 3 endpoints, SQLAlchemy/JSONB, E2E SQLite); pendiente Postgres real/auth (D10) |
-| **M3** | Interfaz HITL (editor + eventos) | Fase 3B | Pendiente |
+| **M3-A** | API Gateway + persistencia (`apps/api`, `packages/persistence`) | Fase 3A | Completado (núcleo: 4 endpoints, SQLAlchemy/JSONB, E2E SQLite); pendiente Postgres real/auth (D10) |
+| **M3** | Interfaz HITL (editor + eventos) | Fase 3B | Completado (núcleo: imagen + overlays `bbox`, `SetPitch` inmutable, undo/redo, métricas); pendiente OSMD/Tone.js (D11, D12) |
 | **M4** | Active Learning + Model Registry | Fase 4 | Pendiente |
 
 ---
@@ -61,6 +61,9 @@ Reglas:
 | D8 | Métricas de precisión/recall del validador sobre casos conocidos no reportadas | Fase 2 / M2 | Pendiente (sub-tarea) |
 | D9 | Frontera canónica MusicXML↔`ScoreIR` con `music21` no implementada (sigue el puente `xml.etree` de Fase 1) | Fase 2 | Pendiente (sub-tarea) |
 | D10 | Persistencia verificada solo en SQLite en memoria: sin migración aplicada ni tests contra PostgreSQL real; API sin autenticación | Fase 3A | Pendiente (sub-tarea) |
+| D11 | Renderizado de notación con OSMD no implementado: bloqueado por el exportador `ScoreIR`→MusicXML (paquete `export`) y por la instrumentación `Anchor→SVG` (ADR-0006) | Fase 3B / M3 | Pendiente (sub-tarea) |
+| D12 | Reproducción con Tone.js y cursor sincronizado (mapa tiempo→ancla) no implementada | Fase 3B / M3 | Pendiente (sub-tarea) |
+| D13 | Métricas de esfuerzo calculadas solo en el cliente; no se persisten en la base de datos | Fase 3B / M4 | Pendiente (sub-tarea) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -76,6 +79,7 @@ Reglas:
 | 2026-09-20 | Adaptador OMR: puerto `OMREngine`, `FakeOMREngine` determinista y `HOMREngine` in-process (API Python, sin subprocess), namespace `cadenza` PEP 420 y 35 tests verdes | Fase 1 | `packages/omr/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Motor de validación: `TimeSignature` en dominio, `ValidationRule`/`ValidationEngine` y `MeasureBalanceRule` sobre `music21` con anclaje al primer evento; 54 tests verdes | Fase 2 | `packages/validation/`, `packages/domain/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Backend API + persistencia: 3 endpoints FastAPI, modelos SQLAlchemy con JSONB (SQLite/PostgreSQL) y Alembic, `bbox` sintético en `FakeOMREngine`, flujo E2E Fake→Validation→SQLite; 61 tests verdes | Fase 3A | `apps/api/`, `packages/persistence/`, `packages/omr/`, `pyproject.toml`, `uv.lock` |
+| 2026-09-20 | Frontend HITL: `apps/web` (React 18 + TS + Zustand + TanStack Query), `GET /sessions/{id}`, overlays `bbox` sobre imagen, `SetPitch` inmutable, undo/redo y métricas de esfuerzo; E2E en navegador (64 pytest + 8 vitest + build) | Fase 3B | `apps/web/`, `apps/api/`, `pyproject.toml` |
 
 ---
 

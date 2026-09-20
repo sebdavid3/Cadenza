@@ -114,3 +114,33 @@ def test_append_edit_is_immutable_append_only(client: TestClient) -> None:
 def test_append_edit_unknown_session_returns_404(client: TestClient) -> None:
     payload = {"op": "SetPitch", "anchor": ANCHOR, "author": "tester"}
     assert client.post("/sessions/unknown/edits", json=payload).status_code == 404
+
+
+def test_get_session_returns_document_anchors_and_findings() -> None:
+    with _client(_UnbalancedEngine()) as test_client:
+        body = test_client.post("/transcribe", files=_upload()).json()
+        response = test_client.get(f"/sessions/{body['session_id']}")
+        assert response.status_code == 200
+        detail = response.json()
+        assert detail["document_id"] == body["document_id"]
+        assert detail["omr_engine"] == "fake"
+
+        entries = detail["document"]["anchors"]["entries"]
+        assert entries
+        assert entries[0]["anchor"]["bbox"] is not None
+        assert len(detail["findings"]) == 1
+        assert detail["edits"] == []
+
+
+def test_get_session_includes_appended_edits(client: TestClient) -> None:
+    session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
+    payload = {"op": "SetPitch", "anchor": ANCHOR, "author": "tester"}
+    client.post(f"/sessions/{session_id}/edits", json=payload)
+
+    detail = client.get(f"/sessions/{session_id}").json()
+    assert len(detail["edits"]) == 1
+    assert detail["edits"][0]["seq"] == 1
+
+
+def test_get_session_unknown_returns_404(client: TestClient) -> None:
+    assert client.get("/sessions/unknown").status_code == 404

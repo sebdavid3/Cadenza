@@ -30,7 +30,13 @@ from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
-from .schemas import EditEventCreate, EditEventRead, FindingRead, TranscribeResponse
+from .schemas import (
+    EditEventCreate,
+    EditEventRead,
+    FindingRead,
+    SessionDetailRead,
+    TranscribeResponse,
+)
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -102,6 +108,31 @@ def create_app(
             document_id=document.id,
             omr_engine=document.provenance.omr_engine,
             findings_count=len(findings),
+        )
+
+    @app.get("/sessions/{session_id}", response_model=SessionDetailRead)
+    def get_session(session_id: str, db: DbDep) -> SessionDetailRead:
+        record = db.get(SessionRecord, session_id)
+        if record is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="session not found")
+
+        findings = db.scalars(
+            select(FindingRecord)
+            .where(FindingRecord.session_id == session_id)
+            .order_by(FindingRecord.id)
+        ).all()
+        edits = db.scalars(
+            select(EditEventRecord)
+            .where(EditEventRecord.session_id == session_id)
+            .order_by(EditEventRecord.seq)
+        ).all()
+        return SessionDetailRead(
+            session_id=record.id,
+            document_id=record.document_id,
+            omr_engine=record.omr_engine,
+            document=record.document,
+            findings=[FindingRead.from_record(row) for row in findings],
+            edits=[EditEventRead.from_record(row) for row in edits],
         )
 
     @app.get("/sessions/{session_id}/findings", response_model=list[FindingRead])

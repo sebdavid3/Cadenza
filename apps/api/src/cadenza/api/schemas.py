@@ -91,3 +91,14 @@ class EditEventRead(BaseModel):
             after=record.after,
             created_at=record.created_at,
         )
+
+
+class SessionDetailRead(BaseModel):
+    """Documento persistido + findings + correcciones de una sesión (HITL)."""
+
+    session_id: str
+    document_id: str
+    omr_engine: str
+    document: dict[str, Any]
+    findings: list[FindingRead]
+    edits: list[EditEventRead]
