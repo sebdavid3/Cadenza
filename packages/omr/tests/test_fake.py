@@ -25,6 +25,8 @@ def test_anchor_index_covers_all_events(tmp_path: Path) -> None:
     for anchor, event in document.anchors.items():
         assert document.anchors.get(anchor) is event
         assert anchor.staff_id == "part-0-staff-0"
+        assert anchor.bbox is not None
+        assert event.bbox == anchor.bbox
 
 
 def test_expected_structure(tmp_path: Path) -> None:

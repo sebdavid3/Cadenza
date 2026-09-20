@@ -5,19 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 from pathlib import Path
 
-from cadenza.domain import Anchor, Measure, ScoreDocument, Severity, build_anchor_index
+from cadenza.domain import Measure, ScoreDocument, Severity, build_anchor_index
 from cadenza.omr import FakeOMREngine
 from cadenza.validation import MeasureBalanceRule, ValidationEngine
-
-PART_STAFF_ID = "part-0-staff-0"
-FIRST_EVENT_ANCHOR = Anchor(
-    part=0,
-    staff=0,
-    measure=1,
-    voice=0,
-    event_index=0,
-    staff_id=PART_STAFF_ID,
-)
 
 
 def _balanced(tmp_path: Path) -> ScoreDocument:
@@ -54,7 +44,9 @@ def test_unbalanced_measure_reports_one_anchored_finding(tmp_path: Path) -> None
     finding = findings[0]
     assert finding.rule_id == "measure.balance"
     assert finding.severity is Severity.ERROR
-    assert finding.anchor == FIRST_EVENT_ANCHOR
+    assert finding.anchor == document.anchors.anchors()[0]
+    assert finding.anchor.measure == 1
+    assert finding.anchor.bbox is not None
     assert finding.suggested_fix is not None
 
 

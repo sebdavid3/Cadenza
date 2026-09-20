@@ -6,6 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from cadenza.domain import (
+    BBox,
     Event,
     EventKind,
     Measure,
@@ -25,22 +26,64 @@ FAKE_MODEL_VERSION = "fake-1"
 FAKE_DOCUMENT_ID = "fake-doc-0001"
 FAKE_TIME_SIGNATURE = TimeSignature(4, 4)
 
+_BBOX_WIDTH = 16.0
+_BBOX_HEIGHT = 20.0
+_BBOX_Y = 40.0
+_BBOX_START_X = 20.0
+_BBOX_STEP = 30.0
+
+
+def _bbox(index: int) -> BBox:
+    """Rectángulo sintético determinista (x0, y0, x1, y1) para overlays de la UI."""
+
+    x0 = _BBOX_START_X + index * _BBOX_STEP
+    return (x0, _BBOX_Y, x0 + _BBOX_WIDTH, _BBOX_Y + _BBOX_HEIGHT)
+
 
 def _sample_ir() -> ScoreIR:
-    """`ScoreIR` hardcodeado y neutral: monofónico, dos compases, notas y silencio."""
+    """`ScoreIR` hardcodeado y neutral: monofónico, dos compases, notas y silencio.
+
+    Cada evento lleva un `bbox` sintético para que la UI (Fase 3B) pueda probar el
+    renderizado de overlays sin depender de coordenadas reales del OMR.
+    """
 
     first_measure = Measure(
         number=1,
         events=(
-            Event(kind=EventKind.NOTE, voice=0, pitch="C4", duration_beats=Fraction(1)),
-            Event(kind=EventKind.NOTE, voice=0, pitch="D4", duration_beats=Fraction(1)),
-            Event(kind=EventKind.REST, voice=0, duration_beats=Fraction(2)),
+            Event(
+                kind=EventKind.NOTE,
+                voice=0,
+                pitch="C4",
+                duration_beats=Fraction(1),
+                bbox=_bbox(0),
+            ),
+            Event(
+                kind=EventKind.NOTE,
+                voice=0,
+                pitch="D4",
+                duration_beats=Fraction(1),
+                bbox=_bbox(1),
+            ),
+            Event(
+                kind=EventKind.REST,
+                voice=0,
+                duration_beats=Fraction(2),
+                bbox=_bbox(2),
+            ),
         ),
         time_signature=FAKE_TIME_SIGNATURE,
     )
     second_measure = Measure(
         number=2,
-        events=(Event(kind=EventKind.NOTE, voice=0, pitch="E4", duration_beats=Fraction(4)),),
+        events=(
+            Event(
+                kind=EventKind.NOTE,
+                voice=0,
+                pitch="E4",
+                duration_beats=Fraction(4),
+                bbox=_bbox(3),
+            ),
+        ),
         time_signature=FAKE_TIME_SIGNATURE,
     )
     staff = Staff(id="part-0-staff-0", measures=(first_measure, second_measure))
