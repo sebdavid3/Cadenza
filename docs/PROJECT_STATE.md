@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 1 — Adaptador OMR (`OMREngine`) — **cerrada** (alcance acordado: Fake + HOMR in-process) |
-| **Último hito completado** | Adaptador OMR aislado (`packages/omr`): puerto `OMREngine` + `FakeOMREngine` + `HOMREngine` in-process y puente MusicXML→`ScoreIR`; 35 tests verdes (pytest/ruff/black/mypy strict) |
-| **Próximo paso inmediato** | Iniciar Fase 2 (Validación con `music21`): puerto `Validator` y catálogo de reglas puras sobre `ScoreIR` |
-| **Rama activa** | `feature/omr-adapter` (integrada a `dev`) |
-| **Deuda técnica / Blockers activos** | D1–D5 (ver sección *Deuda técnica / Blockers*) |
+| **Fase actual** | Fase 2 — Validación por reglas — **cerrada** (alcance acordado: motor + regla de balance) |
+| **Último hito completado** | Motor de validación (`packages/validation`): `ValidationRule` + `ValidationEngine` + `MeasureBalanceRule` sobre `music21`; `TimeSignature` añadido al dominio; 54 tests verdes (pytest/ruff/black/mypy strict) |
+| **Próximo paso inmediato** | Iniciar Fase 3 (Interfaz HITL): editor sobre anclas, `EditEvent` y playback |
+| **Rama activa** | `feature/validation-engine` (integrada a `dev`) |
+| **Deuda técnica / Blockers activos** | D1–D9 (ver sección *Deuda técnica / Blockers*) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
 
@@ -38,9 +38,9 @@ Reglas:
 | Módulo | Componente | Fase objetivo | Estado actual |
 |---|---|---|---|
 | — | Arquitectura + ADRs | Fase 0 | Completado |
-| **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent) | Fase 0 | Completado |
+| **Dominio** | `packages/domain` (ScoreDocument, Anchor, EditEvent, TimeSignature) | Fase 0 | Completado |
 | **M1** | `OMREngine` (HOMR/ONNX + oemer baseline) | Fase 1 | Completado (núcleo: Fake + HOMR); pendiente Oemer/preproc/device/bbox (D1–D4) |
-| **M2** | Motor de validación por reglas | Fase 2 | Pendiente |
+| **M2** | Motor de validación por reglas | Fase 2 | Completado (núcleo: motor + balance); pendiente catálogo/DB/métricas (D6–D9) |
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3 | Pendiente |
 | **M4** | Active Learning + Model Registry | Fase 4 | Pendiente |
 
@@ -55,6 +55,10 @@ Reglas:
 | D3 | Reporte del dispositivo efectivo desde `onnxruntime.get_available_providers()` no expuesto | Fase 1 / M1 | Pendiente (sub-tarea) |
 | D4 | Anclas sin `bbox`: el puente MusicXML→`ScoreIR` mapea sin coordenadas por evento | Fase 1 / M3 | Pendiente (sub-tarea de enriquecimiento) |
 | D5 | `HOMREngine` no verificado E2E (requiere extra `homr` + GPU/pesos); validado por gating de import y mapper | Fase 1 | Pendiente (entorno) |
+| D6 | Catálogo de reglas incompleto: faltan armadura/alteraciones, colisiones de voz, rango y cierres | Fase 2 / M2 | Pendiente (sub-tarea) |
+| D7 | Persistencia de `Finding` en PostgreSQL/JSONB no implementada | Fase 2 / M2 | Pendiente (sub-tarea) |
+| D8 | Métricas de precisión/recall del validador sobre casos conocidos no reportadas | Fase 2 / M2 | Pendiente (sub-tarea) |
+| D9 | Frontera canónica MusicXML↔`ScoreIR` con `music21` no implementada (sigue el puente `xml.etree` de Fase 1) | Fase 2 | Pendiente (sub-tarea) |
 
 *(Se agregan filas aquí a medida que surgen; se eliminan al resolverse.)*
 
@@ -68,6 +72,7 @@ Reglas:
 | 2026-09-20 | Estructura de memoria de estado y fases creada | Fase 0 | `docs/PROJECT_STATE.md`, `docs/phases/` |
 | 2026-09-20 | Dominio core aislado: workspace `uv`, modelos puros y 21 tests verdes (pytest/ruff/black/mypy strict) | Fase 0 | `packages/domain/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Adaptador OMR: puerto `OMREngine`, `FakeOMREngine` determinista y `HOMREngine` in-process (API Python, sin subprocess), namespace `cadenza` PEP 420 y 35 tests verdes | Fase 1 | `packages/omr/`, `pyproject.toml`, `uv.lock` |
+| 2026-09-20 | Motor de validación: `TimeSignature` en dominio, `ValidationRule`/`ValidationEngine` y `MeasureBalanceRule` sobre `music21` con anclaje al primer evento; 54 tests verdes | Fase 2 | `packages/validation/`, `packages/domain/`, `pyproject.toml`, `uv.lock` |
 
 ---
 

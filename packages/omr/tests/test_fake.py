@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cadenza.domain import EventKind, ScoreDocument
+from cadenza.domain import EventKind, ScoreDocument, TimeSignature
 from cadenza.omr import FakeOMREngine
 
 
@@ -31,6 +31,7 @@ def test_expected_structure(tmp_path: Path) -> None:
     document = _fake_document(tmp_path)
     staff = document.score.parts[0].staves[0]
     assert [measure.number for measure in staff.measures] == [1, 2]
+    assert staff.measures[0].time_signature == TimeSignature(4, 4)
     first_measure = staff.measures[0]
     assert [event.kind for event in first_measure.events] == [
         EventKind.NOTE,

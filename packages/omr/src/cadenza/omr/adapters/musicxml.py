@@ -2,8 +2,9 @@
 
 La Fase 1 mapea la salida MusicXML de HOMR al `ScoreIR` del dominio usando solo
 la librería estándar (`xml.etree`), sin `music21` y con `bbox=None` (las
-coordenadas espaciales quedan como enriquecimiento futuro). El parseo canónico
-con `music21` y la frontera de validación llegan en la Fase 2.
+coordenadas espaciales quedan como enriquecimiento futuro). Se extrae también la
+métrica (`TimeSignature`) de cada compás. El parseo canónico con `music21` y el
+enriquecimiento de anclas llegan en fases posteriores.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 
-from cadenza.domain import Event, EventKind, Measure, Part, ScoreIR, Staff
+from cadenza.domain import Event, EventKind, Measure, Part, ScoreIR, Staff, TimeSignature
 
 PITCH_STEPS = {"C", "D", "E", "F", "G", "A", "B"}
 ACCIDENTAL_SUFFIX = {"-1": "b", "0": "", "1": "#"}
@@ -32,6 +33,17 @@ def _first_text(element: ET.Element, name: str) -> str | None:
         if _local(child.tag) == name:
             return child.text
     return None
+
+
+def _time_signature(attributes: ET.Element) -> TimeSignature | None:
+    times = _children(attributes, "time")
+    if not times:
+        return None
+    beats = _first_text(times[0], "beats")
+    beat_type = _first_text(times[0], "beat-type")
+    if beats is None or beat_type is None:
+        return None
+    return TimeSignature(beats=int(beats), beat_type=int(beat_type))
 
 
 def _pitch_text(note: ET.Element) -> str | None:
@@ -63,6 +75,7 @@ def _event_from_note(note: ET.Element, divisions: int) -> Event:
 
 def _parse_part(part: ET.Element, part_index: int) -> Part:
     divisions = 1
+    time_signature: TimeSignature | None = None
     staff_measures: dict[int, list[Measure]] = {}
 
     for measure in _children(part, "measure"):
@@ -76,6 +89,9 @@ def _parse_part(part: ET.Element, part_index: int) -> Part:
                 divisions_text = _first_text(child, "divisions")
                 if divisions_text is not None:
                     divisions = int(divisions_text) or 1
+                parsed_signature = _time_signature(child)
+                if parsed_signature is not None:
+                    time_signature = parsed_signature
             elif tag == "note":
                 staff_text = _first_text(child, "staff")
                 staff_index = int(staff_text) - 1 if staff_text is not None else 0
@@ -83,7 +99,7 @@ def _parse_part(part: ET.Element, part_index: int) -> Part:
 
         for staff_index, events in by_staff.items():
             staff_measures.setdefault(staff_index, []).append(
-                Measure(number=number, events=tuple(events))
+                Measure(number=number, events=tuple(events), time_signature=time_signature)
             )
 
     staves = tuple(

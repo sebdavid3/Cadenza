@@ -5,7 +5,7 @@ from __future__ import annotations
 from fractions import Fraction
 from pathlib import Path
 
-from cadenza.domain import EventKind, ScoreIR, build_anchor_index
+from cadenza.domain import EventKind, ScoreIR, TimeSignature, build_anchor_index
 from cadenza.omr.adapters.musicxml import musicxml_to_score_ir
 
 FIXTURE = Path(__file__).parent / "fixtures" / "simple.musicxml"
@@ -44,3 +44,9 @@ def test_anchor_index_is_deterministic_and_complete() -> None:
     index = build_anchor_index(score)
     assert len(index) == 4
     assert index == build_anchor_index(score)
+
+
+def test_time_signature_is_mapped() -> None:
+    measures = _score().parts[0].staves[0].measures
+    assert measures[0].time_signature == TimeSignature(4, 4)
+    assert measures[1].time_signature == TimeSignature(4, 4)

@@ -12,7 +12,7 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
-members = ["packages/domain", "packages/omr"]
+members = ["packages/domain", "packages/omr", "packages/validation"]
 
 # ---------------------------------------------------------------------------
 # Configuración única de calidad (un solo punto de verdad del repositorio).
@@ -22,6 +22,7 @@ members = ["packages/domain", "packages/omr"]
 dev = [
     "cadenza-domain",
     "cadenza-omr",
+    "cadenza-validation",
     "pytest>=8.2",
     "ruff>=0.6",
     "black>=24.4",
@@ -31,6 +32,7 @@ dev = [
 [tool.uv.sources]
 cadenza-domain = { workspace = true }
 cadenza-omr = { workspace = true }
+cadenza-validation = { workspace = true }
 
 [tool.ruff]
 line-length = 100
@@ -49,12 +51,12 @@ extend-exclude = '/(backend|frontend|\.opencode)/'
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "packages/domain/src:packages/omr/src"
+mypy_path = "packages/domain/src:packages/omr/src:packages/validation/src"
 explicit_package_bases = true
 exclude = '/(backend|frontend|\.opencode)/'
 
 [[tool.mypy.overrides]]
-module = ["homr", "homr.*", "onnxruntime.*", "cv2.*", "numpy.*"]
+module = ["homr", "homr.*", "onnxruntime.*", "cv2.*", "numpy.*", "music21", "music21.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

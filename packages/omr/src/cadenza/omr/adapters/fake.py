@@ -14,6 +14,7 @@ from cadenza.domain import (
     ScoreDocument,
     ScoreIR,
     Staff,
+    TimeSignature,
     build_anchor_index,
 )
 
@@ -22,6 +23,7 @@ from ..engine import OMREngine
 FAKE_ENGINE_ID = "fake"
 FAKE_MODEL_VERSION = "fake-1"
 FAKE_DOCUMENT_ID = "fake-doc-0001"
+FAKE_TIME_SIGNATURE = TimeSignature(4, 4)
 
 
 def _sample_ir() -> ScoreIR:
@@ -34,10 +36,12 @@ def _sample_ir() -> ScoreIR:
             Event(kind=EventKind.NOTE, voice=0, pitch="D4", duration_beats=Fraction(1)),
             Event(kind=EventKind.REST, voice=0, duration_beats=Fraction(2)),
         ),
+        time_signature=FAKE_TIME_SIGNATURE,
     )
     second_measure = Measure(
         number=2,
         events=(Event(kind=EventKind.NOTE, voice=0, pitch="E4", duration_beats=Fraction(4)),),
+        time_signature=FAKE_TIME_SIGNATURE,
     )
     staff = Staff(id="part-0-staff-0", measures=(first_measure, second_measure))
     return ScoreIR(parts=(Part(id="part-0", staves=(staff,)),))

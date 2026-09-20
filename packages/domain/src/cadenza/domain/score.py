@@ -14,6 +14,7 @@ from typing import Any
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .provenance import Provenance
+from .time_signature import TimeSignature
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,18 +63,24 @@ class Event:
 class Measure:
     number: int
     events: tuple[Event, ...] = ()
+    time_signature: TimeSignature | None = None
 
     def to_primitive(self) -> dict[str, Any]:
         return {
             "number": self.number,
             "events": [event.to_primitive() for event in self.events],
+            "time_signature": (
+                None if self.time_signature is None else self.time_signature.to_primitive()
+            ),
         }
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Measure:
+        signature = data.get("time_signature")
         return cls(
             number=int(data["number"]),
             events=tuple(Event.from_primitive(item) for item in data["events"]),
+            time_signature=(None if signature is None else TimeSignature.from_primitive(signature)),
         )
 
 

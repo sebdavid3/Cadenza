@@ -20,6 +20,7 @@ from .score import (
     Staff,
     build_anchor_index,
 )
+from .time_signature import TimeSignature
 
 __all__ = [
     "Anchor",
@@ -38,5 +39,6 @@ __all__ = [
     "ScoreIR",
     "Severity",
     "Staff",
+    "TimeSignature",
     "build_anchor_index",
 ]
