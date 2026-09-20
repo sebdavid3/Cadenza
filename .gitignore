@@ -59,3 +59,7 @@ Thumbs.db
 # Temp files
 /tmp/
 *.tar.gz
+
+# Artefactos de experimentos (CSV/JSON generados en la tesis)
+/results/*
+!/results/.gitkeep

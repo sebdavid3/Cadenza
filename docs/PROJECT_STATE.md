@@ -6,10 +6,10 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 4 — Active Learning + Model Registry — **cerrada** (núcleo); Fase 5 (experimentos) preparada |
-| **Último hito completado** | Aprendizaje activo (`packages/learning`): `DatasetBuilder`, 3 estrategias de adquisición, evaluación SER/NED, `ModelRegistry` con promoción por umbral y `Trainer`/`FakeTrainer`; `configs/learning/`; 93 tests verdes (pytest/ruff/black/mypy strict) |
-| **Próximo paso inmediato** | Fase 5 (experimentos): baseline OMR vs. asistido y comparación de estrategias de AL sobre un corpus de prueba |
-| **Rama activa** | `feature/active-learning` (integrada a `dev`) |
+| **Fase actual** | Fase 5 — Framework de Experimentos — **cerrada** (simulaciones base) |
+| **Último hito completado** | Framework de experimentos (`ml/experiments/`): `exp_01_effort.py` (reducción de esfuerzo manual vs. asistido, 75% sobre 40 compases) y `exp_02_active_learning.py` (comparación de las 3 estrategias de AL sobre un pool de 80 muestras); salidas en `results/`; 104 tests verdes (pytest/ruff/mypy strict) |
+| **Próximo paso inmediato** | Endurecimiento arquitectónico post-auditoría: append-only en BD (`EditEventRepository`) y proyección del log (`materialize`); luego Fase 6 (experimentos sobre corpus real / OMR-NED con `musicdiff`) |
+| **Rama activa** | `feature/experiments` |
 | **Deuda técnica / Blockers activos** | D1–D6, D8–D16 (D4 mitigada, D7 resuelta) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
@@ -44,6 +44,7 @@ Reglas:
 | **M3-A** | API Gateway + persistencia (`apps/api`, `packages/persistence`) | Fase 3A | Completado (núcleo: 4 endpoints, SQLAlchemy/JSONB, E2E SQLite); pendiente Postgres real/auth (D10) |
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3B | Completado (núcleo: imagen + overlays `bbox`, `SetPitch` inmutable, undo/redo, métricas); pendiente OSMD/Tone.js (D11, D12) |
 | **M4** | Active Learning + Model Registry | Fase 4 | Completado (núcleo: `DatasetBuilder`, 3 estrategias, `ModelRegistry`, `FakeTrainer`); pendiente trainer real/ONNX/musicdiff (D14–D16) |
+| **M5** | Framework de Experimentos (`ml/experiments/`, `results/`) | Fase 5 | Completado (núcleo: `exp_01_effort` y `exp_02_active_learning` deterministas); pendiente corpus real + integración con persistencia (D17, D18) |
 
 ---
 
@@ -67,6 +68,9 @@ Reglas:
 | D14 | `Trainer` real no implementado: solo `FakeTrainer` determinista; falta PyTorch + pipeline de HOMR + export ONNX (requiere GPU y pesos) | Fase 4 / M4 | Pendiente (entorno) |
 | D15 | OMR-NED con `musicdiff` no integrada: `normalized_edit_distance` es un proxy propio sobre secuencias de símbolos | Fase 4 / M4 | Pendiente (sub-tarea) |
 | D16 | Sin orquestación CLI del job de *fine-tuning* ni `DatasetBuilder` acoplado a persistencia (`EditEvents`/imágenes); `configs/` solo tiene la config base | Fase 4 / M4 | Pendiente (sub-tarea) |
+| D17 | Experimento 1 usa un documento sintético; falta correrlo sobre un corpus/partituras reales con OMR para reclamar validez externa | Fase 5 / M5 | Pendiente (sub-tarea) |
+| D18 | Experimento 2 depende del `DatasetBuilder`, no de la persistencia: el pool histórico aún no se extrae de sesiones reales (`EditEvents` en BD) | Fase 5 / M5 | Pendiente (sub-tarea) |
+| D19 | Reducción de esfuerzo medida en `ml/experiments` no usa los eventos HITL reales ni `musicdiff` para OMR-NED | Fase 5 / M5 | Pendiente (sub-tarea) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -84,6 +88,8 @@ Reglas:
 | 2026-09-20 | Backend API + persistencia: 3 endpoints FastAPI, modelos SQLAlchemy con JSONB (SQLite/PostgreSQL) y Alembic, `bbox` sintético en `FakeOMREngine`, flujo E2E Fake→Validation→SQLite; 61 tests verdes | Fase 3A | `apps/api/`, `packages/persistence/`, `packages/omr/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Frontend HITL: `apps/web` (React 18 + TS + Zustand + TanStack Query), `GET /sessions/{id}`, overlays `bbox` sobre imagen, `SetPitch` inmutable, undo/redo y métricas de esfuerzo; E2E en navegador (64 pytest + 8 vitest + build) | Fase 3B | `apps/web/`, `apps/api/`, `pyproject.toml` |
 | 2026-09-20 | Aprendizaje activo: `packages/learning` con `DatasetBuilder`, `Uncertainty`/`Diversity`/`Hybrid` acquisition, evaluación SER/NED, `ModelRegistry` con promoción por umbral, `Trainer`/`FakeTrainer` y `configs/learning/`; 93 tests verdes | Fase 4 | `packages/learning/`, `configs/learning/`, `pyproject.toml`, `uv.lock` |
+| 2026-09-20 | Auditoría hexagonal y saneamiento: append-only real en BD (`EditEventRepository` + listeners + migración `0002`), proyección del log (`materialize`/`apply_edit`), `music21` fuera del validador, upload a disco; 104 tests verdes | Fase 3/4 (deuda) | `packages/domain/projection.py`, `packages/persistence/repository.py`, `migrations/versions/0002_*`, `apps/api/main.py` |
+| 2026-09-20 | Framework de experimentos: `ml/experiments/exp_01_effort.py` (reducción de esfuerzo 75%) y `exp_02_active_learning.py` (comparación uncertainty/diversity/hybrid), salidas en `results/` | Fase 5 | `ml/experiments/`, `results/`, `.gitignore`, `docs/PROJECT_STATE.md` |
 
 ---
 
