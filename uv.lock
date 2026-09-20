@@ -7,6 +7,7 @@ members = [
     "cadenza",
     "cadenza-api",
     "cadenza-domain",
+    "cadenza-learning",
     "cadenza-omr",
     "cadenza-persistence",
     "cadenza-validation",
@@ -139,6 +140,7 @@ dev = [
     { name = "black" },
     { name = "cadenza-api" },
     { name = "cadenza-domain" },
+    { name = "cadenza-learning" },
     { name = "cadenza-omr" },
     { name = "cadenza-persistence" },
     { name = "cadenza-validation" },
@@ -155,6 +157,7 @@ dev = [
     { name = "black", specifier = ">=24.4" },
     { name = "cadenza-api", editable = "apps/api" },
     { name = "cadenza-domain", editable = "packages/domain" },
+    { name = "cadenza-learning", editable = "packages/learning" },
     { name = "cadenza-omr", editable = "packages/omr" },
     { name = "cadenza-persistence", editable = "packages/persistence" },
     { name = "cadenza-validation", editable = "packages/validation" },
@@ -195,6 +198,17 @@ requires-dist = [
 name = "cadenza-domain"
 version = "0.0.0"
 source = { editable = "packages/domain" }
+
+[[package]]
+name = "cadenza-learning"
+version = "0.0.0"
+source = { editable = "packages/learning" }
+dependencies = [
+    { name = "cadenza-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cadenza-domain", editable = "packages/domain" }]
 
 [[package]]
 name = "cadenza-omr"

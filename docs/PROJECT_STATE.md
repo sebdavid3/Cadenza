@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 3B — Frontend HITL — **cerrada**; Fase 4 (Active Learning) preparada |
-| **Último hito completado** | SPA HITL (`apps/web`, React 18 + TS + Zustand + TanStack Query): overlays sobre imagen con `bbox`, edición `SetPitch` persistida, undo/redo y métricas de esfuerzo; endpoint `GET /sessions/{id}`; flujo E2E verificado en navegador; 64 pytest + 8 vitest + build verdes |
-| **Próximo paso inmediato** | Fase 4 (Active Learning + Model Registry): `DatasetBuilder`, `AcquisitionStrategy` y `Trainer` |
-| **Rama activa** | `feature/hitl-frontend` (integrada a `dev`) |
-| **Deuda técnica / Blockers activos** | D1–D6, D8–D13 (D4 mitigada, D7 resuelta) |
+| **Fase actual** | Fase 4 — Active Learning + Model Registry — **cerrada** (núcleo); Fase 5 (experimentos) preparada |
+| **Último hito completado** | Aprendizaje activo (`packages/learning`): `DatasetBuilder`, 3 estrategias de adquisición, evaluación SER/NED, `ModelRegistry` con promoción por umbral y `Trainer`/`FakeTrainer`; `configs/learning/`; 93 tests verdes (pytest/ruff/black/mypy strict) |
+| **Próximo paso inmediato** | Fase 5 (experimentos): baseline OMR vs. asistido y comparación de estrategias de AL sobre un corpus de prueba |
+| **Rama activa** | `feature/active-learning` (integrada a `dev`) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8–D16 (D4 mitigada, D7 resuelta) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-09-20 |
 
@@ -43,7 +43,7 @@ Reglas:
 | **M2** | Motor de validación por reglas | Fase 2 | Completado (núcleo: motor + balance); pendiente catálogo/métricas (D6, D8) |
 | **M3-A** | API Gateway + persistencia (`apps/api`, `packages/persistence`) | Fase 3A | Completado (núcleo: 4 endpoints, SQLAlchemy/JSONB, E2E SQLite); pendiente Postgres real/auth (D10) |
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3B | Completado (núcleo: imagen + overlays `bbox`, `SetPitch` inmutable, undo/redo, métricas); pendiente OSMD/Tone.js (D11, D12) |
-| **M4** | Active Learning + Model Registry | Fase 4 | Pendiente |
+| **M4** | Active Learning + Model Registry | Fase 4 | Completado (núcleo: `DatasetBuilder`, 3 estrategias, `ModelRegistry`, `FakeTrainer`); pendiente trainer real/ONNX/musicdiff (D14–D16) |
 
 ---
 
@@ -64,6 +64,9 @@ Reglas:
 | D11 | Renderizado de notación con OSMD no implementado: bloqueado por el exportador `ScoreIR`→MusicXML (paquete `export`) y por la instrumentación `Anchor→SVG` (ADR-0006) | Fase 3B / M3 | Pendiente (sub-tarea) |
 | D12 | Reproducción con Tone.js y cursor sincronizado (mapa tiempo→ancla) no implementada | Fase 3B / M3 | Pendiente (sub-tarea) |
 | D13 | Métricas de esfuerzo calculadas solo en el cliente; no se persisten en la base de datos | Fase 3B / M4 | Pendiente (sub-tarea) |
+| D14 | `Trainer` real no implementado: solo `FakeTrainer` determinista; falta PyTorch + pipeline de HOMR + export ONNX (requiere GPU y pesos) | Fase 4 / M4 | Pendiente (entorno) |
+| D15 | OMR-NED con `musicdiff` no integrada: `normalized_edit_distance` es un proxy propio sobre secuencias de símbolos | Fase 4 / M4 | Pendiente (sub-tarea) |
+| D16 | Sin orquestación CLI del job de *fine-tuning* ni `DatasetBuilder` acoplado a persistencia (`EditEvents`/imágenes); `configs/` solo tiene la config base | Fase 4 / M4 | Pendiente (sub-tarea) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -80,6 +83,7 @@ Reglas:
 | 2026-09-20 | Motor de validación: `TimeSignature` en dominio, `ValidationRule`/`ValidationEngine` y `MeasureBalanceRule` sobre `music21` con anclaje al primer evento; 54 tests verdes | Fase 2 | `packages/validation/`, `packages/domain/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Backend API + persistencia: 3 endpoints FastAPI, modelos SQLAlchemy con JSONB (SQLite/PostgreSQL) y Alembic, `bbox` sintético en `FakeOMREngine`, flujo E2E Fake→Validation→SQLite; 61 tests verdes | Fase 3A | `apps/api/`, `packages/persistence/`, `packages/omr/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | Frontend HITL: `apps/web` (React 18 + TS + Zustand + TanStack Query), `GET /sessions/{id}`, overlays `bbox` sobre imagen, `SetPitch` inmutable, undo/redo y métricas de esfuerzo; E2E en navegador (64 pytest + 8 vitest + build) | Fase 3B | `apps/web/`, `apps/api/`, `pyproject.toml` |
+| 2026-09-20 | Aprendizaje activo: `packages/learning` con `DatasetBuilder`, `Uncertainty`/`Diversity`/`Hybrid` acquisition, evaluación SER/NED, `ModelRegistry` con promoción por umbral, `Trainer`/`FakeTrainer` y `configs/learning/`; 93 tests verdes | Fase 4 | `packages/learning/`, `configs/learning/`, `pyproject.toml`, `uv.lock` |
 
 ---
 
