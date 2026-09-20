@@ -62,16 +62,19 @@ uv sync        # instala cadenza-learning[metrics] vía el grupo dev
 
 ```powershell
 uv run python ml/experiments/corpus.py info
-uv run python ml/experiments/corpus.py fetch --url <URL_ARCHIVO> --corpus primus
+# PrIMuS (impresas monofónicas, MEI)
+uv run python ml/experiments/corpus.py fetch --corpus primus `
+  --url https://grfia.dlsi.ua.es/primus/packages/primusCalvoRizoAppliedSciences2018.tgz
 uv run python ml/experiments/corpus.py manifest --corpus primus --limit 100
 ```
 
-Estructura esperada tras la descarga: `data/<corpus>/images/*.png` y
-`data/<corpus>/ground_truth/*.{mei,krn,musicxml}`. El manifiesto
-(`data/manifest.json`) guarda el sha256 de cada par para reproducibilidad.
-Corpus registrados: PrIMuS, Camera-PrIMuS (MEI) y SMB (**kern). La descarga
-directa se pasa con `--url` porque los enlaces cambian; las URLs de aterrizaje
-oficiales están en el registro.
+El manifiesto (`data/manifest.json`) empareja **por nombre base** imagen↔ground
+truth escaneando recursivamente `data/<corpus>/` (los corpus reales anidan sus
+carpetas de forma diversa), y guarda el sha256 de cada par para reproducibilidad.
+Si el emparejamiento fallara, se pueden fijar las carpetas con `--images-dir` y
+`--ground-truth-dir`. Corpus registrados: PrIMuS y Camera-PrIMuS (MEI) y SMB
+(**kern). La descarga directa se pasa con `--url`; las URLs de aterrizaje
+oficiales están en el registro (`info`).
 
 ### `exp_03_omr_quality.py` — OMR-NED oficial
 

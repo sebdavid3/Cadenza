@@ -106,12 +106,24 @@ def _index_by_stem(directory: Path, suffixes: frozenset[str]) -> dict[str, Path]
     return indexed
 
 
-def build_manifest(root: Path, corpus: str, limit: int | None = None) -> dict[str, object]:
-    """Empareja imágenes y ground truth por nombre base y calcula sus hashes."""
+def build_manifest(
+    root: Path,
+    corpus: str,
+    limit: int | None = None,
+    *,
+    images_dir: Path | None = None,
+    ground_truth_dir: Path | None = None,
+) -> dict[str, object]:
+    """Empareja imágenes y ground truth por nombre base y calcula sus hashes.
+
+    Por defecto escanea recursivamente ``data/<corpus>/`` completo (los corpus
+    reales anidan sus carpetas de forma diversa); ``images_dir`` y
+    ``ground_truth_dir`` permiten fijarlas explícitamente.
+    """
 
     corpus_root = root / corpus
-    images = _index_by_stem(corpus_root / "images", IMAGE_SUFFIXES)
-    truths = _index_by_stem(corpus_root / "ground_truth", GROUND_TRUTH_SUFFIXES)
+    images = _index_by_stem(images_dir or corpus_root, IMAGE_SUFFIXES)
+    truths = _index_by_stem(ground_truth_dir or corpus_root, GROUND_TRUTH_SUFFIXES)
     stems = sorted(set(images) & set(truths))
     if limit is not None:
         stems = stems[:limit]
@@ -152,8 +164,17 @@ def _command_fetch(url: str, corpus: str, dest: Path) -> None:
     print(f"[corpus] extraído en {dest / corpus}")
 
 
-def _command_manifest(corpus: str, root: Path, limit: int | None, output: Path) -> None:
-    manifest = build_manifest(root, corpus, limit)
+def _command_manifest(
+    corpus: str,
+    root: Path,
+    limit: int | None,
+    output: Path,
+    images_dir: Path | None,
+    ground_truth_dir: Path | None,
+) -> None:
+    manifest = build_manifest(
+        root, corpus, limit, images_dir=images_dir, ground_truth_dir=ground_truth_dir
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[corpus] {manifest['count']} pares -> {output}")
@@ -174,6 +195,8 @@ def main() -> None:
     manifest_parser.add_argument("--corpus", required=True, choices=sorted(CORPORA))
     manifest_parser.add_argument("--limit", type=int, default=None)
     manifest_parser.add_argument("--output", type=Path, default=DATA_DIR / "manifest.json")
+    manifest_parser.add_argument("--images-dir", type=Path, default=None)
+    manifest_parser.add_argument("--ground-truth-dir", type=Path, default=None)
 
     args = parser.parse_args()
     if args.command == "info":
@@ -181,7 +204,14 @@ def main() -> None:
     elif args.command == "fetch":
         _command_fetch(args.url, args.corpus, args.root)
     elif args.command == "manifest":
-        _command_manifest(args.corpus, args.root, args.limit, args.output)
+        _command_manifest(
+            args.corpus,
+            args.root,
+            args.limit,
+            args.output,
+            args.images_dir,
+            args.ground_truth_dir,
+        )
 
 
 if __name__ == "__main__":
