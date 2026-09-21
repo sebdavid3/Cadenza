@@ -20,10 +20,9 @@ from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from ..engine import OMREngine
 
 ENGINE_ID = "homr"
-TITLE_DETECTION = False
 _HOMR_EXTRA_HINT = (
     "HOMREngine requiere el extra opcional 'homr'. "
-    'Instálalo con: uv sync --extra homr (o uv pip install -e "packages/omr[homr]").'
+    'Instálalo con: uv pip install -e "packages/omr[homr]".'
 )
 
 
@@ -82,10 +81,16 @@ def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
             transformer_use_gpu=use_gpu,
             segnet_use_gpu=use_gpu,
             coreml_encoder=False,
-            title_detection=TITLE_DETECTION,
         )
         xml_generator_args = XmlGeneratorArguments(False, None, None)
-        xml_path = Path(homr_main.process_image(str(staged_image), config, xml_generator_args))
+        # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
+        homr_main.process_image(str(staged_image), config, xml_generator_args)
+        xml_path = staged_image.with_suffix(".musicxml")
+        if not xml_path.is_file():
+            candidates = sorted(Path(work_dir).glob("*.musicxml"))
+            if not candidates:
+                raise RuntimeError("HOMR no produjo ningún MusicXML")
+            xml_path = candidates[0]
         return xml_path.read_text(encoding="utf-8", errors="replace")
 
 
@@ -100,6 +105,21 @@ class HOMREngine(OMREngine):
     def engine_id(self) -> str:
         return ENGINE_ID
 
+    def transcribe_musicxml(self, image_path: Path) -> str:
+        """Devuelve el MusicXML nativo de HOMR sin pasar por el `ScoreIR`.
+
+        Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
+        pérdida de información del `ScoreIR` (que no modela armaduras, claves ni
+        barras de compás).
+        """
+
+        if not image_path.is_file():
+            raise FileNotFoundError(f"image not found: {image_path}")
+
+        homr_main = _import_homr()
+        use_gpu = self._use_gpu and _gpu_available(homr_main)
+        return _run_homr(homr_main, image_path, use_gpu)
+
     def transcribe(self, image_path: Path) -> ScoreDocument:
         # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
         # se usa el motor real (FakeOMREngine no lo necesita).
@@ -108,11 +128,8 @@ class HOMREngine(OMREngine):
         if not image_path.is_file():
             raise FileNotFoundError(f"image not found: {image_path}")
 
-        homr_main = _import_homr()
-        use_gpu = self._use_gpu and _gpu_available(homr_main)
         source_hash = _sha256(image_path)
-        xml_text = _run_homr(homr_main, image_path, use_gpu)
-
+        xml_text = self.transcribe_musicxml(image_path)
         score = musicxml_to_score_ir(xml_text)
         return ScoreDocument(
             id=self._document_id or f"homr-{source_hash[:12]}",

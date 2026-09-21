@@ -1,14 +1,15 @@
 """Experimento 4: transcripción real del corpus con HOMR (Fase 6, GPU).
 
-Recorre las imágenes del corpus, transcribe cada una con `HOMREngine` y escribe
-la predicción en MusicXML (vía `score_ir_to_musicxml`), dejándola lista para que
-`exp_03_omr_quality.py` la puntúe contra el ground truth.
+Recorre las imágenes del corpus y guarda el **MusicXML nativo de HOMR** (no el
+`ScoreIR` del dominio, que es lossy) en `data/<corpus>/predictions/<id>.musicxml`,
+listo para que `exp_03_omr_quality.py` lo puntúe contra el ground truth.
+
+Es tolerante a fallos: si HOMR no puede procesar una imagen (p. ej. "No staffs
+found"), la registra en `failures.json` y continúa con el resto.
 
 Requiere el extra pesado de OMR:
 
-    uv sync --extra homr
-
-Sin él, el script falla con un mensaje accionable (no rompe el resto del repo).
+    uv pip install -e "packages/omr[homr]"
 """
 
 from __future__ import annotations
@@ -17,23 +18,16 @@ import argparse
 import json
 from pathlib import Path
 
-from cadenza.domain import ScoreDocument
-from cadenza.interchange import score_ir_to_musicxml
 from cadenza.omr import HOMREngine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
-IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".tif", ".tiff"})
-
-
-def _load_manifest(manifest_path: Path) -> dict[str, object]:
-    return json.loads(manifest_path.read_text(encoding="utf-8"))
 
 
 def transcribe_corpus(
     manifest_path: Path, *, use_gpu: bool = True, limit: int | None = None
-) -> int:
-    manifest = _load_manifest(manifest_path)
+) -> tuple[int, list[dict[str, str]]]:
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     root = manifest_path.parent
     corpus = str(manifest.get("corpus", "corpus"))
     predictions = root / corpus / "predictions"
@@ -45,14 +39,23 @@ def transcribe_corpus(
         entries = entries[:limit]
 
     written = 0
+    failures: list[dict[str, str]] = []
     for entry in entries:
         image_path = root / entry["image"]
-        document: ScoreDocument = engine.transcribe(image_path)
-        target = predictions / f"{entry['id']}.musicxml"
-        target.write_text(score_ir_to_musicxml(document.score), encoding="utf-8")
+        try:
+            xml_text = engine.transcribe_musicxml(image_path)
+        except Exception as exc:  # corpus real: algunas imágenes no son procesables
+            failures.append({"id": entry["id"], "error": f"{type(exc).__name__}: {exc}"})
+            print(f"[exp_04] FALLO {entry['id']}: {exc}")
+            continue
+        (predictions / f"{entry['id']}.musicxml").write_text(xml_text, encoding="utf-8")
         written += 1
-        print(f"[exp_04] {entry['id']} -> {target.name} ({engine.engine_id})")
-    return written
+        print(f"[exp_04] {entry['id']} -> {entry['id']}.musicxml ({engine.engine_id})")
+
+    (predictions / "failures.json").write_text(
+        json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return written, failures
 
 
 def main() -> None:
@@ -66,10 +69,10 @@ def main() -> None:
         print(f"[exp_04] falta el manifiesto: {args.manifest}. Descarga el corpus primero.")
         return
 
-    written = transcribe_corpus(
+    written, failures = transcribe_corpus(
         args.manifest, use_gpu=not args.cpu, limit=args.limit
     )
-    print(f"[exp_04] {written} predicciones escritas")
+    print(f"[exp_04] {written} predicciones escritas, {len(failures)} fallos")
 
 
 if __name__ == "__main__":

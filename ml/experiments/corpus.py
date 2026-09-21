@@ -96,12 +96,18 @@ def extract(archive: Path, dest: Path) -> None:
     raise ValueError(f"formato de archivo no soportado: {archive}")
 
 
+def _is_junk(path: Path) -> bool:
+    """Ignora metadatos de macOS (AppleDouble ``._*``, ``.DS_Store``, ``__MACOSX``)."""
+
+    return path.name.startswith("._") or path.name == ".DS_Store" or "__MACOSX" in path.parts
+
+
 def _index_by_stem(directory: Path, suffixes: frozenset[str]) -> dict[str, Path]:
     indexed: dict[str, Path] = {}
     if not directory.is_dir():
         return indexed
     for path in sorted(directory.rglob("*")):
-        if path.is_file() and path.suffix.lower() in suffixes:
+        if path.is_file() and not _is_junk(path) and path.suffix.lower() in suffixes:
             indexed.setdefault(path.stem, path)
     return indexed
 

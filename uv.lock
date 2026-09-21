@@ -265,7 +265,7 @@ homr = [
 requires-dist = [
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "cadenza-interchange", editable = "packages/interchange" },
-    { name = "homr", marker = "extra == 'homr'", specifier = ">=0.2.1" },
+    { name = "homr", marker = "extra == 'homr'", specifier = ">=0.7" },
 ]
 provides-extras = ["homr"]
 

@@ -89,14 +89,17 @@ y escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
 ### `exp_04_homr_transcribe.py` — transcripción real (GPU)
 
 ```powershell
-uv sync --extra homr          # instala HOMR + onnxruntime (pesado)
-uv run python ml/experiments/exp_04_homr_transcribe.py --limit 20
+uv pip install -e "packages/omr[homr]"   # HOMR + onnxruntime (pesado)
+uv run python ml/experiments/exp_04_homr_transcribe.py --limit 20 --cpu
 uv run python ml/experiments/exp_03_omr_quality.py
 ```
 
-Transcribe cada imagen del corpus con `HOMREngine`, exporta la predicción a
-MusicXML (`score_ir_to_musicxml`) y la deja para que `exp_03` la puntúe. Usa
-`--cpu` para forzar inferencia en CPU si la GPU no está disponible.
+Transcribe cada imagen con `HOMREngine.transcribe_musicxml` y guarda el
+**MusicXML nativo de HOMR** (no el `ScoreIR`, que es lossy) en
+`data/<corpus>/predictions/<id>.musicxml`, para que `exp_03` lo puntúe contra el
+ground truth. Es tolerante a fallos: registra las imágenes no procesables en
+`predictions/failures.json` y continúa. Usa `--cpu` si `onnxruntime-gpu` no está
+disponible (la build por defecto de `onnxruntime` es CPU).
 
 ## Reproducibilidad
 

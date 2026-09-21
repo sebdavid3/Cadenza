@@ -99,7 +99,12 @@ def _measure(pairs: list[Pair], *, mode: str, corpus: str) -> dict[str, object]:
 
 
 def run(manifest: Path, predictions: Path | None, limit: int | None) -> dict[str, object]:
-    corpus, pairs = _manifest_pairs(manifest, predictions or manifest.parent)
+    if predictions is None:
+        corpus_name = str(
+            json.loads(manifest.read_text(encoding="utf-8")).get("corpus", "corpus")
+        )
+        predictions = manifest.parent / corpus_name / "predictions"
+    corpus, pairs = _manifest_pairs(manifest, predictions)
     if limit is not None:
         pairs = pairs[:limit]
     return _measure(pairs, mode="corpus", corpus=corpus)
