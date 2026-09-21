@@ -1,163 +1,203 @@
 # Cadenza: Plataforma de Digitalización Asistida de Partituras
 
-Cadenza es una plataforma fullstack diseñada para el reconocimiento óptico de música (OMR), validación inteligente basada en teoría musical y transcripción interactiva con retroalimentación humana (*Human-in-the-Loop*). Permite procesar partituras impresas y manuscritas modernas a partir de imágenes o escaneos, convirtiéndolas en formatos editables y reproducibles (**MusicXML 4.0** y **MIDI 1.0**), integrando visualización gráfica interactiva con **OpenSheetMusicDisplay** y síntesis de audio en tiempo real con **Tone.js**.
+Cadenza convierte imágenes de partituras (impresas o manuscritas modernas) en
+notación editable (**MusicXML 4.0** / **MIDI 1.0**) combinando reconocimiento
+óptico de música (OMR), validación musical automática y **corrección humana**
+(*Human-in-the-Loop*, HITL). Cada corrección se registra como un evento inmutable
+que alimenta el **aprendizaje activo** del sistema.
+
+El núcleo sigue una **arquitectura hexagonal** (puertos y adaptadores) dentro de
+un **monolito modular**: el dominio es puro (cero dependencias externas) y toda
+la capacidad externa (OMR, validación, persistencia, API, aprendizaje) se
+conecta a través de puertos.
 
 ---
 
-## Estructura del Repositorio
+## Estado del proyecto
+
+| Fase | Contenido | Estado |
+|---|---|---|
+| **0** | Dominio puro: `ScoreDocument`, `AnchorIndex`, `EditEvent`, `TimeSignature` | ✅ |
+| **1** | Adaptador OMR: puerto `OMREngine`, `HOMREngine` (in-process) y `FakeOMREngine` | ✅ |
+| **2** | Motor de validación por reglas (`ValidationEngine` + `Finding` anclados) | ✅ |
+| **3** | API HITL + persistencia (SQLAlchemy/JSONB, Alembic, Event Sourcing) | ✅ |
+| **4** | Aprendizaje activo: `DatasetBuilder`, estrategias de adquisición, `ModelRegistry` | ✅ |
+| **5** | Framework de experimentos (esfuerzo y estrategias de AL) | ✅ |
+| **6** | Validación empírica sobre corpus real (PrIMuS) y OMR-NED oficial | ✅ |
+
+Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md).
+
+---
+
+## Arquitectura
+
+```
+                     ┌──────────────────────── Dominio puro ────────────────────────┐
+                     │  packages/domain  (ScoreDocument · Anchor · EditEvent)        │
+                     └──────────────────────────────────────────────────────────────┘
+                                    ▲                ▲                 ▲
+             ┌──────────────────────┘                │                 └──────────────────────┐
+             │                                       │                                        │
+   packages/interchange                  packages/validation                        packages/learning
+   (MusicXML/MEI/**kern ↔ ScoreIR)       (reglas puras)                            (AL, OMR-NED, registry)
+             ▲
+             │
+   packages/omr  ─── puerto OMREngine ─── HOMREngine / FakeOMREngine
+             │
+   packages/persistence ─── EditEventRepository (append-only) + SQLAlchemy/JSONB
+             │
+   apps/api ─── FastAPI (transcripción, findings, eventos de edición)
+```
+
+**Regla de dependencias:** los adaptadores dependen del dominio (y de sus
+puertos), nunca al contrario. El dominio no importa Pydantic, SQLAlchemy, FastAPI
+ni music21 (verificado por un test de pureza). Decisiones en
+[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0008).
+
+---
+
+## Estructura del repositorio
 
 ```
 Cadenza/
-├── backend/                  # Servidor API FastAPI, inferencia OMR y utilidades
-│   ├── main.py               # Endpoints REST (/transcribe, /health, /gpu-info)
-│   ├── check_gpu.py          # Script de diagnóstico de CUDA y memoria VRAM
-│   ├── requirements.txt      # Dependencias estándar para ejecución en CPU
-│   ├── requirements-gpu.txt  # Dependencias optimizadas con PyTorch CUDA 12.1
-│   ├── Dockerfile            # Imagen base para entorno CPU
-│   └── Dockerfile.gpu        # Imagen optimizada con aceleración NVIDIA CUDA
-├── frontend/                 # Interfaz de usuario interactiva (SPA)
-│   ├── src/
-│   │   ├── App.jsx           # Componente principal y monitoreo de estado
-│   │   ├── components/
-│   │   │   ├── DropZone.jsx  # Carga de imágenes y previsualización
-│   │   │   ├── ScoreViewer.jsx # Renderizado interactivo SVG (OSMD)
-│   │   │   ├── AudioPlayer.jsx # Reproducción de partitura sintetizada (Tone.js)
-│   │   │   └── LoadingSpinner.jsx # Indicador visual de progreso
-│   │   └── main.jsx
-│   ├── package.json          # Dependencias y scripts de Node.js
-│   ├── vite.config.js        # Configuración de compilación con Vite
-│   └── Dockerfile            # Imagen de despliegue para frontend
-├── docs/                     # Documentación técnica, estado del arte y diseño DBB
-│   ├── README.md             # Índice y guía general de documentación
-│   ├── arquitectura-dbb.md   # Especificación de bloques de construcción (DBB)
-│   ├── revision-literatura-prisma.md # Metodología sistemática PRISMA
-│   └── literatura/           # Fichas bibliográficas organizadas por categoría
-├── latex/                    # Documento maestro de tesis en formato IEEEtran
-│   ├── main.tex              # Documento orquestador modular
-│   ├── IEEEtran.cls          # Clase de documento IEEE de conferencia
-│   ├── secciones/            # Capítulos individuales (Introducción, Problema, etc.)
-│   ├── figuras/              # Diagramas vectoriales TikZ (Árbol del problema)
-│   └── plantilla/            # Archivos de referencia y guía oficial de IEEE
-├── scripts/                  # Scripts automatizados de instalación y ejecución
-│   ├── setup_local.bat       # Instalador de entorno local para Windows
-│   ├── setup_local.sh        # Instalador de entorno local para Linux/macOS/WSL
-│   ├── run-local.bat         # Lanzador concurrent para Windows
-│   ├── run-local.sh          # Lanzador concurrent para Linux/macOS/WSL
-│   ├── run-docker-gpu.sh     # Lanzador Docker con aceleración GPU
-│   └── run-docker-cpu.sh     # Lanzador Docker en modo CPU Fallback
-├── docker-compose.yml        # Orquestación de contenedores con GPU NVIDIA
-└── docker-compose.cpu.yml    # Orquestación de contenedores en modo CPU
+├── packages/                  # Monolito modular (paquetes del workspace uv)
+│   ├── domain/                # Núcleo puro: modelos, anclas, proyección del log
+│   ├── interchange/           # Puente canónico MusicXML/MEI/**kern ↔ ScoreIR (music21)
+│   ├── omr/                   # Puerto OMREngine + HOMREngine / FakeOMREngine
+│   ├── validation/            # Motor de reglas y hallazgos anclados
+│   ├── persistence/           # Modelos SQLAlchemy/JSONB, repositorio append-only, Alembic
+│   └── learning/              # DatasetBuilder, estrategias AL, OMR-NED, Model Registry
+├── apps/
+│   ├── api/                   # API Gateway FastAPI (nueva arquitectura)
+│   └── web/                   # Visor HITL (React + TS + Zustand + TanStack Query)
+├── ml/experiments/            # Experimentos de la tesis (esfuerzo, AL, OMR-NED)
+├── configs/learning/          # Configuraciones de entrenamiento versionadas
+├── docs/                      # Arquitectura, ADRs, estado del proyecto, literatura
+├── latex/                     # Documento maestro de tesis (IEEEtran)
+├── results/                   # Salidas de experimentos (ignoradas por git)
+├── data/                      # Corpus descargado (ignorado por git)
+└── backend/ · frontend/ · scripts/ · docker-compose*.yml   # Prototipo legacy (ver abajo)
 ```
 
 ---
 
-## 1. Instalación y Ejecución Local
+## Requisitos
 
-### Requisitos del Sistema
-- **Python:** Versión 3.11.
-- **Node.js:** Versión 18 o superior.
-- **Gestor de Entornos:** Miniconda o Anaconda (recomendado).
-- **Aceleración por Hardware (Opcional):** GPU NVIDIA con controladores compatibles con CUDA 12.1.
-
-### Instalación Automatizada
-
-**En Linux / macOS / WSL:**
-```bash
-chmod +x scripts/*.sh
-./scripts/setup_local.sh
-```
-
-**En Windows (CMD o PowerShell):**
-```cmd
-scripts\setup_local.bat
-```
-
-### Instalación Manual (Paso a Paso)
-
-1. Crear y activar el entorno de trabajo:
-   ```bash
-   conda create -n homr-proto python=3.11 -y
-   conda activate homr-proto
-   ```
-
-2. Instalar PyTorch con aceleración CUDA (o CPU):
-   ```bash
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-   ```
-
-3. Instalar las dependencias del backend:
-   ```bash
-   pip install -r backend/requirements-gpu.txt
-   ```
-
-4. Instalar las dependencias del frontend:
-   ```bash
-   cd frontend
-   npm install
-   cd ..
-   ```
-
-### Inicio de los Servicios
-
-**En Linux / macOS / WSL:**
-```bash
-./scripts/run-local.sh
-```
-
-**En Windows:**
-```cmd
-scripts\run-local.bat
-```
-
-* **Interfaz de Usuario (Frontend):** [http://localhost:5173](http://localhost:5173)
-* **API y Documentación Interactiva (Swagger):** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Python 3.12**
+- **[uv](https://docs.astral.sh/uv/)** (gestor de workspace y entorno)
+- **Node.js 18+** (solo para `apps/web`)
+- **GPU NVIDIA (opcional):** para acelerar la inferencia OMR real
 
 ---
 
-## 2. Despliegue con Docker
+## Instalación y calidad
 
-### Modo con Aceleración por GPU (NVIDIA Container Toolkit)
-
-Requiere tener configurado el soporte de GPU en Docker ([NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)).
+El repositorio es un workspace de `uv`; un solo comando instala todos los paquetes
+y el grupo de desarrollo (pytest, mypy, ruff, black):
 
 ```bash
-./scripts/run-docker-gpu.sh
-# O mediante docker compose directamente:
-docker compose -f docker-compose.yml up --build
+uv sync
 ```
 
-### Modo Estándar en CPU (Fallback)
-
-Para servidores o estaciones de trabajo sin tarjeta gráfica dedicada:
+Ejecutar la batería de calidad:
 
 ```bash
-./scripts/run-docker-cpu.sh
-# O mediante docker compose directamente:
-docker compose -f docker-compose.cpu.yml up --build
+uv run pytest                      # suite completa
+uv run mypy packages apps          # tipado estricto
+uv run ruff check .                # linting
+uv run black --check .             # formato
 ```
 
 ---
 
-## 3. Especificación de la API REST
+## Ejecución
 
-| Método | Endpoint | Parámetros / Body | Descripción |
-|---|---|---|---|
-| `GET` | `/health` | Ninguno | Verifica la disponibilidad del servicio y el estado de la GPU. |
-| `GET` | `/gpu-info` | Ninguno | Reporta el modelo de GPU, memoria VRAM disponible, en uso y versión de CUDA. |
-| `POST` | `/transcribe` | `file: UploadFile` (multipart/form-data) | Transcribe la imagen de partitura enviada, genera MusicXML, sintetiza el archivo MIDI en base64 y retorna el resultado estructurado junto con métricas de tiempo de inferencia. |
+### API (nueva arquitectura)
+
+```bash
+uv run uvicorn cadenza.api.main:create_default_app --factory --reload
+```
+
+- Documentación interactiva: <http://127.0.0.1:8000/docs>
+- La base de datos se toma de `CADENZA_DATABASE_URL` (por defecto SQLite
+  `./cadenza.db`; en producción PostgreSQL vía JSONB).
+
+### Interfaz web HITL
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+### Experimentos (tesis)
+
+```bash
+uv run python ml/experiments/exp_01_effort.py            # reducción de esfuerzo
+uv run python ml/experiments/exp_02_active_learning.py   # estrategias de AL
+```
+
+Validación empírica sobre corpus real (PrIMuS) con la métrica oficial OMR-NED:
+
+```bash
+uv run python ml/experiments/corpus.py info
+uv run python ml/experiments/corpus.py fetch --corpus primus \
+  --url https://grfia.dlsi.ua.es/primus/packages/primusCalvoRizoAppliedSciences2018.tgz
+uv run python ml/experiments/corpus.py manifest --corpus primus --limit 100
+uv run python ml/experiments/exp_04_homr_transcribe.py   # transcripción real
+uv run python ml/experiments/exp_03_omr_quality.py       # OMR-NED vs. ground truth
+```
+
+Detalles en [`ml/README.md`](ml/README.md).
+
+### Aceleración por GPU
+
+El extra `homr` instala HOMR; para GPU se recomienda la build **CUDA 12.8** de
+`onnxruntime` (compatible con Blackwell/sm_120):
+
+```bash
+uv pip install -e "packages/omr[homr]"
+uv pip uninstall onnxruntime onnxruntime-gpu
+uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
+```
+
+`HOMREngine` expone automáticamente los `bin` de los wheels NVIDIA al `PATH`
+(`ensure_cuda_dll_dirs`), necesario porque cuDNN carga sus sub-librerías durante
+la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.
 
 ---
 
-## 4. Consideraciones Técnicas y de Diseño
+## API REST
 
-1. **Gestión de Caché de Modelos Neuronales:**  
-   Los pesos de los modelos OMR se descargan automáticamente en la primera ejecución. En los despliegues con Docker, se emplean volúmenes nombrados persistentes (`homr_torch_cache` y `homr_models_cache`) mapeados a `/root/.cache/torch` y `/root/.cache/homr` para evitar transferencias redundantes en cada recreación del contenedor.
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/transcribe` | Sube una imagen, ejecuta OMR + validación y crea una sesión. |
+| `GET` | `/sessions/{id}` | Documento, hallazgos, eventos de edición y `current_score` materializado. |
+| `GET` | `/sessions/{id}/findings` | Hallazgos de validación de la sesión. |
+| `POST` | `/sessions/{id}/edits` | Añade una corrección humana inmutable (append-only). |
 
-2. **Detección Dinámica de Hardware:**  
-   El backend evalúa la disponibilidad de hardware mediante `torch.cuda.is_available()`. Si una GPU compatible está presente, los tensores se transfieren al dispositivo CUDA correspondiente; en caso contrario, la inferencia se degrada de manera controlada a la CPU sin generar interrupciones en el servicio.
+---
 
-3. **Conversión Simbólica y Validación con `music21`:**  
-   La transformación de estructuras MusicXML a secuencias de eventos MIDI se realiza de manera determinista utilizando el toolkit de musicología computacional `music21`, eliminando dependencias externas de software como MuseScore en el entorno de backend.
+## Prototipo legacy (referencia)
 
-4. **Sincronización de Audio en el Navegador:**  
-   El frontend gestiona las restricciones de reproducción de audio (*autoplay policy*) inicializando el contexto Web Audio mediante `Tone.start()` tras la primera interacción del usuario, empleando un sintetizador polifónico para la reproducción auditiva inmediata de la transcripción generada.
+El prototipo E2E original (FastAPI + HOMR + Docker CUDA + visor OSMD + Tone.js)
+sigue en `backend/`, `frontend/`, `scripts/` y `docker-compose*.yml`. Se conserva
+operativo durante la migración a la arquitectura hexagonal y **no** es el código
+de producción.
+
+```bash
+./scripts/run-docker-gpu.sh     # Docker con GPU NVIDIA
+./scripts/run-docker-cpu.sh     # Docker en CPU (fallback)
+./scripts/run-local.sh          # Entorno local (Linux/macOS/WSL)
+```
+
+---
+
+## Documentación
+
+- [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — estado vivo, deuda técnica y bitácora.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura y plan por fases.
+- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0008).
+- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — convenciones de Git y calidad.
+- [`docs/literatura/`](docs/literatura/) — estado del arte y corpus de evaluación.
+- [`latex/`](latex/) — documento maestro de la tesis.
