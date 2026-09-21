@@ -72,7 +72,7 @@ Reglas:
 | D17 | Experimento 1 usa un documento sintético; falta correrlo sobre un corpus/partituras reales con OMR para reclamar validez externa | Fase 5 / M5 | Pendiente (sub-tarea) |
 | D18 | Experimento 2 depende del `DatasetBuilder`, no de la persistencia: el pool histórico aún no se extrae de sesiones reales (`EditEvents` en BD) | Fase 5 / M5 | Pendiente (sub-tarea) |
 | D19 | Reducción de esfuerzo medida en `ml/experiments` no usa los eventos HITL reales ni `musicdiff` para OMR-NED | Fase 5 / M5 | **Parcial** — OMR-NED oficial integrado (`exp_03`); falta correrlo sobre corpus real (D20) |
-| D20 | HOMR real no ejecutado en GPU: falta descargar corpus (PrIMuS/SMB), instalar el extra `homr` y verificar `onnxruntime-gpu` en la RTX 5050 (Blackwell/sm_120) | Fase 6 / M6 | **Parcial** — PrIMuS descargado y pipeline E2E verificado en CPU (OMR-NED medio 0.0868, 4 incipits); falta `onnxruntime-gpu` y correr el split completo |
+| D20 | HOMR real no ejecutado en GPU: `onnxruntime-gpu` no carga `CUDAExecutionProvider` (faltan runtime CUDA 13 + cuDNN 9; los wheels `nvidia-*-cu13` de PyPI son placeholders `0.0.1`) | Fase 6 / M6 | **Parcial** — baseline PrIMuS completo en CPU: 91/100 transcritos, **OMR-NED medio 0.2285** (mediana 0.1727), 9 fallos `No staffs found`; GPU pendiente de instalar CUDA Toolkit 13 + cuDNN 9 |
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
@@ -96,6 +96,7 @@ Reglas:
 | 2026-09-20 | Puente canónico de notación: `packages/interchange` (MusicXML/MEI/**kern ↔ `ScoreIR` con music21, import perezoso en OMR); 6 tests; parser `xml.etree` retirado | Fase 6 (6.0) | `packages/interchange/`, `packages/omr/`, `pyproject.toml`, `uv.lock` |
 | 2026-09-20 | OMR-NED oficial: `cadenza.learning.omr_ned_pair`/`omr_ned_batch` con musicdiff 5.2 (extra `metrics`); tooling de corpus (`corpus.py`) y experimentos `exp_03`/`exp_04`; 108 tests verdes | Fase 6 (6.1–6.2) | `packages/learning/`, `ml/experiments/`, `docs/phases/phase_6_empirical_validation/` |
 | 2026-09-20 | Primer baseline OMR real: PrIMuS descargado, HOMR 0.7 adaptado (`transcribe_musicxml`, config sin `title_detection`), manifiesto con filtrado AppleDouble y `exp_04` tolerante a fallos; OMR-NED medio **0.0868** sobre 4 incipits (CPU) | Fase 6 (6.3, parcial) | `packages/omr/adapters/homr.py`, `ml/experiments/`, `results/omr_baseline_summary.json` |
+| 2026-09-20 | Baseline OMR completo (100 incipits PrIMuS, CPU): 91 transcritos, 9 fallos `No staffs found`, **OMR-NED medio 0.2285** (mediana 0.1727); `exp_04` registra `run_info.json` con el entorno de inferencia | Fase 6 (6.3) | `results/omr_baseline.csv`, `data/primus/predictions/` |
 
 ---
 

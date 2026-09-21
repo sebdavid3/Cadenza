@@ -24,6 +24,20 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 
 
+def _runtime_info() -> dict[str, object]:
+    """Registra el entorno de inferencia (reproducibilidad y trazabilidad del fallback)."""
+
+    info: dict[str, object] = {}
+    try:
+        import onnxruntime
+
+        info["onnxruntime_version"] = onnxruntime.__version__
+        info["available_providers"] = list(onnxruntime.get_available_providers())
+    except ImportError:  # pragma: no cover - depende del extra
+        info["onnxruntime_version"] = None
+    return info
+
+
 def transcribe_corpus(
     manifest_path: Path, *, use_gpu: bool = True, limit: int | None = None
 ) -> tuple[int, list[dict[str, str]]]:
@@ -54,6 +68,20 @@ def transcribe_corpus(
 
     (predictions / "failures.json").write_text(
         json.dumps(failures, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    (predictions / "run_info.json").write_text(
+        json.dumps(
+            {
+                "engine": engine.engine_id,
+                "use_gpu_requested": use_gpu,
+                "written": written,
+                "failures": len(failures),
+                **_runtime_info(),
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
     return written, failures
 
