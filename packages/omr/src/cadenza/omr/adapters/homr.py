@@ -8,8 +8,11 @@ importa sin tenerlo instalado (test/CI usan `FakeOMREngine`).
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import os
 import shutil
+import site
 import tempfile
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -50,6 +53,41 @@ def _homr_version() -> str:
         return "unknown"
 
 
+_CUDA_DLL_DIRS: set[str] = set()
+
+
+def ensure_cuda_dll_dirs() -> list[str]:
+    """Añade al `PATH` los `bin` de los wheels NVIDIA (CUDA/cuDNN). Solo Windows.
+
+    `onnxruntime.preload_dlls()` carga las DLLs principales, pero cuDNN carga
+    dinámicamente sus sub-librerías (`cudnn_engines_*`, `cudnn_heuristic_*`)
+    durante la inferencia y necesita encontrarlas en el `PATH`; si no, la primera
+    `Conv` falla con `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`.
+
+    Es **idempotente**: cada directorio se añade una sola vez (si no, llamarla
+    por imagen haría crecer `PATH` hasta exceder el límite de Windows). Devuelve
+    los directorios añadidos en esta llamada.
+    """
+
+    if os.name != "nt":
+        return []
+    added: list[str] = []
+    for base in site.getsitepackages():
+        nvidia = Path(base) / "nvidia"
+        if not nvidia.is_dir():
+            continue
+        for directory in sorted(nvidia.glob("*/bin")):
+            path = str(directory)
+            if not directory.is_dir() or path in _CUDA_DLL_DIRS:
+                continue
+            with contextlib.suppress(AttributeError, OSError):
+                os.add_dll_directory(path)
+            os.environ["PATH"] = path + os.pathsep + os.environ.get("PATH", "")
+            _CUDA_DLL_DIRS.add(path)
+            added.append(path)
+    return added
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -62,6 +100,9 @@ def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
     """Ejecuta el pipeline de HOMR en un directorio temporal y devuelve el MusicXML."""
 
     from homr.music_xml_generator import XmlGeneratorArguments
+
+    if use_gpu:
+        ensure_cuda_dll_dirs()
 
     with tempfile.TemporaryDirectory(prefix="cadenza-omr-") as work_dir:
         staged_image = Path(work_dir) / image_path.name

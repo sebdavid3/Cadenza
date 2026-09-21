@@ -86,10 +86,10 @@ Sin corpus corre en modo *smoke* con un fixture; con `data/manifest.json` y
 predicciones en `data/<corpus>/predictions/<id>.musicxml`, mide OMR-NED por par
 y escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
 
-### `exp_04_homr_transcribe.py` — transcripción real (GPU)
+### `exp_04_homr_transcribe.py` — transcripción real (CPU/GPU)
 
 ```powershell
-uv pip install -e "packages/omr[homr]"   # HOMR + onnxruntime (pesado)
+uv pip install -e "packages/omr[homr]"   # HOMR + onnxruntime (base)
 uv run python ml/experiments/exp_04_homr_transcribe.py --limit 20 --cpu
 uv run python ml/experiments/exp_03_omr_quality.py
 ```
@@ -98,8 +98,23 @@ Transcribe cada imagen con `HOMREngine.transcribe_musicxml` y guarda el
 **MusicXML nativo de HOMR** (no el `ScoreIR`, que es lossy) en
 `data/<corpus>/predictions/<id>.musicxml`, para que `exp_03` lo puntúe contra el
 ground truth. Es tolerante a fallos: registra las imágenes no procesables en
-`predictions/failures.json` y continúa. Usa `--cpu` si `onnxruntime-gpu` no está
-disponible (la build por defecto de `onnxruntime` es CPU).
+`predictions/failures.json` y continúa, y limpia predicciones previas al empezar.
+
+**GPU (Windows, RTX 50xx/Blackwell):** ORT 1.30+ es CUDA 13 y sus wheels
+`nvidia-*-cu13` son *placeholders*. Usa la build CUDA 12.8 (`onnxruntime-gpu`
+1.24–1.26) con los wheels `cu12`:
+
+```powershell
+uv pip uninstall onnxruntime onnxruntime-gpu
+uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"   # CUDA 12.8 + cuDNN 9 (cu12)
+uv run python ml/experiments/exp_04_homr_transcribe.py
+```
+
+`HOMREngine` añade automáticamente los `bin` de los wheels NVIDIA al `PATH`
+(`ensure_cuda_dll_dirs`), necesario porque cuDNN carga sus sub-librerías
+(`cudnn_engines_*`) en inferencia; sin esto la primera `Conv` falla con
+`CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`. El `run_info.json` de cada run registra
+versión de ORT, providers y si la sesión CUDA se creó de verdad.
 
 ## Reproducibilidad
 

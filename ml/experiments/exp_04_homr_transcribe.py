@@ -16,25 +16,41 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
-from cadenza.omr import HOMREngine
+from cadenza.omr import HOMREngine, ensure_cuda_dll_dirs
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 
 
-def _runtime_info() -> dict[str, object]:
-    """Registra el entorno de inferencia (reproducibilidad y trazabilidad del fallback)."""
+def _prepare_runtime(use_gpu: bool) -> dict[str, object]:
+    """Precarga las DLLs CUDA y sondea el provider real (trazabilidad del run)."""
 
-    info: dict[str, object] = {}
+    info: dict[str, object] = {"use_gpu_requested": use_gpu}
     try:
         import onnxruntime
-
-        info["onnxruntime_version"] = onnxruntime.__version__
-        info["available_providers"] = list(onnxruntime.get_available_providers())
     except ImportError:  # pragma: no cover - depende del extra
         info["onnxruntime_version"] = None
+        return info
+
+    info["onnxruntime_version"] = onnxruntime.__version__
+    if use_gpu:
+        info["cuda_dll_dirs"] = len(ensure_cuda_dll_dirs())
+        try:
+            onnxruntime.preload_dlls()
+        except Exception as exc:  # DLLs de CUDA/cuDNN ausentes
+            info["preload_error"] = str(exc)
+    info["available_providers"] = list(onnxruntime.get_available_providers())
+    try:
+        package_dir = os.path.dirname(str(onnxruntime.__file__ or ""))
+        model = os.path.join(package_dir, "datasets", "mul_1.onnx")
+        if os.path.isfile(model):
+            session = onnxruntime.InferenceSession(model, providers=["CUDAExecutionProvider"])
+            info["gpu_session_providers"] = list(session.get_providers())
+    except Exception as exc:  # pragma: no cover - depende del entorno
+        info["gpu_session_error"] = str(exc)
     return info
 
 
@@ -46,7 +62,16 @@ def transcribe_corpus(
     corpus = str(manifest.get("corpus", "corpus"))
     predictions = root / corpus / "predictions"
     predictions.mkdir(parents=True, exist_ok=True)
+    # Un run es autocontenido: evita mezclar predicciones de corridas previas.
+    stale = list(predictions.glob("*.musicxml"))
+    for path in stale:
+        path.unlink()
+    if stale:
+        print(f"[exp_04] limpiadas {len(stale)} predicciones previas")
 
+    runtime = _prepare_runtime(use_gpu)
+    if use_gpu and "gpu_session_providers" in runtime:
+        print(f"[exp_04] GPU activa: {runtime['gpu_session_providers']}")
     engine = HOMREngine(use_gpu=use_gpu)
     entries = list(manifest.get("entries", []))
     if limit is not None:
@@ -73,10 +98,9 @@ def transcribe_corpus(
         json.dumps(
             {
                 "engine": engine.engine_id,
-                "use_gpu_requested": use_gpu,
                 "written": written,
                 "failures": len(failures),
-                **_runtime_info(),
+                **runtime,
             },
             indent=2,
             ensure_ascii=False,
