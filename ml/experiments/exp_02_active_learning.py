@@ -146,7 +146,7 @@ def _spread(samples: list[TrainingSample]) -> float:
             distances.append(
                 sum((a - b) ** 2 for a, b in zip(left.features, right.features, strict=True)) ** 0.5
             )
-    return sum(distances) / len(distances)
+    return float(sum(distances) / len(distances))
 
 
 def run() -> tuple[list[dict[str, object]], dict[str, dict[str, float]]]:
