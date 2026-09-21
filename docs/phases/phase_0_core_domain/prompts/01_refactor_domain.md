@@ -18,13 +18,13 @@ investigación.
 ## Contexto crítico (NO DESTRUCTIVO)
 
 El repositorio **ya contiene un prototipo funcional E2E** (FastAPI en
-`backend/main.py`, HOMR, Docker con CUDA, visor OSMD y Tone.js). **No debes
+`legacy/backend/main.py`, HOMR, Docker con CUDA, visor OSMD y Tone.js). **No debes
 romperlo ni sobrescribirlo.** El nuevo dominio se construye **en paralelo** en
 `packages/domain/` y **no se integra** al prototipo durante esta tarea.
 
 Prohibido:
 
-- editar `backend/`, `frontend/`, `docker-compose*.yml`, `scripts/`;
+- editar `legacy/` (`legacy/backend`, `legacy/frontend`, `legacy/docker-compose*.yml`, `legacy/scripts`);
 - invocar o importar HOMR, `music21`, `torch` u `onnxruntime`;
 - usar frameworks web o de validación en el dominio.
 
@@ -81,7 +81,7 @@ uv run mypy packages/domain
 ```
 
 Además, confirma que el prototipo no se tocó: `git status` no debe mostrar
-cambios en `backend/`, `frontend/`, `docker-compose*` ni `scripts/`.
+cambios en `legacy/`.
 
 ## Criterios de aceptación
 

@@ -28,5 +28,5 @@ python backend\check_gpu.py
 
 echo.
 echo >> Instalacion completada.
-echo >> Para iniciar ejecuta: scripts\run-local.bat
+echo >> Para iniciar ejecuta: legacy\scripts\run-local.bat
 pause

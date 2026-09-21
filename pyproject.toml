@@ -55,9 +55,9 @@ cadenza-validation = { workspace = true }
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-# El prototipo (backend/frontend) se rige por sus propias herramientas; las
+# El prototipo legacy (`legacy/`) se rige por sus propias herramientas; las
 # migraciones de Alembic siguen su propio estilo generado.
-extend-exclude = ["backend", "frontend", ".opencode", "packages/persistence/migrations"]
+extend-exclude = ["legacy", ".opencode", "packages/persistence/migrations"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
@@ -65,14 +65,14 @@ select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
 [tool.black]
 line-length = 100
 target-version = ["py312"]
-extend-exclude = '/(backend|frontend|\.opencode|packages/persistence/migrations)/'
+extend-exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 mypy_path = "apps/api/src:packages/domain/src:packages/interchange/src:packages/learning/src:packages/omr/src:packages/persistence/src:packages/validation/src"
 explicit_package_bases = true
-exclude = '/(backend|frontend|\.opencode|packages/persistence/migrations)/'
+exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 
 [[tool.mypy.overrides]]
 module = [

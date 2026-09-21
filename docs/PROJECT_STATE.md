@@ -25,8 +25,8 @@ CUDA + visor OSMD + Tone.js). El objetivo de las fases siguientes es
 
 Reglas:
 
-1. El prototipo en `backend/`, `frontend/`, `docker-compose*` y `scripts/`
-   permanece **operativo** en todo momento.
+1. El prototipo en `legacy/` (`legacy/backend`, `legacy/frontend`,
+   `legacy/docker-compose*`, `legacy/scripts`) permanece **operativo** en todo momento.
 2. Cada fase construye el nuevo componente **en paralelo** y solo se integra al
    prototipo cuando su *Definition of Done* está verificado.
 3. Ninguna tarea rompe el flujo E2E existente sin una tarea de migración explícita.
@@ -99,6 +99,7 @@ Reglas:
 | 2026-09-20 | Baseline OMR completo (100 incipits PrIMuS, CPU): 91 transcritos, 9 fallos `No staffs found`, **OMR-NED medio 0.2285** (mediana 0.1727); `exp_04` registra `run_info.json` con el entorno de inferencia | Fase 6 (6.3) | `results/omr_baseline.csv`, `data/primus/predictions/` |
 | 2026-09-20 | GPU operativa: `onnxruntime-gpu==1.26.0` (CUDA 12.8, cu12) + `ensure_cuda_dll_dirs` en el adaptador (expone los `bin` de cuDNN que `preload_dlls` no cubre); baseline re-ejecutado en GPU con OMR-NED idéntico al de CPU (0.2285) | Fase 6 (6.3) | `packages/omr/adapters/homr.py`, `ml/experiments/exp_04_homr_transcribe.py`,
 `docs/PROJECT_STATE.md` |
+| 2026-09-20 | Reorganización del repositorio: el prototipo MVP (`backend/`, `frontend/`, `scripts/`, `docker-compose*`) se movió a `legacy/`; `.gitignore`, `pyproject.toml` y documentación actualizados; compose validado desde la nueva ruta | — | `legacy/`, `pyproject.toml`, `.gitignore`, `README.md` |
 
 ---
 

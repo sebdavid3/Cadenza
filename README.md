@@ -76,7 +76,7 @@ Cadenza/
 ├── latex/                     # Documento maestro de tesis (IEEEtran)
 ├── results/                   # Salidas de experimentos (ignoradas por git)
 ├── data/                      # Corpus descargado (ignorado por git)
-└── backend/ · frontend/ · scripts/ · docker-compose*.yml   # Prototipo legacy (ver abajo)
+└── legacy/                    # Prototipo MVP original (backend, frontend, scripts, docker-compose)
 ```
 
 ---
@@ -180,15 +180,15 @@ la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.
 
 ## Prototipo legacy (referencia)
 
-El prototipo E2E original (FastAPI + HOMR + Docker CUDA + visor OSMD + Tone.js)
-sigue en `backend/`, `frontend/`, `scripts/` y `docker-compose*.yml`. Se conserva
-operativo durante la migración a la arquitectura hexagonal y **no** es el código
-de producción.
+El prototipo MVP original (FastAPI + HOMR + Docker CUDA + visor OSMD + Tone.js)
+se conserva en `legacy/` —`legacy/backend`, `legacy/frontend`, `legacy/scripts` y
+`legacy/docker-compose*.yml`—. Sigue operativo durante la migración a la
+arquitectura hexagonal y **no** es el código de producción.
 
 ```bash
-./scripts/run-docker-gpu.sh     # Docker con GPU NVIDIA
-./scripts/run-docker-cpu.sh     # Docker en CPU (fallback)
-./scripts/run-local.sh          # Entorno local (Linux/macOS/WSL)
+./legacy/scripts/run-docker-gpu.sh     # Docker con GPU NVIDIA
+./legacy/scripts/run-docker-cpu.sh     # Docker en CPU (fallback)
+./legacy/scripts/run-local.sh          # Entorno local (Linux/macOS/WSL)
 ```
 
 ---

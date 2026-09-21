@@ -33,7 +33,8 @@ Referencia arquitectónica: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md),
 
 ## Fuera de alcance (Out-of-Scope)
 
-- **No modificar** `backend/`, `frontend/`, `docker-compose*` ni `scripts/`.
+- **No modificar** `legacy/` (`legacy/backend`, `legacy/frontend`,
+  `legacy/docker-compose*`, `legacy/scripts`).
 - **No integrar** HOMR ni invocar el motor OMR.
 - **No importar** `music21`, `torch`, `onnxruntime` ni frameworks web en el dominio.
 - Sin persistencia (base de datos), sin API, sin UI.
