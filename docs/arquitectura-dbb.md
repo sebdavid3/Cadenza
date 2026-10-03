@@ -2,7 +2,7 @@
 
 Este documento describe la arquitectura de software extremo a extremo (E2E) de la plataforma **Cadenza** con la metodología de **Diagramas de Bloques de Construcción (DBB)**, estructurada en niveles de detalle (caja negra, caja blanca y flujo de proceso).
 
-Es la **vista de bloques** de la arquitectura objetivo. El diseño técnico vigente —decisiones, organización de los datos, catálogo de funciones y estado de implementación— está en [`ARCHITECTURE.md`](ARCHITECTURE.md) (v1.1); ante cualquier diferencia, prevalece ese documento.
+Es la **vista de bloques** de la arquitectura objetivo. El diseño técnico vigente —decisiones, organización de los datos, catálogo de funciones y estado de implementación— está en [`ARCHITECTURE.md`](ARCHITECTURE.md) (v1.2); ante cualquier diferencia, prevalece ese documento.
 
 > **Diagramas:** escritos en [D2](https://d2lang.com/). Para renderizarlos, copiar el bloque `d2` a un archivo `.d2` y ejecutar `d2 archivo.d2` (o usar el [playground](https://play.d2lang.com)). El orden es determinista: el Nivel 2 usa `grid-columns`/`grid-rows` y el Nivel 3 es un diagrama de secuencia con **aristas rectas** (layout ELK con `layered.edgeRouting: "ORTHOGONAL"`), donde cada mensaje ocupa su propia fila — sin texto superpuesto. **Importante:** D2 no resuelve nombres cortos de nodos anidados — clases y aristas usan SIEMPRE la ruta completa (p. ej. `flujo.etapa1.UI`), o se crean nodos duplicados.
 
@@ -57,9 +57,9 @@ Cadenza -> MIDI: "3. Produce"
 Cadenza -> Audio: "4. Reproduce"
 ```
 
-* **Entradas:** Imágenes de partituras (fotografías o escaneos en formatos PNG/JPG) procedentes de archivos personales o de los datasets públicos de evaluación (PrIMuS, SMB, MUSCIMA++).
+* **Entradas:** Imágenes de partituras (fotografías o escaneos en formatos PNG/JPG, una imagen por sesión) procedentes de archivos personales o de los datasets públicos de evaluación (PrIMuS, SMB, MUSCIMA++).
 * **Salidas:** Archivos de música simbólica en formato **MusicXML 4.0** (editable en cualquier editor convencional) y **MIDI 1.0** (para reproducción audible de la transcripción). Además, la plataforma **reproduce la partitura en la página** para que el transcriptor la verifique auditivamente sin descargar archivos.
-* **Actores:** El usuario transcriptor, quien supervisa la salida y edita activamente los errores señalados por el motor de validación.
+* **Actores:** El usuario transcriptor, quien supervisa la salida y edita activamente los errores señalados por el motor de validación. Cada usuario inicia sesión y solo accede a sus propias partituras.
 
 ---
 
@@ -295,7 +295,7 @@ Los pasos 10–14 se repiten por cada corrección. La reproducción de audio ocu
 
 1. **API Gateway:**
    * **Descripción:** Servidor FastAPI.
-   * **Responsabilidad:** Traducir peticiones y respuestas HTTP y componer las dependencias; no contiene lógica de negocio.
+   * **Responsabilidad:** Autenticar cada petición, traducir peticiones y respuestas HTTP y componer las dependencias; no contiene lógica de negocio.
 2. **Capa de Aplicación:**
    * **Descripción:** Casos de uso del sistema (`transcribe_score`, `append_edit`, `revalidate`, `export_score`, `record_effort`).
    * **Responsabilidad:** Orquestar el motor OMR, la validación, la persistencia y la exportación. Garantiza que ninguna edición inválida entre al log.
@@ -334,7 +334,7 @@ Los pasos 10–14 se repiten por cada corrección. La reproducción de audio ocu
 
 1. **Base de Datos (PostgreSQL + JSONB):**
    * **Descripción:** Base relacional con columnas JSONB para las estructuras variables; SQLite queda como alternativa para pruebas.
-   * **Responsabilidad:** Almacenar sesiones, hallazgos, el log inmutable de correcciones y las métricas de esfuerzo.
+   * **Responsabilidad:** Almacenar usuarios, sesiones, hallazgos, el log inmutable de correcciones y las métricas de esfuerzo.
 2. **`ArtifactStore`:**
    * **Descripción:** Almacén de archivos direccionado por el `sha256` de su contenido.
    * **Responsabilidad:** Guardar imágenes originales, MusicXML y modelos ONNX fuera de la base de datos.

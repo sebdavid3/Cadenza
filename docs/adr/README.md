@@ -37,3 +37,5 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0008](ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry | Aceptado | M4 |
 | [ADR-0009](ADR-0009-capa-de-aplicacion.md) | Capa de aplicación con casos de uso | Aceptado | Transversal |
 | [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` | Aceptado | Dominio, M2, M3 |
+| [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales | Aceptado | Dominio, M2, M3, M4 |
+| [ADR-0012](ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario | Aceptado | Transversal |

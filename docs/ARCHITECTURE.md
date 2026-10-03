@@ -5,7 +5,7 @@
 | Campo | Valor |
 |---|---|
 | **Documento** | Arquitectura de Software (ARCHITECTURE.md) |
-| **Versión** | 1.1 |
+| **Versión** | 1.2 |
 | **Estado** | Aceptado — arquitectura objetivo vigente |
 | **Fecha** | 2026-10-03 |
 | **Autoría** | Arquitectura de Software, proyecto Cadenza |
@@ -40,6 +40,13 @@ en un *Architecture Decision Record* ([`adr/`](adr/)).
 > clave y armadura y la exportación pasa a `packages/interchange`
 > ([ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md)), y se corrige la
 > descripción del `ScoreIR` y del validador, que no dependen de `music21`.
+>
+> **Cambios de la versión 1.2.** Se fija la semántica de las anclas ante
+> inserciones y borrados ([ADR-0011](adr/ADR-0011-semantica-de-anclas-ante-ediciones.md)),
+> se incorpora la autenticación con sesiones privadas por usuario
+> ([ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md)) y se acota la entrada a
+> una imagen por sesión: la entrada PDF y las partituras de varias páginas quedan
+> fuera del alcance.
 
 > **Nota de alcance.** Se excluyen explícitamente los enfoques basados en
 > LLM/VLM y el *Edge Learning* / TFLite. El *fine-tuning* se realiza en el
@@ -147,7 +154,7 @@ flowchart TB
     end
 
     U(("Usuario<br/>Transcriptor"))
-    IMG["Imagen de partitura<br/>PNG · JPG · PDF"]
+    IMG["Imagen de partitura<br/>PNG · JPG"]
     XML["MusicXML 4.0"]
     MIDI["MIDI 1.0"]
 
@@ -160,6 +167,11 @@ flowchart TB
     BE --> MIDI
     FE -->|"escucha y edita"| U
 ```
+
+Cada sesión parte de **una sola imagen**. La entrada PDF y las partituras de
+varias páginas quedan fuera del alcance: los corpus de evaluación son imágenes
+de una página o menos, y admitirlas obligaría a añadir la página a las anclas y
+a las coordenadas.
 
 ### 1.5 Capa de aplicación
 
@@ -249,6 +261,16 @@ flowchart TB
     M3 -->|estado| UI
     M3 -->|correcciones| M4
 ```
+
+**Anclas y ediciones estructurales.** `InsertEvent` y `DeleteEvent` desplazan la
+posición de los eventos siguientes del mismo compás y la misma voz. Por eso toda
+ancla es **relativa a un estado** de la sesión
+([ADR-0011](adr/ADR-0011-semantica-de-anclas-ante-ediciones.md)): el índice del
+documento persistido corresponde al estado `0` (documento crudo), el ancla de una
+edición con `seq = n` se interpreta sobre el estado `n − 1`, y la de un hallazgo,
+sobre su `at_seq`. La función pura `origin_anchor` traduce cualquier ancla al
+evento del documento crudo, o indica que el evento fue insertado por una edición;
+así cada evento del estado actual conserva su `bbox` y su procedencia.
 
 ### 2.3 `Provenance` — trazabilidad del origen
 
@@ -364,6 +386,7 @@ modelo es, por diseño, un ciclo **por lotes** y no un efecto inmediato del uso.
 | **Calidad** | ruff + black + mypy + pytest (+ hypothesis); eslint + vitest + Playwright | Las reglas de teoría musical se prestan a *property-based testing*; los contratos de puertos se verifican con *tests* de arquitectura. |
 | **Contenedores** | Docker Compose (online) + imagen CUDA separada (batch) | Materializa la separación de planos y garantiza entornos reproducibles. |
 | **Configuración** | `pydantic-settings` + `.env` | Configuración 12-factor tipada y validada al arranque. |
+| **Autenticación** | Usuario y contraseña + token de acceso JWT; Argon2id | Flujo estándar de FastAPI, documentado en OpenAPI; sin estado en el servidor ni datos personales ([ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md)). |
 
 ### 4.1 Nota sobre versiones y conflictos
 
@@ -541,8 +564,10 @@ de estado (existe / pendiente) están en la sección
 
 | Caso de uso | Entrada → salida | Responsabilidad |
 |---|---|---|
+| `authenticate` | usuario, contraseña → token | Verifica las credenciales y emite un token de acceso de vida corta. |
+| `create_user` | nombre, contraseña, rol → usuario | Da de alta una cuenta; solo lo puede hacer un investigador. |
 | `transcribe_score` | imagen → sesión | Guarda la imagen en el `ArtifactStore`, ejecuta el `OMREngine`, valida el documento y persiste sesión y hallazgos. |
-| `list_sessions` | filtros, página → resúmenes | Lista las sesiones existentes sin cargar el documento de cada una. |
+| `list_sessions` | filtros, página → resúmenes | Lista las sesiones del usuario (todas, si es investigador) sin cargar el documento de cada una. |
 | `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el `ScoreIR` materializado. |
 | `append_edit` | id, edición → `EditEvent` | Comprueba que la edición sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
 | `undo_edit` | id → `EditEvent` | Revierte la última edición vigente añadiendo al log su evento inverso; nunca borra historia. |
@@ -559,8 +584,15 @@ Reglas de la capa:
 - **Ninguna edición inválida entra al log.** Como el log es *append-only*
   ([ADR-0007](adr/ADR-0007-edit-events-inmutables.md)), una edición que no puede
   proyectarse dejaría la sesión sin estado materializado de forma permanente.
-- Los errores se expresan como excepciones de aplicación (`SessionNotFound`,
-  `InvalidEdit`, `SequenceConflict`) que el conductor traduce (404, 422, 409).
+- **Todo caso de uso recibe el usuario actual** (identificador y rol). La regla
+  de propiedad vive en esta capa: un transcriptor solo accede a sus sesiones y
+  una sesión ajena se trata como inexistente; un investigador puede leerlas
+  todas ([ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md)).
+- El autor de cada edición lo fija el servidor a partir del usuario actual; el
+  cliente no lo envía.
+- Los errores se expresan como excepciones de aplicación (`NotAuthenticated`,
+  `Forbidden`, `SessionNotFound`, `InvalidEdit`, `SequenceConflict`) que el
+  conductor traduce (401, 403, 404, 422, 409).
 
 ### 6.2 Puertos
 
@@ -570,6 +602,9 @@ Reglas de la capa:
 | `ValidationRule` | `evaluate(document) -> list[Finding]` | Balance de compás, armadura y alteraciones, colisión de voces, rango, cierres |
 | `SessionRepository` | `add`, `get`, `list`, `list_findings`, `replace_findings` | SQLAlchemy |
 | `EditEventRepository` | `next_seq`, `append`, `list_events` | SQLAlchemy |
+| `UserRepository` | `add`, `get`, `get_by_username` | SQLAlchemy |
+| `PasswordHasher` | `hash(password)`, `verify(password, hash)` | Argon2id |
+| `TokenService` | `issue(user) -> token`, `verify(token) -> user` | JWT firmado |
 | `ArtifactStore` | `put(bytes, kind) -> sha256`, `get(sha256) -> bytes`, `exists(sha256)` | Sistema de archivos direccionado por contenido |
 | `ScoreExporter` | `to_musicxml(score) -> str`, `to_midi(score) -> bytes` | `packages/interchange` (`music21`) |
 | `AcquisitionStrategy` | `select(candidates, budget) -> list[TrainingSample]` | Incertidumbre, diversidad, híbrida |
@@ -583,11 +618,15 @@ Reglas de la capa:
 | `build_anchor_index(score)` | Deriva el índice de anclas de forma determinista. |
 | `apply_edit(score, edit)` | Devuelve un nuevo `ScoreIR` con una edición aplicada. |
 | `materialize(score, edits)` | Reconstruye el estado actual aplicando el log en orden de `seq`. |
+| `origin_anchor(anchor, at_seq, edits)` | Traduce un ancla de cualquier estado al evento del documento crudo, o indica que fue insertado por una edición. |
 
 ### 6.4 API REST (plano online)
 
 | Método | Endpoint | Caso de uso |
 |---|---|---|
+| `POST` | `/auth/login` | `authenticate` |
+| `GET` | `/auth/me` | usuario actual |
+| `POST` | `/users` | `create_user` |
 | `POST` | `/transcribe` | `transcribe_score` |
 | `GET` | `/sessions` | `list_sessions` |
 | `GET` | `/sessions/{id}` | `get_session` |
@@ -601,8 +640,9 @@ Reglas de la capa:
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
 
-El contrato se publica como OpenAPI y de él se generan los tipos TypeScript del
-frontend. La inferencia OMR se ejecuta fuera del bucle de eventos.
+Todos los endpoints exigen un token de acceso (`Authorization: Bearer`), salvo
+`/auth/login`. El contrato se publica como OpenAPI y de él se generan los tipos
+TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos.
 
 ### 6.5 Jobs del plano offline (CLI en `ml/`)
 
@@ -646,15 +686,17 @@ job `build-dataset` las deriva del log.
 
 | Tabla | Columnas principales | Contenido |
 |---|---|---|
-| `sessions` | `id`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. `status` sigue el ciclo transcrita → en corrección → finalizada (o fallida). |
+| `users` | `id`, `username`, `password_hash`, `role`, `created_at` | Cuentas de usuario. `role` es `transcriptor` o `investigador`; no se guardan datos personales. |
+| `sessions` | `id`, `owner_id` → `users`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. `status` sigue el ciclo transcrita → en corrección → finalizada (o fallida). |
 | `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB), `resolution` | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo); `resolution` distingue los vigentes de los descartados por el usuario. |
-| `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. |
+| `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. `author` lo fija el servidor con el usuario autenticado. |
 | `effort_metrics` | `id`, `session_id`, `duration_ms`, `time_to_first_edit_ms`, `interventions` (JSONB), `created_at` | Esfuerzo de corrección por sesión. |
 | `artifacts` | `sha256` (PK), `kind`, `media_type`, `size_bytes`, `path`, `created_at` | Índice del `ArtifactStore`. |
 | `model_versions` | `version` (PK), `artifact_hash` → `artifacts`, `dataset_hash`, `config_hash`, `ser`, `omr_ned`, `promoted`, `created_at` | *Model Registry* persistente. |
 
 ```mermaid
 erDiagram
+    users ||--o{ sessions : "es dueño de"
     sessions ||--o{ findings : tiene
     sessions ||--o{ edit_events : registra
     sessions ||--o{ effort_metrics : mide
@@ -720,6 +762,7 @@ adaptadores concretos; `packages/domain` no depende de ningún otro paquete.
 | **Rendimiento (online)** | Inferencia fuera del bucle de eventos; artefactos fuera de la base de datos; caché de modelos. |
 | **Trazabilidad** | `EditEvent` inmutable + `Provenance`; auditoría completa. |
 | **Portabilidad de cómputo** | CPU/GPU mediante `onnxruntime`; planos con imágenes separadas. |
+| **Seguridad** | Autenticación en todos los endpoints, sesiones privadas por usuario, contraseñas con Argon2id y autoría fijada por el servidor ([ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md)). |
 
 ---
 
@@ -750,7 +793,8 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Datos | `ArtifactStore` direccionado por `sha256` | No existe; la imagen subida se descarta | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
 | Datos | Esquema de la sección 7.2 | Solo `sessions`, `findings` y `edit_events`, sin `at_seq` ni referencia a la imagen | [#5](https://github.com/sebdavid3/Cadenza/issues/5) |
 | Datos | PostgreSQL como base de producción | Verificado solo en SQLite | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
-| Dominio | Semántica definida de las anclas tras insertar o borrar eventos | `InsertEvent`/`DeleteEvent` desplazan el `event_index` de los eventos siguientes; hallazgos y `bbox` pueden quedar desalineados | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
+| Dominio | Anclas relativas a un estado y traducibles al documento crudo (ADR-0011) | La regla solo existe dentro de `apply_edit`; no hay función de traducción y no se admite insertar al final de la voz | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
+| API | Autenticación, sesiones privadas y autoría fijada por el servidor (ADR-0012) | API sin autenticación; `author` es un texto libre del cliente | [#39](https://github.com/sebdavid3/Cadenza/issues/39) |
 | API | Listado de sesiones | Solo se puede leer una sesión conociendo su `id` | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
 | API | Motor OMR elegido por configuración | La API usa siempre `FakeOMREngine` | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
 | API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
@@ -777,10 +821,10 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Infraestructura | Integración continua | No hay *workflows* | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
 | API | Contrato OpenAPI congelado y tipos generados | Tipos TypeScript escritos a mano | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
 
-Quedan además seis piezas **con alcance por decidir**, registradas fuera del
-milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), entrada PDF y varias páginas
-([#38](https://github.com/sebdavid3/Cadenza/issues/38)), identidad de usuario ([#39](https://github.com/sebdavid3/Cadenza/issues/39)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)),
+Quedan además cuatro piezas **con alcance por decidir**, registradas fuera del
+milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)),
 retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)) y mapa tiempo→ancla para la reproducción ([#42](https://github.com/sebdavid3/Cadenza/issues/42)).
+La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
 
 El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
@@ -819,6 +863,8 @@ queda fuera de esta fase.
 | [ADR-0008](adr/ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry |
 | [ADR-0009](adr/ADR-0009-capa-de-aplicacion.md) | Capa de aplicación con casos de uso |
 | [ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` |
+| [ADR-0011](adr/ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales |
+| [ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario |
 
 ---
 

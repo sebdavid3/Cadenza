@@ -1,13 +1,15 @@
 # Fase 7 — Alineación con la Arquitectura Objetivo
 
 **Objetivo:** cerrar las brechas entre la implementación de las fases 0 a 6 y la
-arquitectura objetivo de [`ARCHITECTURE.md`](../../ARCHITECTURE.md) v1.1, de modo
+arquitectura objetivo de [`ARCHITECTURE.md`](../../ARCHITECTURE.md) v1.2, de modo
 que el backend quede completo y con un contrato estable **antes** de diseñar el
 frontend y las interfaces de usuario.
 
 Referencias: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §6, §7 y §10,
 [ADR-0009](../../adr/ADR-0009-capa-de-aplicacion.md),
 [ADR-0010](../../adr/ADR-0010-score-ir-atributos-y-exportacion.md),
+[ADR-0011](../../adr/ADR-0011-semantica-de-anclas-ante-ediciones.md),
+[ADR-0012](../../adr/ADR-0012-autenticacion-e-identidad.md),
 [`../../PROJECT_STATE.md`](../../PROJECT_STATE.md).
 
 Seguimiento: milestone
@@ -24,8 +26,9 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 3. **Datos:** `ArtifactStore` direccionado por contenido, esquema relacional de
    `ARCHITECTURE.md` §7.2 y verificación sobre PostgreSQL real.
 4. **Capa de aplicación:** casos de uso fuera de los *handlers* de la API.
-5. **API completa:** motor OMR configurable, imagen persistida, ediciones
-   validadas, revalidación, exportación MusicXML/MIDI y métricas de esfuerzo.
+5. **API completa:** autenticación con sesiones privadas, motor OMR configurable,
+   imagen persistida, ediciones validadas, revalidación, exportación
+   MusicXML/MIDI y métricas de esfuerzo.
 6. **OMR y validación:** `bbox` reales, preprocesado, línea base `OemerEngine`,
    catálogo de reglas y su precisión y *recall*.
 7. **Plano offline:** dataset desde la base de datos, *Model Registry*
@@ -37,6 +40,8 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
 - Diseño del frontend y de las interfaces de usuario: render con OSMD,
   reproducción con Tone.js y editor (D11 parte de interfaz, D12).
+- Entrada PDF y partituras de varias páginas: cada sesión parte de una imagen
+  (decisión del 2026-10-03, [#38](https://github.com/sebdavid3/Cadenza/issues/38)).
 - Despliegue distribuido y autoescalado.
 - **TFLite / Edge Learning** y **LLM / VLM**.
 
@@ -47,7 +52,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | **A** Análisis | [#1](https://github.com/sebdavid3/Cadenza/issues/1) | Matriz de brechas y seguimiento de la fase | — |
 | **B** Dominio y datos | [#2](https://github.com/sebdavid3/Cadenza/issues/2) | `ScoreIR` con clave, armadura y ligaduras | — |
 | | [#3](https://github.com/sebdavid3/Cadenza/issues/3) | Proyección de `SetClef`, `SetKey` y `SetAccidental` | — |
-| | [#28](https://github.com/sebdavid3/Cadenza/issues/28) | Estabilidad de las anclas tras inserciones y borrados | D33 |
+| | [#28](https://github.com/sebdavid3/Cadenza/issues/28) | Anclas ante inserciones y borrados: función de traducción (ADR-0011) | D33 |
 | | [#32](https://github.com/sebdavid3/Cadenza/issues/32) | Soporte de piano (dos pentagramas) verificado | D37 |
 | | [#4](https://github.com/sebdavid3/Cadenza/issues/4) | `ArtifactStore` direccionado por `sha256` | — |
 | | [#5](https://github.com/sebdavid3/Cadenza/issues/5) | Migración de esquema de `sessions` y `findings` | — |
@@ -60,6 +65,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | | [#12](https://github.com/sebdavid3/Cadenza/issues/12) | Exportación MusicXML y MIDI | D11 (backend) |
 | | [#13](https://github.com/sebdavid3/Cadenza/issues/13) | Métricas de esfuerzo persistidas | D13 |
 | | [#27](https://github.com/sebdavid3/Cadenza/issues/27) | Listado de sesiones (`GET /sessions`) | D32 |
+| | [#39](https://github.com/sebdavid3/Cadenza/issues/39) | Autenticación e identidad de usuario (ADR-0012) | D10 |
 | | [#34](https://github.com/sebdavid3/Cadenza/issues/34) | Ciclo de vida de la sesión | D39 |
 | | [#35](https://github.com/sebdavid3/Cadenza/issues/35) | Deshacer en el servidor como evento compensatorio | D40 |
 | | [#36](https://github.com/sebdavid3/Cadenza/issues/36) | Descartar un hallazgo como falso positivo | D41 |
@@ -89,8 +95,6 @@ empieza por decidir si entra en el alcance; si no entra, se cierra con el motivo
 | Issue | Contenido | Deuda |
 |---|---|---|
 | [#37](https://github.com/sebdavid3/Cadenza/issues/37) | Transcripción asíncrona con consulta de estado | D42 |
-| [#38](https://github.com/sebdavid3/Cadenza/issues/38) | Entrada PDF y partituras de varias páginas | D43 |
-| [#39](https://github.com/sebdavid3/Cadenza/issues/39) | Autenticación e identidad de usuario | D10 |
 | [#40](https://github.com/sebdavid3/Cadenza/issues/40) | Operación del backend | D44 |
 | [#41](https://github.com/sebdavid3/Cadenza/issues/41) | Retirar el prototipo `legacy/` | D45 |
 | [#42](https://github.com/sebdavid3/Cadenza/issues/42) | Mapa tiempo→ancla para la reproducción | D12 |
@@ -104,6 +108,8 @@ empieza por decidir si entra en el alcance; si no entra, se cierra con el motivo
 - [ ] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,
       armadura, métrica, alturas, duraciones ni ligaduras.
 - [ ] Ninguna edición inválida puede entrar al log de ediciones.
+- [ ] Todos los endpoints exigen autenticación y cada usuario solo accede a sus
+      sesiones.
 - [ ] Migraciones aplicadas y pruebas verdes sobre PostgreSQL.
 - [ ] `packages/application` y `packages/domain` superan sus tests de
       arquitectura.

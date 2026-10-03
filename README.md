@@ -57,7 +57,7 @@ Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PRO
 **Regla de dependencias:** los adaptadores dependen del dominio (y de sus
 puertos), nunca al contrario. El dominio no importa Pydantic, SQLAlchemy, FastAPI
 ni music21 (verificado por un test de pureza). Decisiones en
-[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0010).
+[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0012).
 
 El diagrama muestra lo implementado. La arquitectura objetivo añade una capa de
 aplicación (`packages/application`), un `ArtifactStore` y la exportación
@@ -207,7 +207,7 @@ arquitectura hexagonal y **no** es el código de producción.
 - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — estado vivo, deuda técnica y bitácora.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura objetivo, funciones, datos y brechas.
 - [`docs/arquitectura-dbb.md`](docs/arquitectura-dbb.md) — diagramas de bloques (DBB).
-- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0010).
+- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0012).
 - [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — convenciones de Git y calidad.
 - [`docs/literatura/`](docs/literatura/) — estado del arte y corpus de evaluación.
 - [`latex/`](latex/) — documento maestro de la tesis.
