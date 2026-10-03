@@ -5,9 +5,9 @@
 | Campo | Valor |
 |---|---|
 | **Documento** | Arquitectura de Software (ARCHITECTURE.md) |
-| **Versión** | 1.0 |
-| **Estado** | Aceptado — base para la implementación |
-| **Fecha** | 2026-09-20 |
+| **Versión** | 1.1 |
+| **Estado** | Aceptado — arquitectura objetivo vigente |
+| **Fecha** | 2026-10-03 |
 | **Autoría** | Arquitectura de Software, proyecto Cadenza |
 | **Alcance** | Sistema completo (backend, frontend, planos de inferencia y aprendizaje) |
 
@@ -20,17 +20,26 @@ monofónicas y de piano simple) en formatos simbólicos editables y reproducible
 (**MusicXML 4.0** y **MIDI 1.0**), e integra cuatro pilares:
 
 1. un **motor de transcripción OMR** (HOMR, sobre `onnxruntime`);
-2. un **motor de validación sintáctica/semántica** basado en reglas de teoría
-   musical (`music21`);
+2. un **motor de validación sintáctica/semántica** basado en reglas puras de
+   teoría musical sobre el `ScoreIR`;
 3. una **interfaz *Human-in-the-Loop* (HITL)** para corrección visual y escucha;
 4. un **ciclo de aprendizaje activo** que recolecta pares de corrección para el
    *fine-tuning* por lotes del modelo de reconocimiento.
 
 Este documento formaliza las decisiones estructurales que rigen la construcción
-del sistema. No describe una implementación existente, sino la **arquitectura
-objetivo desde cero**, derivada de los requisitos de la investigación y no de las
-limitaciones del prototipo previo. Cada decisión relevante se respalda en un
-*Architecture Decision Record* ([`adr/`](adr/)).
+del sistema. Describe la **arquitectura objetivo**, derivada de los requisitos de
+la investigación y no de las limitaciones del prototipo previo. La implementación
+actual cubre una parte de ella: la sección
+[10](#10-estado-actual-frente-al-objetivo-y-plan-de-entrega) detalla qué existe,
+qué falta y en qué orden se cierra la brecha. Cada decisión relevante se respalda
+en un *Architecture Decision Record* ([`adr/`](adr/)).
+
+> **Cambios de la versión 1.1.** Se añade la capa de aplicación
+> ([ADR-0009](adr/ADR-0009-capa-de-aplicacion.md)), se fija la organización de
+> los datos y el catálogo de funciones (secciones 6 y 7), el `ScoreIR` incorpora
+> clave y armadura y la exportación pasa a `packages/interchange`
+> ([ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md)), y se corrige la
+> descripción del `ScoreIR` y del validador, que no dependen de `music21`.
 
 > **Nota de alcance.** Se excluyen explícitamente los enfoques basados en
 > LLM/VLM y el *Edge Learning* / TFLite. El *fine-tuning* se realiza en el
@@ -45,11 +54,13 @@ limitaciones del prototipo previo. Cada decisión relevante se respalda en un
 3. [Separación de planos de cómputo](#3-separación-de-planos-de-cómputo)
 4. [Stack tecnológico justificado](#4-stack-tecnológico-justificado)
 5. [Diseño de los cuatro módulos de investigación](#5-diseño-de-los-cuatro-módulos-de-investigación)
-6. [Estructura del repositorio](#6-estructura-del-repositorio)
-7. [Atributos de calidad y estrategias](#7-atributos-de-calidad-y-estrategias)
-8. [Plan de entrega por fases](#8-plan-de-entrega-por-fases)
-9. [Registro de decisiones (ADR)](#9-registro-de-decisiones-adr)
-10. [Glosario](#10-glosario)
+6. [Capa de aplicación y funciones](#6-capa-de-aplicación-y-funciones)
+7. [Organización de los datos](#7-organización-de-los-datos)
+8. [Estructura del repositorio](#8-estructura-del-repositorio)
+9. [Atributos de calidad y estrategias](#9-atributos-de-calidad-y-estrategias)
+10. [Estado actual frente al objetivo y plan de entrega](#10-estado-actual-frente-al-objetivo-y-plan-de-entrega)
+11. [Registro de decisiones (ADR)](#11-registro-de-decisiones-adr)
+12. [Glosario](#12-glosario)
 
 ---
 
@@ -87,30 +98,35 @@ adentro; los adaptadores dependen del dominio, nunca al contrario.
 
 Cada capacidad externa se declara como un **puerto** (interfaz) y se implementa
 mediante uno o varios **adaptadores**. Los puertos que sostienen la
-investigación son `OMREngine` (línea base vs. motor principal), `Validator`
+investigación son `OMREngine` (línea base vs. motor principal), `ValidationRule`
 (catálogo de reglas) y `AcquisitionStrategy` (estrategias de aprendizaje activo
 comparables).
 
 ```mermaid
 flowchart LR
     subgraph Driving["Lado conductor (driving)"]
-        HTTP["HTTP / SSE<br/>FastAPI routers"]
+        HTTP["HTTP<br/>FastAPI routers"]
+        CLI["CLI offline<br/>ml/"]
+    end
+
+    subgraph App["Aplicación · packages/application"]
+        UC["Casos de uso<br/>transcribe · append_edit · revalidate · export"]
     end
 
     subgraph Core["Núcleo · packages/domain (puro)"]
-        UC["Casos de uso<br/>Transcribe · Validate · ApplyEdit"]
-        SD["ScoreDocument"]
+        SD["ScoreDocument · EditEvent · Finding"]
     end
 
     subgraph Driven["Lado conducido (driven)"]
         OMRA["OMREngine<br/>homr · oemer · fake"]
-        VAL["Validator<br/>RuleBased"]
-        REPO["ScoreRepository"]
+        VAL["ValidationEngine<br/>reglas puras"]
+        REPO["SessionRepository<br/>EditEventRepository"]
         STORE["ArtifactStore"]
-        EXP["ExportService"]
+        EXP["ScoreExporter<br/>MusicXML · MIDI"]
     end
 
     HTTP --> UC
+    CLI --> UC
     UC --> SD
     UC -->|puerto| OMRA
     UC -->|puerto| VAL
@@ -137,13 +153,24 @@ flowchart TB
 
     U -->|"carga imagen"| FE
     IMG --> FE
-    FE <-->|"REST / SSE"| BE
-    BE --> ML
+    FE <-->|"REST"| BE
+    BE -->|"datos persistidos"| ML
     ML -->|"versión de modelo"| BE
     BE --> XML
     BE --> MIDI
     FE -->|"escucha y edita"| U
 ```
+
+### 1.5 Capa de aplicación
+
+Entre los conductores (API, CLI) y el dominio hay una **capa de aplicación**
+(`packages/application`) que contiene los casos de uso
+([ADR-0009](adr/ADR-0009-capa-de-aplicacion.md)). Un caso de uso orquesta
+puertos y funciones del dominio para completar una operación del sistema; no
+conoce HTTP ni SQL. Los *routers* de FastAPI solo traducen la petición, invocan
+el caso de uso y traducen la respuesta. Así la API, los experimentos y los jobs
+del plano offline ejecutan exactamente la misma lógica. El catálogo de casos de
+uso está en la sección [6](#6-capa-de-aplicación-y-funciones).
 
 ---
 
@@ -165,10 +192,18 @@ música, lo que rompe cualquier referencia cruzada entre módulos.
 
 ### 2.1 `ScoreIR` — representación intermedia simbólica
 
-Notación normalizada construida sobre `music21`, que resuelve las ambigüedades de
-MusicXML a una estructura canónica (partes, pentagramas, compases, voces y
-eventos). Es la representación sobre la que operan las reglas de validación, el
-diff y la derivación de datos de entrenamiento.
+Notación normalizada como **estructuras inmutables propias del dominio**
+(partes, pentagramas, compases, voces y eventos), sin dependencias externas. Es
+la representación sobre la que operan las reglas de validación, la proyección
+del log de ediciones y la derivación de datos de entrenamiento.
+
+`music21` no forma parte del `ScoreIR`: queda confinado a
+`packages/interchange`, que resuelve las ambigüedades de MusicXML/MEI/`**kern`
+al leer y genera MusicXML/MIDI al exportar
+([ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md)). Para que la
+exportación no pierda información, cada compás porta métrica, **clave** y
+**armadura**, y cada evento su altura, duración y ligadura (estructura completa
+en la sección [7.1](#71-modelo-simbólico)).
 
 ### 2.2 `AnchorIndex` — identificadores estables de evento
 
@@ -318,7 +353,7 @@ modelo es, por diseño, un ciclo **por lotes** y no un efecto inmediato del uso.
 | **ORM y migraciones** | SQLAlchemy 2 + Alembic | Abstrae el motor y versiona el esquema; permite el *fallback* SQLite. |
 | **Base de datos** | PostgreSQL + **JSONB** | Datos relacionales (sesiones, documentos) e **híbridos**: `Finding`, `anchor`, `EditEvent`, features de AL. JSONB permite consultar e indexar estructuras variables sin migraciones constantes. Concurrencia real entre planos ([ADR-0004](adr/ADR-0004-persistencia-postgresql-jsonb.md)). |
 | **Artefactos** | `ArtifactStore` sobre filesystem *content-addressed* | Imágenes, MusicXML y ONNX fuera de la base de datos; direccionados por `sha256` → idempotencia y deduplicación. Migrable a S3/MinIO. |
-| **Simbólico** | `music21 >= 10` + `musicdiff` | `music21` implementa el `ScoreIR` y el motor de reglas; `musicdiff` aporta el cálculo de diferencias simbólicas para SER/OMR-NED. `>=10` por compatibilidad con `numpy >= 2.4` de HOMR. |
+| **Simbólico** | `music21 >= 10` + `musicdiff` | `music21` se usa **solo** en `packages/interchange` como frontera de lectura y exportación (MusicXML/MEI/`**kern`/MIDI); el `ScoreIR` y las reglas son código propio sin dependencias. `musicdiff` aporta el cálculo de diferencias simbólicas para OMR-NED. `>=10` por compatibilidad con `numpy >= 2.4` de HOMR. |
 | **OMR (inferencia)** | HOMR sobre `onnxruntime` (`homr[cpu]` / `homr[cuda]`) | Motor de dos etapas (segmentación UNet + transformer). GPU real vía `onnxruntime-gpu`; **no** vía `torch` ([ADR-0005](adr/ADR-0005-motor-omr-homr-baseline-oemer.md)). |
 | **OMR (línea base)** | oemer (adaptador) | Permite el contraste experimental del sistema asistido frente a un OMR no asistido. |
 | **Entrenamiento** | PyTorch (pipeline de HOMR) → export ONNX | Separación runtime/entrenamiento; reproducibilidad con semillas y config versionada. |
@@ -350,8 +385,10 @@ explícitamente como parte del pipeline de promoción.
 **Diseño.**
 
 - Se declara el puerto `OMREngine.transcribe(image) -> ScoreDocument`.
-- Adaptadores: `HomrEngine` (principal), `OemerEngine` (línea base),
-  `FakeEngine` (pruebas y CI).
+- Adaptadores: `HOMREngine` (principal), `OemerEngine` (línea base),
+  `FakeOMREngine` (pruebas y CI).
+- El adaptador activo se elige por configuración (`CADENZA_OMR_ENGINE`), y el
+  modelo que carga es la versión promovida en el *Model Registry*.
 - Integración **in-process**, nunca por subprocess ni scraping de salida.
 - El preprocesado (deskew, binarización, DPI) es una etapa configurable y
   medible dentro del adaptador.
@@ -364,9 +401,9 @@ experimentalmente comparable el motor y habilita la línea base.
 ```mermaid
 flowchart LR
     UC["Transcribe (caso de uso)"] -->|puerto| P{{OMREngine}}
-    P --> H["HomrEngine"]
+    P --> H["HOMREngine"]
     P --> O["OemerEngine"]
-    P --> F["FakeEngine"]
+    P --> F["FakeOMREngine"]
     H --> OUT["ScoreDocument crudo"]
     O --> OUT
     F --> OUT
@@ -382,7 +419,7 @@ y emitir hallazgos anclados.
 **Diseño.**
 
 - Motor de **reglas puras y registrables**:
-  `Rule.evaluate(ScoreIR) -> list[Finding]`.
+  `ValidationRule.evaluate(ScoreDocument) -> list[Finding]`.
 - Un `Finding` es `{anchor, rule_id, severity, message, suggested_fix?}`.
 - Catálogo inicial (corpus monofónico y piano simple):
   - **balance de compás:** suma de duraciones = duración de la métrica;
@@ -393,8 +430,11 @@ y emitir hallazgos anclados.
   - **cierres:** ligaduras y elementos básicos bien cerrados.
 - Cada regla se acompaña de **pruebas con partituras sintéticas** y, cuando
   aplica, *property-based testing*.
-- El `Validator` es un puerto; la implementación inicial es
-  `RuleBasedValidator`.
+- `ValidationRule` es el puerto; `ValidationEngine` ejecuta el catálogo
+  registrado y expone su `rules_version` para la `Provenance`.
+- La validación se ejecuta al transcribir **y se repite tras las correcciones**
+  sobre el `ScoreIR` materializado, de modo que los hallazgos reflejen el estado
+  actual del documento.
 
 **Aporte.** Es el componente **central** de la contribución: formaliza reglas de
 teoría musical como especificación verificable, y su salida (densidad de errores)
@@ -402,7 +442,7 @@ alimenta la señal del aprendizaje activo.
 
 ```mermaid
 flowchart LR
-    IR["ScoreIR"] --> V["RuleBasedValidator"]
+    IR["ScoreIR"] --> V["ValidationEngine"]
     V --> R1["Regla: balance de compás"]
     V --> R2["Regla: armadura"]
     V --> R3["Regla: colisión de voces"]
@@ -491,37 +531,181 @@ flowchart LR
 
 ---
 
-## 6. Estructura del repositorio
+## 6. Capa de aplicación y funciones
+
+Esta sección fija **qué hace el sistema** como catálogo de funciones. Las tablas
+de estado (existe / pendiente) están en la sección
+[10](#10-estado-actual-frente-al-objetivo-y-plan-de-entrega).
+
+### 6.1 Casos de uso (`packages/application`)
+
+| Caso de uso | Entrada → salida | Responsabilidad |
+|---|---|---|
+| `transcribe_score` | imagen → sesión | Guarda la imagen en el `ArtifactStore`, ejecuta el `OMREngine`, valida el documento y persiste sesión y hallazgos. |
+| `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el `ScoreIR` materializado. |
+| `append_edit` | id, edición → `EditEvent` | Comprueba que la edición sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
+| `revalidate` | id → hallazgos | Ejecuta el catálogo de reglas sobre el `ScoreIR` materializado y registra los hallazgos con el `seq` al que corresponden. |
+| `export_score` | id, formato → bytes | Serializa el `ScoreIR` materializado a MusicXML 4.0 o MIDI 1.0. |
+| `record_effort` | id, métricas → — | Persiste las métricas de esfuerzo de la sesión de corrección. |
+
+Reglas de la capa:
+
+- Un caso de uso recibe sus puertos por inyección; no importa FastAPI ni
+  SQLAlchemy.
+- **Ninguna edición inválida entra al log.** Como el log es *append-only*
+  ([ADR-0007](adr/ADR-0007-edit-events-inmutables.md)), una edición que no puede
+  proyectarse dejaría la sesión sin estado materializado de forma permanente.
+- Los errores se expresan como excepciones de aplicación (`SessionNotFound`,
+  `InvalidEdit`, `SequenceConflict`) que el conductor traduce (404, 422, 409).
+
+### 6.2 Puertos
+
+| Puerto | Operaciones | Adaptadores |
+|---|---|---|
+| `OMREngine` | `transcribe(image_path) -> ScoreDocument` | `HOMREngine`, `OemerEngine`, `FakeOMREngine` |
+| `ValidationRule` | `evaluate(document) -> list[Finding]` | Balance de compás, armadura y alteraciones, colisión de voces, rango, cierres |
+| `SessionRepository` | `add`, `get`, `list_findings`, `replace_findings` | SQLAlchemy |
+| `EditEventRepository` | `next_seq`, `append`, `list_events` | SQLAlchemy |
+| `ArtifactStore` | `put(bytes, kind) -> sha256`, `get(sha256) -> bytes`, `exists(sha256)` | Sistema de archivos direccionado por contenido |
+| `ScoreExporter` | `to_musicxml(score) -> str`, `to_midi(score) -> bytes` | `packages/interchange` (`music21`) |
+| `AcquisitionStrategy` | `select(candidates, budget) -> list[TrainingSample]` | Incertidumbre, diversidad, híbrida |
+| `Trainer` | `train(samples, config) -> TrainedArtifact` | `FakeTrainer`, entrenador PyTorch |
+| `ModelRegistry` | `register`, `promote`, `active`, `versions` | En memoria (pruebas), SQLAlchemy |
+
+### 6.3 Funciones puras del dominio
+
+| Función | Propósito |
+|---|---|
+| `build_anchor_index(score)` | Deriva el índice de anclas de forma determinista. |
+| `apply_edit(score, edit)` | Devuelve un nuevo `ScoreIR` con una edición aplicada. |
+| `materialize(score, edits)` | Reconstruye el estado actual aplicando el log en orden de `seq`. |
+
+### 6.4 API REST (plano online)
+
+| Método | Endpoint | Caso de uso |
+|---|---|---|
+| `POST` | `/transcribe` | `transcribe_score` |
+| `GET` | `/sessions/{id}` | `get_session` |
+| `GET` | `/sessions/{id}/findings` | `get_session` (solo hallazgos) |
+| `GET` | `/sessions/{id}/image` | lectura del `ArtifactStore` |
+| `POST` | `/sessions/{id}/edits` | `append_edit` |
+| `POST` | `/sessions/{id}/validate` | `revalidate` |
+| `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
+| `POST` | `/sessions/{id}/effort` | `record_effort` |
+
+El contrato se publica como OpenAPI y de él se generan los tipos TypeScript del
+frontend. La inferencia OMR se ejecuta fuera del bucle de eventos.
+
+### 6.5 Jobs del plano offline (CLI en `ml/`)
+
+| Comando | Función |
+|---|---|
+| `build-dataset` | Lee sesiones y `EditEvent` de la base de datos y produce muestras de entrenamiento con su `dataset_hash`. |
+| `select` | Aplica una `AcquisitionStrategy` con un presupuesto. |
+| `train` | Ajusta el modelo con una configuración versionada y exporta ONNX al `ArtifactStore`. |
+| `evaluate` | Calcula SER y OMR-NED contra el corpus de evaluación. |
+| `promote` | Registra la versión y la activa solo si supera el umbral. |
+
+---
+
+## 7. Organización de los datos
+
+### 7.1 Modelo simbólico
+
+```text
+ScoreDocument
+├── id
+├── score: ScoreIR
+│   └── Part(id)
+│       └── Staff(id)
+│           └── Measure(number, time_signature, clef, key_signature)
+│               └── Event(kind, voice, pitch, duration_beats, tie,
+│                         bbox?, confidence?, ir_handle?)
+├── anchors: AnchorIndex          # Anchor -> EventRef
+└── provenance: Provenance        # omr_engine, model_version, rules_version,
+                                  # source_image_hash, created_at
+```
+
+Todas las estructuras son inmutables y serializables con
+`to_primitive`/`from_primitive`. Las duraciones son fracciones exactas.
+
+### 7.2 Modelo relacional (PostgreSQL + JSONB)
+
+Este esquema concreta el esquema conceptual del
+[ADR-0004](adr/ADR-0004-persistencia-postgresql-jsonb.md): sesión y documento
+comparten tabla, y las muestras de aprendizaje activo no se persisten porque el
+job `build-dataset` las deriva del log.
+
+| Tabla | Columnas principales | Contenido |
+|---|---|---|
+| `sessions` | `id`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. |
+| `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB) | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo). |
+| `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. |
+| `effort_metrics` | `id`, `session_id`, `duration_ms`, `time_to_first_edit_ms`, `interventions` (JSONB), `created_at` | Esfuerzo de corrección por sesión. |
+| `artifacts` | `sha256` (PK), `kind`, `media_type`, `size_bytes`, `path`, `created_at` | Índice del `ArtifactStore`. |
+| `model_versions` | `version` (PK), `artifact_hash` → `artifacts`, `dataset_hash`, `config_hash`, `ser`, `omr_ned`, `promoted`, `created_at` | *Model Registry* persistente. |
+
+```mermaid
+erDiagram
+    sessions ||--o{ findings : tiene
+    sessions ||--o{ edit_events : registra
+    sessions ||--o{ effort_metrics : mide
+    artifacts ||--o{ sessions : "imagen de origen"
+    artifacts ||--o{ model_versions : "pesos ONNX"
+```
+
+El **estado actual** de una partitura no se almacena: se obtiene con
+`materialize(document.score, edit_events)`. El esquema se versiona con Alembic y
+SQLite queda como *fallback* para pruebas.
+
+### 7.3 Artefactos y archivos
+
+```text
+data/artifacts/sha256/ab/cd/<hash>   # imágenes, MusicXML, ONNX (direccionado por contenido)
+data/<corpus>/                       # corpus de evaluación + manifiesto con hashes
+configs/learning/*.json              # configuraciones de entrenamiento versionadas
+results/                             # salidas de experimentos (no versionadas)
+```
+
+Los binarios nunca se guardan en la base de datos; la base solo referencia su
+`sha256`, lo que da idempotencia y deduplicación.
+
+---
+
+## 8. Estructura del repositorio
 
 ```text
 cadenza/
 ├── apps/
-│   ├── api/                 # FastAPI: routers, schemas, dependencias, SSE
+│   ├── api/                 # FastAPI: routers, schemas, composición de dependencias
 │   └── web/                 # React + TS: editor, visor, audio, estado
 ├── packages/
-│   ├── domain/              # ScoreDocument, Anchor, Finding, EditEvent (puro)
+│   ├── domain/              # ScoreDocument, Anchor, Finding, EditEvent, proyección (puro)
+│   ├── application/         # casos de uso y puertos de aplicación
+│   ├── interchange/         # MusicXML/MEI/**kern ↔ ScoreIR y exportación MusicXML/MIDI
 │   ├── omr/                 # puerto OMREngine + adaptadores homr/oemer/fake
 │   ├── validation/          # motor de reglas + catálogo + tests
-│   ├── persistence/         # repositorios SQLAlchemy, ArtifactStore
-│   └── export/              # serialización MusicXML / MIDI
-├── ml/                      # dataset builder, acquisition, train, eval
+│   ├── persistence/         # repositorios SQLAlchemy, ArtifactStore, migraciones Alembic
+│   └── learning/            # dataset, adquisición, entrenamiento, métricas, registry
+├── ml/                      # CLI de jobs offline y experimentos de la tesis
 ├── configs/                 # configuraciones de entrenamiento y experimentos
-├── infra/                   # docker, compose, migraciones, CI
 ├── docs/                    # ARCHITECTURE.md, adr/, literatura/, DBB
-└── pyproject.toml           # entorno y dependencias por plano
+├── legacy/                  # prototipo MVP original (referencia, no producción)
+└── pyproject.toml           # workspace uv y configuración única de calidad
 ```
 
 Regla de dependencias: `apps/*` y `ml/*` dependen de `packages/*`;
-`packages/domain` no depende de ningún otro paquete del proyecto.
+`packages/application` depende de `packages/domain` y de los puertos, nunca de
+adaptadores concretos; `packages/domain` no depende de ningún otro paquete.
 
 ---
 
-## 7. Atributos de calidad y estrategias
+## 9. Atributos de calidad y estrategias
 
 | Atributo | Estrategia arquitectónica |
 |---|---|
 | **Bajo acoplamiento** | Puertos y adaptadores; dominio puro; dirección de dependencias hacia el centro ([ADR-0001](adr/ADR-0001-monolito-modular-hexagonal.md)). |
-| **Testeabilidad** | `FakeEngine` y reglas puras permiten probar sin GPU ni modelos; *property-based testing* para las reglas. |
+| **Testeabilidad** | `FakeOMREngine` y reglas puras permiten probar sin GPU ni modelos; *property-based testing* para las reglas. |
 | **Reproducibilidad** | `Provenance`, versión de modelo, dataset/fixtures direccionados por hash, configs y semillas ([ADR-0004](adr/ADR-0004-persistencia-postgresql-jsonb.md), [ADR-0008](adr/ADR-0008-active-learning-model-registry.md)). |
 | **Comparabilidad experimental** | Puertos `OMREngine` y `AcquisitionStrategy` intercambiables. |
 | **Mantenibilidad** | Monolito modular; fronteras verificadas por *tests* de arquitectura; tipado extremo a extremo. |
@@ -531,23 +715,74 @@ Regla de dependencias: `apps/*` y `ml/*` dependen de `packages/*`;
 
 ---
 
-## 8. Plan de entrega por fases
+## 10. Estado actual frente al objetivo y plan de entrega
 
-Cada fase es demostrable y no depende de las posteriores, lo que permite una
-defensa incremental.
+### 10.1 Fases completadas
 
-| Fase | Entregable | Módulos | Verificación |
+Las fases 0 a 6 construyeron el **núcleo** de cada módulo; el detalle y la
+bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
+
+| Fase | Entregable | Módulos |
+|---|---|---|
+| **F0** | Dominio puro: `ScoreDocument`, `AnchorIndex`, `EditEvent`, `TimeSignature`. | Transversal |
+| **F1** | Puerto `OMREngine` con `HOMREngine` (in-process) y `FakeOMREngine`. | M1 |
+| **F2** | `ValidationEngine` y regla de balance de compás con `Finding` anclados. | M2 |
+| **F3** | API (4 endpoints), persistencia SQLAlchemy/JSONB con log *append-only* y visor HITL. | M3 |
+| **F4** | `DatasetBuilder`, tres estrategias de adquisición, `ModelRegistry` y `FakeTrainer`. | M4 |
+| **F5** | Experimentos de esfuerzo y de estrategias de AL sobre datos sintéticos. | Todos |
+| **F6** | Puente `interchange`, OMR-NED oficial y línea base de HOMR sobre PrIMuS. | M1, M4 |
+
+### 10.2 Brechas entre la implementación y la arquitectura objetivo
+
+| Área | Objetivo | Estado actual | Issue |
 |---|---|---|---|
-| **F0** | Cimientos: `domain` (IR + anclas), `ArtifactStore`, esquema DB, puerto `OMREngine` con `FakeEngine`. | Transversal | Tests unitarios del dominio y de los contratos. |
-| **F1** | OMR real (`HomrEngine`/`onnxruntime`) + export MusicXML/MIDI + evaluación base. | M1 | Transcripción de un corpus de prueba; SER/OMR-NED preliminar. |
-| **F2** | Catálogo de reglas + motor de validación + `Finding` anclados. | M2 | Tests sintéticos por regla; métricas de precisión/recall del validador. |
-| **F3** | Editor HITL con anclas, `EditEvent`, undo/redo, playback con cursor. | M3 | Prueba de corrección extremo a extremo; captura de esfuerzo. |
-| **F4** | `DatasetBuilder` + `AcquisitionStrategy` + `Trainer` + `Model Registry`. | M4 | Job de *fine-tuning* reproducible y promoción con umbral. |
-| **F5** | Experimentos: baseline vs. asistido; comparación de estrategias de AL. | Todos | Resultados y métricas para el capítulo experimental. |
+| Aplicación | Casos de uso en `packages/application` | La lógica vive en los *handlers* de `apps/api` | [#7](https://github.com/sebdavid3/Cadenza/issues/7) |
+| Dominio | `ScoreIR` con clave, armadura y ligaduras | Solo métrica por compás; altura y duración por evento | [#2](https://github.com/sebdavid3/Cadenza/issues/2) |
+| Dominio | Las siete operaciones de edición son proyectables | `SetClef`/`SetKey` no se proyectan; `SetAccidental` equivale a `SetPitch` | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
+| Datos | `ArtifactStore` direccionado por `sha256` | No existe; la imagen subida se descarta | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
+| Datos | Esquema de la sección 7.2 | Solo `sessions`, `findings` y `edit_events`, sin `at_seq` ni referencia a la imagen | [#5](https://github.com/sebdavid3/Cadenza/issues/5) |
+| Datos | PostgreSQL como base de producción | Verificado solo en SQLite | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
+| API | Motor OMR elegido por configuración | La API usa siempre `FakeOMREngine` | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
+| API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
+| API | Revalidación tras las correcciones | Los hallazgos se calculan una vez, al transcribir | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
+| API | Exportación MusicXML y MIDI | Existe `score_ir_to_musicxml`; no hay MIDI ni endpoint | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
+| API | Métricas de esfuerzo persistidas | Se calculan solo en el navegador | [#13](https://github.com/sebdavid3/Cadenza/issues/13) |
+| M1 | Anclas con `bbox` real | `bbox` sintético en el motor falso; HOMR no aporta coordenadas | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
+| M1 | Preprocesado configurable y línea base `OemerEngine` | No implementados | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#16](https://github.com/sebdavid3/Cadenza/issues/16) |
+| M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Una regla (balance de compás), sin métricas | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
+| M4 | `DatasetBuilder` alimentado desde la base de datos | Recibe los datos en memoria y solo considera `SetPitch` | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
+| M4 | Correcciones derivadas de errores reales de OMR | Señales sintéticas | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
+| M4 | *Model Registry* persistente y carga del modelo activo | Registro en memoria; el plano online no lo consulta | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
+| M4 | Jobs offline orquestados por CLI | Solo scripts de experimentos | [#22](https://github.com/sebdavid3/Cadenza/issues/22) |
+| M4 | Entrenador real (PyTorch → ONNX) | `FakeTrainer` | [#23](https://github.com/sebdavid3/Cadenza/issues/23) |
+| Experimentos | Resultados sobre datos reales | `exp_01` y `exp_02` usan datos sintéticos | [#24](https://github.com/sebdavid3/Cadenza/issues/24) |
+| Infraestructura | Integración continua | No hay *workflows* | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
+| API | Contrato OpenAPI congelado y tipos generados | Tipos TypeScript escritos a mano | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
+
+El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
+
+### 10.3 Fase 7 — Alineación con la arquitectura objetivo
+
+La fase 7 cierra las brechas anteriores en este orden; cada bloque es
+demostrable por separado. Alcance y criterio de cierre en
+[`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md).
+
+| Bloque | Contenido | Verificación |
+|---|---|---|
+| **A** | Análisis de brechas. | Matriz de brechas revisada y enlazada a cada issue. |
+| **B** | Dominio y datos: `ScoreIR` extendido, proyección completa, `ArtifactStore`, esquema y PostgreSQL. | Ida y vuelta MusicXML sin pérdida; migraciones aplicadas en PostgreSQL. |
+| **C** | Aplicación y API: casos de uso, motor configurable, edición validada, revalidación, exportación y esfuerzo. | Flujo imagen → HOMR → validación → corrección → exportación de punta a punta. |
+| **D** | OMR y validación: `bbox`, preprocesado, línea base y catálogo de reglas medido. | Precisión y *recall* del validador sobre errores reales. |
+| **E** | Plano offline: dataset desde la base de datos, registro persistente, CLI, entrenador y experimentos reales. | Job reproducible y resultados para el capítulo experimental. |
+| **F** | Integración continua y contrato de API congelado. | CI verde; OpenAPI publicado como entrada al diseño del frontend. |
+
+El diseño del frontend y de las interfaces de usuario (render con OSMD,
+reproducción con Tone.js, editor) empieza cuando el bloque F está cerrado y
+queda fuera de esta fase.
 
 ---
 
-## 9. Registro de decisiones (ADR)
+## 11. Registro de decisiones (ADR)
 
 | ID | Decisión |
 |---|---|
@@ -559,20 +794,25 @@ defensa incremental.
 | [ADR-0006](adr/ADR-0006-render-editor-osmd-verovio-zustand.md) | Renderizado reactivo y estado editorial |
 | [ADR-0007](adr/ADR-0007-edit-events-inmutables.md) | Correcciones HITL como eventos inmutables sobre anclas |
 | [ADR-0008](adr/ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry |
+| [ADR-0009](adr/ADR-0009-capa-de-aplicacion.md) | Capa de aplicación con casos de uso |
+| [ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` |
 
 ---
 
-## 10. Glosario
+## 12. Glosario
 
 | Término | Definición |
 |---|---|
 | **Ancla (`Anchor`)** | Ruta lógica estable que identifica un evento musical y sirve de referencia compartida entre módulos. |
 | **`ScoreDocument`** | Fuente de verdad del sistema: `ScoreIR` + `AnchorIndex` + `Provenance`. |
-| **`ScoreIR`** | Representación intermedia simbólica normalizada, construida sobre `music21`. |
+| **`ScoreIR`** | Representación intermedia simbólica normalizada, propia del dominio y sin dependencias externas. |
+| **Caso de uso** | Operación del sistema implementada en la capa de aplicación orquestando puertos y dominio. |
+| **`ArtifactStore`** | Almacén de binarios (imágenes, MusicXML, ONNX) direccionado por `sha256`. |
+| **Materializar** | Reconstruir el estado actual de una partitura aplicando el log de ediciones sobre el `ScoreIR` crudo. |
 | **`Finding`** | Hallazgo de validación anclado a un evento, con severidad y diagnóstico. |
 | **`EditEvent`** | Corrección humana inmutable, anclada, que describe una transformación sobre el `ScoreIR`. |
 | **Puerto** | Interfaz abstracta que declara una capacidad externa en la arquitectura hexagonal. |
-| **Adaptador** | Implementación concreta de un puerto (p. ej. `HomrEngine`). |
+| **Adaptador** | Implementación concreta de un puerto (p. ej. `HOMREngine`). |
 | **Plano Online** | Plano de inferencia y UI, orientado a peticiones. |
 | **Plano Offline** | Plano de aprendizaje y entrenamiento, orientado a lotes. |
 | **HITL** | *Human-in-the-Loop*: corrección humana asistida por el sistema. |
