@@ -24,6 +24,11 @@ conecta a través de puertos.
 | **4** | Aprendizaje activo: `DatasetBuilder`, estrategias de adquisición, `ModelRegistry` | ✅ |
 | **5** | Framework de experimentos (esfuerzo y estrategias de AL) | ✅ |
 | **6** | Validación empírica sobre corpus real (PrIMuS) y OMR-NED oficial | ✅ |
+| **7** | Alineación con la arquitectura objetivo (capa de aplicación, datos, API completa, plano offline) | 🔜 |
+
+Las fases 0–6 implementan el **núcleo** de cada módulo. Las brechas frente a la
+arquitectura objetivo se cierran en la Fase 7, cuyo trabajo está en los
+[issues del repositorio](https://github.com/sebdavid3/Cadenza/milestone/1).
 
 Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md).
 
@@ -52,7 +57,11 @@ Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PRO
 **Regla de dependencias:** los adaptadores dependen del dominio (y de sus
 puertos), nunca al contrario. El dominio no importa Pydantic, SQLAlchemy, FastAPI
 ni music21 (verificado por un test de pureza). Decisiones en
-[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0008).
+[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0010).
+
+El diagrama muestra lo implementado. La arquitectura objetivo añade una capa de
+aplicación (`packages/application`), un `ArtifactStore` y la exportación
+MusicXML/MIDI; ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
 
 ---
 
@@ -196,8 +205,9 @@ arquitectura hexagonal y **no** es el código de producción.
 ## Documentación
 
 - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — estado vivo, deuda técnica y bitácora.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura y plan por fases.
-- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0008).
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura objetivo, funciones, datos y brechas.
+- [`docs/arquitectura-dbb.md`](docs/arquitectura-dbb.md) — diagramas de bloques (DBB).
+- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0010).
 - [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — convenciones de Git y calidad.
 - [`docs/literatura/`](docs/literatura/) — estado del arte y corpus de evaluación.
 - [`latex/`](latex/) — documento maestro de la tesis.

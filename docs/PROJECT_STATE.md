@@ -6,13 +6,13 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 6 — Validación Empírica sobre Corpus Real — **en curso** (6.0 y 6.1 cerradas; 6.2/6.3 pendientes de entorno) |
-| **Último hito completado** | Puente canónico de notación (`packages/interchange`, music21) + OMR-NED oficial (`musicdiff`) como extra de `cadenza-learning`; `ml/experiments/corpus.py`, `exp_03_omr_quality.py` y `exp_04_homr_transcribe.py`; 108 tests verdes (pytest/ruff/mypy strict) |
-| **Próximo paso inmediato** | Descargar un split acotado de PrIMuS/Camera-PrIMuS (`corpus.py fetch`), instalar el extra `homr` y correr `exp_04` (GPU) + `exp_03` sobre el corpus real |
-| **Rama activa** | `feature/interchange` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8–D16 (D4 mitigada, D7 resuelta) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **planificada** (fases 0–6 cerradas en su núcleo) |
+| **Último hito completado** | Arquitectura objetivo v1.1 documentada (`ARCHITECTURE.md`, DBB, ADR-0009 y ADR-0010) y brechas convertidas en issues ([#1](https://github.com/sebdavid3/Cadenza/issues/1)–[#26](https://github.com/sebdavid3/Cadenza/issues/26), milestone Fase 7) |
+| **Próximo paso inmediato** | Cerrar el análisis de brechas ([#1](https://github.com/sebdavid3/Cadenza/issues/1)) y empezar por la capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)) y el `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)), que desbloquean el resto |
+| **Rama activa** | `dev` |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D31 (D4 mitigada; D7, D9, D15 y D20 resueltas) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
-| **Fecha de actualización** | 2026-09-20 |
+| **Fecha de actualización** | 2026-10-03 |
 
 ---
 
@@ -45,7 +45,8 @@ Reglas:
 | **M3** | Interfaz HITL (editor + eventos) | Fase 3B | Completado (núcleo: imagen + overlays `bbox`, `SetPitch` inmutable, undo/redo, métricas); pendiente OSMD/Tone.js (D11, D12) |
 | **M4** | Active Learning + Model Registry | Fase 4 | Completado (núcleo: `DatasetBuilder`, 3 estrategias, `ModelRegistry`, `FakeTrainer`); pendiente trainer real/ONNX/musicdiff (D14–D16) |
 | **M5** | Framework de Experimentos (`ml/experiments/`, `results/`) | Fase 5 | Completado (núcleo: `exp_01_effort` y `exp_02_active_learning` deterministas); pendiente corpus real + integración con persistencia (D17, D18) |
-| **M6** | Validación empírica (`packages/interchange`, OMR-NED, corpus) | Fase 6 | En curso: 6.0 puente canónico y 6.1 OMR-NED **completos**; 6.2 tooling de corpus listo; 6.3 pendiente de descarga + GPU (D20) |
+| **M6** | Validación empírica (`packages/interchange`, OMR-NED, corpus) | Fase 6 | Completado (núcleo: puente canónico, OMR-NED oficial, línea base HOMR sobre PrIMuS en CPU y GPU); pendiente AL sobre errores reales (D21) |
+| — | Alineación con la arquitectura objetivo (aplicación, datos, API, plano offline) | Fase 7 | Planificado: 26 issues en el milestone de la fase ([`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md)) |
 
 ---
 
@@ -74,8 +75,39 @@ Reglas:
 | D19 | Reducción de esfuerzo medida en `ml/experiments` no usa los eventos HITL reales ni `musicdiff` para OMR-NED | Fase 5 / M5 | **Parcial** — OMR-NED oficial integrado (`exp_03`); falta correrlo sobre corpus real (D20) |
 | D20 | HOMR real no ejecutado en GPU | Fase 6 / M6 | **Resuelta** — GPU operativa con `onnxruntime-gpu==1.26.0` (CUDA 12.8 + cuDNN 9 cu12) y `ensure_cuda_dll_dirs` (PATH de sub-librerías cuDNN). Baseline PrIMuS 91/100, **OMR-NED medio 0.2285** idéntico CPU↔GPU, 9 fallos `No staffs found` |
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
+| D22 | Sin capa de aplicación: los casos de uso viven en los *handlers* de `apps/api` (ADR-0009) | Fase 7 | Pendiente |
+| D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | Pendiente |
+| D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | Pendiente |
+| D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | Pendiente |
+| D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | Pendiente |
+| D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | Pendiente |
+| D28 | Los hallazgos se calculan solo al transcribir; no hay revalidación tras las correcciones | Fase 7 / M2 | Pendiente |
+| D29 | Sin exportación MIDI ni endpoint de exportación (solo `score_ir_to_musicxml`) | Fase 7 | Pendiente |
+| D30 | `ModelRegistry` solo en memoria; el plano online no consulta la versión activa | Fase 7 / M4 | Pendiente |
+| D31 | Sin integración continua ni contrato OpenAPI congelado (tipos del frontend escritos a mano) | Fase 7 | Pendiente |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
+
+### Deuda ↔ issues de la Fase 7
+
+| Deuda | Issue | Deuda | Issue |
+|---|---|---|---|
+| D1 | [#16](https://github.com/sebdavid3/Cadenza/issues/16) | D19 | [#24](https://github.com/sebdavid3/Cadenza/issues/24) |
+| D2 | [#15](https://github.com/sebdavid3/Cadenza/issues/15) | D21 | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
+| D3, D5 | [#8](https://github.com/sebdavid3/Cadenza/issues/8) | D22 | [#7](https://github.com/sebdavid3/Cadenza/issues/7) |
+| D4 | [#14](https://github.com/sebdavid3/Cadenza/issues/14) | D23 | [#2](https://github.com/sebdavid3/Cadenza/issues/2), [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
+| D6 | [#17](https://github.com/sebdavid3/Cadenza/issues/17) | D24 | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
+| D8 | [#18](https://github.com/sebdavid3/Cadenza/issues/18) | D25 | [#5](https://github.com/sebdavid3/Cadenza/issues/5), [#13](https://github.com/sebdavid3/Cadenza/issues/13), [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
+| D10 | [#6](https://github.com/sebdavid3/Cadenza/issues/6) | D26 | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
+| D11 (backend) | [#12](https://github.com/sebdavid3/Cadenza/issues/12) | D27 | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
+| D13 | [#13](https://github.com/sebdavid3/Cadenza/issues/13) | D28 | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
+| D14 | [#23](https://github.com/sebdavid3/Cadenza/issues/23) | D29 | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
+| D16 | [#19](https://github.com/sebdavid3/Cadenza/issues/19), [#22](https://github.com/sebdavid3/Cadenza/issues/22) | D30 | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
+| D17 | [#24](https://github.com/sebdavid3/Cadenza/issues/24) | D31 | [#25](https://github.com/sebdavid3/Cadenza/issues/25), [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
+| D18 | [#19](https://github.com/sebdavid3/Cadenza/issues/19) | — | — |
+
+D11 (parte de interfaz) y D12 pertenecen al diseño del frontend y quedan fuera de
+la Fase 7. La autenticación de la API (parte de D10) no está en el alcance.
 
 ---
 
@@ -97,9 +129,9 @@ Reglas:
 | 2026-09-20 | OMR-NED oficial: `cadenza.learning.omr_ned_pair`/`omr_ned_batch` con musicdiff 5.2 (extra `metrics`); tooling de corpus (`corpus.py`) y experimentos `exp_03`/`exp_04`; 108 tests verdes | Fase 6 (6.1–6.2) | `packages/learning/`, `ml/experiments/`, `docs/phases/phase_6_empirical_validation/` |
 | 2026-09-20 | Primer baseline OMR real: PrIMuS descargado, HOMR 0.7 adaptado (`transcribe_musicxml`, config sin `title_detection`), manifiesto con filtrado AppleDouble y `exp_04` tolerante a fallos; OMR-NED medio **0.0868** sobre 4 incipits (CPU) | Fase 6 (6.3, parcial) | `packages/omr/adapters/homr.py`, `ml/experiments/`, `results/omr_baseline_summary.json` |
 | 2026-09-20 | Baseline OMR completo (100 incipits PrIMuS, CPU): 91 transcritos, 9 fallos `No staffs found`, **OMR-NED medio 0.2285** (mediana 0.1727); `exp_04` registra `run_info.json` con el entorno de inferencia | Fase 6 (6.3) | `results/omr_baseline.csv`, `data/primus/predictions/` |
-| 2026-09-20 | GPU operativa: `onnxruntime-gpu==1.26.0` (CUDA 12.8, cu12) + `ensure_cuda_dll_dirs` en el adaptador (expone los `bin` de cuDNN que `preload_dlls` no cubre); baseline re-ejecutado en GPU con OMR-NED idéntico al de CPU (0.2285) | Fase 6 (6.3) | `packages/omr/adapters/homr.py`, `ml/experiments/exp_04_homr_transcribe.py`,
-`docs/PROJECT_STATE.md` |
+| 2026-09-20 | GPU operativa: `onnxruntime-gpu==1.26.0` (CUDA 12.8, cu12) + `ensure_cuda_dll_dirs` en el adaptador (expone los `bin` de cuDNN que `preload_dlls` no cubre); baseline re-ejecutado en GPU con OMR-NED idéntico al de CPU (0.2285) | Fase 6 (6.3) | `packages/omr/adapters/homr.py`, `ml/experiments/exp_04_homr_transcribe.py`, `docs/PROJECT_STATE.md` |
 | 2026-09-20 | Reorganización del repositorio: el prototipo MVP (`backend/`, `frontend/`, `scripts/`, `docker-compose*`) se movió a `legacy/`; `.gitignore`, `pyproject.toml` y documentación actualizados; compose validado desde la nueva ruta | — | `legacy/`, `pyproject.toml`, `.gitignore`, `README.md` |
+| 2026-10-03 | Arquitectura objetivo v1.1: capa de aplicación (ADR-0009), `ScoreIR` extendido y exportación en `interchange` (ADR-0010), organización de datos y catálogo de funciones; DBB alineado con `ARCHITECTURE.md`; brechas registradas como D22–D31 y como issues [#1](https://github.com/sebdavid3/Cadenza/issues/1)–[#26](https://github.com/sebdavid3/Cadenza/issues/26) | Fase 7 | `docs/ARCHITECTURE.md`, `docs/arquitectura-dbb.md`, `docs/adr/ADR-0009-*`, `docs/adr/ADR-0010-*`, `docs/phases/phase_7_architecture_alignment/` |
 
 ---
 

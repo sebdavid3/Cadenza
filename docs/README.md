@@ -14,10 +14,12 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 
 | Ruta | Descripción |
 |---|---|
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Documento arquitectónico oficial**: filosofía de diseño, `ScoreDocument`, separación de planos, stack justificado y diseño de los cuatro módulos de investigación. |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Documento arquitectónico oficial** (v1.1): filosofía de diseño, `ScoreDocument`, separación de planos, stack justificado, módulos de investigación, capa de aplicación y funciones, organización de los datos y brechas frente a la implementación. |
+| [`PROJECT_STATE.md`](PROJECT_STATE.md) | Estado vivo del proyecto: fase actual, deuda técnica y bitácora de hitos. |
+| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase (la vigente es la [Fase 7](phases/phase_7_architecture_alignment/README.md)). |
 | [`adr/`](adr/) | Registro de decisiones arquitectónicas (ADR): contexto, decisión, consecuencias y alternativas de cada elección de diseño. |
 | [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
-| [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques; el diseño técnico vigente está en `ARCHITECTURE.md`. |
+| [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques alineada con `ARCHITECTURE.md` v1.1, que es el diseño técnico vigente. |
 | [`literatura/`](literatura/) | Colección de 43 fichas bibliográficas organizadas por área temática y componentes del sistema. |
 
 ---
@@ -28,7 +30,7 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 |---|---|---|---|
 | 01 | [`01-omr-estado-del-arte.md`](literatura/01-omr-estado-del-arte.md) | Evolución histórica y taxonomía del OMR | Pipeline base de transcripción |
 | 02 | [`02-modelos-deep-learning.md`](literatura/02-modelos-deep-learning.md) | Redes CNN, CRNN, Transformers y Mamba-2 | Motor de reconocimiento OMR |
-| 03 | [`03-validacion-musical.md`](literatura/03-validacion-musical.md) | Validación sintáctica y corrección de errores | Motor de reglas (`music21`) |
+| 03 | [`03-validacion-musical.md`](literatura/03-validacion-musical.md) | Validación sintáctica y corrección de errores | Motor de reglas (`packages/validation`) |
 | 04 | [`04-human-in-the-loop.md`](literatura/04-human-in-the-loop.md) | Interfaces interactivas y control de esfuerzo cognitivo | UI de corrección asistida |
 | 05 | [`05-aprendizaje-activo.md`](literatura/05-aprendizaje-activo.md) | Muestreo por incertidumbre y ajuste fino continuo | Módulo de *Active Learning* (batch en servidor) |
 | 06 | [`06-datasets-corpus.md`](literatura/06-datasets-corpus.md) | Corpus públicos y delimitación de alcance | Terna de evaluación |

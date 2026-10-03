@@ -5,7 +5,7 @@ experimentos de simulación demostraron que la *maquinaria* funciona; esta fase
 demuestra que funciona sobre **partituras reales con ground truth**, con las
 métricas oficiales del estado del arte (SER / OMR-NED).
 
-Referencias: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §8 (F5),
+Referencias: [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md) §10 (F5),
 [ADR-0005](../../adr/ADR-0005-motor-omr-homr-baseline-oemer.md),
 [`../../literatura/06-datasets-corpus.md`](../../literatura/06-datasets-corpus.md),
 [`../../literatura/07-formatos-evaluacion.md`](../../literatura/07-formatos-evaluacion.md).
