@@ -78,9 +78,13 @@ Con ella:
 
 ### 4. Un solo escritor por sesión
 
-El log es secuencial. Una edición construida sobre un estado obsoleto se detecta
-por el conflicto de `seq` (409) o porque su valor `before` no coincide con el
-estado actual (422); el cliente debe recargar la sesión y reconstruir la edición.
+El log es secuencial y cada edición declara el estado sobre el que se construyó
+(`base_seq`). Si `base_seq` no es el último `seq` de la sesión, el servidor la
+rechaza con un conflicto (409) y no escribe nada; nunca la reintenta con otro
+`seq`, porque eso cambiaría el evento al que apunta su ancla. Como segunda
+comprobación, una edición cuyo valor `before` no coincide con el estado actual
+se rechaza (422). En ambos casos el cliente recarga la sesión y reconstruye la
+edición.
 
 ## Consecuencias
 

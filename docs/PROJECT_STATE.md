@@ -10,7 +10,7 @@
 | **Último hito completado** | Decisiones de diseño previas al desarrollo cerradas: una imagen por sesión, autenticación completa (ADR-0012) y anclas posicionales con traducción al documento crudo (ADR-0011); `ARCHITECTURE.md` v1.2 |
 | **Próximo paso inmediato** | Etapa 1 de la Fase 7: integración continua ([#25](https://github.com/sebdavid3/Cadenza/issues/25)), capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)), `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D42, D44, D45 (D4 mitigada; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D42, D44–D47 (D4 mitigada; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-03 |
 
@@ -46,7 +46,7 @@ Reglas:
 | **M4** | Active Learning + Model Registry | Fase 4 | Completado (núcleo: `DatasetBuilder`, 3 estrategias, `ModelRegistry`, `FakeTrainer`); pendiente trainer real/ONNX/musicdiff (D14–D16) |
 | **M5** | Framework de Experimentos (`ml/experiments/`, `results/`) | Fase 5 | Completado (núcleo: `exp_01_effort` y `exp_02_active_learning` deterministas); pendiente corpus real + integración con persistencia (D17, D18) |
 | **M6** | Validación empírica (`packages/interchange`, OMR-NED, corpus) | Fase 6 | Completado (núcleo: puente canónico, OMR-NED oficial, línea base HOMR sobre PrIMuS en CPU y GPU); pendiente AL sobre errores reales (D21) |
-| — | Alineación con la arquitectura objetivo (aplicación, datos, API, plano offline) | Fase 7 | Planificado: 37 issues en el milestone y 4 con alcance por decidir de la fase ([`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md)) |
+| — | Alineación con la arquitectura objetivo (aplicación, datos, API, plano offline) | Fase 7 | Planificado: 42 issues en el milestone, 4 con alcance por decidir y 1 de adaptación del visor web de la fase ([`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md)) |
 
 ---
 
@@ -99,6 +99,8 @@ Reglas:
 | D43 | Entrada PDF y multipágina mencionada en `ARCHITECTURE.md` pero sin modelo de página en anclas ni `bbox` | — | **Cerrada** — fuera de alcance: una imagen por sesión; PDF retirado de `ARCHITECTURE.md` |
 | D44 | Operación del backend sin resolver: salud, registro estructurado, CORS, imagen CUDA del plano offline y copias | Alcance por decidir | Pendiente (decisión) |
 | D45 | Sin tarea de migración para retirar `legacy/`, que el principio rector exige antes de eliminarlo | Alcance por decidir | Pendiente (decisión) |
+| D46 | La API no expone el estado actual de la sesión (`seq` e índice de anclas) y las ediciones no declaran el estado sobre el que se construyeron (`base_seq`, ADR-0011) | Fase 7 / M3 | Pendiente |
+| D47 | El visor web no tiene inicio de sesión ni envía token: dejará de funcionar cuando la API exija autenticación (ADR-0012) | Frontend | Pendiente |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -123,7 +125,8 @@ Reglas:
 | D35 | [#30](https://github.com/sebdavid3/Cadenza/issues/30) | D36 | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
 | D37 | [#32](https://github.com/sebdavid3/Cadenza/issues/32) | D38 | [#33](https://github.com/sebdavid3/Cadenza/issues/33) |
 | D39 | [#34](https://github.com/sebdavid3/Cadenza/issues/34) | D40 | [#35](https://github.com/sebdavid3/Cadenza/issues/35) |
-| D41 | [#36](https://github.com/sebdavid3/Cadenza/issues/36) | D10 (autenticación) | [#39](https://github.com/sebdavid3/Cadenza/issues/39) |
+| D41 | [#36](https://github.com/sebdavid3/Cadenza/issues/36) | D10 (autenticación) | [#39](https://github.com/sebdavid3/Cadenza/issues/39), [#43](https://github.com/sebdavid3/Cadenza/issues/43), [#44](https://github.com/sebdavid3/Cadenza/issues/44), [#45](https://github.com/sebdavid3/Cadenza/issues/45), [#46](https://github.com/sebdavid3/Cadenza/issues/46) |
+| D46 | [#48](https://github.com/sebdavid3/Cadenza/issues/48) | D47 (frontend, fuera del milestone) | [#47](https://github.com/sebdavid3/Cadenza/issues/47) |
 
 Con alcance por decidir (fuera del milestone):
 
@@ -163,6 +166,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-03 | Dos brechas adicionales registradas tras revisar la cobertura de la fase: listado de sesiones (D32, [#27](https://github.com/sebdavid3/Cadenza/issues/27)) y estabilidad de anclas ante ediciones estructurales (D33, [#28](https://github.com/sebdavid3/Cadenza/issues/28)) | Fase 7 | `docs/ARCHITECTURE.md` §6 y §10.2, `docs/phases/phase_7_architecture_alignment/` |
 | 2026-10-03 | Planificación del backend final completada: ocho brechas más frente a los objetivos de la tesis y la coherencia del backend (D34–D41, [#29](https://github.com/sebdavid3/Cadenza/issues/29)–[#36](https://github.com/sebdavid3/Cadenza/issues/36)) y seis piezas con alcance por decidir (D42–D45, D10, D12; [#37](https://github.com/sebdavid3/Cadenza/issues/37)–[#42](https://github.com/sebdavid3/Cadenza/issues/42)) | Fase 7 | `docs/ARCHITECTURE.md` §6, §7.2 y §10.2, `docs/phases/phase_7_architecture_alignment/` |
 | 2026-10-03 | Decisiones previas al desarrollo: una imagen por sesión (PDF y multipágina fuera de alcance, [#38](https://github.com/sebdavid3/Cadenza/issues/38) cerrado), autenticación completa con sesiones privadas (ADR-0012, [#39](https://github.com/sebdavid3/Cadenza/issues/39) pasa al milestone) y anclas posicionales relativas a un estado con función de traducción (ADR-0011, [#28](https://github.com/sebdavid3/Cadenza/issues/28)); `ARCHITECTURE.md` v1.2 | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md`, `docs/phases/phase_7_architecture_alignment/` |
+| 2026-10-03 | Trabajo derivado de las decisiones convertido en issues: autenticación desglosada en [#43](https://github.com/sebdavid3/Cadenza/issues/43)–[#46](https://github.com/sebdavid3/Cadenza/issues/46) (con [#39](https://github.com/sebdavid3/Cadenza/issues/39) como seguimiento), estado actual de la sesión y `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48), D46) e inicio de sesión en el visor ([#47](https://github.com/sebdavid3/Cadenza/issues/47), D47); ADR-0011 precisa el control por `base_seq` y ADR-0012, la gestión de cuentas | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md` §6 y §10.2 |
 
 ---
 

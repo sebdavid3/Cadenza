@@ -30,13 +30,15 @@ sesión y sesiones privadas por usuario.
 
 ### 1. Usuarios y roles
 
-- Tabla `users` con identificador, nombre de usuario, hash de la contraseña, rol
-  y fecha de alta.
+- Tabla `users` con identificador, nombre de usuario, hash de la contraseña, rol,
+  estado (activa o no) y fecha de alta.
 - Dos roles: `transcriptor` (corrige sus propias partituras) e `investigador`
   (además crea cuentas y puede leer todas las sesiones para el estudio).
 - Las cuentas las crea un investigador. **No hay registro público ni
   recuperación por correo**, de modo que el sistema no necesita datos personales:
   el nombre de usuario de un participante puede ser un código seudónimo.
+- Un investigador puede restablecer la contraseña de una cuenta y desactivarla;
+  cada usuario puede cambiar la suya. Una cuenta desactivada no inicia sesión.
 
 ### 2. Mecanismo
 
@@ -67,7 +69,8 @@ sesión y sesiones privadas por usuario.
   *routers*.
 - La capa de aplicación declara los puertos `UserRepository`, `PasswordHasher` y
   `TokenService`; sus adaptadores viven en `packages/persistence` y `apps/api`.
-- Casos de uso nuevos: `authenticate` y `create_user`. Excepciones nuevas:
+- Casos de uso nuevos: `authenticate`, `create_user`, `update_user` y
+  `change_password`. Excepciones nuevas:
   `NotAuthenticated` (401) y `Forbidden` (403).
 - El dominio no cambia: sigue sin conocer usuarios ni tokens.
 - El plano offline no pasa por la API: lee la base de datos con sus propias

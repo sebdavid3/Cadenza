@@ -65,7 +65,12 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | | [#12](https://github.com/sebdavid3/Cadenza/issues/12) | Exportación MusicXML y MIDI | D11 (backend) |
 | | [#13](https://github.com/sebdavid3/Cadenza/issues/13) | Métricas de esfuerzo persistidas | D13 |
 | | [#27](https://github.com/sebdavid3/Cadenza/issues/27) | Listado de sesiones (`GET /sessions`) | D32 |
-| | [#39](https://github.com/sebdavid3/Cadenza/issues/39) | Autenticación e identidad de usuario (ADR-0012) | D10 |
+| | [#39](https://github.com/sebdavid3/Cadenza/issues/39) | Autenticación e identidad de usuario (ADR-0012), seguimiento | D10 |
+| | [#43](https://github.com/sebdavid3/Cadenza/issues/43) | Usuarios y propiedad de las sesiones | D10 |
+| | [#44](https://github.com/sebdavid3/Cadenza/issues/44) | Inicio de sesión con token de acceso | D10 |
+| | [#45](https://github.com/sebdavid3/Cadenza/issues/45) | Usuario actual, propiedad y autoría fijada por el servidor | D10 |
+| | [#46](https://github.com/sebdavid3/Cadenza/issues/46) | Gestión de cuentas | D10 |
+| | [#48](https://github.com/sebdavid3/Cadenza/issues/48) | Estado actual de la sesión y ediciones con `base_seq` | D46 |
 | | [#34](https://github.com/sebdavid3/Cadenza/issues/34) | Ciclo de vida de la sesión | D39 |
 | | [#35](https://github.com/sebdavid3/Cadenza/issues/35) | Deshacer en el servidor como evento compensatorio | D40 |
 | | [#36](https://github.com/sebdavid3/Cadenza/issues/36) | Descartar un hallazgo como falso positivo | D41 |
@@ -98,6 +103,10 @@ empieza por decidir si entra en el alcance; si no entra, se cierra con el motivo
 | [#40](https://github.com/sebdavid3/Cadenza/issues/40) | Operación del backend | D44 |
 | [#41](https://github.com/sebdavid3/Cadenza/issues/41) | Retirar el prototipo `legacy/` | D45 |
 | [#42](https://github.com/sebdavid3/Cadenza/issues/42) | Mapa tiempo→ancla para la reproducción | D12 |
+
+Fuera del milestone queda también [#47](https://github.com/sebdavid3/Cadenza/issues/47) (inicio de sesión en el visor web,
+D47): es trabajo de frontend, pero debe ir a la par de la autenticación para no
+romper el visor.
 
 ## Criterios de aceptación (Definition of Done)
 

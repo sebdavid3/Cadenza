@@ -566,10 +566,12 @@ de estado (existe / pendiente) están en la sección
 |---|---|---|
 | `authenticate` | usuario, contraseña → token | Verifica las credenciales y emite un token de acceso de vida corta. |
 | `create_user` | nombre, contraseña, rol → usuario | Da de alta una cuenta; solo lo puede hacer un investigador. |
+| `update_user` | id, cambios → usuario | Restablece la contraseña de una cuenta o la desactiva; solo investigador. |
+| `change_password` | contraseña actual, nueva → — | Cambia la contraseña del usuario actual. |
 | `transcribe_score` | imagen → sesión | Guarda la imagen en el `ArtifactStore`, ejecuta el `OMREngine`, valida el documento y persiste sesión y hallazgos. |
 | `list_sessions` | filtros, página → resúmenes | Lista las sesiones del usuario (todas, si es investigador) sin cargar el documento de cada una. |
-| `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el `ScoreIR` materializado. |
-| `append_edit` | id, edición → `EditEvent` | Comprueba que la edición sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
+| `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el estado actual: su `seq`, el `ScoreIR` materializado y su índice de anclas. |
+| `append_edit` | id, `base_seq`, edición → `EditEvent` | Rechaza la edición si `base_seq` no es el último `seq` de la sesión; comprueba que sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
 | `undo_edit` | id → `EditEvent` | Revierte la última edición vigente añadiendo al log su evento inverso; nunca borra historia. |
 | `revalidate` | id → hallazgos | Ejecuta el catálogo de reglas sobre el `ScoreIR` materializado y registra los hallazgos con el `seq` al que corresponden. |
 | `dismiss_finding` | id, hallazgo → — | Marca un hallazgo como falso positivo; no reaparece mientras el evento señalado no cambie. |
@@ -626,7 +628,10 @@ Reglas de la capa:
 |---|---|---|
 | `POST` | `/auth/login` | `authenticate` |
 | `GET` | `/auth/me` | usuario actual |
+| `POST` | `/auth/password` | `change_password` |
+| `GET` | `/users` | listado de cuentas (investigador) |
 | `POST` | `/users` | `create_user` |
+| `PATCH` | `/users/{id}` | `update_user` |
 | `POST` | `/transcribe` | `transcribe_score` |
 | `GET` | `/sessions` | `list_sessions` |
 | `GET` | `/sessions/{id}` | `get_session` |
@@ -686,7 +691,7 @@ job `build-dataset` las deriva del log.
 
 | Tabla | Columnas principales | Contenido |
 |---|---|---|
-| `users` | `id`, `username`, `password_hash`, `role`, `created_at` | Cuentas de usuario. `role` es `transcriptor` o `investigador`; no se guardan datos personales. |
+| `users` | `id`, `username`, `password_hash`, `role`, `active`, `created_at` | Cuentas de usuario. `role` es `transcriptor` o `investigador`; no se guardan datos personales. |
 | `sessions` | `id`, `owner_id` → `users`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. `status` sigue el ciclo transcrita → en corrección → finalizada (o fallida). |
 | `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB), `resolution` | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo); `resolution` distingue los vigentes de los descartados por el usuario. |
 | `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. `author` lo fija el servidor con el usuario autenticado. |
@@ -794,7 +799,8 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Datos | Esquema de la sección 7.2 | Solo `sessions`, `findings` y `edit_events`, sin `at_seq` ni referencia a la imagen | [#5](https://github.com/sebdavid3/Cadenza/issues/5) |
 | Datos | PostgreSQL como base de producción | Verificado solo en SQLite | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
 | Dominio | Anclas relativas a un estado y traducibles al documento crudo (ADR-0011) | La regla solo existe dentro de `apply_edit`; no hay función de traducción y no se admite insertar al final de la voz | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
-| API | Autenticación, sesiones privadas y autoría fijada por el servidor (ADR-0012) | API sin autenticación; `author` es un texto libre del cliente | [#39](https://github.com/sebdavid3/Cadenza/issues/39) |
+| API | Autenticación, sesiones privadas y autoría fijada por el servidor (ADR-0012) | API sin autenticación; `author` es un texto libre del cliente | [#39](https://github.com/sebdavid3/Cadenza/issues/39) ([#43](https://github.com/sebdavid3/Cadenza/issues/43), [#44](https://github.com/sebdavid3/Cadenza/issues/44), [#45](https://github.com/sebdavid3/Cadenza/issues/45), [#46](https://github.com/sebdavid3/Cadenza/issues/46)) |
+| API | El cliente conoce el estado sobre el que trabaja y las ediciones declaran su `base_seq` (ADR-0011) | No se expone el `seq` ni el índice de anclas del estado actual; el servidor asigna el `seq` sin comprobar el estado de partida | [#48](https://github.com/sebdavid3/Cadenza/issues/48) |
 | API | Listado de sesiones | Solo se puede leer una sesión conociendo su `id` | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
 | API | Motor OMR elegido por configuración | La API usa siempre `FakeOMREngine` | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
 | API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
@@ -825,6 +831,8 @@ Quedan además cuatro piezas **con alcance por decidir**, registradas fuera del
 milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)),
 retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)) y mapa tiempo→ancla para la reproducción ([#42](https://github.com/sebdavid3/Cadenza/issues/42)).
 La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
+La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) es trabajo de frontend
+y también queda fuera del milestone.
 
 El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
