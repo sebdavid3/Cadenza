@@ -10,7 +10,7 @@
 | **Último hito completado** | Arquitectura objetivo v1.1 documentada (`ARCHITECTURE.md`, DBB, ADR-0009 y ADR-0010) y brechas convertidas en issues ([#1](https://github.com/sebdavid3/Cadenza/issues/1)–[#26](https://github.com/sebdavid3/Cadenza/issues/26), milestone Fase 7) |
 | **Próximo paso inmediato** | Cerrar el análisis de brechas ([#1](https://github.com/sebdavid3/Cadenza/issues/1)) y empezar por la capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)) y el `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)), que desbloquean el resto |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D31 (D4 mitigada; D7, D9, D15 y D20 resueltas) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D33 (D4 mitigada; D7, D9, D15 y D20 resueltas) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-03 |
 
@@ -46,7 +46,7 @@ Reglas:
 | **M4** | Active Learning + Model Registry | Fase 4 | Completado (núcleo: `DatasetBuilder`, 3 estrategias, `ModelRegistry`, `FakeTrainer`); pendiente trainer real/ONNX/musicdiff (D14–D16) |
 | **M5** | Framework de Experimentos (`ml/experiments/`, `results/`) | Fase 5 | Completado (núcleo: `exp_01_effort` y `exp_02_active_learning` deterministas); pendiente corpus real + integración con persistencia (D17, D18) |
 | **M6** | Validación empírica (`packages/interchange`, OMR-NED, corpus) | Fase 6 | Completado (núcleo: puente canónico, OMR-NED oficial, línea base HOMR sobre PrIMuS en CPU y GPU); pendiente AL sobre errores reales (D21) |
-| — | Alineación con la arquitectura objetivo (aplicación, datos, API, plano offline) | Fase 7 | Planificado: 26 issues en el milestone de la fase ([`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md)) |
+| — | Alineación con la arquitectura objetivo (aplicación, datos, API, plano offline) | Fase 7 | Planificado: 28 issues en el milestone de la fase ([`phases/phase_7_architecture_alignment/`](phases/phase_7_architecture_alignment/README.md)) |
 
 ---
 
@@ -85,6 +85,8 @@ Reglas:
 | D29 | Sin exportación MIDI ni endpoint de exportación (solo `score_ir_to_musicxml`) | Fase 7 | Pendiente |
 | D30 | `ModelRegistry` solo en memoria; el plano online no consulta la versión activa | Fase 7 / M4 | Pendiente |
 | D31 | Sin integración continua ni contrato OpenAPI congelado (tipos del frontend escritos a mano) | Fase 7 | Pendiente |
+| D32 | Sin listado de sesiones: `GET /sessions` no existe y una sesión solo se recupera conociendo su `id` | Fase 7 / M3 | Pendiente |
+| D33 | Semántica de las anclas sin definir frente a `InsertEvent`/`DeleteEvent`: desplazan el `event_index` y desalinean hallazgos, `bbox` y muestras (riesgo señalado en ADR-0007) | Fase 7 / Dominio | Pendiente |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -104,7 +106,8 @@ Reglas:
 | D14 | [#23](https://github.com/sebdavid3/Cadenza/issues/23) | D29 | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
 | D16 | [#19](https://github.com/sebdavid3/Cadenza/issues/19), [#22](https://github.com/sebdavid3/Cadenza/issues/22) | D30 | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
 | D17 | [#24](https://github.com/sebdavid3/Cadenza/issues/24) | D31 | [#25](https://github.com/sebdavid3/Cadenza/issues/25), [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
-| D18 | [#19](https://github.com/sebdavid3/Cadenza/issues/19) | — | — |
+| D18 | [#19](https://github.com/sebdavid3/Cadenza/issues/19) | D32 | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
+| — | — | D33 | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
 
 D11 (parte de interfaz) y D12 pertenecen al diseño del frontend y quedan fuera de
 la Fase 7. La autenticación de la API (parte de D10) no está en el alcance.
@@ -132,6 +135,7 @@ la Fase 7. La autenticación de la API (parte de D10) no está en el alcance.
 | 2026-09-20 | GPU operativa: `onnxruntime-gpu==1.26.0` (CUDA 12.8, cu12) + `ensure_cuda_dll_dirs` en el adaptador (expone los `bin` de cuDNN que `preload_dlls` no cubre); baseline re-ejecutado en GPU con OMR-NED idéntico al de CPU (0.2285) | Fase 6 (6.3) | `packages/omr/adapters/homr.py`, `ml/experiments/exp_04_homr_transcribe.py`, `docs/PROJECT_STATE.md` |
 | 2026-09-20 | Reorganización del repositorio: el prototipo MVP (`backend/`, `frontend/`, `scripts/`, `docker-compose*`) se movió a `legacy/`; `.gitignore`, `pyproject.toml` y documentación actualizados; compose validado desde la nueva ruta | — | `legacy/`, `pyproject.toml`, `.gitignore`, `README.md` |
 | 2026-10-03 | Arquitectura objetivo v1.1: capa de aplicación (ADR-0009), `ScoreIR` extendido y exportación en `interchange` (ADR-0010), organización de datos y catálogo de funciones; DBB alineado con `ARCHITECTURE.md`; brechas registradas como D22–D31 y como issues [#1](https://github.com/sebdavid3/Cadenza/issues/1)–[#26](https://github.com/sebdavid3/Cadenza/issues/26) | Fase 7 | `docs/ARCHITECTURE.md`, `docs/arquitectura-dbb.md`, `docs/adr/ADR-0009-*`, `docs/adr/ADR-0010-*`, `docs/phases/phase_7_architecture_alignment/` |
+| 2026-10-03 | Dos brechas adicionales registradas tras revisar la cobertura de la fase: listado de sesiones (D32, [#27](https://github.com/sebdavid3/Cadenza/issues/27)) y estabilidad de anclas ante ediciones estructurales (D33, [#28](https://github.com/sebdavid3/Cadenza/issues/28)) | Fase 7 | `docs/ARCHITECTURE.md` §6 y §10.2, `docs/phases/phase_7_architecture_alignment/` |
 
 ---
 

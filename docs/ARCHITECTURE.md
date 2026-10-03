@@ -542,6 +542,7 @@ de estado (existe / pendiente) están en la sección
 | Caso de uso | Entrada → salida | Responsabilidad |
 |---|---|---|
 | `transcribe_score` | imagen → sesión | Guarda la imagen en el `ArtifactStore`, ejecuta el `OMREngine`, valida el documento y persiste sesión y hallazgos. |
+| `list_sessions` | filtros, página → resúmenes | Lista las sesiones existentes sin cargar el documento de cada una. |
 | `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el `ScoreIR` materializado. |
 | `append_edit` | id, edición → `EditEvent` | Comprueba que la edición sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
 | `revalidate` | id → hallazgos | Ejecuta el catálogo de reglas sobre el `ScoreIR` materializado y registra los hallazgos con el `seq` al que corresponden. |
@@ -564,7 +565,7 @@ Reglas de la capa:
 |---|---|---|
 | `OMREngine` | `transcribe(image_path) -> ScoreDocument` | `HOMREngine`, `OemerEngine`, `FakeOMREngine` |
 | `ValidationRule` | `evaluate(document) -> list[Finding]` | Balance de compás, armadura y alteraciones, colisión de voces, rango, cierres |
-| `SessionRepository` | `add`, `get`, `list_findings`, `replace_findings` | SQLAlchemy |
+| `SessionRepository` | `add`, `get`, `list`, `list_findings`, `replace_findings` | SQLAlchemy |
 | `EditEventRepository` | `next_seq`, `append`, `list_events` | SQLAlchemy |
 | `ArtifactStore` | `put(bytes, kind) -> sha256`, `get(sha256) -> bytes`, `exists(sha256)` | Sistema de archivos direccionado por contenido |
 | `ScoreExporter` | `to_musicxml(score) -> str`, `to_midi(score) -> bytes` | `packages/interchange` (`music21`) |
@@ -585,6 +586,7 @@ Reglas de la capa:
 | Método | Endpoint | Caso de uso |
 |---|---|---|
 | `POST` | `/transcribe` | `transcribe_score` |
+| `GET` | `/sessions` | `list_sessions` |
 | `GET` | `/sessions/{id}` | `get_session` |
 | `GET` | `/sessions/{id}/findings` | `get_session` (solo hallazgos) |
 | `GET` | `/sessions/{id}/image` | lectura del `ArtifactStore` |
@@ -742,6 +744,8 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Datos | `ArtifactStore` direccionado por `sha256` | No existe; la imagen subida se descarta | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
 | Datos | Esquema de la sección 7.2 | Solo `sessions`, `findings` y `edit_events`, sin `at_seq` ni referencia a la imagen | [#5](https://github.com/sebdavid3/Cadenza/issues/5) |
 | Datos | PostgreSQL como base de producción | Verificado solo en SQLite | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
+| Dominio | Semántica definida de las anclas tras insertar o borrar eventos | `InsertEvent`/`DeleteEvent` desplazan el `event_index` de los eventos siguientes; hallazgos y `bbox` pueden quedar desalineados | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
+| API | Listado de sesiones | Solo se puede leer una sesión conociendo su `id` | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
 | API | Motor OMR elegido por configuración | La API usa siempre `FakeOMREngine` | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
 | API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
 | API | Revalidación tras las correcciones | Los hallazgos se calculan una vez, al transcribir | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |

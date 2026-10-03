@@ -47,6 +47,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | **A** Análisis | [#1](https://github.com/sebdavid3/Cadenza/issues/1) | Matriz de brechas y seguimiento de la fase | — |
 | **B** Dominio y datos | [#2](https://github.com/sebdavid3/Cadenza/issues/2) | `ScoreIR` con clave, armadura y ligaduras | — |
 | | [#3](https://github.com/sebdavid3/Cadenza/issues/3) | Proyección de `SetClef`, `SetKey` y `SetAccidental` | — |
+| | [#28](https://github.com/sebdavid3/Cadenza/issues/28) | Estabilidad de las anclas tras inserciones y borrados | D33 |
 | | [#4](https://github.com/sebdavid3/Cadenza/issues/4) | `ArtifactStore` direccionado por `sha256` | — |
 | | [#5](https://github.com/sebdavid3/Cadenza/issues/5) | Migración de esquema de `sessions` y `findings` | — |
 | | [#6](https://github.com/sebdavid3/Cadenza/issues/6) | Persistencia verificada en PostgreSQL | D10 |
@@ -57,6 +58,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | | [#11](https://github.com/sebdavid3/Cadenza/issues/11) | Revalidación tras las correcciones | — |
 | | [#12](https://github.com/sebdavid3/Cadenza/issues/12) | Exportación MusicXML y MIDI | D11 (backend) |
 | | [#13](https://github.com/sebdavid3/Cadenza/issues/13) | Métricas de esfuerzo persistidas | D13 |
+| | [#27](https://github.com/sebdavid3/Cadenza/issues/27) | Listado de sesiones (`GET /sessions`) | D32 |
 | **D** OMR y validación | [#14](https://github.com/sebdavid3/Cadenza/issues/14) | Investigación de `bbox` reales desde HOMR | D4 |
 | | [#15](https://github.com/sebdavid3/Cadenza/issues/15) | Preprocesado configurable | D2 |
 | | [#16](https://github.com/sebdavid3/Cadenza/issues/16) | `OemerEngine` como línea base | D1 |
