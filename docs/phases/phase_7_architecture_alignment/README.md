@@ -37,7 +37,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
 - Diseño del frontend y de las interfaces de usuario: render con OSMD,
   reproducción con Tone.js y editor (D11 parte de interfaz, D12).
-- Autenticación de la API, despliegue distribuido y autoescalado.
+- Despliegue distribuido y autoescalado.
 - **TFLite / Edge Learning** y **LLM / VLM**.
 
 ## Bloques e issues
@@ -48,6 +48,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | **B** Dominio y datos | [#2](https://github.com/sebdavid3/Cadenza/issues/2) | `ScoreIR` con clave, armadura y ligaduras | — |
 | | [#3](https://github.com/sebdavid3/Cadenza/issues/3) | Proyección de `SetClef`, `SetKey` y `SetAccidental` | — |
 | | [#28](https://github.com/sebdavid3/Cadenza/issues/28) | Estabilidad de las anclas tras inserciones y borrados | D33 |
+| | [#32](https://github.com/sebdavid3/Cadenza/issues/32) | Soporte de piano (dos pentagramas) verificado | D37 |
 | | [#4](https://github.com/sebdavid3/Cadenza/issues/4) | `ArtifactStore` direccionado por `sha256` | — |
 | | [#5](https://github.com/sebdavid3/Cadenza/issues/5) | Migración de esquema de `sessions` y `findings` | — |
 | | [#6](https://github.com/sebdavid3/Cadenza/issues/6) | Persistencia verificada en PostgreSQL | D10 |
@@ -59,24 +60,45 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | | [#12](https://github.com/sebdavid3/Cadenza/issues/12) | Exportación MusicXML y MIDI | D11 (backend) |
 | | [#13](https://github.com/sebdavid3/Cadenza/issues/13) | Métricas de esfuerzo persistidas | D13 |
 | | [#27](https://github.com/sebdavid3/Cadenza/issues/27) | Listado de sesiones (`GET /sessions`) | D32 |
+| | [#34](https://github.com/sebdavid3/Cadenza/issues/34) | Ciclo de vida de la sesión | D39 |
+| | [#35](https://github.com/sebdavid3/Cadenza/issues/35) | Deshacer en el servidor como evento compensatorio | D40 |
+| | [#36](https://github.com/sebdavid3/Cadenza/issues/36) | Descartar un hallazgo como falso positivo | D41 |
 | **D** OMR y validación | [#14](https://github.com/sebdavid3/Cadenza/issues/14) | Investigación de `bbox` reales desde HOMR | D4 |
 | | [#15](https://github.com/sebdavid3/Cadenza/issues/15) | Preprocesado configurable | D2 |
 | | [#16](https://github.com/sebdavid3/Cadenza/issues/16) | `OemerEngine` como línea base | D1 |
 | | [#17](https://github.com/sebdavid3/Cadenza/issues/17) | Catálogo de reglas de validación | D6 |
 | | [#18](https://github.com/sebdavid3/Cadenza/issues/18) | Precisión y *recall* del validador | D8 |
+| | [#31](https://github.com/sebdavid3/Cadenza/issues/31) | Confianza real del modelo OMR | D36 |
 | **E** Plano offline | [#19](https://github.com/sebdavid3/Cadenza/issues/19) | `DatasetBuilder` desde la base de datos | D16, D18 |
 | | [#20](https://github.com/sebdavid3/Cadenza/issues/20) | `EditEvent` derivados del diff HOMR↔*ground truth* | D21 |
 | | [#21](https://github.com/sebdavid3/Cadenza/issues/21) | *Model Registry* persistente y modelo activo | — |
 | | [#22](https://github.com/sebdavid3/Cadenza/issues/22) | CLI de jobs offline | D16 |
 | | [#23](https://github.com/sebdavid3/Cadenza/issues/23) | Entrenador real (PyTorch → ONNX), alcance condicional | D14 |
 | | [#24](https://github.com/sebdavid3/Cadenza/issues/24) | Experimentos sobre datos reales | D17, D19 |
+| | [#29](https://github.com/sebdavid3/Cadenza/issues/29) | Evaluación sobre SMB y MUSCIMA++ | D34 |
+| | [#30](https://github.com/sebdavid3/Cadenza/issues/30) | SER sobre transcripciones reales | D35 |
+| | [#33](https://github.com/sebdavid3/Cadenza/issues/33) | Protocolo de medición de esfuerzo con participantes | D38 |
 | **F** Infraestructura y cierre | [#25](https://github.com/sebdavid3/Cadenza/issues/25) | Integración continua | — |
 | | [#26](https://github.com/sebdavid3/Cadenza/issues/26) | Contrato de la API v1 congelado | — |
+
+## Alcance por decidir
+
+Estas piezas están registradas como issues **fuera del milestone**. Cada una
+empieza por decidir si entra en el alcance; si no entra, se cierra con el motivo.
+
+| Issue | Contenido | Deuda |
+|---|---|---|
+| [#37](https://github.com/sebdavid3/Cadenza/issues/37) | Transcripción asíncrona con consulta de estado | D42 |
+| [#38](https://github.com/sebdavid3/Cadenza/issues/38) | Entrada PDF y partituras de varias páginas | D43 |
+| [#39](https://github.com/sebdavid3/Cadenza/issues/39) | Autenticación e identidad de usuario | D10 |
+| [#40](https://github.com/sebdavid3/Cadenza/issues/40) | Operación del backend | D44 |
+| [#41](https://github.com/sebdavid3/Cadenza/issues/41) | Retirar el prototipo `legacy/` | D45 |
+| [#42](https://github.com/sebdavid3/Cadenza/issues/42) | Mapa tiempo→ancla para la reproducción | D12 |
 
 ## Criterios de aceptación (Definition of Done)
 
 - [ ] Todos los issues del milestone cerrados, o reclasificados con justificación
-      ([#14](https://github.com/sebdavid3/Cadenza/issues/14) e [#23](https://github.com/sebdavid3/Cadenza/issues/23) pueden cerrarse con un resultado negativo documentado).
+      ([#14](https://github.com/sebdavid3/Cadenza/issues/14) e [#23](https://github.com/sebdavid3/Cadenza/issues/23) y [#31](https://github.com/sebdavid3/Cadenza/issues/31) pueden cerrarse con un resultado negativo documentado).
 - [ ] Flujo de punta a punta sobre el motor real: imagen → HOMR → validación →
       corrección → exportación MusicXML/MIDI.
 - [ ] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,

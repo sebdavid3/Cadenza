@@ -545,7 +545,10 @@ de estado (existe / pendiente) están en la sección
 | `list_sessions` | filtros, página → resúmenes | Lista las sesiones existentes sin cargar el documento de cada una. |
 | `get_session` | id → detalle de sesión | Devuelve el documento crudo, los hallazgos vigentes, el log de ediciones y el `ScoreIR` materializado. |
 | `append_edit` | id, edición → `EditEvent` | Comprueba que la edición sea aplicable (`apply_edit` sobre el estado actual) y solo entonces la añade al log. |
+| `undo_edit` | id → `EditEvent` | Revierte la última edición vigente añadiendo al log su evento inverso; nunca borra historia. |
 | `revalidate` | id → hallazgos | Ejecuta el catálogo de reglas sobre el `ScoreIR` materializado y registra los hallazgos con el `seq` al que corresponden. |
+| `dismiss_finding` | id, hallazgo → — | Marca un hallazgo como falso positivo; no reaparece mientras el evento señalado no cambie. |
+| `finalize_session` | id → sesión | Cierra la corrección: revalida, fija el `seq` final y deja la sesión disponible para el plano offline. |
 | `export_score` | id, formato → bytes | Serializa el `ScoreIR` materializado a MusicXML 4.0 o MIDI 1.0. |
 | `record_effort` | id, métricas → — | Persiste las métricas de esfuerzo de la sesión de corrección. |
 
@@ -591,7 +594,10 @@ Reglas de la capa:
 | `GET` | `/sessions/{id}/findings` | `get_session` (solo hallazgos) |
 | `GET` | `/sessions/{id}/image` | lectura del `ArtifactStore` |
 | `POST` | `/sessions/{id}/edits` | `append_edit` |
+| `POST` | `/sessions/{id}/undo` | `undo_edit` |
 | `POST` | `/sessions/{id}/validate` | `revalidate` |
+| `POST` | `/sessions/{id}/findings/{finding_id}/dismiss` | `dismiss_finding` |
+| `POST` | `/sessions/{id}/finalize` | `finalize_session` |
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
 
@@ -640,8 +646,8 @@ job `build-dataset` las deriva del log.
 
 | Tabla | Columnas principales | Contenido |
 |---|---|---|
-| `sessions` | `id`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. |
-| `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB) | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo). |
+| `sessions` | `id`, `document_id`, `omr_engine`, `model_version`, `status`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. `status` sigue el ciclo transcrita → en corrección → finalizada (o fallida). |
+| `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB), `resolution` | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo); `resolution` distingue los vigentes de los descartados por el usuario. |
 | `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. |
 | `effort_metrics` | `id`, `session_id`, `duration_ms`, `time_to_first_edit_ms`, `interventions` (JSONB), `created_at` | Esfuerzo de corrección por sesión. |
 | `artifacts` | `sha256` (PK), `kind`, `media_type`, `size_bytes`, `path`, `created_at` | Índice del `ArtifactStore`. |
@@ -750,9 +756,14 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
 | API | Revalidación tras las correcciones | Los hallazgos se calculan una vez, al transcribir | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
 | API | Exportación MusicXML y MIDI | Existe `score_ir_to_musicxml`; no hay MIDI ni endpoint | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
+| API | Ciclo de vida de la sesión con cierre explícito | No se puede marcar una sesión como terminada | [#34](https://github.com/sebdavid3/Cadenza/issues/34) |
+| API | Deshacer registrado como evento inverso (ADR-0007) | Deshacer vive solo en el navegador; el log y el editor divergen | [#35](https://github.com/sebdavid3/Cadenza/issues/35) |
+| API | Hallazgos descartables como falsos positivos | Un hallazgo solo desaparece modificando la partitura | [#36](https://github.com/sebdavid3/Cadenza/issues/36) |
 | API | Métricas de esfuerzo persistidas | Se calculan solo en el navegador | [#13](https://github.com/sebdavid3/Cadenza/issues/13) |
 | M1 | Anclas con `bbox` real | `bbox` sintético en el motor falso; HOMR no aporta coordenadas | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
 | M1 | Preprocesado configurable y línea base `OemerEngine` | No implementados | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#16](https://github.com/sebdavid3/Cadenza/issues/16) |
+| M1 | Confianza del modelo en las anclas | `HOMREngine` no extrae ninguna confianza | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
+| Dominio | Piano simple (dos pentagramas) verificado | Pruebas y corpus solo monofónicos | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
 | M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Una regla (balance de compás), sin métricas | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Recibe los datos en memoria y solo considera `SetPitch` | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
 | M4 | Correcciones derivadas de errores reales de OMR | Señales sintéticas | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
@@ -760,8 +771,16 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | M4 | Jobs offline orquestados por CLI | Solo scripts de experimentos | [#22](https://github.com/sebdavid3/Cadenza/issues/22) |
 | M4 | Entrenador real (PyTorch → ONNX) | `FakeTrainer` | [#23](https://github.com/sebdavid3/Cadenza/issues/23) |
 | Experimentos | Resultados sobre datos reales | `exp_01` y `exp_02` usan datos sintéticos | [#24](https://github.com/sebdavid3/Cadenza/issues/24) |
+| Experimentos | SER reportada junto al OMR-NED | Solo OMR-NED; no hay serialización de `ScoreIR` a símbolos | [#30](https://github.com/sebdavid3/Cadenza/issues/30) |
+| Experimentos | Evaluación sobre PrIMuS, SMB y MUSCIMA++ | Solo PrIMuS (monofónico impreso) | [#29](https://github.com/sebdavid3/Cadenza/issues/29) |
+| Experimentos | Estudio de esfuerzo con participantes y condición asistida/no asistida | Sin participante ni condición por sesión | [#33](https://github.com/sebdavid3/Cadenza/issues/33) |
 | Infraestructura | Integración continua | No hay *workflows* | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
 | API | Contrato OpenAPI congelado y tipos generados | Tipos TypeScript escritos a mano | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
+
+Quedan además seis piezas **con alcance por decidir**, registradas fuera del
+milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), entrada PDF y varias páginas
+([#38](https://github.com/sebdavid3/Cadenza/issues/38)), identidad de usuario ([#39](https://github.com/sebdavid3/Cadenza/issues/39)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)),
+retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)) y mapa tiempo→ancla para la reproducción ([#42](https://github.com/sebdavid3/Cadenza/issues/42)).
 
 El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
