@@ -13,7 +13,10 @@ from fractions import Fraction
 from typing import Any
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
+from .clef import Clef
+from .key_signature import KeySignature
 from .provenance import Provenance
+from .tie import Tie
 from .time_signature import TimeSignature
 
 
@@ -25,6 +28,7 @@ class Event:
     voice: int = 0
     pitch: str | None = None
     duration_beats: Fraction | None = None
+    tie: Tie | None = None
     bbox: BBox | None = None
     confidence: float | None = None
     ir_handle: str | None = None
@@ -35,6 +39,7 @@ class Event:
             "voice": self.voice,
             "pitch": self.pitch,
             "duration_beats": None if self.duration_beats is None else str(self.duration_beats),
+            "tie": None if self.tie is None else self.tie.value,
             "bbox": list(self.bbox) if self.bbox is not None else None,
             "confidence": self.confidence,
             "ir_handle": self.ir_handle,
@@ -44,11 +49,13 @@ class Event:
     def from_primitive(cls, data: Mapping[str, Any]) -> Event:
         bbox = data.get("bbox")
         duration = data.get("duration_beats")
+        tie_val = data.get("tie")
         return cls(
             kind=EventKind(data["kind"]),
             voice=int(data["voice"]),
             pitch=None if data.get("pitch") is None else str(data["pitch"]),
             duration_beats=None if duration is None else Fraction(str(duration)),
+            tie=None if tie_val is None else Tie(str(tie_val)),
             bbox=(
                 None
                 if bbox is None
@@ -64,6 +71,8 @@ class Measure:
     number: int
     events: tuple[Event, ...] = ()
     time_signature: TimeSignature | None = None
+    clef: Clef | None = None
+    key_signature: KeySignature | None = None
 
     def to_primitive(self) -> dict[str, Any]:
         return {
@@ -72,15 +81,23 @@ class Measure:
             "time_signature": (
                 None if self.time_signature is None else self.time_signature.to_primitive()
             ),
+            "clef": None if self.clef is None else self.clef.to_primitive(),
+            "key_signature": (
+                None if self.key_signature is None else self.key_signature.to_primitive()
+            ),
         }
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Measure:
         signature = data.get("time_signature")
+        clef_data = data.get("clef")
+        key_data = data.get("key_signature")
         return cls(
             number=int(data["number"]),
             events=tuple(Event.from_primitive(item) for item in data["events"]),
             time_signature=(None if signature is None else TimeSignature.from_primitive(signature)),
+            clef=None if clef_data is None else Clef.from_primitive(clef_data),
+            key_signature=None if key_data is None else KeySignature.from_primitive(key_data),
         )
 
 

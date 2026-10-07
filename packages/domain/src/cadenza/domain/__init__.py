@@ -8,8 +8,10 @@ validación.
 from __future__ import annotations
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
+from .clef import Clef
 from .edit import EditEvent, EditOp
 from .finding import Finding, Severity
+from .key_signature import KeySignature
 from .projection import UnsupportedEditOpError, apply_edit, materialize
 from .provenance import Provenance
 from .score import (
@@ -21,18 +23,21 @@ from .score import (
     Staff,
     build_anchor_index,
 )
+from .tie import Tie
 from .time_signature import TimeSignature
 
 __all__ = [
     "Anchor",
     "AnchorIndex",
     "BBox",
+    "Clef",
     "EditEvent",
     "EditOp",
     "Event",
     "EventKind",
     "EventRef",
     "Finding",
+    "KeySignature",
     "Measure",
     "Part",
     "Provenance",
@@ -40,6 +45,7 @@ __all__ = [
     "ScoreIR",
     "Severity",
     "Staff",
+    "Tie",
     "TimeSignature",
     "UnsupportedEditOpError",
     "apply_edit",

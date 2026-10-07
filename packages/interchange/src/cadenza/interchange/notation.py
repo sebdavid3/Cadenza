@@ -12,8 +12,19 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from cadenza.domain import Event, EventKind, Measure, Part, ScoreIR, Staff, TimeSignature
-from music21 import chord, converter, meter, musicxml, note, stream
+from cadenza.domain import (
+    Clef,
+    Event,
+    EventKind,
+    KeySignature,
+    Measure,
+    Part,
+    ScoreIR,
+    Staff,
+    Tie,
+    TimeSignature,
+)
+from music21 import chord, clef, converter, key, meter, musicxml, note, stream, tie
 
 _MAX_DENOMINATOR = 1000
 
@@ -48,6 +59,19 @@ def _duration(element: Any) -> Fraction | None:
     return Fraction(quarter_length).limit_denominator(_MAX_DENOMINATOR)
 
 
+def _event_tie(pitch_source: Any) -> Tie | None:
+    tie_obj = getattr(pitch_source, "tie", None)
+    if tie_obj is None:
+        return None
+    tie_type = getattr(tie_obj, "type", None)
+    if not tie_type:
+        return None
+    try:
+        return Tie(str(tie_type))
+    except ValueError:
+        return None
+
+
 def _events_from_measure(measure: Any) -> list[Event]:
     events: list[Event] = []
     voices = list(getattr(measure, "voices", ()))
@@ -77,6 +101,7 @@ def _note_event(pitch_source: Any, duration_source: Any, voice: int) -> Event:
         voice=voice,
         pitch=None if is_rest else _pitch_name(pitch_source),
         duration_beats=_duration(duration_source),
+        tie=None if is_rest else _event_tie(pitch_source),
     )
 
 
@@ -89,16 +114,54 @@ def _measure_signature(measure: Any) -> TimeSignature | None:
     return TimeSignature(int(signature.numerator), int(signature.denominator))
 
 
+def _measure_clef(measure: Any, is_first: bool = False) -> Clef | None:
+    clef_obj = measure.clef
+    if clef_obj is None:
+        clefs = list(measure.getElementsByClass(clef.Clef))
+        if clefs:
+            clef_obj = clefs[0]
+    if clef_obj is None and is_first:
+        clef_obj = measure.getContextByClass(clef.Clef)
+    if clef_obj is None:
+        return None
+    sign = getattr(clef_obj, "sign", None)
+    if not sign:
+        return None
+    line = getattr(clef_obj, "line", 2)
+    octave_change = getattr(clef_obj, "octaveChange", 0)
+    return Clef(sign=str(sign), line=int(line), octave_change=int(octave_change or 0))
+
+
+def _measure_key_signature(measure: Any, is_first: bool = False) -> KeySignature | None:
+    key_obj = measure.keySignature
+    if key_obj is None:
+        keys = list(measure.getElementsByClass(key.KeySignature))
+        if keys:
+            key_obj = keys[0]
+    if key_obj is None and is_first:
+        key_obj = measure.getContextByClass(key.KeySignature)
+    if key_obj is None:
+        return None
+    fifths = getattr(key_obj, "sharps", None)
+    if fifths is None:
+        return None
+    mode = getattr(key_obj, "mode", None)
+    return KeySignature(fifths=int(fifths), mode=str(mode) if mode is not None else None)
+
+
 def _measures(part: Any) -> tuple[Measure, ...]:
     found = list(part.getElementsByClass(stream.Measure))
     measures: list[Measure] = []
     for position, measure in enumerate(found, start=1):
         number = measure.number if isinstance(measure.number, int) else position
+        is_first = position == 1
         measures.append(
             Measure(
                 number=number,
                 events=tuple(_events_from_measure(measure)),
                 time_signature=_measure_signature(measure),
+                clef=_measure_clef(measure, is_first=is_first),
+                key_signature=_measure_key_signature(measure, is_first=is_first),
             )
         )
     return tuple(measures)
@@ -153,6 +216,26 @@ def _to_music21_pitch(pitch: str) -> str:
 
 def _build_measure(measure: Measure) -> Any:
     built = stream.Measure(number=measure.number)
+    if measure.clef is not None:
+        try:
+            built.insert(
+                0,
+                clef.clefFromString(
+                    f"{measure.clef.sign}{measure.clef.line}",
+                    octaveShift=measure.clef.octave_change,
+                ),
+            )
+        except Exception:
+            c = clef.Clef()
+            c.sign = measure.clef.sign
+            c.line = measure.clef.line
+            c.octaveChange = measure.clef.octave_change
+            built.insert(0, c)
+    if measure.key_signature is not None:
+        k = key.KeySignature(measure.key_signature.fifths)
+        if measure.key_signature.mode is not None:
+            k.mode = measure.key_signature.mode
+        built.insert(0, k)
     if measure.time_signature is not None:
         signature = measure.time_signature
         built.insert(0, meter.TimeSignature(f"{signature.beats}/{signature.beat_type}"))
@@ -163,6 +246,8 @@ def _build_measure(measure: Measure) -> Any:
             element: Any = note.Rest()
         else:
             element = note.Note(_to_music21_pitch(event.pitch))
+            if event.tie is not None:
+                element.tie = tie.Tie(event.tie.value)
         element.duration.quarterLength = duration
         built.insert(offset, element)
         offset += duration
