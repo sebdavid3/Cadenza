@@ -22,6 +22,7 @@ class SqlAlchemySessionRepository(SessionRepository):
     def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
         record = SessionRecord(
             id=session.id,
+            owner_id=session.owner_id,
             document_id=session.document_id,
             omr_engine=session.omr_engine,
             model_version=session.model_version,
@@ -50,6 +51,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             return None
         return SessionData(
             id=record.id,
+            owner_id=record.owner_id,
             document_id=record.document_id,
             omr_engine=record.omr_engine,
             document=record.document,
@@ -57,6 +59,27 @@ class SqlAlchemySessionRepository(SessionRepository):
             image_artifact=record.image_artifact,
             model_version=record.model_version,
             status=record.status,
+        )
+
+    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
+        stmt = select(SessionRecord)
+        if owner_id is not None:
+            stmt = stmt.where(SessionRecord.owner_id == owner_id)
+        stmt = stmt.order_by(SessionRecord.created_at)
+        records = self._session.scalars(stmt).all()
+        return tuple(
+            SessionData(
+                id=record.id,
+                owner_id=record.owner_id,
+                document_id=record.document_id,
+                omr_engine=record.omr_engine,
+                document=record.document,
+                created_at=record.created_at,
+                image_artifact=record.image_artifact,
+                model_version=record.model_version,
+                status=record.status,
+            )
+            for record in records
         )
 
     def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:

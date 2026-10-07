@@ -23,6 +23,7 @@ class SessionData:
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
+    owner_id: str = "default-user"
 
 
 @dataclass(frozen=True)
@@ -52,3 +53,7 @@ class SessionRepository(ABC):
     @abstractmethod
     def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
         """Devuelve los hallazgos vigentes asociados a la sesión."""
+
+    @abstractmethod
+    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
+        """Devuelve el listado de sesiones, opcionalmente filtrado por propietario."""

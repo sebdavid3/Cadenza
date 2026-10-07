@@ -10,7 +10,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, event, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    func,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -26,12 +36,35 @@ class Base(DeclarativeBase):
     """Base declarativa de todos los modelos de Cadenza."""
 
 
+class UserRecord(Base):
+    """Cuenta de usuario y rol para control de acceso y autoría (ADR-0012)."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    sessions: Mapped[list[Session]] = relationship(back_populates="owner")
+
+
 class Session(Base):
     """Un documento procesado por el sistema."""
 
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="RESTRICT", name="fk_sessions_owner_id"),
+        server_default="default-user",
+        nullable=False,
+    )
     document_id: Mapped[str] = mapped_column(String(255), nullable=False)
     omr_engine: Mapped[str] = mapped_column(String(64), nullable=False)
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -52,6 +85,7 @@ class Session(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    owner: Mapped[UserRecord] = relationship("UserRecord", back_populates="sessions")
     artifact: Mapped[ArtifactRecord | None] = relationship(
         "ArtifactRecord", foreign_keys=[image_artifact]
     )

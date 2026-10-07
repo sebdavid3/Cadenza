@@ -43,3 +43,19 @@ class ArtifactNotFound(ApplicationError):
     def __init__(self, sha256: str) -> None:
         super().__init__(f"Artefacto no encontrado: {sha256}")
         self.sha256 = sha256
+
+
+class UserNotFound(ApplicationError):
+    """El usuario solicitado no existe."""
+
+    def __init__(self, identifier: str) -> None:
+        super().__init__(f"Usuario no encontrado: {identifier}")
+        self.identifier = identifier
+
+
+class DuplicateUsername(ApplicationError):
+    """Ya existe un usuario con el mismo nombre de usuario."""
+
+    def __init__(self, username: str) -> None:
+        super().__init__(f"Nombre de usuario ya existente: {username}")
+        self.username = username
