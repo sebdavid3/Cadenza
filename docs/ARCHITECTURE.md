@@ -810,9 +810,9 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Deshacer registrado como evento inverso (ADR-0007) | Deshacer vive solo en el navegador; el log y el editor divergen | [#35](https://github.com/sebdavid3/Cadenza/issues/35) |
 | API | Hallazgos descartables como falsos positivos | Un hallazgo solo desaparece modificando la partitura | [#36](https://github.com/sebdavid3/Cadenza/issues/36) |
 | API | Métricas de esfuerzo persistidas | Se calculan solo en el navegador | [#13](https://github.com/sebdavid3/Cadenza/issues/13) |
-| M1 | Anclas con `bbox` real | `bbox` sintético en el motor falso; HOMR no aporta coordenadas | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
+| M1 | Anclas con `bbox` real | Investigado en INV-0001 (resultado negativo para eventos; disponible a nivel de pentagrama; visor vectorial) | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
 | M1 | Preprocesado configurable y línea base `OemerEngine` | No implementados | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#16](https://github.com/sebdavid3/Cadenza/issues/16) |
-| M1 | Confianza del modelo en las anclas | `HOMREngine` no extrae ninguna confianza | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
+| M1 | Confianza del modelo en las anclas | Investigado en INV-0001 (resultado negativo para probabilidades directas; incertidumbre neuro-simbólica guiada por densidad de errores) | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
 | Dominio | Piano simple (dos pentagramas) verificado | Pruebas y corpus solo monofónicos | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
 | M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Una regla (balance de compás), sin métricas | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Recibe los datos en memoria y solo considera `SetPitch` | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
