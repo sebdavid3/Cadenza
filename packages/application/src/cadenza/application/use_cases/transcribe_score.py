@@ -29,6 +29,7 @@ def transcribe_score(
     validator: ValidationEngine,
     session_repository: SessionRepository,
     session_id: str | None = None,
+    image_artifact: str | None = None,
 ) -> TranscribeResult:
     """Ejecuta el pipeline de transcripción OMR, evalúa reglas y persiste la sesión."""
 
@@ -45,6 +46,9 @@ def transcribe_score(
         document_id=document.id,
         omr_engine=document.provenance.omr_engine,
         document=document.to_primitive(),
+        image_artifact=image_artifact,
+        model_version=document.provenance.model_version,
+        status="transcribed",
     )
 
     session_repository.add(session_data, findings)

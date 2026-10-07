@@ -29,6 +29,9 @@ class SessionDetail:
     findings: tuple[PersistedFinding, ...]
     edits: tuple[EditEvent, ...]
     current_score: dict[str, Any] | None
+    image_artifact: str | None = None
+    model_version: str | None = None
+    status: str = "transcribed"
 
 
 def _project(document: dict[str, Any], edits: Sequence[EditEvent]) -> dict[str, Any] | None:
@@ -67,4 +70,7 @@ def get_session(
         findings=findings,
         edits=edits,
         current_score=current_score,
+        image_artifact=session_data.image_artifact,
+        model_version=session_data.model_version,
+        status=session_data.status,
     )

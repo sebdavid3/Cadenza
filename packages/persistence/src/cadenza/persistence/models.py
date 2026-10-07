@@ -34,11 +34,27 @@ class Session(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     document_id: Mapped[str] = mapped_column(String(255), nullable=False)
     omr_engine: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), server_default="transcribed", default="transcribed", nullable=False
+    )
+    image_artifact: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "artifacts.sha256",
+            ondelete="SET NULL",
+            name="fk_sessions_image_artifact",
+        ),
+        nullable=True,
+    )
     document: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
+    artifact: Mapped[ArtifactRecord | None] = relationship(
+        "ArtifactRecord", foreign_keys=[image_artifact]
+    )
     findings: Mapped[list[FindingRecord]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
@@ -56,6 +72,7 @@ class FindingRecord(Base):
     session_id: Mapped[str] = mapped_column(
         ForeignKey("sessions.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    at_seq: Mapped[int] = mapped_column(Integer, server_default="0", default=0, nullable=False)
     rule_id: Mapped[str] = mapped_column(String(128), nullable=False)
     severity: Mapped[str] = mapped_column(String(16), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)

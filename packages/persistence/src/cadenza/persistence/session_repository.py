@@ -24,10 +24,14 @@ class SqlAlchemySessionRepository(SessionRepository):
             id=session.id,
             document_id=session.document_id,
             omr_engine=session.omr_engine,
+            model_version=session.model_version,
+            status=session.status,
+            image_artifact=session.image_artifact,
             document=session.document,
         )
         record.findings = [
             FindingRecord(
+                at_seq=finding.at_seq,
                 rule_id=finding.rule_id,
                 severity=finding.severity.value,
                 message=finding.message,
@@ -50,6 +54,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             omr_engine=record.omr_engine,
             document=record.document,
             created_at=record.created_at,
+            image_artifact=record.image_artifact,
+            model_version=record.model_version,
+            status=record.status,
         )
 
     def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
@@ -66,6 +73,7 @@ class SqlAlchemySessionRepository(SessionRepository):
                 message=row.message,
                 suggested_fix=row.suggested_fix,
                 anchor=row.anchor,
+                at_seq=row.at_seq,
             )
             for row in rows
         )

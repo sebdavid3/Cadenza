@@ -61,6 +61,7 @@ class FindingRead(BaseModel):
     message: str
     suggested_fix: str | None
     anchor: dict[str, Any]
+    at_seq: int = 0
 
     @classmethod
     def from_record(cls, record: FindingRecord) -> FindingRead:
@@ -71,6 +72,7 @@ class FindingRead(BaseModel):
             message=record.message,
             suggested_fix=record.suggested_fix,
             anchor=record.anchor,
+            at_seq=record.at_seq,
         )
 
     @classmethod
@@ -82,6 +84,7 @@ class FindingRead(BaseModel):
             message=finding.message,
             suggested_fix=finding.suggested_fix,
             anchor=finding.anchor,
+            at_seq=finding.at_seq,
         )
 
 
@@ -135,3 +138,6 @@ class SessionDetailRead(BaseModel):
     findings: list[FindingRead]
     edits: list[EditEventRead]
     current_score: dict[str, Any] | None = None
+    image_artifact: str | None = None
+    model_version: str | None = None
+    status: str = "transcribed"
