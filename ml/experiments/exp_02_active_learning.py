@@ -118,8 +118,12 @@ def _build_pool() -> tuple[TrainingSample, ...]:
     document = _document()
     rng = random.Random(SEED)
     edits = [
-        _edit(seq=index, measure=index, before=PITCHES[index % len(PITCHES)],
-              after=PITCHES[(index + 2) % len(PITCHES)])
+        _edit(
+            seq=index,
+            measure=index,
+            before=PITCHES[index % len(PITCHES)],
+            after=PITCHES[(index + 2) % len(PITCHES)],
+        )
         for index in range(1, POOL_SIZE + 1)
     ]
     base = DatasetBuilder().build(document, edits)
@@ -130,8 +134,9 @@ def _build_pool() -> tuple[TrainingSample, ...]:
         # con la posición para que existan casos "críticos" identificables.
         error_density = round(rng.betavariate(2.0, 5.0) + sample.correction_magnitude / 24.0, 4)
         magnitude = round(sample.correction_magnitude + rng.uniform(0.0, 4.0), 4)
-        enriched.append(replace(sample, error_density=error_density,
-                                correction_magnitude=magnitude))
+        enriched.append(
+            replace(sample, error_density=error_density, correction_magnitude=magnitude)
+        )
     return tuple(enriched)
 
 
@@ -162,9 +167,7 @@ def run() -> tuple[list[dict[str, object]], dict[str, dict[str, float]]]:
     for strategy in strategies:
         selected = strategy.select(pool, BUDGET)
         summary[strategy.strategy_id] = {
-            "mean_error_density": round(
-                sum(s.error_density for s in selected) / len(selected), 4
-            ),
+            "mean_error_density": round(sum(s.error_density for s in selected) / len(selected), 4),
             "mean_magnitude": round(
                 sum(s.correction_magnitude for s in selected) / len(selected), 4
             ),

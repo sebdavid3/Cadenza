@@ -121,9 +121,7 @@ def main() -> None:
         print(f"[exp_04] falta el manifiesto: {args.manifest}. Descarga el corpus primero.")
         return
 
-    written, failures = transcribe_corpus(
-        args.manifest, use_gpu=not args.cpu, limit=args.limit
-    )
+    written, failures = transcribe_corpus(args.manifest, use_gpu=not args.cpu, limit=args.limit)
     print(f"[exp_04] {written} predicciones escritas, {len(failures)} fallos")
 
 
