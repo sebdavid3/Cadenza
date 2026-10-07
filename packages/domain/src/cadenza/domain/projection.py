@@ -142,6 +142,39 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
     voice_positions = [
         position for position, event in enumerate(events) if event.voice == anchor.voice
     ]
+
+    if edit.op is EditOp.INSERT_EVENT:
+        if anchor.event_index > len(voice_positions):
+            raise IndexError(
+                f"anchor {anchor.sort_key()} fuera de rango para compás {measure.number}"
+            )
+        if anchor.event_index == len(voice_positions):
+            insert_pos = voice_positions[-1] + 1 if voice_positions else len(events)
+        else:
+            insert_pos = voice_positions[anchor.event_index]
+
+        bbox_raw = _value(edit.after, "bbox")
+        bbox = (
+            (float(bbox_raw[0]), float(bbox_raw[1]), float(bbox_raw[2]), float(bbox_raw[3]))
+            if bbox_raw is not None
+            else None
+        )
+        conf_raw = _value(edit.after, "confidence")
+        confidence = float(conf_raw) if conf_raw is not None else None
+
+        events.insert(
+            insert_pos,
+            Event(
+                kind=EventKind(_value(edit.after, "kind") or EventKind.NOTE.value),
+                voice=anchor.voice,
+                pitch=_value(edit.after, "pitch"),
+                duration_beats=_fraction(_value(edit.after, "duration_beats")),
+                bbox=bbox,
+                confidence=confidence,
+            ),
+        )
+        return replace(measure, events=tuple(events))
+
     if anchor.event_index >= len(voice_positions):
         raise IndexError(
             f"anchor {anchor.sort_key()} apunta a un evento inexistente del compás {measure.number}"
@@ -159,16 +192,6 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         )
     elif edit.op is EditOp.DELETE_EVENT:
         del events[position]
-    elif edit.op is EditOp.INSERT_EVENT:
-        events.insert(
-            position,
-            Event(
-                kind=EventKind(_value(edit.after, "kind") or EventKind.NOTE.value),
-                voice=anchor.voice,
-                pitch=_value(edit.after, "pitch"),
-                duration_beats=_fraction(_value(edit.after, "duration_beats")),
-            ),
-        )
     else:
         op_label = edit.op.value if hasattr(edit.op, "value") else str(edit.op)
         raise UnsupportedEditOpError(f"operación no proyectable: {op_label}")
@@ -212,3 +235,105 @@ def materialize(score: ScoreIR, edits: Iterable[EditEvent]) -> ScoreIR:
     for edit in sorted(edits, key=lambda event: event.seq):
         result = apply_edit(result, edit)
     return result
+
+
+def origin_anchor(anchor: Anchor, at_seq: int, edits: Iterable[EditEvent]) -> Anchor | None:
+    """Devuelve el ancla del mismo evento en el estado 0 (documento crudo), o None si fue insertado.
+
+    Deshace la regla de desplazamiento (ADR-0011) recorriendo las ediciones relevantes
+    en orden decreciente desde `at_seq` hasta 1.
+    """
+    if at_seq < 0:
+        raise ValueError("at_seq must be >= 0")
+    if at_seq == 0:
+        return anchor
+
+    relevant = [
+        e
+        for e in edits
+        if 1 <= e.seq <= at_seq
+        and e.anchor.part == anchor.part
+        and e.anchor.staff == anchor.staff
+        and e.anchor.measure == anchor.measure
+        and e.anchor.voice == anchor.voice
+    ]
+    relevant.sort(key=lambda e: e.seq, reverse=True)
+
+    pos = anchor.event_index
+    for edit in relevant:
+        if edit.op is EditOp.INSERT_EVENT:
+            if pos == edit.anchor.event_index:
+                return None
+            if pos > edit.anchor.event_index:
+                pos -= 1
+        elif edit.op is EditOp.DELETE_EVENT:
+            if pos >= edit.anchor.event_index:
+                pos += 1
+
+    return replace(anchor, event_index=pos)
+
+
+def translate_anchor(
+    anchor: Anchor,
+    from_seq: int,
+    to_seq: int,
+    edits: Iterable[EditEvent],
+) -> Anchor | None:
+    """Traduce un ancla entre dos estados de la sesión (`from_seq` -> `to_seq`).
+
+    Si el evento fue borrado entre ambos estados, devuelve None.
+    Si el ancla fue insertada y se retrocede antes de su creación, devuelve None.
+    """
+    if from_seq < 0 or to_seq < 0:
+        raise ValueError("from_seq and to_seq must be >= 0")
+    if from_seq == to_seq:
+        return anchor
+    if to_seq == 0:
+        return origin_anchor(anchor, from_seq, edits)
+
+    if from_seq > to_seq:
+        relevant = [
+            e
+            for e in edits
+            if to_seq < e.seq <= from_seq
+            and e.anchor.part == anchor.part
+            and e.anchor.staff == anchor.staff
+            and e.anchor.measure == anchor.measure
+            and e.anchor.voice == anchor.voice
+        ]
+        relevant.sort(key=lambda e: e.seq, reverse=True)
+        pos = anchor.event_index
+        for edit in relevant:
+            if edit.op is EditOp.INSERT_EVENT:
+                if pos == edit.anchor.event_index:
+                    return None
+                if pos > edit.anchor.event_index:
+                    pos -= 1
+            elif edit.op is EditOp.DELETE_EVENT:
+                if pos >= edit.anchor.event_index:
+                    pos += 1
+        return replace(anchor, event_index=pos)
+
+    # from_seq < to_seq: avanzamos en el tiempo
+    relevant = [
+        e
+        for e in edits
+        if from_seq < e.seq <= to_seq
+        and e.anchor.part == anchor.part
+        and e.anchor.staff == anchor.staff
+        and e.anchor.measure == anchor.measure
+        and e.anchor.voice == anchor.voice
+    ]
+    relevant.sort(key=lambda e: e.seq)
+    pos = anchor.event_index
+    for edit in relevant:
+        if edit.op is EditOp.INSERT_EVENT:
+            if pos >= edit.anchor.event_index:
+                pos += 1
+        elif edit.op is EditOp.DELETE_EVENT:
+            if pos == edit.anchor.event_index:
+                return None
+            if pos > edit.anchor.event_index:
+                pos -= 1
+
+    return replace(anchor, event_index=pos)

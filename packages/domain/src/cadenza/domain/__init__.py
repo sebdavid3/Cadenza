@@ -10,9 +10,15 @@ from __future__ import annotations
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
 from .edit import EditEvent, EditOp
-from .finding import Finding, Severity
+from .finding import Finding, Severity, translate_finding
 from .key_signature import KeySignature
-from .projection import UnsupportedEditOpError, apply_edit, materialize
+from .projection import (
+    UnsupportedEditOpError,
+    apply_edit,
+    materialize,
+    origin_anchor,
+    translate_anchor,
+)
 from .provenance import Provenance
 from .score import (
     Event,
@@ -51,4 +57,7 @@ __all__ = [
     "apply_edit",
     "build_anchor_index",
     "materialize",
+    "origin_anchor",
+    "translate_anchor",
+    "translate_finding",
 ]

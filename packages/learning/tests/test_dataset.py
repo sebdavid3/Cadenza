@@ -46,3 +46,17 @@ def test_build_is_deterministic() -> None:
     edits = [make_edit(1, make_anchor(0), "C4", "D4")]
     builder = DatasetBuilder()
     assert builder.build(document, edits) == builder.build(document, edits)
+
+
+def test_build_preserves_origin_bbox_across_structural_edits() -> None:
+    document = make_document()
+    edits = [
+        make_edit(1, make_anchor(0), None, "Bb3", op=EditOp.INSERT_EVENT),
+        make_edit(2, make_anchor(2), "D4", "E4", op=EditOp.SET_PITCH),
+    ]
+    samples = DatasetBuilder().build(document, edits)
+    assert len(samples) == 1
+    sample = samples[0]
+    assert sample.anchor.event_index == 1
+    assert sample.before_pitch == "D4"
+    assert sample.after_pitch == "E4"

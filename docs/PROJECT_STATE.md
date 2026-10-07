@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2 iniciada) |
-| **Último hito completado** | Proyección determinista de las siete operaciones de `EditOp` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)): `SetClef`, `SetKey` y semántica propia de `SetAccidental` en `packages/domain` (135 tests verdes) |
-| **Próximo paso inmediato** | Issue #28 (Dominio: definir la estabilidad de las anclas tras InsertEvent y DeleteEvent) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
+| **Último hito completado** | Estabilidad y traducción de anclas ante ediciones estructurales ([#28](https://github.com/sebdavid3/Cadenza/issues/28)): inserción al final de la voz, `origin_anchor`, `translate_anchor`, `translate_finding` y herencia en `AnchorIndex` (ADR-0011, 145 tests verdes) |
+| **Próximo paso inmediato** | Issue #32 (Dominio: verificar el soporte de piano (dos pentagramas) de punta a punta) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D35, D37–D42, D44–D47 (D31 parcial; D4, D7, D9, D15, D20, D22, D23, D24 y D36 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32, D34–D35, D37–D42, D44–D47 (D31 parcial; D4, D7, D9, D15, D20, D22, D23, D24, D33 y D36 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -85,7 +85,7 @@ Reglas:
 | D30 | `ModelRegistry` solo en memoria; el plano online no consulta la versión activa | Fase 7 / M4 | Pendiente |
 | D31 | Sin integración continua ni contrato OpenAPI congelado (tipos del frontend escritos a mano) | Fase 7 | **Parcial** — CI operativa en GitHub Actions (`.github/workflows/ci.yml`, [#25](https://github.com/sebdavid3/Cadenza/issues/25)); contrato OpenAPI pendiente ([#26](https://github.com/sebdavid3/Cadenza/issues/26)) |
 | D32 | Sin listado de sesiones: `GET /sessions` no existe y una sesión solo se recupera conociendo su `id` | Fase 7 / M3 | Pendiente |
-| D33 | Semántica de las anclas frente a `InsertEvent`/`DeleteEvent` (riesgo señalado en ADR-0007) | Fase 7 / Dominio | **Decidida** (ADR-0011: ancla posicional relativa a un estado + `origin_anchor`); implementación pendiente |
+| D33 | Semántica de las anclas frente a `InsertEvent`/`DeleteEvent` (riesgo señalado en ADR-0007) | Fase 7 / Dominio | **Resuelta** — ADR-0011 implementado: ancla posicional relativa al estado previo, inserción al final de la voz, funciones puras `origin_anchor`/`translate_anchor`/`translate_finding` y herencia en `AnchorIndex` ([#28](https://github.com/sebdavid3/Cadenza/issues/28)) |
 | D34 | Evaluación solo sobre PrIMuS: SMB y MUSCIMA++, prometidos en la documentación y en el objetivo 1, sin evaluar | Fase 7 / M6 | Pendiente |
 | D35 | SER no calculada sobre datos reales: falta la serialización de `ScoreIR` a secuencia de símbolos (objetivo 5) | Fase 7 / M4 | Pendiente |
 | D36 | `HOMREngine` no extrae confianza del modelo: decodificación voraz sin softmax en ONNX y sin soporte en MusicXML | Fase 7 / M1, M4 | **Resuelta (negativo documentado)** — INV-0001; incertidumbre neuro-simbólica con `ErrorDensityAcquisition` en ADR-0008 ([#31](https://github.com/sebdavid3/Cadenza/issues/31)) |
@@ -173,6 +173,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | `ArtifactStore` direccionado por `sha256` completado ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003_artifacts_table` en `packages/persistence`; 128 tests verdes | Fase 7 / Datos | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Investigaciones #14 y #31 concluidas con resultado negativo documentado: informe `docs/investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md`, precisión de `ADR-0008` e introducción formal de `ErrorDensityAcquisition` en `packages/learning` ([#14](https://github.com/sebdavid3/Cadenza/issues/14), [#31](https://github.com/sebdavid3/Cadenza/issues/31)) | Fase 7 / OMR | `docs/investigaciones/INV-0001-*`, `packages/learning/`, `docs/adr/ADR-0008-*` |
 | 2026-10-07 | Proyección determinista de las siete operaciones de `EditOp` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)): `SetClef`, `SetKey` y semántica propia de `SetAccidental` en `packages/domain` (ADR-0007, ADR-0010), documentación de payloads `before`/`after` y 135 tests verdes | Fase 7 / Dominio | `packages/domain/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Estabilidad de anclas ante inserciones y borrados ([#28](https://github.com/sebdavid3/Cadenza/issues/28)): inserción al final de la voz, funciones puras `origin_anchor`/`translate_anchor`/`translate_finding`, herencia en `AnchorIndex` y `DatasetBuilder` (ADR-0011) con 145 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/learning/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 
 ---
 
