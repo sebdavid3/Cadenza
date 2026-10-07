@@ -6,13 +6,13 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **planificada** (fases 0–6 cerradas en su núcleo) |
-| **Último hito completado** | Decisiones de diseño previas al desarrollo cerradas: una imagen por sesión, autenticación completa (ADR-0012) y anclas posicionales con traducción al documento crudo (ADR-0011); `ARCHITECTURE.md` v1.2 |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Paso 0 completado) |
+| **Último hito completado** | Paso 0 completado: `CLAUDE.md` con reglas permanentes y `CONVENTIONS.md` actualizado con política de ramas, commits, PRs y calidad para la Fase 7 |
 | **Próximo paso inmediato** | Etapa 1 de la Fase 7: integración continua ([#25](https://github.com/sebdavid3/Cadenza/issues/25)), capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)), `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | **Rama activa** | `dev` |
 | **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D42, D44–D47 (D4 mitigada; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
-| **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) — **contrato oficial** de Git, commits y calidad de código |
-| **Fecha de actualización** | 2026-10-03 |
+| **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
+| **Fecha de actualización** | 2026-10-07 |
 
 ---
 
@@ -167,6 +167,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-03 | Planificación del backend final completada: ocho brechas más frente a los objetivos de la tesis y la coherencia del backend (D34–D41, [#29](https://github.com/sebdavid3/Cadenza/issues/29)–[#36](https://github.com/sebdavid3/Cadenza/issues/36)) y seis piezas con alcance por decidir (D42–D45, D10, D12; [#37](https://github.com/sebdavid3/Cadenza/issues/37)–[#42](https://github.com/sebdavid3/Cadenza/issues/42)) | Fase 7 | `docs/ARCHITECTURE.md` §6, §7.2 y §10.2, `docs/phases/phase_7_architecture_alignment/` |
 | 2026-10-03 | Decisiones previas al desarrollo: una imagen por sesión (PDF y multipágina fuera de alcance, [#38](https://github.com/sebdavid3/Cadenza/issues/38) cerrado), autenticación completa con sesiones privadas (ADR-0012, [#39](https://github.com/sebdavid3/Cadenza/issues/39) pasa al milestone) y anclas posicionales relativas a un estado con función de traducción (ADR-0011, [#28](https://github.com/sebdavid3/Cadenza/issues/28)); `ARCHITECTURE.md` v1.2 | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md`, `docs/phases/phase_7_architecture_alignment/` |
 | 2026-10-03 | Trabajo derivado de las decisiones convertido en issues: autenticación desglosada en [#43](https://github.com/sebdavid3/Cadenza/issues/43)–[#46](https://github.com/sebdavid3/Cadenza/issues/46) (con [#39](https://github.com/sebdavid3/Cadenza/issues/39) como seguimiento), estado actual de la sesión y `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48), D46) e inicio de sesión en el visor ([#47](https://github.com/sebdavid3/Cadenza/issues/47), D47); ADR-0011 precisa el control por `base_seq` y ADR-0012, la gestión de cuentas | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md` §6 y §10.2 |
+| 2026-10-07 | Paso 0 de la Fase 7 completado: reglas permanentes en `CLAUDE.md`, política de ramas, commits, PRs y Definition of Done en `docs/CONVENTIONS.md`; árbol formateado con `black` y suites de calidad 100% limpias | Fase 7 (Paso 0) | `CLAUDE.md`, `docs/CONVENTIONS.md`, `pyproject.toml`, rama `docs/0-reglas-de-trabajo` |
 
 ---
 

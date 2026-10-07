@@ -72,9 +72,7 @@ class EditEventRecord(Base):
     """Corrección humana inmutable (append-only) anclada a un evento (ADR-0007)."""
 
     __tablename__ = "edit_events"
-    __table_args__ = (
-        UniqueConstraint("session_id", "seq", name="uq_edit_events_session_seq"),
-    )
+    __table_args__ = (UniqueConstraint("session_id", "seq", name="uq_edit_events_session_seq"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(

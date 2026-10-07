@@ -69,9 +69,7 @@ def _detail(musicdiff: Any, detail: Any | None) -> Any:
     return musicdiff.DetailLevel.Default
 
 
-def omr_ned_pair(
-    predicted: Path, ground_truth: Path, *, detail: Any | None = None
-) -> OmrNedResult:
+def omr_ned_pair(predicted: Path, ground_truth: Path, *, detail: Any | None = None) -> OmrNedResult:
     """Calcula OMR-NED entre un archivo predicho y su ground truth."""
 
     musicdiff = _load_musicdiff()

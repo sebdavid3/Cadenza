@@ -99,8 +99,7 @@ def build_document(
 
 def _measures_with_findings(findings: list[Finding]) -> set[tuple[int, int, int]]:
     return {
-        (finding.anchor.part, finding.anchor.staff, finding.anchor.measure)
-        for finding in findings
+        (finding.anchor.part, finding.anchor.staff, finding.anchor.measure) for finding in findings
     }
 
 
@@ -135,9 +134,7 @@ def run(
         "assisted_inspections": assisted_inspections,
         "effort_reduction_ratio": round(reduction, 4),
         "effort_reduction_percent": round(reduction * 100, 2),
-        "flagged_measures": sorted(
-            f"{part}:{staff}:{measure}" for part, staff, measure in flagged
-        ),
+        "flagged_measures": sorted(f"{part}:{staff}:{measure}" for part, staff, measure in flagged),
     }
 
 

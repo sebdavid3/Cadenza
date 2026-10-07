@@ -18,42 +18,41 @@
 
 | Rama | Rol |
 |---|---|
-| `main` | **Sagrada.** Solo código de producción funcional. Nada entra aquí sin pasar por `dev` y verificación. |
-| `dev` | Rama de **integración**. Es el punto de convergencia del trabajo diario. |
-| `feature/*` | Nueva funcionalidad. |
-| `fix/*` | Corrección de un defecto. |
-| `refactor/*` | Reestructuración sin cambio de comportamiento. |
-| `docs/*` | Documentación, ADRs, gobernanza. |
+| `main` | **Sagrada.** Solo código de producción funcional. Intocable: no se hace push, merge directo ni PR hacia ella. |
+| `dev` | Rama de **integración**. Punto de convergencia del desarrollo. Solo recibe cambios mediante Pull Request. |
+| `<tipo>/<número>-<descripción-corta>` | Ramas de trabajo asociadas a issues específicos (p. ej. `refactor/7-capa-de-aplicacion`, `chore/25-integracion-continua`). |
 
-### 1.2 Flujo
+**Tipos válidos de rama:** `feature`, `fix`, `refactor`, `docs`, `chore`.
 
-1. Se parte **siempre** de `dev` actualizado.
-2. Se trabaja en una rama con el prefijo correspondiente
-   (p. ej. `refactor/domain-core`).
-3. La rama se integra a `dev` vía PR (o merge directo si es un cambio menor),
-   con verificación verde.
-4. `dev` se promueve a `main` únicamente en releases o hitos verificados.
+### 1.2 Flujo de integración
+
+1. Se parte **siempre** de `dev` actualizado (`git switch dev`, `git pull --ff-only`).
+2. Se crea una rama dedicada para cada issue: `<tipo>/<número>-<descripción-corta>`.
+3. Ramas de vida corta: si `dev` avanzó durante el desarrollo, se actualiza la rama antes de abrir el PR.
+4. La integración a `dev` se realiza exclusivamente mediante **Pull Request** fusionado con *squash* y eliminación de la rama.
+5. `main` se actualiza únicamente por promoción manual desde `dev` en hitos verificados.
 
 ```text
 main  ←── (release / hito) ────────┐
   ▲                                │
-dev   ←── (integración) ───────────┘
+dev   ←── (squash PR) ─────────────┘
   ▲
-  └── feature/* · fix/* · refactor/* · docs/*
+  └── <tipo>/<número>-<descripción-corta>
 ```
 
-### 1.3 Higiene
+### 1.3 Higiene y control de versiones
 
-- Un commit = un cambio coherente.
-- No se comitean secretos, credenciales ni artefactos generados
-  (`node_modules/`, `.venv/`, `dist/`, cachés).
-- No se reescribe historia publicada (`main`/`dev`) salvo acuerdo explícito.
+- Commits pequeños y coherentes. Un commit = un cambio lógico completo.
+- Se añaden archivos con **rutas explícitas**; prohibido el uso de `git add -A` o `git add .`.
+- No se comitean secretos, credenciales, `.env`, datos crudos (`data/`), resultados experimentales (`results/`) ni artefactos generados (`node_modules/`, `.venv/`, `dist/`, cachés).
+- No se reescribe historia publicada (`main`/`dev`) ni se utiliza `git push --force`.
+- Prohibido saltar hooks o utilizar `--no-verify`.
 
 ---
 
 ## 2. Conventional Commits (OBLIGATORIO)
 
-Todo mensaje de commit sigue el estándar:
+Todo mensaje de commit sigue el estándar Conventional Commits en **español**, en modo **imperativo**, con **minúscula inicial** y **sin punto final**:
 
 ```text
 <tipo>(<scope>): <descripción en imperativo>
@@ -68,73 +67,89 @@ Todo mensaje de commit sigue el estándar:
 | `refactor` | Reestructuración sin cambio de comportamiento |
 | `docs` | Documentación y gobernanza |
 | `test` | Añadir o ajustar pruebas |
-| `chore` | Mantenimiento, dependencias, build |
+| `chore` | Mantenimiento, dependencias, configuración, tareas mecánicas |
 | `perf` | Mejora de rendimiento |
 | `build` | Sistema de construcción o empaquetado |
-| `ci` | Integración continua |
+| `ci` | Integración continua y flujos de automatización |
 
-### 2.2 Scopes sugeridos
+### 2.2 Scopes oficiales
 
-`domain`, `omr`, `validation`, `hitl`, `learning`, `api`, `web`, `infra`,
-`docs`.
+`domain`, `application`, `interchange`, `omr`, `validation`, `persistence`, `learning`, `api`, `web`, `infra`, `docs`.
 
 ### 2.3 Reglas
 
-- Descripción en **imperativo**, minúscula inicial, sin punto final.
-- El *scope* es obligatorio cuando el cambio afecta a un módulo concreto.
-- Breaking changes se indican con `!` tras el scope (p. ej. `feat(api)!: ...`)
-  o con un pie `BREAKING CHANGE:`.
+- Descripción en **imperativo**, minúscula inicial, sin punto final (p. ej. `añadir clave y armadura al ScoreIR`).
+- El cuerpo del commit explica la motivación técnica cuando no es evidente y termina referenciando el issue: `Refs #N`.
+- Breaking changes se indican con `!` tras el scope (p. ej. `feat(api)!: ...`) o con el pie `BREAKING CHANGE:`.
 
 ### 2.4 Ejemplos
 
 ```text
-feat(domain): modelar AnchorIndex determinista
-fix(api): corregir reporte de proveedor de onnxruntime
-refactor(validation): extraer catálogo de reglas
-docs(architecture): establecer bases de gobernanza, ADRs y convenciones
-chore: fijar Python 3.12 en el workspace
+feat(domain): añadir clave y armadura al ScoreIR
+fix(api): validar ediciones antes de persistir en el log
+refactor(application): extraer casos de uso a packages/application
+docs(conventions): incorporar politica de ramas y calidad para la fase 7
+chore(ci): configurar pipeline de github actions
 ```
 
 ---
 
-## 3. Estilo de código y calidad
+## 3. Pull Requests y Migraciones
 
-### 3.1 Python
+### 3.1 Política de Pull Requests
+- **Un issue = una rama = un PR.** No se inicia el siguiente issue hasta fusionar el anterior (salvo excepciones acopladas explícitas).
+- **Título:** Formato Conventional Commit con el número de issue:
+  `<tipo>(<scope>): <descripción> (#N)`
+- **Cuerpo estructurado:**
+  - Resumen conciso de cambios.
+  - Verificación detallada de cada criterio de aceptación con evidencia de tests.
+  - Decisiones técnicas o arquitectónicas adoptadas.
+  - Cláusula de cierre: `Closes #N`.
+- **Fusión:** Siempre mediante *squash and merge* y borrado de rama, de modo que `dev` conserve exactamente un commit por issue.
 
-- **Intérprete:** Python **3.12** (`requires-python = ">=3.12,<3.13"`),
-  gestionado con `uv`.
-- **Tipado estricto obligatorio:** `mypy` en modo `strict`. No se introduce
-  `Any` sin justificación.
-- **Formateo y linting:** delegados a **`ruff`** (`ruff format` + `ruff check`),
-  con configuración central en el `pyproject.toml` raíz.
-- **Pruebas:** todo **módulo core** debe tener tests en `pytest`.
-- **Pureza del dominio:** `packages/domain` usa **solo la librería estándar**
-  (`dataclasses`). Cero dependencias externas; se verifica con un test
-  automatizado. Pydantic v2 se reserva para los adaptadores de entrada en
-  `apps/api/`.
-- **Configuración única:** `ruff`, `mypy` y `pytest` se configuran **una sola
-  vez** en el `pyproject.toml` raíz (uv workspace).
+### 3.2 Migraciones de Base de Datos
+- Gestionadas exclusivamente con **Alembic**.
+- Numeración secuencial estricta (`0003_…`, `0004_…`).
+- Máximo una migración por PR cuando se modifique el esquema relacional.
+- Toda migración debe implementar coherentemente tanto `upgrade()` como `downgrade()`.
 
-### 3.2 Frontend
+---
+
+## 4. Estilo de código y calidad
+
+### 4.1 Python
+
+- **Intérprete:** Python **3.12** (`requires-python = ">=3.12,<3.13"`), gestionado con `uv`.
+- **Tipado estricto obligatorio:** `mypy` en modo `strict`. Prohibido introducir `Any` o `# type: ignore` sin justificación explícita.
+- **Formateo y linting:** `ruff` y `black` configurados en `pyproject.toml` raíz.
+- **Pruebas:** Todo módulo core debe contar con tests en `pytest`. Se aplica TDD (escribir pruebas que expresen criterios antes de implementar; reproducir fallos antes de corregirlos).
+- **Pureza del dominio:** `packages/domain` utiliza **solo la librería estándar** (`dataclasses`). Cero dependencias externas, verificado por test automatizado.
+- **Aislamiento hexagonal:** `packages/application` no importa FastAPI, SQLAlchemy, music21, homr ni onnxruntime. `music21` reside exclusivamente en `packages/interchange`.
+
+### 4.2 Frontend
 
 - **TypeScript** con tipado estricto.
 - Formateo con **Prettier** y lint con **ESLint**.
 - Pruebas con **Vitest** (unidad) y **Playwright** (E2E).
 
-### 3.3 Contratos y arquitectura
-
-- Las dependencias apuntan **hacia el dominio**; los adaptadores dependen de él,
-  nunca al revés.
-- Los puertos se definen como interfaces y se verifican con *tests* de contrato.
-
 ---
 
-## 4. Definition of Done (general)
+## 5. Definition of Done (DoD)
 
-Una tarea se considera terminada cuando:
+Un issue o tarea se considera **terminada** únicamente cuando:
 
-1. Cumple sus **criterios de aceptación** de fase.
-2. Pasa `pytest`, `ruff`, `black --check` y `mypy` sin errores.
-3. Sigue las convenciones de commits y ramas.
-4. Actualiza **`docs/PROJECT_STATE.md`** (fase, hito, bitácora, blockers).
-5. No rompe el flujo E2E del prototipo sin una tarea de migración explícita.
+1. Cumple **todos los criterios de aceptación** del issue, demostrados con evidencia.
+2. Pasan sin errores ni omisiones:
+   - `uv run pytest`
+   - `uv run mypy packages apps`
+   - `uv run ruff check .`
+   - `uv run black --check .`
+   - Si se modificó `apps/web`: `npm run test` y `npm run build` en `apps/web`.
+3. Sigue estrictamente la política de ramas, commits y PRs.
+4. Actualiza la documentación correspondiente:
+   - **`docs/PROJECT_STATE.md`** (deuda técnica y bitácora de hitos).
+   - Matriz §10.2 de **`docs/ARCHITECTURE.md`**.
+   - `README.md` si se modifica la forma de uso o configuración.
+   - Nuevo documento en `docs/adr/` si se adoptó una decisión estructural.
+5. El PR es fusionado hacia `dev` y el issue correspondiente en GitHub queda cerrado.
+
