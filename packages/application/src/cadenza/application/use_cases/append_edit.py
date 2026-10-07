@@ -20,7 +20,7 @@ from cadenza.domain import (
     materialize,
 )
 
-from ..exceptions import Forbidden, InvalidEdit, SessionNotFound
+from ..exceptions import Forbidden, InvalidEdit, SequenceConflict, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import SessionRepository
 from ..user import Role, User
@@ -154,6 +154,7 @@ def append_edit(
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
     current_user: User,
+    base_seq: int = 0,
     author: str | None = None,
     edit_id: str | None = None,
     before: Mapping[str, Any] | None = None,
@@ -163,6 +164,7 @@ def append_edit(
     """Añade un nuevo evento inmutable al log de la sesión verificando su existencia y propiedad.
 
     La autoría la fija el servidor a partir del usuario actual (ADR-0012).
+    Verifica que base_seq coincida con el seq del estado actual de la sesión (ADR-0011, #48).
     Aplica y valida la edición sobre el estado materializado actual antes de persistir (#10).
     """
 
@@ -176,9 +178,21 @@ def append_edit(
     if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
         raise Forbidden("Un investigador solo puede editar sus propias sesiones")
 
-    # 1. Reconstruir estado materializado previo a la edición
-    raw_score = ScoreIR.from_primitive(session_data.document["score"])
+    # 1. Verificar base_seq contra el estado actual de la sesión (ADR-0011, #48)
     existing_edits = edit_repository.list_events(session_id)
+    current_seq = existing_edits[-1].seq if existing_edits else 0
+    if base_seq != current_seq:
+        raise SequenceConflict(
+            expected_seq=current_seq,
+            actual_seq=base_seq,
+            message=(
+                f"Conflicto de secuencia: base_seq={base_seq} no coincide con "
+                f"el estado actual de la sesión (seq={current_seq})"
+            ),
+        )
+
+    # 2. Reconstruir estado materializado previo a la edición
+    raw_score = ScoreIR.from_primitive(session_data.document["score"])
     current_score = materialize(raw_score, existing_edits)
 
     seq = edit_repository.next_seq(session_id)

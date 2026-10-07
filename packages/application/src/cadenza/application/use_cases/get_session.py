@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
 from cadenza.domain import (
+    AnchorIndex,
     EditEvent,
     ScoreIR,
+    build_anchor_index,
     materialize,
 )
 
@@ -20,7 +21,7 @@ from ..user import Role, User
 
 @dataclass(frozen=True)
 class SessionDetail:
-    """Detalle completo de una sesión con su estado actual materializado."""
+    """Detalle completo de una sesión con su estado actual materializado (ADR-0011, #48)."""
 
     session_id: str
     document_id: str
@@ -28,21 +29,12 @@ class SessionDetail:
     document: dict[str, Any]
     findings: tuple[PersistedFinding, ...]
     edits: tuple[EditEvent, ...]
-    current_score: dict[str, Any] | None
+    current_score: dict[str, Any]
+    current_seq: int = 0
+    anchor_index: dict[str, Any] | None = None
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
-
-
-def _project(document: dict[str, Any], edits: Sequence[EditEvent]) -> dict[str, Any] | None:
-    """Materializa el `ScoreIR` actual aplicando el log de ediciones.
-
-    Con el log validado al insertar (#10), no se silencian errores de proyección.
-    """
-    if not edits:
-        return None
-    score = ScoreIR.from_primitive(document["score"])
-    return materialize(score, edits).to_primitive()
 
 
 def get_session(
@@ -53,6 +45,9 @@ def get_session(
     current_user: User,
 ) -> SessionDetail:
     """Recupera la sesión, sus hallazgos, log de ediciones y estado proyectado.
+
+    Devuelve el número de secuencia actual (current_seq), el ScoreIR materializado
+    y su índice de anclas con bbox y confidence heredadas del evento de origen (ADR-0011).
 
     Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
     sesiones (las ajenas responden como inexistentes); un investigador puede leer todas.
@@ -67,7 +62,29 @@ def get_session(
 
     findings = session_repository.list_findings(session_id)
     edits = edit_repository.list_events(session_id)
-    current_score = _project(session_data.document, edits)
+
+    raw_score = ScoreIR.from_primitive(session_data.document["score"])
+    raw_anchors = (
+        AnchorIndex.from_primitive(session_data.document["anchors"])
+        if "anchors" in session_data.document
+        else build_anchor_index(raw_score)
+    )
+
+    if edits:
+        current_seq = edits[-1].seq
+        current_score_ir = materialize(raw_score, edits)
+        current_anchors = build_anchor_index(
+            current_score_ir,
+            raw_anchors=raw_anchors,
+            edits=edits,
+            at_seq=current_seq,
+        )
+        current_score = current_score_ir.to_primitive()
+        anchor_index = current_anchors.to_primitive()
+    else:
+        current_seq = 0
+        current_score = raw_score.to_primitive()
+        anchor_index = raw_anchors.to_primitive()
 
     return SessionDetail(
         session_id=session_data.id,
@@ -77,6 +94,8 @@ def get_session(
         findings=findings,
         edits=edits,
         current_score=current_score,
+        current_seq=current_seq,
+        anchor_index=anchor_index,
         image_artifact=session_data.image_artifact,
         model_version=session_data.model_version,
         status=session_data.status,

@@ -206,6 +206,15 @@ def test_append_edit_success_and_server_author(
         current_user=owner,
     )
 
+    initial = get_session(
+        result.session_id,
+        session_repository=session_repo,
+        edit_repository=edit_repo,
+        current_user=owner,
+    )
+    assert initial.current_seq == 0
+    assert initial.anchor_index is not None
+
     anchor = Anchor(
         part=0,
         staff=0,
@@ -217,6 +226,7 @@ def test_append_edit_success_and_server_author(
     # No se especifica author; el servidor lo toma de current_user
     edit = append_edit(
         result.session_id,
+        base_seq=0,
         anchor=anchor,
         op=EditOp.SET_PITCH,
         session_repository=session_repo,
@@ -237,7 +247,9 @@ def test_append_edit_success_and_server_author(
         current_user=owner,
     )
     assert len(detail.edits) == 1
+    assert detail.current_seq == 1
     assert detail.current_score is not None
+    assert detail.anchor_index is not None
 
 
 def test_append_edit_ownership_rules(

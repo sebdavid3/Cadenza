@@ -29,7 +29,11 @@ export function EventInspector() {
     setBusy(true);
     setError(null);
     try {
+      const currentSeq =
+        useEditorStore.getState().session?.current_seq ??
+        (history.length > 0 ? history[history.length - 1].seq : 0);
       const edit = await appendEdit(sessionId, {
+        base_seq: currentSeq,
         op: "SetPitch",
         anchor: selected,
         before: currentPitch ? { pitch: currentPitch } : null,

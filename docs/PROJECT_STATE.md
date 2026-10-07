@@ -7,10 +7,10 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 3: API completa y PostgreSQL) |
-| **Último hito completado** | Validación de ediciones antes del log y control de conflictos 409 ([#10](https://github.com/sebdavid3/Cadenza/issues/10)): validación en `append_edit` contra estado materializado actual, verificación estricta de `before` (422), captura de colisiones de secuencia (409) y proyección no silenciada en `get_session` con 235 tests verdes |
-| **Próximo paso inmediato** | Issue #48 (Estado actual de la sesión (`seq` e índice de anclas) y ediciones con `base_seq`) |
+| **Último hito completado** | Estado actual de la sesión (`seq` e índice de anclas) y ediciones con `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48)): `get_session` expone `current_seq`, `ScoreIR` materializado y `anchor_index` enriquecido; `POST /sessions/{id}/edits` exige `base_seq` y responde HTTP 409 sin reintentos; esquemas preparados para `undo`/`validate` y 239 tests verdes |
+| **Próximo paso inmediato** | Issue #11 (Revalidación tras las correcciones: `POST /sessions/{id}/validate`) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D11–D14, D16–D19, D21, D28–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D24, D26, D27 y D47 resueltas; D10, D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D11–D14, D16–D19, D21, D28–D30, D32, D34–D35, D38–D42, D44–D45 (D3, D5, D24, D26, D27, D46 y D47 resueltas; D10, D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -102,7 +102,7 @@ Reglas:
 | D43 | Entrada PDF y multipágina mencionada en `ARCHITECTURE.md` pero sin modelo de página en anclas ni `bbox` | — | **Cerrada** — fuera de alcance: una imagen por sesión; PDF retirado de `ARCHITECTURE.md` |
 | D44 | Operación del backend sin resolver: salud, registro estructurado, CORS, imagen CUDA del plano offline y copias | Alcance por decidir | Pendiente (decisión) |
 | D45 | Sin tarea de migración para retirar `legacy/`, que el principio rector exige antes de eliminarlo | Alcance por decidir | Pendiente (decisión) |
-| D46 | La API no expone el estado actual de la sesión (`seq` e índice de anclas) y las ediciones no declaran el estado sobre el que se construyeron (`base_seq`, ADR-0011) | Fase 7 / M3 | Pendiente |
+| D46 | La API no expone el estado actual de la sesión (`seq` e índice de anclas) y las ediciones no declaran el estado sobre el que se construyeron (`base_seq`, ADR-0011) | Fase 7 / M3 | **Resuelta** — `get_session` devuelve `current_seq`, `ScoreIR` materializado y `anchor_index` enriquecido; `POST /sessions/{id}/edits` exige `base_seq` y responde HTTP 409 ante desajustes ([#48](https://github.com/sebdavid3/Cadenza/issues/48)) |
 | D47 | El visor web no tiene inicio de sesión ni envía token: dejará de funcionar cuando la API exija autenticación (ADR-0012) | Frontend | **Resuelta** — `LoginPanel`, token en `sessionStorage`, `Authorization: Bearer` en peticiones, intercepción de 401 y logout en React ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
@@ -187,6 +187,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Gestión de cuentas y autenticación completa ([#46](https://github.com/sebdavid3/Cadenza/issues/46), [#39](https://github.com/sebdavid3/Cadenza/issues/39)): casos de uso `create_user`, `update_user`, `change_password`, `list_users`, endpoints `/users`, `/users/{id}`, `/auth/password`, CLI `create-investigator`, control de rol de investigador, validación de contraseñas de al menos 8 caracteres y 217 tests verdes; cierra el issue paraguas #39 y concluye la Etapa 2 de la Fase 7 | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Persistencia de imagen y endpoint `GET /sessions/{id}/image` ([#9](https://github.com/sebdavid3/Cadenza/issues/9)): persistencia de imagen en `ArtifactStore` con deduplicación por SHA-256, sincronización de `Provenance.source_image_hash`, endpoint `GET /sessions/{id}/image` con control de acceso ADR-0012, validación de tipo de archivo (HTTP 415 para no-imágenes/PDF) y tamaño máximo configurable (HTTP 413) con 225 tests verdes | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Validación de ediciones antes de añadirlas al log ([#10](https://github.com/sebdavid3/Cadenza/issues/10)): validación en `append_edit` contra el estado materializado actual, verificación estricta de `before` (HTTP 422), detección de colisiones de secuencia (HTTP 409), eliminación del enmascaramiento silencioso en `get_session` y 235 tests verdes | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Estado actual de la sesión (`seq` e índice de anclas) y ediciones con `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48)): `get_session` devuelve `current_seq`, `ScoreIR` materializado y `anchor_index` con `bbox` y `confidence` heredadas del documento original; `POST /sessions/{id}/edits` exige `base_seq` y rechaza estados obsoletos con HTTP 409 sin reintentos (ADR-0011); contratos de respuesta preparados para `undo` y `validate`, actualización del visor web en React y 239 tests verdes | Fase 7 / API | `packages/application/`, `apps/api/`, `apps/web/`, `docs/ARCHITECTURE.md` |
 
 
 ---

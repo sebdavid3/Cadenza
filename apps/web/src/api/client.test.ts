@@ -110,14 +110,18 @@ describe("api client", () => {
     });
     vi.stubGlobal("fetch", mock);
 
-    await appendEdit("s1", { op: "SetPitch", anchor: ANCHOR });
+    await appendEdit("s1", { base_seq: 0, op: "SetPitch", anchor: ANCHOR });
 
     const [url, init] = mock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/sessions/s1/edits");
     expect(init.method).toBe("POST");
     const headers = new Headers(init.headers);
     expect(headers.get("Content-Type")).toBe("application/json");
-    expect(JSON.parse(init.body as string)).toEqual({ op: "SetPitch", anchor: ANCHOR });
+    expect(JSON.parse(init.body as string)).toEqual({
+      base_seq: 0,
+      op: "SetPitch",
+      anchor: ANCHOR,
+    });
   });
 
   it("login realiza POST con x-www-form-urlencoded y guarda el token", async () => {

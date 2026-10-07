@@ -12,7 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class AnchorPayload(BaseModel):
-    """Ancla de evento en formato primitivo (contrato compartido del dominio)."""
+    """Ancla de evento en formato primitivo (contrato compartido del dominio).
+
+    El ancla es posicional y se interpreta respecto al estado `at_seq`
+    correspondiente: estado 0 para el documento crudo, estado `seq - 1`
+    (`base_seq`) para una edición, estado `at_seq` para un hallazgo (ADR-0011).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -32,14 +37,21 @@ class AnchorPayload(BaseModel):
 class EditEventCreate(BaseModel):
     """Payload de una corrección humana (el servidor asigna id, seq y fecha).
 
+    Exige `base_seq`, que identifica el estado sobre el cual se construyó la
+    edición (ADR-0011). Si `base_seq` no coincide con el último `seq` de la sesión,
+    el servidor responde HTTP 409 Conflict y no persiste nada. El servidor nunca
+    reintenta con otro `seq` para no alterar el evento al que apunta el ancla.
+
     El ancla `anchor` es posicional y se interpreta estrictamente respecto al
-    estado inmediatamente anterior a la edición (estado `seq - 1` de la sesión,
-    ADR-0011). Tras inserciones o borrados estructurales previos, el índice
-    apunta a la posición en el estado materializado actual.
+    estado base declarado (`base_seq`, ADR-0011).
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    base_seq: int = Field(
+        ge=0,
+        description="Número de secuencia del estado sobre el que se preparó la edición (ADR-0011)",
+    )
     op: EditOp
     anchor: AnchorPayload
     before: dict[str, Any] | None = None
@@ -128,7 +140,13 @@ class EditEventRead(BaseModel):
 
 
 class SessionDetailRead(BaseModel):
-    """Documento persistido + findings + correcciones de una sesión (HITL)."""
+    """Documento persistido + findings + correcciones de una sesión (HITL).
+
+    `current_seq` indica el estado de secuencia de la partitura actual (`0` para crudo,
+    `n` para `n` ediciones). `current_score` es el ScoreIR materializado y
+    `anchor_index` contiene el índice de anclas correspondiente al estado actual,
+    con `bbox` y `confidence` heredadas del documento original (ADR-0011).
+    """
 
     session_id: str
     document_id: str
@@ -136,10 +154,34 @@ class SessionDetailRead(BaseModel):
     document: dict[str, Any]
     findings: list[FindingRead]
     edits: list[EditEventRead]
-    current_score: dict[str, Any] | None = None
+    current_score: dict[str, Any]
+    current_seq: int = 0
+    anchor_index: dict[str, Any] | None = None
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
+
+
+class RevalidateResponse(BaseModel):
+    """Respuesta tras revalidación de la partitura (ADR-0011, #11, #48).
+
+    Devuelve el `current_seq` de la sesión y la lista de hallazgos evaluados,
+    cada uno con su `at_seq` correspondiente.
+    """
+
+    session_id: str
+    current_seq: int
+    findings: list[FindingRead]
+
+
+class UndoResponse(BaseModel):
+    """Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."""
+
+    session_id: str
+    current_seq: int
+    undone_edit_id: str
+    current_score: dict[str, Any]
+    anchor_index: dict[str, Any] | None = None
 
 
 class TokenResponse(BaseModel):
