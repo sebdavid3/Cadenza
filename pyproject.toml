@@ -14,6 +14,7 @@ package = false
 [tool.uv.workspace]
 members = [
     "apps/api",
+    "packages/application",
     "packages/domain",
     "packages/interchange",
     "packages/learning",
@@ -29,6 +30,7 @@ members = [
 [dependency-groups]
 dev = [
     "cadenza-api",
+    "cadenza-application",
     "cadenza-domain",
     "cadenza-interchange",
     "cadenza-learning",
@@ -45,6 +47,7 @@ dev = [
 
 [tool.uv.sources]
 cadenza-api = { workspace = true }
+cadenza-application = { workspace = true }
 cadenza-domain = { workspace = true }
 cadenza-interchange = { workspace = true }
 cadenza-learning = { workspace = true }
@@ -70,7 +73,7 @@ extend-exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "apps/api/src:packages/domain/src:packages/interchange/src:packages/learning/src:packages/omr/src:packages/persistence/src:packages/validation/src"
+mypy_path = "apps/api/src:packages/application/src:packages/domain/src:packages/interchange/src:packages/learning/src:packages/omr/src:packages/persistence/src:packages/validation/src"
 explicit_package_bases = true
 exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 

@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 iniciada) |
-| **Último hito completado** | Integración continua en GitHub Actions implementada ([#25](https://github.com/sebdavid3/Cadenza/issues/25)): workflows para Python 3.12 y web frontend con caché, linters, tests e insignia |
-| **Próximo paso inmediato** | Etapa 1 de la Fase 7: capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)), `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 en progreso) |
+| **Último hito completado** | Capa de aplicación hexagonal extraída ([#7](https://github.com/sebdavid3/Cadenza/issues/7)): paquete `packages/application` con casos de uso desacoplados, puertos de repositorio, adaptadores SQLAlchemy y API como raíz de composición |
+| **Próximo paso inmediato** | Etapa 1 de la Fase 7: `ScoreIR` extendido con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D30, D32–D42, D44–D47 (D4 mitigada; D31 parcial por CI; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21, D23–D30, D32–D42, D44–D47 (D4 mitigada; D31 parcial por CI; D7, D9, D15, D20 y D22 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -75,7 +75,7 @@ Reglas:
 | D19 | Reducción de esfuerzo medida en `ml/experiments` no usa los eventos HITL reales ni `musicdiff` para OMR-NED | Fase 5 / M5 | **Parcial** — OMR-NED oficial integrado (`exp_03`); falta correrlo sobre corpus real (D20) |
 | D20 | HOMR real no ejecutado en GPU | Fase 6 / M6 | **Resuelta** — GPU operativa con `onnxruntime-gpu==1.26.0` (CUDA 12.8 + cuDNN 9 cu12) y `ensure_cuda_dll_dirs` (PATH de sub-librerías cuDNN). Baseline PrIMuS 91/100, **OMR-NED medio 0.2285** idéntico CPU↔GPU, 9 fallos `No staffs found` |
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
-| D22 | Sin capa de aplicación: los casos de uso viven en los *handlers* de `apps/api` (ADR-0009) | Fase 7 | Pendiente |
+| D22 | Sin capa de aplicación: los casos de uso viven en los *handlers* de `apps/api` (ADR-0009) | Fase 7 | **Resuelta** — `packages/application` (casos de uso `transcribe_score`, `get_session`, `append_edit`, `list_findings`; puertos `SessionRepository` y `EditEventRepository` con adaptadores SQLAlchemy; `apps/api` como raíz de composición) |
 | D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | Pendiente |
 | D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | Pendiente |
 | D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | Pendiente |
@@ -169,6 +169,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-03 | Trabajo derivado de las decisiones convertido en issues: autenticación desglosada en [#43](https://github.com/sebdavid3/Cadenza/issues/43)–[#46](https://github.com/sebdavid3/Cadenza/issues/46) (con [#39](https://github.com/sebdavid3/Cadenza/issues/39) como seguimiento), estado actual de la sesión y `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48), D46) e inicio de sesión en el visor ([#47](https://github.com/sebdavid3/Cadenza/issues/47), D47); ADR-0011 precisa el control por `base_seq` y ADR-0012, la gestión de cuentas | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md` §6 y §10.2 |
 | 2026-10-07 | Paso 0 de la Fase 7 completado: reglas permanentes en `CLAUDE.md`, política de ramas, commits, PRs y Definition of Done en `docs/CONVENTIONS.md`; árbol formateado con `black` y suites de calidad 100% limpias | Fase 7 (Paso 0) | `CLAUDE.md`, `docs/CONVENTIONS.md`, `pyproject.toml`, rama `docs/0-reglas-de-trabajo` |
 | 2026-10-07 | Integración continua completada ([#25](https://github.com/sebdavid3/Cadenza/issues/25)): workflow GitHub Actions `ci.yml` para Python 3.12 (`pytest`, `mypy`, `ruff`, `black`) y frontend (`vitest`, `build`) con caché e insignia en `README.md` | Fase 7 / Infra | `.github/workflows/ci.yml`, `README.md`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Capa de aplicación hexagonal extraída ([#7](https://github.com/sebdavid3/Cadenza/issues/7)): paquete `packages/application` (casos de uso `transcribe_score`, `get_session`, `append_edit`, `list_findings`; puertos `SessionRepository` y `EditEventRepository` con adaptadores SQLAlchemy; apps/api como raíz de composición); 114 tests verdes y test de pureza de aplicación | Fase 7 / App | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 
 ---
 

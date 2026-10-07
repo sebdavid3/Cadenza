@@ -5,10 +5,7 @@ aplicación; `SqlAlchemyEditEventRepository` es una implementación intercambiab
 (SQLite/PostgreSQL) que nunca expone el ORM hacia afuera.
 """
 
-from __future__ import annotations
-
-from abc import ABC, abstractmethod
-
+from cadenza.application import EditEventRepository
 from cadenza.domain import Anchor, EditEvent, EditOp
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
@@ -16,21 +13,7 @@ from sqlalchemy.orm import Session as DbSession
 from .models import EditEventRecord
 from .models import Session as SessionRecord
 
-
-class EditEventRepository(ABC):
-    """Contrato append-only: se agregan eventos, jamás se mutan ni se borran."""
-
-    @abstractmethod
-    def next_seq(self, session_id: str) -> int:
-        """Siguiente número de secuencia monotónico dentro de la sesión."""
-
-    @abstractmethod
-    def append(self, session_id: str, edit: EditEvent) -> EditEvent:
-        """Persiste un evento de edición inmutable."""
-
-    @abstractmethod
-    def list_events(self, session_id: str) -> tuple[EditEvent, ...]:
-        """Devuelve los eventos de la sesión ordenados por `seq`."""
+__all__ = ["EditEventRepository", "SqlAlchemyEditEventRepository"]
 
 
 class SqlAlchemyEditEventRepository(EditEventRepository):

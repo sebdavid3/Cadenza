@@ -6,6 +6,7 @@ requires-python = "==3.12.*"
 members = [
     "cadenza",
     "cadenza-api",
+    "cadenza-application",
     "cadenza-domain",
     "cadenza-interchange",
     "cadenza-learning",
@@ -140,6 +141,7 @@ source = { virtual = "." }
 dev = [
     { name = "black" },
     { name = "cadenza-api" },
+    { name = "cadenza-application" },
     { name = "cadenza-domain" },
     { name = "cadenza-interchange" },
     { name = "cadenza-learning", extra = ["metrics"] },
@@ -158,6 +160,7 @@ dev = [
 dev = [
     { name = "black", specifier = ">=24.4" },
     { name = "cadenza-api", editable = "apps/api" },
+    { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "cadenza-interchange", editable = "packages/interchange" },
     { name = "cadenza-learning", editable = "packages/learning" },
@@ -176,6 +179,7 @@ name = "cadenza-api"
 version = "0.0.0"
 source = { editable = "apps/api" }
 dependencies = [
+    { name = "cadenza-application" },
     { name = "cadenza-domain" },
     { name = "cadenza-omr" },
     { name = "cadenza-persistence" },
@@ -188,6 +192,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "cadenza-omr", editable = "packages/omr" },
     { name = "cadenza-persistence", editable = "packages/persistence" },
@@ -196,6 +201,23 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.7" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
+]
+
+[[package]]
+name = "cadenza-application"
+version = "0.0.0"
+source = { editable = "packages/application" }
+dependencies = [
+    { name = "cadenza-domain" },
+    { name = "cadenza-omr" },
+    { name = "cadenza-validation" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cadenza-domain", editable = "packages/domain" },
+    { name = "cadenza-omr", editable = "packages/omr" },
+    { name = "cadenza-validation", editable = "packages/validation" },
 ]
 
 [[package]]
@@ -275,6 +297,7 @@ version = "0.0.0"
 source = { editable = "packages/persistence" }
 dependencies = [
     { name = "alembic" },
+    { name = "cadenza-application" },
     { name = "cadenza-domain" },
     { name = "psycopg2-binary" },
     { name = "sqlalchemy" },
@@ -283,6 +306,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
+    { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "psycopg2-binary", specifier = ">=2.9" },
     { name = "sqlalchemy", specifier = ">=2.0" },
