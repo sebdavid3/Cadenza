@@ -29,12 +29,20 @@ class InvalidEdit(ApplicationError):
 class SequenceConflict(ApplicationError):
     """Conflicto de concurrencia: el base_seq de la edición no coincide con el estado actual."""
 
-    def __init__(self, expected_seq: int, actual_seq: int) -> None:
-        super().__init__(
-            f"Conflicto de secuencia: base_seq esperado {expected_seq}, recibido {actual_seq}"
+    def __init__(
+        self,
+        expected_seq: int = 0,
+        actual_seq: int = 0,
+        message: str | None = None,
+    ) -> None:
+        msg = (
+            message
+            or f"Conflicto de secuencia: base_seq esperado {expected_seq}, recibido {actual_seq}"
         )
+        super().__init__(msg)
         self.expected_seq = expected_seq
         self.actual_seq = actual_seq
+        self.message = msg
 
 
 class ArtifactNotFound(ApplicationError):
