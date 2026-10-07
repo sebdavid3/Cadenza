@@ -2,15 +2,19 @@
 
 from .exceptions import (
     ApplicationError,
+    ArtifactNotFound,
     InvalidEdit,
     SequenceConflict,
     SessionNotFound,
 )
 from .ports import (
+    ArtifactStore,
     EditEventRepository,
+    InMemoryArtifactStore,
     PersistedFinding,
     SessionData,
     SessionRepository,
+    compute_sha256,
 )
 from .use_cases import (
     SessionDetail,
@@ -23,7 +27,10 @@ from .use_cases import (
 
 __all__ = [
     "ApplicationError",
+    "ArtifactNotFound",
+    "ArtifactStore",
     "EditEventRepository",
+    "InMemoryArtifactStore",
     "InvalidEdit",
     "PersistedFinding",
     "SequenceConflict",
@@ -33,6 +40,7 @@ __all__ = [
     "SessionRepository",
     "TranscribeResult",
     "append_edit",
+    "compute_sha256",
     "get_session",
     "list_findings",
     "transcribe_score",

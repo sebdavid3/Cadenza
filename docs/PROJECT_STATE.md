@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 en progreso) |
-| **Último hito completado** | `ScoreIR` extendido con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)): tipos de valor `Clef`, `KeySignature` y `Tie` en `packages/domain`, soporte de lectura/escritura y round-trip en `packages/interchange`, compatibilidad hacia atrás y 122 tests verdes |
-| **Próximo paso inmediato** | Etapa 1 de la Fase 7: `ArtifactStore` direccionado por sha256 ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 finalizada, investigaciones #14 y #31 a continuación) |
+| **Último hito completado** | `ArtifactStore` direccionado por sha256 ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence`; 128 tests verdes |
+| **Próximo paso inmediato** | Investigaciones conjuntas #14 y #31 (salidas internas de HOMR: bbox y confianza) antes de iniciar la Etapa 2 |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21, D24–D30, D32–D42, D44–D47 (D4 mitigada; D23 y D31 parciales; D7, D9, D15, D20 y D22 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D42, D44–D47 (D4 mitigada; D23 y D31 parciales; D7, D9, D15, D20, D22 y D24 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -76,7 +76,7 @@ Reglas:
 | D20 | HOMR real no ejecutado en GPU | Fase 6 / M6 | **Resuelta** — GPU operativa con `onnxruntime-gpu==1.26.0` (CUDA 12.8 + cuDNN 9 cu12) y `ensure_cuda_dll_dirs` (PATH de sub-librerías cuDNN). Baseline PrIMuS 91/100, **OMR-NED medio 0.2285** idéntico CPU↔GPU, 9 fallos `No staffs found` |
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
 | D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | **Parcial** — `ScoreIR` con clave, armadura y ligaduras (`Clef`, `KeySignature`, `Tie`) y round-trip en `packages/interchange` implementados ([#2](https://github.com/sebdavid3/Cadenza/issues/2)); proyección de operaciones pendiente ([#3](https://github.com/sebdavid3/Cadenza/issues/3)) |
-| D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | Pendiente |
+| D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | **Resuelta** — puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | Pendiente |
 | D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | Pendiente |
 | D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | Pendiente |
@@ -170,6 +170,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Integración continua completada ([#25](https://github.com/sebdavid3/Cadenza/issues/25)): workflow GitHub Actions `ci.yml` para Python 3.12 (`pytest`, `mypy`, `ruff`, `black`) y frontend (`vitest`, `build`) con caché e insignia en `README.md` | Fase 7 / Infra | `.github/workflows/ci.yml`, `README.md`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Capa de aplicación hexagonal extraída ([#7](https://github.com/sebdavid3/Cadenza/issues/7)): paquete `packages/application` (casos de uso `transcribe_score`, `get_session`, `append_edit`, `list_findings`; puertos `SessionRepository` y `EditEventRepository` con adaptadores SQLAlchemy; apps/api como raíz de composición); 114 tests verdes y test de pureza de aplicación | Fase 7 / App | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | `ScoreIR` completo con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)): tipos de valor puros `Clef`, `KeySignature` y `Tie` en `packages/domain` (ADR-0010), lectura/escritura y round-trip en `packages/interchange`, compatibilidad hacia atrás, estabilidad de anclas y 122 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/interchange/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | `ArtifactStore` direccionado por `sha256` completado ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003_artifacts_table` en `packages/persistence`; 128 tests verdes | Fase 7 / Datos | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 
 ---
 

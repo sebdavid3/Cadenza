@@ -101,3 +101,18 @@ def _forbid_edit_event_delete(*_args: object) -> None:
     raise ImmutableEditEventError(
         "EditEventRecord es inmutable: no se permite DELETE de eventos pasados (ADR-0007)."
     )
+
+
+class ArtifactRecord(Base):
+    """Índice de artefactos direccionados por contenido en el ArtifactStore (ADR-0004)."""
+
+    __tablename__ = "artifacts"
+
+    sha256: Mapped[str] = mapped_column(String(64), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    path: Mapped[str] = mapped_column(String(512), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .artifact_store import FilesystemArtifactStore
 from .database import (
     SessionFactory,
     create_engine_for_url,
@@ -10,14 +11,23 @@ from .database import (
     create_session_factory,
     session_scope,
 )
-from .models import Base, EditEventRecord, FindingRecord, ImmutableEditEventError, Session
+from .models import (
+    ArtifactRecord,
+    Base,
+    EditEventRecord,
+    FindingRecord,
+    ImmutableEditEventError,
+    Session,
+)
 from .repository import EditEventRepository, SqlAlchemyEditEventRepository
 from .session_repository import SqlAlchemySessionRepository
 
 __all__ = [
+    "ArtifactRecord",
     "Base",
     "EditEventRecord",
     "EditEventRepository",
+    "FilesystemArtifactStore",
     "FindingRecord",
     "ImmutableEditEventError",
     "Session",
