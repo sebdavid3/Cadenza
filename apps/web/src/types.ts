@@ -105,6 +105,7 @@ export interface EditEvent {
 }
 
 export interface EditEventCreate {
+  base_seq: number;
   op: string;
   anchor: Anchor;
   before?: Record<string, unknown> | null;
@@ -140,4 +141,10 @@ export interface SessionDetail {
   document: ScoreDocument;
   findings: Finding[];
   edits: EditEvent[];
+  current_score?: ScoreIR | null;
+  current_seq?: number;
+  anchor_index?: AnchorIndex | null;
+  image_artifact?: string | null;
+  model_version?: string | null;
+  status?: string;
 }

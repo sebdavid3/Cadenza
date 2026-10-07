@@ -487,6 +487,8 @@ def create_app(
             findings=[FindingRead.from_persisted(f) for f in detail.findings],
             edits=[EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
             current_score=detail.current_score,
+            current_seq=detail.current_seq,
+            anchor_index=detail.anchor_index,
             image_artifact=detail.image_artifact,
             model_version=detail.model_version,
             status=detail.status,
@@ -516,13 +518,16 @@ def create_app(
         """Añade una edición inmutable al log de la sesión.
 
         El autor lo fija el servidor a partir del usuario autenticado (ADR-0012).
-        El ancla del payload se interpreta de forma posicional respecto al estado
-        inmediatamente anterior (`seq - 1`, ADR-0011).
+        Exige `base_seq`, que identifica el estado sobre el cual se construyó la
+        edición; si no coincide con el estado actual, responde 409 (ADR-0011).
+        El ancla del payload se interpreta de forma posicional respecto a ese
+        estado base (`base_seq`, ADR-0011).
         """
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         edit = append_edit_use_case(
             session_id,
+            base_seq=payload.base_seq,
             anchor=payload.anchor.to_anchor(),
             op=payload.op,
             session_repository=session_repo,

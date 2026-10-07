@@ -218,14 +218,16 @@ def test_append_edit_success_with_matching_before(
     assert edit.seq == 1
     assert len(edit_repo.list_events(session_id)) == 1
 
-    # Al consultar la sesión, el estado actual se proyecta correctamente
+    # Al consultar la sesión, el estado se proyecta con current_seq y anchor_index
     detail = get_session(
         session_id,
         session_repository=session_repo,
         edit_repository=edit_repo,
         current_user=user,
     )
+    assert detail.current_seq == 1
     assert detail.current_score is not None
+    assert detail.anchor_index is not None
     # El evento 0 ahora tiene pitch D4
     projected_pitch = detail.current_score["parts"][0]["staves"][0]["measures"][0]["events"][0][
         "pitch"
@@ -239,9 +241,10 @@ def test_append_edit_sequence_conflict(
     session_id, user, session_repo, edit_repo = test_setup
     anchor = _anchor(measure=1, event_index=0)
 
-    # Primera edición normal
+    # Primera edición normal (base_seq=0)
     append_edit(
         session_id,
+        base_seq=0,
         anchor=anchor,
         op=EditOp.SET_PITCH,
         session_repository=session_repo,
@@ -250,7 +253,23 @@ def test_append_edit_sequence_conflict(
         after={"pitch": "D4"},
     )
 
-    # Simular intento concurrente de insertar con seq duplicado (seq=1)
+    # Intento de edición con base_seq obsoleto (base_seq=0 cuando la sesión ya está en seq=1)
+    with pytest.raises(SequenceConflict) as exc_info:
+        append_edit(
+            session_id,
+            base_seq=0,
+            anchor=anchor,
+            op=EditOp.SET_PITCH,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=user,
+            before={"pitch": "D4"},
+            after={"pitch": "E4"},
+        )
+    assert exc_info.value.expected_seq == 1
+    assert exc_info.value.actual_seq == 0
+
+    # Simular intento concurrente de insertar con seq duplicado en el repositorio (seq=1)
     from datetime import UTC, datetime
 
     conflicting_edit = EditEvent(

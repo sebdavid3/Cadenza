@@ -124,12 +124,14 @@ def test_findings_for_unknown_session_returns_404(client: TestClient) -> None:
 def test_append_edit_is_immutable_append_only(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
     payload_first = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": ANCHOR,
         "before": {"pitch": "C4"},
         "after": {"pitch": "D4"},
     }
     payload_second = {
+        "base_seq": 1,
         "op": "SetPitch",
         "anchor": ANCHOR,
         "before": {"pitch": "D4"},
@@ -147,7 +149,7 @@ def test_append_edit_is_immutable_append_only(client: TestClient) -> None:
 
 
 def test_append_edit_unknown_session_returns_404(client: TestClient) -> None:
-    payload = {"op": "SetPitch", "anchor": ANCHOR}
+    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR}
     assert client.post("/sessions/unknown/edits", json=payload).status_code == 404
 
 
@@ -174,7 +176,7 @@ def test_get_session_returns_document_anchors_and_findings() -> None:
 
 def test_get_session_includes_appended_edits(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
-    payload = {"op": "SetPitch", "anchor": ANCHOR}
+    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR}
     client.post(f"/sessions/{session_id}/edits", json=payload)
 
     detail = client.get(f"/sessions/{session_id}").json()
@@ -190,6 +192,7 @@ def test_get_session_unknown_returns_404(client: TestClient) -> None:
 def test_get_session_materializes_current_score_from_log(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
     payload = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": ANCHOR,
         "before": {"pitch": "C4"},
@@ -210,7 +213,7 @@ def test_application_exception_handlers(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
 
     # Edición con op no soportada -> 422
-    invalid_edit = {"op": "UnknownOp", "anchor": ANCHOR}
+    invalid_edit = {"base_seq": 0, "op": "UnknownOp", "anchor": ANCHOR}
     response = client.post(f"/sessions/{session_id}/edits", json=invalid_edit)
     assert response.status_code == 422
 
@@ -229,7 +232,7 @@ def test_unauthenticated_requests_return_401() -> None:
     assert raw_client.get("/sessions/any-id/findings").status_code == 401
     assert (
         raw_client.post(
-            "/sessions/any-id/edits", json={"op": "SetPitch", "anchor": ANCHOR}
+            "/sessions/any-id/edits", json={"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR}
         ).status_code
         == 401
     )
@@ -276,7 +279,10 @@ def test_ownership_authorization_rules_in_api() -> None:
     assert c2.get(f"/sessions/{sess_id}").status_code == 404
     assert c2.get(f"/sessions/{sess_id}/findings").status_code == 404
     assert (
-        c2.post(f"/sessions/{sess_id}/edits", json={"op": "SetPitch", "anchor": ANCHOR}).status_code
+        c2.post(
+            f"/sessions/{sess_id}/edits",
+            json={"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR},
+        ).status_code
         == 404
     )
 
@@ -285,6 +291,9 @@ def test_ownership_authorization_rules_in_api() -> None:
     assert c_res.get(f"/sessions/{sess_id}/findings").status_code == 200
 
     # Investigador intenta editar la sesión ajena -> 403 Forbidden
-    edit_res = c_res.post(f"/sessions/{sess_id}/edits", json={"op": "SetPitch", "anchor": ANCHOR})
+    edit_res = c_res.post(
+        f"/sessions/{sess_id}/edits",
+        json={"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR},
+    )
     assert edit_res.status_code == 403
     assert "investigador" in edit_res.json()["detail"].lower()

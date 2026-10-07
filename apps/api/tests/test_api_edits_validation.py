@@ -72,6 +72,7 @@ def test_append_edit_invalid_anchor_returns_422(tmp_path: Path) -> None:
 
     # Ancla con compás 999 inexistente
     payload = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": {
             "part": 0,
@@ -101,6 +102,7 @@ def test_append_edit_mismatched_before_returns_422(tmp_path: Path) -> None:
 
     # Evento 0 en compás 1 es C4; enviamos before={"pitch": "G4"}
     payload = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": {
             "part": 0,
@@ -129,6 +131,7 @@ def test_append_edit_non_applicable_op_returns_422(tmp_path: Path) -> None:
 
     # SetPitch con una altura no válida que falle en la proyección
     payload = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": {
             "part": 0,
@@ -148,6 +151,7 @@ def test_append_edit_sequence_conflict_returns_409(tmp_path: Path) -> None:
     client, session_id = _setup_api_client(tmp_path)
 
     valid_payload = {
+        "base_seq": 0,
         "op": "SetPitch",
         "anchor": {
             "part": 0,
@@ -177,6 +181,7 @@ def test_append_edit_sequence_conflict_returns_409(tmp_path: Path) -> None:
         resp_conflict = client.post(
             f"/sessions/{session_id}/edits",
             json={
+                "base_seq": 1,
                 "op": "SetPitch",
                 "anchor": {
                     "part": 0,
@@ -186,6 +191,7 @@ def test_append_edit_sequence_conflict_returns_409(tmp_path: Path) -> None:
                     "voice": 0,
                     "event_index": 0,
                 },
+                "before": {"pitch": "D4"},
                 "after": {"pitch": "E4"},
             },
         )
