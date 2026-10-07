@@ -824,7 +824,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Experimentos | SER reportada junto al OMR-NED | Solo OMR-NED; no hay serialización de `ScoreIR` a símbolos | [#30](https://github.com/sebdavid3/Cadenza/issues/30) |
 | Experimentos | Evaluación sobre PrIMuS, SMB y MUSCIMA++ | Solo PrIMuS (monofónico impreso) | [#29](https://github.com/sebdavid3/Cadenza/issues/29) |
 | Experimentos | Estudio de esfuerzo con participantes y condición asistida/no asistida | Sin participante ni condición por sesión | [#33](https://github.com/sebdavid3/Cadenza/issues/33) |
-| Infraestructura | Integración continua | No hay *workflows* | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
+| Infraestructura | Integración continua | GitHub Actions (`ci.yml`: backend Python 3.12 y frontend web) | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
 | API | Contrato OpenAPI congelado y tipos generados | Tipos TypeScript escritos a mano | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
 
 Quedan además cuatro piezas **con alcance por decidir**, registradas fuera del

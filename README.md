@@ -1,5 +1,7 @@
 # Cadenza: Plataforma de Digitalización Asistida de Partituras
 
+[![CI](https://github.com/sebdavid3/Cadenza/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/sebdavid3/Cadenza/actions/workflows/ci.yml)
+
 Cadenza convierte imágenes de partituras (impresas o manuscritas modernas) en
 notación editable (**MusicXML 4.0** / **MIDI 1.0**) combinando reconocimiento
 óptico de música (OMR), validación musical automática y **corrección humana**

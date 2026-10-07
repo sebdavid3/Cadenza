@@ -80,8 +80,10 @@ def ensure_cuda_dll_dirs() -> list[str]:
             path = str(directory)
             if not directory.is_dir() or path in _CUDA_DLL_DIRS:
                 continue
-            with contextlib.suppress(AttributeError, OSError):
-                os.add_dll_directory(path)
+            add_dll = getattr(os, "add_dll_directory", None)
+            if callable(add_dll):
+                with contextlib.suppress(OSError):
+                    add_dll(path)
             os.environ["PATH"] = path + os.pathsep + os.environ.get("PATH", "")
             _CUDA_DLL_DIRS.add(path)
             added.append(path)
