@@ -13,6 +13,7 @@ from fractions import Fraction
 from cadenza.domain import (
     Anchor,
     AnchorIndex,
+    Event,
     EventKind,
     Finding,
     Measure,
@@ -33,12 +34,14 @@ def _expected_quarter_length(signature: TimeSignature) -> Fraction:
     return signature.quarter_length
 
 
-def _durations_sum(measure: Measure) -> Fraction | None:
-    """Suma de duraciones del compás, o `None` si algún evento no la declara."""
+def _voice_durations_sum(events: list[Event]) -> Fraction | None:
+    """Suma de duraciones de una voz en un compás (descontando notas de acordes simultáneas)."""
 
     total = Fraction(0)
-    for event in measure.events:
+    for event in events:
         if event.kind not in _DURATION_KINDS:
+            continue
+        if event.is_chord:
             continue
         if event.duration_beats is None:
             return None
@@ -46,8 +49,19 @@ def _durations_sum(measure: Measure) -> Fraction | None:
     return total
 
 
+def _first_anchor_by_measure_and_voice(
+    index: AnchorIndex,
+) -> dict[tuple[int, int, int, int], Anchor]:
+    """Primer ancla de cada (part, staff, measure, voice)."""
+
+    result: dict[tuple[int, int, int, int], Anchor] = {}
+    for anchor in index.anchors():
+        result.setdefault((anchor.part, anchor.staff, anchor.measure, anchor.voice), anchor)
+    return result
+
+
 def _first_anchor_by_measure(index: AnchorIndex) -> dict[tuple[int, int, int], Anchor]:
-    """Primer ancla (evento) de cada compás, en orden determinista."""
+    """Primer ancla (evento) de cada compás, en orden determinista (fallback)."""
 
     result: dict[tuple[int, int, int], Anchor] = {}
     for anchor in index.anchors():
@@ -56,21 +70,28 @@ def _first_anchor_by_measure(index: AnchorIndex) -> dict[tuple[int, int, int], A
 
 
 class MeasureBalanceRule(ValidationRule):
-    """La suma de duraciones de cada compás debe igualar su métrica."""
+    """La suma de duraciones de cada voz en cada compás debe igualar su métrica."""
 
     @property
     def rule_id(self) -> str:
         return RULE_ID
 
     def evaluate(self, document: ScoreDocument) -> list[Finding]:
-        first_anchor = _first_anchor_by_measure(document.anchors)
+        first_by_voice = _first_anchor_by_measure_and_voice(document.anchors)
+        first_by_measure = _first_anchor_by_measure(document.anchors)
         findings: list[Finding] = []
         for part_index, part in enumerate(document.score.parts):
             for staff_index, staff in enumerate(part.staves):
                 for measure in staff.measures:
-                    finding = self._evaluate_measure(part_index, staff_index, measure, first_anchor)
-                    if finding is not None:
-                        findings.append(finding)
+                    findings.extend(
+                        self._evaluate_measure(
+                            part_index,
+                            staff_index,
+                            measure,
+                            first_by_voice,
+                            first_by_measure,
+                        )
+                    )
         return findings
 
     def _evaluate_measure(
@@ -78,27 +99,44 @@ class MeasureBalanceRule(ValidationRule):
         part_index: int,
         staff_index: int,
         measure: Measure,
-        first_anchor: dict[tuple[int, int, int], Anchor],
-    ) -> Finding | None:
+        first_by_voice: dict[tuple[int, int, int, int], Anchor],
+        first_by_measure: dict[tuple[int, int, int], Anchor],
+    ) -> list[Finding]:
         if measure.time_signature is None:
-            return None
+            return []
         expected = _expected_quarter_length(measure.time_signature)
-        actual = _durations_sum(measure)
-        if actual is None or actual == expected:
-            return None
-        anchor = first_anchor.get((part_index, staff_index, measure.number))
-        if anchor is None:
-            return None
-        return Finding(
-            anchor=anchor,
-            rule_id=RULE_ID,
-            severity=Severity.ERROR,
-            message=(
-                f"El compás {measure.number} suma {actual} negras y su métrica "
-                f"{measure.time_signature} exige {expected}."
-            ),
-            suggested_fix=(
-                f"Ajustar las duraciones del compás {measure.number} para sumar "
-                f"{expected} negras."
-            ),
-        )
+
+        events_by_voice: dict[int, list[Event]] = {}
+        for event in measure.events:
+            events_by_voice.setdefault(event.voice, []).append(event)
+
+        if not events_by_voice:
+            return []
+
+        findings: list[Finding] = []
+        for voice, voice_events in sorted(events_by_voice.items()):
+            actual = _voice_durations_sum(voice_events)
+            if actual is None or actual == expected:
+                continue
+            anchor = first_by_voice.get(
+                (part_index, staff_index, measure.number, voice)
+            ) or first_by_measure.get((part_index, staff_index, measure.number))
+            if anchor is None:
+                continue
+            voice_info = f" (voz {voice})" if len(events_by_voice) > 1 else ""
+            findings.append(
+                Finding(
+                    anchor=anchor,
+                    rule_id=RULE_ID,
+                    severity=Severity.ERROR,
+                    message=(
+                        f"El compás {measure.number}{voice_info} suma {actual} negras y su métrica "
+                        f"{measure.time_signature} exige {expected}."
+                    ),
+                    suggested_fix=(
+                        f"Ajustar las duraciones del compás {measure.number}{voice_info} "
+                        f"para sumar {expected} negras."
+                    ),
+                )
+            )
+        return findings

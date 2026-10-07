@@ -18,6 +18,7 @@ from .clef import Clef
 from .edit import EditEvent, EditOp
 from .key_signature import KeySignature
 from .score import Event, Measure, ScoreIR
+from .tie import Tie
 
 _PITCH_RE: Final[re.Pattern[str]] = re.compile(r"^([A-Ga-g])(#{1,2}|b{1,2}|-{1,2}|x)?(-?\d+)$")
 
@@ -161,6 +162,9 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         )
         conf_raw = _value(edit.after, "confidence")
         confidence = float(conf_raw) if conf_raw is not None else None
+        tie_raw = _value(edit.after, "tie")
+        tie_val = Tie(str(tie_raw)) if tie_raw is not None else None
+        is_chord_val = bool(_value(edit.after, "is_chord") or False)
 
         events.insert(
             insert_pos,
@@ -169,6 +173,8 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
                 voice=anchor.voice,
                 pitch=_value(edit.after, "pitch"),
                 duration_beats=_fraction(_value(edit.after, "duration_beats")),
+                tie=tie_val,
+                is_chord=is_chord_val,
                 bbox=bbox,
                 confidence=confidence,
             ),
