@@ -1,4 +1,4 @@
-"""Caso de uso: recuperar detalle de la sesión y proyectar estado actual (ADR-0009)."""
+"""Caso de uso: recuperar sesión y proyectar estado actual (ADR-0009, ADR-0012, #45)."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from cadenza.domain import (
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
+from ..user import Role, User
 
 
 @dataclass(frozen=True)
@@ -51,11 +52,19 @@ def get_session(
     *,
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
+    current_user: User,
 ) -> SessionDetail:
-    """Recupera la sesión, sus hallazgos, log de ediciones y estado proyectado."""
+    """Recupera la sesión, sus hallazgos, log de ediciones y estado proyectado.
+
+    Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
+    sesiones (las ajenas responden como inexistentes); un investigador puede leer todas.
+    """
 
     session_data = session_repository.get(session_id)
     if session_data is None:
+        raise SessionNotFound(session_id)
+
+    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
         raise SessionNotFound(session_id)
 
     findings = session_repository.list_findings(session_id)

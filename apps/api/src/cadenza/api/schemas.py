@@ -42,7 +42,6 @@ class EditEventCreate(BaseModel):
 
     op: EditOp
     anchor: AnchorPayload
-    author: str = Field(min_length=1)
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
 

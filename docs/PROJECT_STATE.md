@@ -7,10 +7,10 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
-| **Último hito completado** | Inicio de sesión con token de acceso JWT y Argon2id ([#44](https://github.com/sebdavid3/Cadenza/issues/44)): puertos `PasswordHasher` y `TokenService`, adaptadores Argon2id y JWT, caso de uso `authenticate`, endpoints `/auth/login` y `/auth/me`, dependencia `get_current_user` y clave obligatoria con 190 tests verdes |
-| **Próximo paso inmediato** | Issue #45 con #47 (Usuario actual, sesiones privadas y autoría fijada por el servidor, e inicio de sesión en el visor web) |
+| **Último hito completado** | Usuario actual, sesiones privadas y visor web autenticado ([#45](https://github.com/sebdavid3/Cadenza/issues/45), [#47](https://github.com/sebdavid3/Cadenza/issues/47)): validación de propiedad en casos de uso (`transcribe_score`, `get_session`, `list_findings`, `append_edit`), autor fijado por el servidor, remoción de `author` en cliente, login en React con token `sessionStorage`, cabecera `Authorization: Bearer`, manejo de 401 y logout con 193 tests Python y 12 tests web verdes |
+| **Próximo paso inmediato** | Issue #46 (Gestión de cuentas: creación de usuarios, listado, cambio de rol/estado y cambio de contraseña según ADR-0012) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D10–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D47 (D3, D5 y D26 resueltas; D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D10–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D26 y D47 resueltas; D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -99,7 +99,7 @@ Reglas:
 | D44 | Operación del backend sin resolver: salud, registro estructurado, CORS, imagen CUDA del plano offline y copias | Alcance por decidir | Pendiente (decisión) |
 | D45 | Sin tarea de migración para retirar `legacy/`, que el principio rector exige antes de eliminarlo | Alcance por decidir | Pendiente (decisión) |
 | D46 | La API no expone el estado actual de la sesión (`seq` e índice de anclas) y las ediciones no declaran el estado sobre el que se construyeron (`base_seq`, ADR-0011) | Fase 7 / M3 | Pendiente |
-| D47 | El visor web no tiene inicio de sesión ni envía token: dejará de funcionar cuando la API exija autenticación (ADR-0012) | Frontend | Pendiente |
+| D47 | El visor web no tiene inicio de sesión ni envía token: dejará de funcionar cuando la API exija autenticación (ADR-0012) | Frontend | **Resuelta** — `LoginPanel`, token en `sessionStorage`, `Authorization: Bearer` en peticiones, intercepción de 401 y logout en React ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) |
 
 *(Se agregan filas aquí a medida que surgen. Las resueltas se conservan marcadas para trazabilidad.)*
 
@@ -179,6 +179,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Configuración tipada y motor OMR seleccionable en la API ([#8](https://github.com/sebdavid3/Cadenza/issues/8)): `Settings` (`pydantic-settings`), motor `fake` / `homr` (GPU/CPU), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) con 166 tests verdes | Fase 7 / API | `apps/api/`, `packages/omr/`, `packages/domain/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Persistencia de usuarios y propiedad de las sesiones ([#43](https://github.com/sebdavid3/Cadenza/issues/43)): tabla `users`, entidad y puerto `UserRepository`, `SqlAlchemyUserRepository`, `owner_id` en `sessions` con FK y migración Alembic `0005_users_and_session_owner` con relleno por defecto; filtrado por propietario en repositorio y 171 tests verdes | Fase 7 / Persistencia | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Inicio de sesión con token de acceso JWT y Argon2id ([#44](https://github.com/sebdavid3/Cadenza/issues/44)): puertos `PasswordHasher` y `TokenService` con adaptadores Argon2id y JWT, caso de uso `authenticate`, endpoints `/auth/login` y `/auth/me`, dependencia `get_current_user` y clave de firma obligatoria con 190 tests verdes | Fase 7 / API | `apps/api/`, `packages/application/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Usuario actual, sesiones privadas y visor web autenticado ([#45](https://github.com/sebdavid3/Cadenza/issues/45), [#47](https://github.com/sebdavid3/Cadenza/issues/47)): autorización por propietario en casos de uso (`transcribe_score`, `get_session`, `list_findings`, `append_edit`), autor fijado por el servidor, remoción de `author` en cliente, login en React con token en `sessionStorage`, cabecera `Authorization: Bearer`, manejo de 401 y logout con 193 tests de backend y 12 tests de frontend verdes | Fase 7 / API + Web | `packages/application/`, `apps/api/`, `apps/web/`, `docs/ARCHITECTURE.md` |
 
 ---
 

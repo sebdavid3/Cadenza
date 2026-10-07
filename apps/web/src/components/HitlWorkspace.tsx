@@ -3,6 +3,7 @@ import { useEffect } from "react";
 
 import { fetchSession } from "../api/client";
 import { useEditorStore } from "../store/editorStore";
+import type { UserProfile } from "../types";
 import { EffortMetrics } from "./EffortMetrics";
 import { EventInspector } from "./EventInspector";
 import { FindingsPanel } from "./FindingsPanel";
@@ -12,10 +13,18 @@ import { ImageOverlay } from "./ImageOverlay";
 interface HitlWorkspaceProps {
   sessionId: string;
   imageUrl: string;
+  user?: UserProfile | null;
+  onLogout?: () => void;
   onReset: () => void;
 }
 
-export function HitlWorkspace({ sessionId, imageUrl, onReset }: HitlWorkspaceProps) {
+export function HitlWorkspace({
+  sessionId,
+  imageUrl,
+  user,
+  onLogout,
+  onReset,
+}: HitlWorkspaceProps) {
   const loadSession = useEditorStore((state) => state.loadSession);
   const reset = useEditorStore((state) => state.reset);
   const query = useQuery({
@@ -41,8 +50,14 @@ export function HitlWorkspace({ sessionId, imageUrl, onReset }: HitlWorkspacePro
       <header className="workspace-header">
         <h1>Cadenza · HITL</h1>
         <span className="muted">sesión {sessionId.slice(0, 8)}</span>
+        {user && (
+          <span className="muted" style={{ marginLeft: "auto" }}>
+            {user.username} ({user.role})
+          </span>
+        )}
         <button
           type="button"
+          style={!user ? { marginLeft: "auto" } : undefined}
           onClick={() => {
             reset();
             onReset();
@@ -50,6 +65,11 @@ export function HitlWorkspace({ sessionId, imageUrl, onReset }: HitlWorkspacePro
         >
           Nueva sesión
         </button>
+        {onLogout && (
+          <button type="button" onClick={onLogout}>
+            Cerrar sesión
+          </button>
+        )}
       </header>
       <main className="workspace-grid">
         <section className="pane pane--image">

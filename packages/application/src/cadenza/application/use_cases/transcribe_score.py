@@ -1,4 +1,4 @@
-"""Caso de uso: transcribir partitura con OMR y validación inicial (ADR-0009)."""
+"""Caso de uso: transcribir partitura con OMR y validación inicial (ADR-0009, ADR-0012, #45)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from cadenza.omr import OMREngine
 from cadenza.validation import ValidationEngine
 
 from ..ports.session_repository import SessionData, SessionRepository
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -28,10 +29,11 @@ def transcribe_score(
     omr_engine: OMREngine,
     validator: ValidationEngine,
     session_repository: SessionRepository,
+    current_user: User,
     session_id: str | None = None,
     image_artifact: str | None = None,
 ) -> TranscribeResult:
-    """Ejecuta el pipeline de transcripción OMR, evalúa reglas y persiste la sesión."""
+    """Ejecuta el pipeline OMR, evalúa reglas y persiste la sesión asignando el dueño."""
 
     document = omr_engine.transcribe(image_path)
     findings = validator.validate(document)
@@ -49,6 +51,7 @@ def transcribe_score(
         image_artifact=image_artifact,
         model_version=document.provenance.model_version,
         status="transcribed",
+        owner_id=current_user.id,
     )
 
     session_repository.add(session_data, findings)

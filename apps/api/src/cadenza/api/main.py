@@ -237,6 +237,7 @@ def create_app(
     async def transcribe(
         request: Request,
         db: DbDep,
+        current_user: CurrentUserDep,
         file: Annotated[UploadFile, File()],
     ) -> TranscribeResponse:
         session_repo = SqlAlchemySessionRepository(db)
@@ -250,6 +251,7 @@ def create_app(
                 omr_engine=request.app.state.omr_engine,
                 validator=request.app.state.validator,
                 session_repository=session_repo,
+                current_user=current_user,
             )
 
         return TranscribeResponse(
@@ -260,13 +262,14 @@ def create_app(
         )
 
     @app.get("/sessions/{session_id}", response_model=SessionDetailRead)
-    def get_session(session_id: str, db: DbDep) -> SessionDetailRead:
+    def get_session(session_id: str, db: DbDep, current_user: CurrentUserDep) -> SessionDetailRead:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         detail = get_session_use_case(
             session_id,
             session_repository=session_repo,
             edit_repository=edit_repo,
+            current_user=current_user,
         )
 
         return SessionDetailRead(
@@ -283,9 +286,13 @@ def create_app(
         )
 
     @app.get("/sessions/{session_id}/findings", response_model=list[FindingRead])
-    def list_findings(session_id: str, db: DbDep) -> list[FindingRead]:
+    def list_findings(
+        session_id: str, db: DbDep, current_user: CurrentUserDep
+    ) -> list[FindingRead]:
         session_repo = SqlAlchemySessionRepository(db)
-        findings = list_findings_use_case(session_id, session_repository=session_repo)
+        findings = list_findings_use_case(
+            session_id, session_repository=session_repo, current_user=current_user
+        )
         return [FindingRead.from_persisted(f) for f in findings]
 
     @app.post(
@@ -293,9 +300,15 @@ def create_app(
         response_model=EditEventRead,
         status_code=status.HTTP_201_CREATED,
     )
-    def append_edit(session_id: str, payload: EditEventCreate, db: DbDep) -> EditEventRead:
+    def append_edit(
+        session_id: str,
+        payload: EditEventCreate,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> EditEventRead:
         """Añade una edición inmutable al log de la sesión.
 
+        El autor lo fija el servidor a partir del usuario autenticado (ADR-0012).
         El ancla del payload se interpreta de forma posicional respecto al estado
         inmediatamente anterior (`seq - 1`, ADR-0011).
         """
@@ -305,9 +318,9 @@ def create_app(
             session_id,
             anchor=payload.anchor.to_anchor(),
             op=payload.op,
-            author=payload.author,
             session_repository=session_repo,
             edit_repository=edit_repo,
+            current_user=current_user,
             before=payload.before,
             after=payload.after,
         )
