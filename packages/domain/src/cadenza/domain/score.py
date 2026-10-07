@@ -32,6 +32,7 @@ class Event:
     pitch: str | None = None
     duration_beats: Fraction | None = None
     tie: Tie | None = None
+    is_chord: bool = False
     bbox: BBox | None = None
     confidence: float | None = None
     ir_handle: str | None = None
@@ -43,6 +44,7 @@ class Event:
             "pitch": self.pitch,
             "duration_beats": None if self.duration_beats is None else str(self.duration_beats),
             "tie": None if self.tie is None else self.tie.value,
+            "is_chord": self.is_chord,
             "bbox": list(self.bbox) if self.bbox is not None else None,
             "confidence": self.confidence,
             "ir_handle": self.ir_handle,
@@ -59,6 +61,7 @@ class Event:
             pitch=None if data.get("pitch") is None else str(data["pitch"]),
             duration_beats=None if duration is None else Fraction(str(duration)),
             tie=None if tie_val is None else Tie(str(tie_val)),
+            is_chord=bool(data.get("is_chord", False)),
             bbox=(
                 None
                 if bbox is None

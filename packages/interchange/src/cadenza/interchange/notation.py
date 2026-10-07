@@ -8,6 +8,7 @@ manuscritos históricos) queda fuera.
 
 from __future__ import annotations
 
+import re
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,7 @@ from cadenza.domain import (
     Tie,
     TimeSignature,
 )
-from music21 import chord, clef, converter, key, meter, musicxml, note, stream, tie
+from music21 import chord, clef, converter, key, layout, meter, musicxml, note, stream, tie
 
 _MAX_DENOMINATOR = 1000
 
@@ -87,14 +88,19 @@ def _events_from_elements(elements: Any, voice: int) -> list[Event]:
     events: list[Event] = []
     for element in elements:
         if isinstance(element, chord.Chord):
-            for chord_note in element.notes:
-                events.append(_note_event(chord_note, element, voice))
+            for i, chord_note in enumerate(element.notes):
+                events.append(_note_event(chord_note, element, voice, is_chord=(i > 0)))
         else:
-            events.append(_note_event(element, element, voice))
+            events.append(_note_event(element, element, voice, is_chord=False))
     return events
 
 
-def _note_event(pitch_source: Any, duration_source: Any, voice: int) -> Event:
+def _note_event(
+    pitch_source: Any,
+    duration_source: Any,
+    voice: int,
+    is_chord: bool = False,
+) -> Event:
     is_rest = isinstance(pitch_source, note.Rest)
     return Event(
         kind=EventKind.REST if is_rest else EventKind.NOTE,
@@ -102,6 +108,7 @@ def _note_event(pitch_source: Any, duration_source: Any, voice: int) -> Event:
         pitch=None if is_rest else _pitch_name(pitch_source),
         duration_beats=_duration(duration_source),
         tie=None if is_rest else _event_tie(pitch_source),
+        is_chord=is_chord,
     )
 
 
@@ -167,6 +174,49 @@ def _measures(part: Any) -> tuple[Measure, ...]:
     return tuple(measures)
 
 
+def _group_parts(parsed: stream.Score) -> list[list[stream.Part]]:
+    raw_parts = list(parsed.parts)
+    if not raw_parts:
+        return []
+
+    staff_groups = list(parsed.getElementsByClass(layout.StaffGroup))
+    grouped: list[list[stream.Part]] = []
+    assigned: set[int] = set()
+
+    for sg in staff_groups:
+        sg_parts = [p for p in sg if isinstance(p, stream.Part) and p in raw_parts]
+        if sg_parts:
+            grouped.append(sg_parts)
+            for p in sg_parts:
+                assigned.add(id(p))
+
+    remaining = [p for p in raw_parts if id(p) not in assigned]
+    idx = 0
+    while idx < len(remaining):
+        curr = remaining[idx]
+        if isinstance(curr, stream.PartStaff):
+            m = re.match(r"^(.*?)-Staff\d+$", str(curr.id))
+            prefix = m.group(1) if m else str(curr.id)
+            cluster = [curr]
+            j = idx + 1
+            while j < len(remaining):
+                next_p = remaining[j]
+                if isinstance(next_p, stream.PartStaff):
+                    m_next = re.match(r"^(.*?)-Staff\d+$", str(next_p.id))
+                    next_prefix = m_next.group(1) if m_next else str(next_p.id)
+                    if next_prefix == prefix:
+                        cluster.append(next_p)
+                        j += 1
+                        continue
+                break
+            grouped.append(cluster)
+            idx = j
+        else:
+            grouped.append([curr])
+            idx += 1
+    return grouped
+
+
 def music21_stream_to_score_ir(parsed: Any) -> ScoreIR:
     """Convierte un `music21` `Stream`/`Score`/`Part` en un `ScoreIR` neutral."""
 
@@ -175,13 +225,19 @@ def music21_stream_to_score_ir(parsed: Any) -> ScoreIR:
             return ScoreIR(parts=())
         parsed = parsed.scores[0]
 
-    raw_parts = list(parsed.parts) if isinstance(parsed, stream.Score) else [parsed]
+    if not isinstance(parsed, stream.Score):
+        raw_part = parsed
+        staff = Staff(id="part-0-staff-0", measures=_measures(raw_part))
+        return ScoreIR(parts=(Part(id="part-0", staves=(staff,)),))
+
+    part_groups = _group_parts(parsed)
     parts: list[Part] = []
-    for part_index, raw_part in enumerate(raw_parts):
-        # Identificador determinista derivado del índice: la identidad lógica del
-        # dominio usa índices (Anchor), no los ids corruptibles de la fuente.
-        staff = Staff(id=f"part-{part_index}-staff-0", measures=_measures(raw_part))
-        parts.append(Part(id=f"part-{part_index}", staves=(staff,)))
+    for part_index, p_group in enumerate(part_groups):
+        staves: list[Staff] = []
+        for staff_index, raw_staff in enumerate(p_group):
+            staff_id = f"part-{part_index}-staff-{staff_index}"
+            staves.append(Staff(id=staff_id, measures=_measures(raw_staff)))
+        parts.append(Part(id=f"part-{part_index}", staves=tuple(staves)))
     return ScoreIR(parts=tuple(parts))
 
 
@@ -214,6 +270,43 @@ def _to_music21_pitch(pitch: str) -> str:
     return pitch.replace("b", "-")
 
 
+def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
+    elements: list[tuple[float, Any]] = []
+    offset = 0.0
+    i = 0
+    while i < len(events):
+        ev = events[i]
+        dur = float(ev.duration_beats) if ev.duration_beats is not None else 1.0
+        if ev.kind is EventKind.REST or ev.pitch is None:
+            r = note.Rest(quarterLength=dur)
+            elements.append((offset, r))
+            offset += dur
+            i += 1
+        else:
+            chord_notes = [ev]
+            j = i + 1
+            while j < len(events) and events[j].is_chord and events[j].kind is EventKind.NOTE:
+                chord_notes.append(events[j])
+                j += 1
+            if len(chord_notes) > 1:
+                m21_notes = []
+                for cn in chord_notes:
+                    n = note.Note(_to_music21_pitch(cn.pitch or "C4"))
+                    if cn.tie is not None:
+                        n.tie = tie.Tie(cn.tie.value)
+                    m21_notes.append(n)
+                ch = chord.Chord(m21_notes, quarterLength=dur)
+                elements.append((offset, ch))
+            else:
+                n = note.Note(_to_music21_pitch(ev.pitch), quarterLength=dur)
+                if ev.tie is not None:
+                    n.tie = tie.Tie(ev.tie.value)
+                elements.append((offset, n))
+            offset += dur
+            i = j
+    return elements
+
+
 def _build_measure(measure: Measure) -> Any:
     built = stream.Measure(number=measure.number)
     if measure.clef is not None:
@@ -239,18 +332,20 @@ def _build_measure(measure: Measure) -> Any:
     if measure.time_signature is not None:
         signature = measure.time_signature
         built.insert(0, meter.TimeSignature(f"{signature.beats}/{signature.beat_type}"))
-    offset = 0.0
+
+    by_voice: dict[int, list[Event]] = {}
     for event in measure.events:
-        duration = float(event.duration_beats) if event.duration_beats is not None else 1.0
-        if event.kind is EventKind.REST or event.pitch is None:
-            element: Any = note.Rest()
-        else:
-            element = note.Note(_to_music21_pitch(event.pitch))
-            if event.tie is not None:
-                element.tie = tie.Tie(event.tie.value)
-        element.duration.quarterLength = duration
-        built.insert(offset, element)
-        offset += duration
+        by_voice.setdefault(event.voice, []).append(event)
+
+    if len(by_voice) <= 1:
+        for off, el in _build_voice_elements(list(measure.events)):
+            built.insert(off, el)
+    else:
+        for voice_key, v_events in sorted(by_voice.items()):
+            v = stream.Voice(id=str(voice_key + 1))
+            for off, el in _build_voice_elements(v_events):
+                v.insert(off, el)
+            built.insert(0.0, v)
     return built
 
 
@@ -259,10 +354,24 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
 
     out = stream.Score()
     for part_index, part in enumerate(score.parts):
-        built_part = stream.Part(id=part.id or f"P{part_index + 1}")
-        for staff in part.staves:
-            for measure in staff.measures:
-                built_part.append(_build_measure(measure))
-        out.insert(0, built_part)
+        if len(part.staves) > 1:
+            part_staffs: list[stream.PartStaff] = []
+            for staff_index, staff in enumerate(part.staves):
+                p_staff = stream.PartStaff(
+                    id=f"{part.id or f'P{part_index + 1}'}-Staff{staff_index + 1}"
+                )
+                p_staff.partName = part.id
+                for measure in staff.measures:
+                    p_staff.append(_build_measure(measure))
+                part_staffs.append(p_staff)
+                out.insert(0, p_staff)
+            sg = layout.StaffGroup(part_staffs, name=part.id, symbol="brace")
+            out.insert(0, sg)
+        else:
+            built_part = stream.Part(id=part.id or f"P{part_index + 1}")
+            for staff in part.staves:
+                for measure in staff.measures:
+                    built_part.append(_build_measure(measure))
+            out.insert(0, built_part)
     exported: bytes = musicxml.m21ToXml.GeneralObjectExporter(out).parse()
     return exported.decode("utf-8")

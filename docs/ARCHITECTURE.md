@@ -813,7 +813,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | M1 | Anclas con `bbox` real | Investigado en INV-0001 (resultado negativo para eventos; disponible a nivel de pentagrama; visor vectorial) | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
 | M1 | Preprocesado configurable y línea base `OemerEngine` | No implementados | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#16](https://github.com/sebdavid3/Cadenza/issues/16) |
 | M1 | Confianza del modelo en las anclas | Investigado en INV-0001 (resultado negativo para probabilidades directas; incertidumbre neuro-simbólica guiada por densidad de errores) | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
-| Dominio | Piano simple (dos pentagramas) verificado | Pruebas y corpus solo monofónicos | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
+| Dominio | Piano simple (dos pentagramas) verificado | Implementado: fixtures de piano, ScoreIR con pentagramas/voces/acordes (`is_chord`), round-trip exacto en `interchange`, anclas ortogonales y balance por voz | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
 | M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Una regla (balance de compás), sin métricas | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Recibe los datos en memoria y solo considera `SetPitch` | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
 | M4 | Correcciones derivadas de errores reales de OMR | Señales sintéticas | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |

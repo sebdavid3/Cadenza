@@ -21,6 +21,7 @@ from cadenza.domain import (
 from cadenza.interchange import musicxml_to_score_ir, read_score, score_ir_to_musicxml
 
 FIXTURE = Path(__file__).parent / "fixtures" / "simple.musicxml"
+PIANO_FIXTURE = Path(__file__).parent / "fixtures" / "piano.musicxml"
 
 
 def _score() -> ScoreIR:
@@ -183,3 +184,59 @@ def test_musicxml_roundtrip_with_clef_key_changes_and_ties() -> None:
             e.duration_beats for e in expected.events
         ]
         assert [e.tie for e in actual.events] == [e.tie for e in expected.events]
+        assert [e.is_chord for e in actual.events] == [e.is_chord for e in expected.events]
+
+
+def test_piano_fixture_loads_two_staves_and_chords() -> None:
+    score = read_score(PIANO_FIXTURE)
+    assert len(score.parts) == 1
+    part = score.parts[0]
+    assert len(part.staves) == 2
+    assert part.staves[0].id == "part-0-staff-0"
+    assert part.staves[1].id == "part-0-staff-1"
+
+    # Staff 0: clave de sol, compás 1 con acorde
+    staff_0 = part.staves[0]
+    assert staff_0.measures[0].clef == Clef(sign="G", line=2, octave_change=0)
+    m1_events = staff_0.measures[0].events
+    assert len(m1_events) == 4
+    assert [e.pitch for e in m1_events] == ["C4", "D4", "E4", "G4"]
+    assert [e.is_chord for e in m1_events] == [False, False, False, True]
+
+    # Staff 1: clave de fa, compás 1 con redonda
+    staff_1 = part.staves[1]
+    assert staff_1.measures[0].clef == Clef(sign="F", line=4, octave_change=0)
+    assert len(staff_1.measures[0].events) == 1
+    assert staff_1.measures[0].events[0].pitch == "C3"
+    assert staff_1.measures[0].events[0].duration_beats == Fraction(4)
+
+    # Staff 0, Compás 2: dos voces polifónicas
+    m2_events = staff_0.measures[1].events
+    voices = {e.voice for e in m2_events}
+    assert len(voices) == 2
+
+
+def test_piano_musicxml_roundtrip_preserves_staves_voices_and_chords() -> None:
+    original = read_score(PIANO_FIXTURE)
+    xml_exported = score_ir_to_musicxml(original)
+    reparsed = musicxml_to_score_ir(xml_exported)
+
+    assert len(reparsed.parts) == len(original.parts) == 1
+    orig_staves = original.parts[0].staves
+    repar_staves = reparsed.parts[0].staves
+    assert len(repar_staves) == len(orig_staves) == 2
+
+    for orig_staff, repar_staff in zip(orig_staves, repar_staves, strict=True):
+        assert orig_staff.id == repar_staff.id
+        for orig_m, repar_m in zip(orig_staff.measures, repar_staff.measures, strict=True):
+            assert repar_m.number == orig_m.number
+            assert repar_m.clef == orig_m.clef
+            assert repar_m.key_signature == orig_m.key_signature
+            assert repar_m.time_signature == orig_m.time_signature
+            assert len(repar_m.events) == len(orig_m.events)
+            for orig_e, repar_e in zip(orig_m.events, repar_m.events, strict=True):
+                assert repar_e.kind == orig_e.kind
+                assert repar_e.pitch == orig_e.pitch
+                assert repar_e.duration_beats == orig_e.duration_beats
+                assert repar_e.voice == orig_e.voice
+                assert repar_e.is_chord == orig_e.is_chord
