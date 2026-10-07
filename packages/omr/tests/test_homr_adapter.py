@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 from cadenza.omr import HOMREngine
 
-HOMR_INSTALLED = importlib.util.find_spec("homr") is not None
+
+def _check_homr_installed() -> bool:
+    try:
+        from homr import main  # noqa: F401
+
+        return True
+    except (ImportError, RuntimeError):
+        return False
+
+
+HOMR_INSTALLED = _check_homr_installed()
 
 
 def test_engine_id() -> None:
@@ -26,3 +35,24 @@ def test_requires_optional_extra(tmp_path: Path) -> None:
     image.write_bytes(b"\x89PNG\r\n\x1a\n")
     with pytest.raises(RuntimeError, match="extra opcional 'homr'"):
         HOMREngine().transcribe(image)
+
+
+def test_effective_device_cpu_by_default() -> None:
+    from cadenza.omr.adapters.homr import get_effective_device
+
+    assert get_effective_device(use_gpu=False) == "cpu"
+    assert HOMREngine(use_gpu=False).device == "cpu"
+
+
+def test_effective_device_with_mocked_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    from cadenza.omr.adapters.homr import get_effective_device
+
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_ort.get_available_providers = lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+
+    assert get_effective_device(use_gpu=True) == "cuda"
+    assert HOMREngine(use_gpu=True).device == "cuda"

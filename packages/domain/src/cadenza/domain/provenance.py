@@ -21,6 +21,7 @@ class Provenance:
     rules_version: str | None = None
     source_image_hash: str | None = None
     created_at: datetime | None = None
+    device: str | None = None
 
     def __post_init__(self) -> None:
         if not self.omr_engine:
@@ -33,6 +34,7 @@ class Provenance:
             "rules_version": self.rules_version,
             "source_image_hash": self.source_image_hash,
             "created_at": self.created_at.isoformat() if self.created_at is not None else None,
+            "device": self.device,
         }
 
     @classmethod
@@ -46,4 +48,5 @@ class Provenance:
                 None if data.get("source_image_hash") is None else str(data["source_image_hash"])
             ),
             created_at=None if created is None else datetime.fromisoformat(str(created)),
+            device=None if data.get("device") is None else str(data["device"]),
         )

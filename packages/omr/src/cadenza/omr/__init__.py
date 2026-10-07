@@ -5,5 +5,13 @@ from __future__ import annotations
 from .adapters import FakeOMREngine, HOMREngine
 from .adapters.homr import ensure_cuda_dll_dirs
 from .engine import OMREngine
+from .errors import OMRError, OMRTranscriptionError
 
-__all__ = ["FakeOMREngine", "HOMREngine", "OMREngine", "ensure_cuda_dll_dirs"]
+__all__ = [
+    "FakeOMREngine",
+    "HOMREngine",
+    "OMREngine",
+    "OMRError",
+    "OMRTranscriptionError",
+    "ensure_cuda_dll_dirs",
+]

@@ -114,5 +114,6 @@ class FakeOMREngine(OMREngine):
             provenance=Provenance(
                 omr_engine=FAKE_ENGINE_ID,
                 model_version=FAKE_MODEL_VERSION,
+                device="cpu",
             ),
         )

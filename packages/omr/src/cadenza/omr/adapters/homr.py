@@ -21,12 +21,28 @@ from typing import Any
 from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 
 from ..engine import OMREngine
+from ..errors import OMRTranscriptionError
 
 ENGINE_ID = "homr"
 _HOMR_EXTRA_HINT = (
     "HOMREngine requiere el extra opcional 'homr'. "
     'Instálalo con: uv pip install -e "packages/omr[homr]".'
 )
+
+
+def get_effective_device(use_gpu: bool = False) -> str:
+    """Obtiene el dispositivo efectivo sondeando `onnxruntime.get_available_providers()`."""
+    if not use_gpu:
+        return "cpu"
+    try:
+        import onnxruntime
+
+        providers = onnxruntime.get_available_providers()
+        if "CUDAExecutionProvider" in providers or "ROCMExecutionProvider" in providers:
+            return "cuda"
+    except Exception:
+        pass
+    return "cpu"
 
 
 def _import_homr() -> Any:
@@ -126,13 +142,17 @@ def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
             coreml_encoder=False,
         )
         xml_generator_args = XmlGeneratorArguments(False, None, None)
-        # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
-        homr_main.process_image(str(staged_image), config, xml_generator_args)
+        try:
+            # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
+            homr_main.process_image(str(staged_image), config, xml_generator_args)
+        except Exception as exc:
+            raise OMRTranscriptionError(f"HOMR falló al procesar la imagen: {exc}") from exc
+
         xml_path = staged_image.with_suffix(".musicxml")
         if not xml_path.is_file():
             candidates = sorted(Path(work_dir).glob("*.musicxml"))
             if not candidates:
-                raise RuntimeError("HOMR no produjo ningún MusicXML")
+                raise OMRTranscriptionError("HOMR no produjo ningún MusicXML")
             xml_path = candidates[0]
         return xml_path.read_text(encoding="utf-8", errors="replace")
 
@@ -147,6 +167,11 @@ class HOMREngine(OMREngine):
     @property
     def engine_id(self) -> str:
         return ENGINE_ID
+
+    @property
+    def device(self) -> str:
+        """Devuelve el dispositivo efectivo de inferencia ('cuda' o 'cpu')."""
+        return get_effective_device(self._use_gpu)
 
     def transcribe_musicxml(self, image_path: Path) -> str:
         """Devuelve el MusicXML nativo de HOMR sin pasar por el `ScoreIR`.
@@ -182,5 +207,6 @@ class HOMREngine(OMREngine):
                 omr_engine=ENGINE_ID,
                 model_version=_homr_version(),
                 source_image_hash=source_hash,
+                device=self.device,
             ),
         )

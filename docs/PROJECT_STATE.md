@@ -7,10 +7,10 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
-| **Último hito completado** | Esquema de `sessions` y `findings` ampliado ([#5](https://github.com/sebdavid3/Cadenza/issues/5)): `image_artifact` (FK a `artifacts`), `model_version` y `status` en `sessions`; `at_seq` en `findings`; migración Alembic `0004` y 157 tests verdes |
-| **Próximo paso inmediato** | Issue #8 (Configuración tipada y motor OMR configurable) |
+| **Último hito completado** | Configuración tipada y motor OMR seleccionable en la API ([#8](https://github.com/sebdavid3/Cadenza/issues/8)): `Settings` (`pydantic-settings`), motor `fake` / `homr`, inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) con 166 tests verdes |
+| **Próximo paso inmediato** | Issue #43 (Autenticación: modelo de datos de usuarios y migración Alembic) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D26–D30, D32, D34–D35, D38–D42, D44–D47 (D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D10–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D47 (D3, D5 y D26 resueltas; D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -56,9 +56,9 @@ Reglas:
 |---|---|---|---|
 | D1 | `OemerEngine` (línea base OMR para comparación experimental) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
 | D2 | Preprocesado configurable (deskew, binarización, control de DPI) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
-| D3 | Reporte del dispositivo efectivo desde `onnxruntime.get_available_providers()` no expuesto | Fase 1 / M1 | Pendiente (sub-tarea) |
+| D3 | Reporte del dispositivo efectivo desde `onnxruntime.get_available_providers()` no expuesto | Fase 1 / M1 | **Resuelta** — `get_effective_device` sondea `onnxruntime.get_available_providers()` y registra el dispositivo en `Provenance.device` ([#8](https://github.com/sebdavid3/Cadenza/issues/8)) |
 | D4 | Anclas sin `bbox` real: HOMR deriva coordenadas imprecisas de atención y las descarta en MusicXML; viable solo a nivel de pentagrama | Fase 1 / M3 | **Resuelta (negativo documentado)** — INV-0001; visor HITL orientado a notación vectorial ([#14](https://github.com/sebdavid3/Cadenza/issues/14)) |
-| D5 | `HOMREngine` no verificado E2E (requiere extra `homr` + GPU/pesos); validado por gating de import y mapper | Fase 1 | Pendiente (entorno) |
+| D5 | `HOMREngine` no verificado E2E ni seleccionable en la API por configuración | Fase 1 | **Resuelta** — `CADENZA_OMR_ENGINE` (`fake` \| `homr`) y `CADENZA_OMR_USE_GPU` en `Settings` con `pydantic-settings` y tests de integración en la API ([#8](https://github.com/sebdavid3/Cadenza/issues/8)) |
 | D6 | Catálogo de reglas incompleto: faltan armadura/alteraciones, colisiones de voz, rango y cierres | Fase 2 / M2 | Pendiente (sub-tarea) |
 | D7 | Persistencia de `Finding`/`EditEvent` en PostgreSQL/JSONB no implementada | Fase 2 / M2 | **Resuelta** — `packages/persistence` (modelos + Alembic) y persistencia en `POST /transcribe` y `POST /sessions/{id}/edits` |
 | D8 | Métricas de precisión/recall del validador sobre casos conocidos no reportadas | Fase 2 / M2 | Pendiente (sub-tarea) |
@@ -78,7 +78,7 @@ Reglas:
 | D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | **Resuelta** — `ScoreIR` con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y proyección determinista de las siete operaciones de `EditOp` en `packages/domain` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)) |
 | D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | **Resuelta** — puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | **Parcial** — `sessions` con `image_artifact` (FK a `artifacts`), `model_version` y `status`, `findings` con `at_seq` (migración `0004`, [#5](https://github.com/sebdavid3/Cadenza/issues/5)); pendientes métricas de esfuerzo ([#13](https://github.com/sebdavid3/Cadenza/issues/13)) y model versions ([#21](https://github.com/sebdavid3/Cadenza/issues/21)) |
-| D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | Pendiente |
+| D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | **Resuelta** — `create_default_app` conecta `HOMREngine` (in-process, CPU/GPU) vía `Settings` tipada con ejecución asíncrona fuera del bucle de eventos ([#8](https://github.com/sebdavid3/Cadenza/issues/8)) |
 | D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | Pendiente |
 | D28 | Los hallazgos se calculan solo al transcribir; no hay revalidación tras las correcciones | Fase 7 / M2 | Pendiente |
 | D29 | Sin exportación MIDI ni endpoint de exportación (solo `score_ir_to_musicxml`) | Fase 7 | Pendiente |
@@ -176,7 +176,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Estabilidad de anclas ante inserciones y borrados ([#28](https://github.com/sebdavid3/Cadenza/issues/28)): inserción al final de la voz, funciones puras `origin_anchor`/`translate_anchor`/`translate_finding`, herencia en `AnchorIndex` y `DatasetBuilder` (ADR-0011) con 145 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/learning/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Soporte de piano (dos pentagramas) verificado de punta a punta ([#32](https://github.com/sebdavid3/Cadenza/issues/32)): fixtures de piano en `interchange`/`validation`/`omr`, `Event.is_chord`, round-trip exacto en `interchange`, anclas ortogonales y balance por voz con 154 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/interchange/`, `packages/validation/`, `packages/omr/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Esquema relacional de `sessions` y `findings` ampliado ([#5](https://github.com/sebdavid3/Cadenza/issues/5)): `image_artifact` (FK a `artifacts`), `model_version` y `status` en `sessions`; `at_seq` en `findings`; migración Alembic `0004_sessions_findings_schema` con `batch_alter_table` y relleno por defecto; puertos, adaptadores, endpoints y 157 tests verdes | Fase 7 / Persistencia | `packages/persistence/`, `packages/application/`, `apps/api/`, `docs/ARCHITECTURE.md` |
-
+| 2026-10-07 | Configuración tipada y motor OMR seleccionable en la API ([#8](https://github.com/sebdavid3/Cadenza/issues/8)): `Settings` (`pydantic-settings`), motor `fake` / `homr` (GPU/CPU), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) con 166 tests verdes | Fase 7 / API | `apps/api/`, `packages/omr/`, `packages/domain/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 
 ---
 
