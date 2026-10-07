@@ -20,6 +20,9 @@ class SessionData:
     omr_engine: str
     document: dict[str, Any]
     created_at: datetime | None = None
+    image_artifact: str | None = None
+    model_version: str | None = None
+    status: str = "transcribed"
 
 
 @dataclass(frozen=True)
@@ -32,6 +35,7 @@ class PersistedFinding:
     message: str
     suggested_fix: str | None
     anchor: dict[str, Any]
+    at_seq: int = 0
 
 
 class SessionRepository(ABC):

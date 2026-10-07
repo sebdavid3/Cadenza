@@ -7,10 +7,10 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
-| **Último hito completado** | Soporte de piano (dos pentagramas) verificado de punta a punta ([#32](https://github.com/sebdavid3/Cadenza/issues/32)): fixtures de piano, ScoreIR con pentagramas/voces/acordes (`is_chord`), round-trip exacto en `interchange`, anclas ortogonales y balance por voz (154 tests verdes) |
-| **Próximo paso inmediato** | Issue #5 (Persistencia: migrar el esquema de sessions y findings) |
+| **Último hito completado** | Esquema de `sessions` y `findings` ampliado ([#5](https://github.com/sebdavid3/Cadenza/issues/5)): `image_artifact` (FK a `artifacts`), `model_version` y `status` en `sessions`; `at_seq` en `findings`; migración Alembic `0004` y 157 tests verdes |
+| **Próximo paso inmediato** | Issue #8 (Configuración tipada y motor OMR configurable) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32, D34–D35, D38–D42, D44–D47 (D31 parcial; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D26–D30, D32, D34–D35, D38–D42, D44–D47 (D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -77,7 +77,7 @@ Reglas:
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
 | D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | **Resuelta** — `ScoreIR` con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y proyección determinista de las siete operaciones de `EditOp` en `packages/domain` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)) |
 | D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | **Resuelta** — puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
-| D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | Pendiente |
+| D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | **Parcial** — `sessions` con `image_artifact` (FK a `artifacts`), `model_version` y `status`, `findings` con `at_seq` (migración `0004`, [#5](https://github.com/sebdavid3/Cadenza/issues/5)); pendientes métricas de esfuerzo ([#13](https://github.com/sebdavid3/Cadenza/issues/13)) y model versions ([#21](https://github.com/sebdavid3/Cadenza/issues/21)) |
 | D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | Pendiente |
 | D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | Pendiente |
 | D28 | Los hallazgos se calculan solo al transcribir; no hay revalidación tras las correcciones | Fase 7 / M2 | Pendiente |
@@ -175,6 +175,8 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Proyección determinista de las siete operaciones de `EditOp` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)): `SetClef`, `SetKey` y semántica propia de `SetAccidental` en `packages/domain` (ADR-0007, ADR-0010), documentación de payloads `before`/`after` y 135 tests verdes | Fase 7 / Dominio | `packages/domain/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Estabilidad de anclas ante inserciones y borrados ([#28](https://github.com/sebdavid3/Cadenza/issues/28)): inserción al final de la voz, funciones puras `origin_anchor`/`translate_anchor`/`translate_finding`, herencia en `AnchorIndex` y `DatasetBuilder` (ADR-0011) con 145 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/learning/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Soporte de piano (dos pentagramas) verificado de punta a punta ([#32](https://github.com/sebdavid3/Cadenza/issues/32)): fixtures de piano en `interchange`/`validation`/`omr`, `Event.is_chord`, round-trip exacto en `interchange`, anclas ortogonales y balance por voz con 154 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/interchange/`, `packages/validation/`, `packages/omr/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Esquema relacional de `sessions` y `findings` ampliado ([#5](https://github.com/sebdavid3/Cadenza/issues/5)): `image_artifact` (FK a `artifacts`), `model_version` y `status` en `sessions`; `at_seq` en `findings`; migración Alembic `0004_sessions_findings_schema` con `batch_alter_table` y relleno por defecto; puertos, adaptadores, endpoints y 157 tests verdes | Fase 7 / Persistencia | `packages/persistence/`, `packages/application/`, `apps/api/`, `docs/ARCHITECTURE.md` |
+
 
 ---
 

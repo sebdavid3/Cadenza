@@ -151,6 +151,9 @@ def create_app(
             findings=[FindingRead.from_persisted(f) for f in detail.findings],
             edits=[EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
             current_score=detail.current_score,
+            image_artifact=detail.image_artifact,
+            model_version=detail.model_version,
+            status=detail.status,
         )
 
     @app.get("/sessions/{session_id}/findings", response_model=list[FindingRead])

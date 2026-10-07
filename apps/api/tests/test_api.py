@@ -86,6 +86,7 @@ def test_transcribe_persists_findings_e2e() -> None:
         assert findings[0]["severity"] == "error"
         assert findings[0]["anchor"]["measure"] == 1
         assert findings[0]["anchor"]["bbox"] is not None
+        assert findings[0]["at_seq"] == 0
 
 
 def test_findings_for_unknown_session_returns_404(client: TestClient) -> None:
@@ -129,7 +130,11 @@ def test_get_session_returns_document_anchors_and_findings() -> None:
         assert entries
         assert entries[0]["anchor"]["bbox"] is not None
         assert len(detail["findings"]) == 1
+        assert detail["findings"][0]["at_seq"] == 0
         assert detail["edits"] == []
+        assert detail["status"] == "transcribed"
+        assert detail["model_version"] == "fake-1"
+        assert detail["image_artifact"] is None
 
 
 def test_get_session_includes_appended_edits(client: TestClient) -> None:
