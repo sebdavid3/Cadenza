@@ -7,10 +7,13 @@ responsabilidad aquí es dar estructura suficiente para derivar anclas estables.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .edit import EditEvent
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
@@ -153,12 +156,27 @@ class ScoreIR:
         return cls(parts=tuple(Part.from_primitive(item) for item in data["parts"]))
 
 
-def build_anchor_index(score: ScoreIR) -> AnchorIndex:
+def build_anchor_index(
+    score: ScoreIR,
+    *,
+    raw_anchors: AnchorIndex | None = None,
+    edits: Iterable[EditEvent] = (),
+    at_seq: int = 0,
+) -> AnchorIndex:
     """Deriva el índice de anclas a partir del `ScoreIR` de forma determinista.
 
     El `event_index` es la posición del evento dentro de su ``(compás, voz)``,
     de modo que la ruta lógica sea estable e independiente del orden global.
+
+    Si se proporciona `raw_anchors` y `at_seq > 0`, las anclas del estado
+    materializado heredan `bbox` y `confidence` de su evento de origen en el
+    documento crudo (ADR-0011).
     """
+    origin_fn = None
+    if raw_anchors is not None and at_seq > 0:
+        from .projection import origin_anchor
+
+        origin_fn = origin_anchor
 
     entries: dict[Anchor, EventRef] = {}
     for part_position, part in enumerate(score.parts):
@@ -168,6 +186,28 @@ def build_anchor_index(score: ScoreIR) -> AnchorIndex:
                 for event in measure.events:
                     index = counters.get(event.voice, 0)
                     counters[event.voice] = index + 1
+                    base_anchor = Anchor(
+                        part=part_position,
+                        staff=staff_position,
+                        measure=measure.number,
+                        voice=event.voice,
+                        event_index=index,
+                        staff_id=staff.id,
+                    )
+                    bbox = event.bbox
+                    confidence = event.confidence
+
+                    if origin_fn is not None and raw_anchors is not None:
+                        orig = origin_fn(base_anchor, at_seq, edits)
+                        if orig is not None:
+                            orig_ref = raw_anchors.get(orig)
+                            if orig_ref is not None:
+                                bbox = orig_ref.bbox
+                                confidence = orig_ref.confidence
+                        else:
+                            bbox = event.bbox
+                            confidence = event.confidence
+
                     anchor = Anchor(
                         part=part_position,
                         staff=staff_position,
@@ -175,14 +215,14 @@ def build_anchor_index(score: ScoreIR) -> AnchorIndex:
                         voice=event.voice,
                         event_index=index,
                         staff_id=staff.id,
-                        bbox=event.bbox,
-                        confidence=event.confidence,
+                        bbox=bbox,
+                        confidence=confidence,
                     )
                     entries[anchor] = EventRef(
                         kind=event.kind,
                         ir_handle=event.ir_handle,
-                        bbox=event.bbox,
-                        confidence=event.confidence,
+                        bbox=bbox,
+                        confidence=confidence,
                     )
     return AnchorIndex.from_entries(entries)
 

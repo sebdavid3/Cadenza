@@ -136,23 +136,39 @@ class AnchorIndex:
     """
 
     _entries: Mapping[Anchor, EventRef]
+    _by_key: Mapping[tuple[int, int, int, int, int, str], tuple[Anchor, EventRef]]
 
     @classmethod
     def empty(cls) -> AnchorIndex:
-        return cls(MappingProxyType({}))
+        return cls(MappingProxyType({}), MappingProxyType({}))
 
     @classmethod
     def from_entries(cls, entries: Mapping[Anchor, EventRef]) -> AnchorIndex:
-        return cls(MappingProxyType(dict(entries)))
+        data = dict(entries)
+        by_key = {anchor.sort_key(): (anchor, ref) for anchor, ref in data.items()}
+        return cls(MappingProxyType(data), MappingProxyType(by_key))
 
     def __len__(self) -> int:
         return len(self._entries)
 
     def __contains__(self, anchor: object) -> bool:
-        return anchor in self._entries
+        if anchor in self._entries:
+            return True
+        if isinstance(anchor, Anchor):
+            return anchor.sort_key() in self._by_key
+        return False
 
     def get(self, anchor: Anchor) -> EventRef | None:
-        return self._entries.get(anchor)
+        ref = self._entries.get(anchor)
+        if ref is not None:
+            return ref
+        entry = self._by_key.get(anchor.sort_key())
+        return entry[1] if entry is not None else None
+
+    def find_anchor(self, anchor: Anchor) -> Anchor | None:
+        """Devuelve el ancla canónica del índice que comparte la misma ruta lógica."""
+        entry = self._by_key.get(anchor.sort_key())
+        return entry[0] if entry is not None else None
 
     def __iter__(self) -> Iterator[Anchor]:
         return iter(self.anchors())

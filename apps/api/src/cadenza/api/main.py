@@ -165,6 +165,11 @@ def create_app(
         status_code=status.HTTP_201_CREATED,
     )
     def append_edit(session_id: str, payload: EditEventCreate, db: DbDep) -> EditEventRead:
+        """Añade una edición inmutable al log de la sesión.
+
+        El ancla del payload se interpreta de forma posicional respecto al estado
+        inmediatamente anterior (`seq - 1`, ADR-0011).
+        """
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         edit = append_edit_use_case(

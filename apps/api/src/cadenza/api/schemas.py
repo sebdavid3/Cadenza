@@ -30,7 +30,13 @@ class AnchorPayload(BaseModel):
 
 
 class EditEventCreate(BaseModel):
-    """Payload de una corrección humana (el servidor asigna id, seq y fecha)."""
+    """Payload de una corrección humana (el servidor asigna id, seq y fecha).
+
+    El ancla `anchor` es posicional y se interpreta estrictamente respecto al
+    estado inmediatamente anterior a la edición (estado `seq - 1` de la sesión,
+    ADR-0011). Tras inserciones o borrados estructurales previos, el índice
+    apunta a la posición en el estado materializado actual.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
