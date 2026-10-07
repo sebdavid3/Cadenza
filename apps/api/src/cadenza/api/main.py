@@ -7,7 +7,7 @@ a la capa de aplicación (ADR-0009).
 
 from __future__ import annotations
 
-import os
+import asyncio
 import shutil
 import tempfile
 from collections.abc import Iterator, Sequence
@@ -31,7 +31,7 @@ from cadenza.application import (
 from cadenza.application import (
     transcribe_score as transcribe_score_use_case,
 )
-from cadenza.omr import FakeOMREngine, OMREngine
+from cadenza.omr import FakeOMREngine, HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
@@ -52,6 +52,7 @@ from .schemas import (
     SessionDetailRead,
     TranscribeResponse,
 )
+from .settings import Settings
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -77,11 +78,13 @@ def create_app(
     *,
     omr_engine: OMREngine | None = None,
     rules: Sequence[ValidationRule] | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
     app = FastAPI(title="Cadenza API", version="0.1.0")
     app.state.session_factory = session_factory
+    app.state.settings = settings or Settings()
     app.state.omr_engine = omr_engine if omr_engine is not None else FakeOMREngine()
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else [MeasureBalanceRule()]
@@ -108,8 +111,17 @@ def create_app(
             content={"detail": str(exc)},
         )
 
+    @app.exception_handler(OMRTranscriptionError)
+    def omr_transcription_error_handler(
+        request: Request, exc: OMRTranscriptionError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": f"Error de transcripción OMR: {exc}"},
+        )
+
     @app.post("/transcribe", response_model=TranscribeResponse, status_code=status.HTTP_201_CREATED)
-    def transcribe(
+    async def transcribe(
         request: Request,
         db: DbDep,
         file: Annotated[UploadFile, File()],
@@ -119,7 +131,8 @@ def create_app(
             upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
             with upload_path.open("wb") as handle:
                 shutil.copyfileobj(file.file, handle)
-            result = transcribe_score_use_case(
+            result = await asyncio.to_thread(
+                transcribe_score_use_case,
                 upload_path,
                 omr_engine=request.app.state.omr_engine,
                 validator=request.app.state.validator,
@@ -190,10 +203,21 @@ def create_app(
     return app
 
 
-def create_default_app() -> FastAPI:
-    """Factory para uvicorn: usa `CADENZA_DATABASE_URL` (SQLite por defecto)."""
+def create_default_app(settings: Settings | None = None) -> FastAPI:
+    """Factory para uvicorn: carga Settings tipada de entorno y conecta el motor OMR."""
 
-    url = os.environ.get("CADENZA_DATABASE_URL", "sqlite+pysqlite:///./cadenza.db")
-    engine = create_engine_for_url(url)
+    app_settings = settings or Settings()
+    engine = create_engine_for_url(app_settings.database_url)
     create_schema(engine)
-    return create_app(create_session_factory(engine))
+
+    omr_engine: OMREngine
+    if app_settings.omr_engine == "homr":
+        omr_engine = HOMREngine(use_gpu=app_settings.omr_use_gpu)
+    else:
+        omr_engine = FakeOMREngine()
+
+    return create_app(
+        create_session_factory(engine),
+        omr_engine=omr_engine,
+        settings=app_settings,
+    )

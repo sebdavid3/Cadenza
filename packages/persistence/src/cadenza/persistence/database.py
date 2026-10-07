@@ -21,10 +21,14 @@ SessionFactory = sessionmaker[DbSession]
 
 
 def create_engine_for_url(url: str) -> Engine:
-    """Crea un engine; habilita `check_same_thread` para SQLite."""
+    """Crea un engine; habilita `check_same_thread` y `StaticPool` para SQLite en memoria."""
 
-    connect_args: dict[str, Any] = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, connect_args=connect_args, future=True)
+    is_sqlite = url.startswith("sqlite")
+    connect_args: dict[str, Any] = {"check_same_thread": False} if is_sqlite else {}
+    kwargs: dict[str, Any] = {"connect_args": connect_args, "future": True}
+    if is_sqlite and ":memory:" in url:
+        kwargs["poolclass"] = StaticPool
+    return create_engine(url, **kwargs)
 
 
 def create_memory_engine() -> Engine:
