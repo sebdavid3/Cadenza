@@ -162,7 +162,8 @@ def test_get_session_returns_document_anchors_and_findings() -> None:
         assert detail["edits"] == []
         assert detail["status"] == "transcribed"
         assert detail["model_version"] == "fake-1"
-        assert detail["image_artifact"] is None
+        assert detail["image_artifact"] is not None
+        assert len(detail["image_artifact"]) == 64
 
 
 def test_get_session_includes_appended_edits(client: TestClient) -> None:

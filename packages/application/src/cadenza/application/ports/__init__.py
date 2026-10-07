@@ -1,6 +1,12 @@
 """Puertos de la capa de aplicación."""
 
-from .artifact_store import ArtifactStore, InMemoryArtifactStore, compute_sha256
+from .artifact_store import (
+    ArtifactStore,
+    InMemoryArtifactStore,
+    compute_sha256,
+    detect_image_media_type,
+    is_image_content,
+)
 from .edit_event_repository import EditEventRepository
 from .security import (
     InMemoryPasswordHasher,
@@ -27,4 +33,6 @@ __all__ = [
     "TokenService",
     "UserRepository",
     "compute_sha256",
+    "detect_image_media_type",
+    "is_image_content",
 ]

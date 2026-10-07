@@ -9,13 +9,13 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 from __future__ import annotations
 
 import asyncio
-import shutil
 import tempfile
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Annotated
 
 from cadenza.application import (
+    ArtifactStore,
     DuplicateUsername,
     Forbidden,
     InvalidEdit,
@@ -28,6 +28,7 @@ from cadenza.application import (
     User,
     UserNotFound,
     WeakPassword,
+    is_image_content,
 )
 from cadenza.application import (
     append_edit as append_edit_use_case,
@@ -45,6 +46,9 @@ from cadenza.application import (
     get_session as get_session_use_case,
 )
 from cadenza.application import (
+    get_session_image as get_session_image_use_case,
+)
+from cadenza.application import (
     list_findings as list_findings_use_case,
 )
 from cadenza.application import (
@@ -58,6 +62,7 @@ from cadenza.application import (
 )
 from cadenza.omr import FakeOMREngine, HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import (
+    FilesystemArtifactStore,
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemySessionRepository,
@@ -68,7 +73,7 @@ from cadenza.persistence import (
 )
 from cadenza.validation import MeasureBalanceRule, ValidationEngine, ValidationRule
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session as DbSession
 
@@ -140,6 +145,16 @@ def get_current_user(
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
+def get_artifact_store(request: Request, db: DbSession) -> ArtifactStore:
+    """Obtiene el ArtifactStore configurado o instancia FilesystemArtifactStore."""
+    store: ArtifactStore | None = getattr(request.app.state, "artifact_store", None)
+
+    if store is not None:
+        return store
+    settings: Settings = request.app.state.settings
+    return FilesystemArtifactStore(settings.artifacts_dir, session=db)
+
+
 def create_app(
     session_factory: SessionFactory,
     *,
@@ -148,6 +163,7 @@ def create_app(
     settings: Settings | None = None,
     password_hasher: PasswordHasher | None = None,
     token_service: TokenService | None = None,
+    artifact_store: ArtifactStore | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
@@ -176,6 +192,7 @@ def create_app(
             default_expire_minutes=app_settings.auth_token_expire_minutes,
         )
     )
+    app.state.artifact_store = artifact_store
 
     @app.exception_handler(SessionNotFound)
     def session_not_found_handler(request: Request, exc: SessionNotFound) -> JSONResponse:
@@ -377,11 +394,45 @@ def create_app(
         current_user: CurrentUserDep,
         file: Annotated[UploadFile, File()],
     ) -> TranscribeResponse:
+        app_settings: Settings = request.app.state.settings
+
+        # 1. Validar Content-Type declarado
+        declared_type = (file.content_type or "").lower()
+        if declared_type == "application/pdf" or (
+            declared_type
+            and not (
+                declared_type.startswith("image/") or declared_type == "application/octet-stream"
+            )
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Tipo de archivo no soportado. Se requiere una imagen.",
+            )
+
+        # 2. Leer contenido y validar tamaño máximo
+        content = await file.read()
+        if len(content) > app_settings.max_upload_size_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=(
+                    f"El archivo excede el tamaño máximo permitido "
+                    f"({app_settings.max_upload_size_bytes} bytes)."
+                ),
+            )
+
+        # 3. Validar tipo real por magic bytes
+        if not is_image_content(content):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
+            )
+
         session_repo = SqlAlchemySessionRepository(db)
+        artifact_store = get_artifact_store(request, db)
+
         with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
             upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
-            with upload_path.open("wb") as handle:
-                shutil.copyfileobj(file.file, handle)
+            upload_path.write_bytes(content)
             result = await asyncio.to_thread(
                 transcribe_score_use_case,
                 upload_path,
@@ -389,6 +440,7 @@ def create_app(
                 validator=request.app.state.validator,
                 session_repository=session_repo,
                 current_user=current_user,
+                artifact_store=artifact_store,
             )
 
         return TranscribeResponse(
@@ -397,6 +449,24 @@ def create_app(
             omr_engine=result.omr_engine,
             findings_count=result.findings_count,
         )
+
+    @app.get("/sessions/{session_id}/image")
+    def get_session_image_endpoint(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> Response:
+        """Devuelve la imagen de origen asociada a la sesión."""
+        session_repo = SqlAlchemySessionRepository(db)
+        artifact_store = get_artifact_store(request, db)
+        image_data = get_session_image_use_case(
+            session_id,
+            session_repository=session_repo,
+            artifact_store=artifact_store,
+            current_user=current_user,
+        )
+        return Response(content=image_data.content, media_type=image_data.media_type)
 
     @app.get("/sessions/{session_id}", response_model=SessionDetailRead)
     def get_session(session_id: str, db: DbDep, current_user: CurrentUserDep) -> SessionDetailRead:
