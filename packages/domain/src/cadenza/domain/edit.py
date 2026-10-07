@@ -13,7 +13,46 @@ from .anchor import Anchor
 
 
 class EditOp(StrEnum):
-    """Operaciones de corrección admitidas sobre un evento anclado."""
+    """Operaciones de corrección admitidas sobre un evento anclado.
+
+    Esquemas de payload (atributos ``before`` y ``after`` en `EditEvent`):
+
+    1. `SET_PITCH` ("SetPitch"):
+       - Modifica la altura absoluta de una nota.
+       - ``before``: ``{"pitch": str}`` (p. ej. ``{"pitch": "C4"}``).
+       - ``after``: ``{"pitch": str}`` (p. ej. ``{"pitch": "D4"}``).
+
+    2. `SET_DURATION` ("SetDuration"):
+       - Modifica la duración en tiempos (beats) de un evento musical.
+       - ``before``: ``{"duration_beats": Fraction | int | float | str}``.
+       - ``after``: ``{"duration_beats": Fraction | int | float | str}``.
+
+    3. `SET_ACCIDENTAL` ("SetAccidental"):
+       - Modifica la alteración de una nota conservando su nombre de nota y octava.
+       - ``before``: ``{"accidental": str | None}`` (p. ej. ``{"accidental": ""}``).
+       - ``after``: ``{"accidental": str | None}``
+         (p. ej. ``"#"``, ``"b"``, ``"natural"``, ``"##"``, ``"bb"``).
+
+    4. `INSERT_EVENT` ("InsertEvent"):
+       - Inserta un nuevo evento musical antes de la posición anclada.
+       - ``before``: ``None``.
+       - ``after``: ``{"kind": str, "pitch": str | None, "duration_beats": Fraction | str, ...}``.
+
+    5. `DELETE_EVENT` ("DeleteEvent"):
+       - Elimina el evento musical anclado en la voz del compás.
+       - ``before``: snapshot del evento previo.
+       - ``after``: ``None``.
+
+    6. `SET_CLEF` ("SetClef"):
+       - Modifica la clave musical del compás al que apunta el ancla.
+       - ``before``: snapshot de clave previa o ``None``.
+       - ``after``: ``{"clef": dict | str | Clef}`` o primitivo ``{"sign": str, "line": int}``.
+
+    7. `SET_KEY` ("SetKey"):
+       - Modifica la armadura de clave del compás al que apunta el ancla.
+       - ``before``: snapshot de armadura previa o ``None``.
+       - ``after``: ``{"key_signature": dict | KeySignature}`` o primitivo ``{"fifths": int}``.
+    """
 
     SET_PITCH = "SetPitch"
     SET_DURATION = "SetDuration"

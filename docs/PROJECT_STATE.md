@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 finalizada, investigaciones #14 y #31 concluidas) |
-| **Último hito completado** | Investigaciones conjuntas #14 y #31 concluidas con resultado negativo documentado (`INV-0001`): bbox por evento y confianza directa inviables en HOMR; formulación neuro-simbólica con `ErrorDensityAcquisition` en ADR-0008; 128 tests verdes |
-| **Próximo paso inmediato** | Iniciar Etapa 2 con Issue #3 (Dominio: proyección de SetClef, SetKey y separación de SetAccidental) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2 iniciada) |
+| **Último hito completado** | Proyección determinista de las siete operaciones de `EditOp` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)): `SetClef`, `SetKey` y semántica propia de `SetAccidental` en `packages/domain` (135 tests verdes) |
+| **Próximo paso inmediato** | Issue #28 (Dominio: definir la estabilidad de las anclas tras InsertEvent y DeleteEvent) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D35, D37–D42, D44–D47 (D23 y D31 parciales; D4, D7, D9, D15, D20, D22, D24 y D36 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D35, D37–D42, D44–D47 (D31 parcial; D4, D7, D9, D15, D20, D22, D23, D24 y D36 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -75,7 +75,7 @@ Reglas:
 | D19 | Reducción de esfuerzo medida en `ml/experiments` no usa los eventos HITL reales ni `musicdiff` para OMR-NED | Fase 5 / M5 | **Parcial** — OMR-NED oficial integrado (`exp_03`); falta correrlo sobre corpus real (D20) |
 | D20 | HOMR real no ejecutado en GPU | Fase 6 / M6 | **Resuelta** — GPU operativa con `onnxruntime-gpu==1.26.0` (CUDA 12.8 + cuDNN 9 cu12) y `ensure_cuda_dll_dirs` (PATH de sub-librerías cuDNN). Baseline PrIMuS 91/100, **OMR-NED medio 0.2285** idéntico CPU↔GPU, 9 fallos `No staffs found` |
 | D21 | Experimento de AL sobre distribuciones de error reales (derivar `EditEvent`s del diff HOMR↔GT) sin diseñar | Fase 6 / M6 | Pendiente (sub-tarea) |
-| D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | **Parcial** — `ScoreIR` con clave, armadura y ligaduras (`Clef`, `KeySignature`, `Tie`) y round-trip en `packages/interchange` implementados ([#2](https://github.com/sebdavid3/Cadenza/issues/2)); proyección de operaciones pendiente ([#3](https://github.com/sebdavid3/Cadenza/issues/3)) |
+| D23 | `ScoreIR` sin clave, armadura ni ligaduras; `SetClef`/`SetKey` no proyectables y `SetAccidental` equivale a `SetPitch` (ADR-0010) | Fase 7 / Dominio | **Resuelta** — `ScoreIR` con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y proyección determinista de las siete operaciones de `EditOp` en `packages/domain` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)) |
 | D24 | `ArtifactStore` no implementado: la imagen subida se descarta al terminar `/transcribe` | Fase 7 / M3 | **Resuelta** — puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | Pendiente |
 | D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | Pendiente |
@@ -172,6 +172,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | `ScoreIR` completo con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)): tipos de valor puros `Clef`, `KeySignature` y `Tie` en `packages/domain` (ADR-0010), lectura/escritura y round-trip en `packages/interchange`, compatibilidad hacia atrás, estabilidad de anclas y 122 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/interchange/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | `ArtifactStore` direccionado por `sha256` completado ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003_artifacts_table` en `packages/persistence`; 128 tests verdes | Fase 7 / Datos | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Investigaciones #14 y #31 concluidas con resultado negativo documentado: informe `docs/investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md`, precisión de `ADR-0008` e introducción formal de `ErrorDensityAcquisition` en `packages/learning` ([#14](https://github.com/sebdavid3/Cadenza/issues/14), [#31](https://github.com/sebdavid3/Cadenza/issues/31)) | Fase 7 / OMR | `docs/investigaciones/INV-0001-*`, `packages/learning/`, `docs/adr/ADR-0008-*` |
+| 2026-10-07 | Proyección determinista de las siete operaciones de `EditOp` ([#3](https://github.com/sebdavid3/Cadenza/issues/3)): `SetClef`, `SetKey` y semántica propia de `SetAccidental` en `packages/domain` (ADR-0007, ADR-0010), documentación de payloads `before`/`after` y 135 tests verdes | Fase 7 / Dominio | `packages/domain/`, `docs/ARCHITECTURE.md` |
 
 ---
 
