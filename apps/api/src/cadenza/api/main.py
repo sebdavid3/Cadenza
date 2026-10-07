@@ -1,8 +1,9 @@
 """API Gateway de Cadenza (FastAPI).
 
 Raíz de composición hexagonal: construye y conecta los adaptadores (OMREngine,
-ValidationEngine, SessionRepository, EditEventRepository) y delega la orquestación
-a la capa de aplicación (ADR-0009).
+ValidationEngine, SessionRepository, EditEventRepository, UserRepository,
+PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
+(ADR-0009, ADR-0012).
 """
 
 from __future__ import annotations
@@ -15,12 +16,20 @@ from pathlib import Path
 from typing import Annotated
 
 from cadenza.application import (
+    Forbidden,
     InvalidEdit,
+    NotAuthenticated,
+    PasswordHasher,
     SequenceConflict,
     SessionNotFound,
+    TokenService,
+    User,
 )
 from cadenza.application import (
     append_edit as append_edit_use_case,
+)
+from cadenza.application import (
+    authenticate as authenticate_use_case,
 )
 from cadenza.application import (
     get_session as get_session_use_case,
@@ -36,13 +45,15 @@ from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemySessionRepository,
+    SqlAlchemyUserRepository,
     create_engine_for_url,
     create_schema,
     create_session_factory,
 )
 from cadenza.validation import MeasureBalanceRule, ValidationEngine, ValidationRule
-from fastapi import Depends, FastAPI, File, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
@@ -50,9 +61,14 @@ from .schemas import (
     EditEventRead,
     FindingRead,
     SessionDetailRead,
+    TokenResponse,
     TranscribeResponse,
+    UserRead,
 )
+from .security import Argon2PasswordHasher, JwtTokenService
 from .settings import Settings
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -73,21 +89,72 @@ def get_db(request: Request) -> Iterator[DbSession]:
 DbDep = Annotated[DbSession, Depends(get_db)]
 
 
+def get_current_user(
+    token: Annotated[str, Depends(oauth2_scheme)],
+    request: Request,
+    db: DbDep,
+) -> User:
+    """Resuelve el usuario autenticado a partir del token de acceso Bearer."""
+
+    token_service: TokenService = request.app.state.token_service
+    try:
+        payload = token_service.decode_token(token)
+    except NotAuthenticated as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from err
+
+    user_repo = SqlAlchemyUserRepository(db)
+    user = user_repo.get(payload.sub)
+    if user is None or not user.active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado o inactivo",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
 def create_app(
     session_factory: SessionFactory,
     *,
     omr_engine: OMREngine | None = None,
     rules: Sequence[ValidationRule] | None = None,
     settings: Settings | None = None,
+    password_hasher: PasswordHasher | None = None,
+    token_service: TokenService | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
+    app_settings = settings or Settings()
+    if not app_settings.auth_secret_key and token_service is None:
+        raise RuntimeError(
+            "CADENZA_AUTH_SECRET_KEY no configurada: "
+            "la aplicación no puede iniciar sin clave de firma."
+        )
+
     app = FastAPI(title="Cadenza API", version="0.1.0")
     app.state.session_factory = session_factory
-    app.state.settings = settings or Settings()
+    app.state.settings = app_settings
     app.state.omr_engine = omr_engine if omr_engine is not None else FakeOMREngine()
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else [MeasureBalanceRule()]
+    )
+    app.state.password_hasher = (
+        password_hasher if password_hasher is not None else Argon2PasswordHasher()
+    )
+    app.state.token_service = (
+        token_service
+        if token_service is not None
+        else JwtTokenService(
+            secret_key=app_settings.auth_secret_key,
+            default_expire_minutes=app_settings.auth_token_expire_minutes,
+        )
     )
 
     @app.exception_handler(SessionNotFound)
@@ -118,6 +185,52 @@ def create_app(
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": f"Error de transcripción OMR: {exc}"},
+        )
+
+    @app.exception_handler(NotAuthenticated)
+    def not_authenticated_handler(request: Request, exc: NotAuthenticated) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": exc.message},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    @app.exception_handler(Forbidden)
+    def forbidden_handler(request: Request, exc: Forbidden) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": exc.message},
+        )
+
+    @app.post("/auth/login", response_model=TokenResponse)
+    def login(
+        form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+        request: Request,
+        db: DbDep,
+    ) -> TokenResponse:
+        """Autentica las credenciales del usuario y emite un token de acceso JWT."""
+        user_repo = SqlAlchemyUserRepository(db)
+        hasher: PasswordHasher = request.app.state.password_hasher
+        token_serv: TokenService = request.app.state.token_service
+
+        user = authenticate_use_case(
+            form_data.username,
+            form_data.password,
+            user_repository=user_repo,
+            password_hasher=hasher,
+        )
+        token = token_serv.create_access_token(user_id=user.id, role=user.role)
+        return TokenResponse(access_token=token, token_type="bearer")
+
+    @app.get("/auth/me", response_model=UserRead)
+    def get_me(current_user: CurrentUserDep) -> UserRead:
+        """Devuelve el perfil del usuario autenticado."""
+        return UserRead(
+            id=current_user.id,
+            username=current_user.username,
+            role=current_user.role.value,
+            active=current_user.active,
+            created_at=current_user.created_at,
         )
 
     @app.post("/transcribe", response_model=TranscribeResponse, status_code=status.HTTP_201_CREATED)

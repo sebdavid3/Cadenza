@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from cadenza.api import create_app
+from cadenza.api import Settings, create_app
 from cadenza.domain import ScoreDocument
 from cadenza.omr import HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import create_memory_engine, create_schema, create_session_factory
@@ -38,7 +38,11 @@ class _FailingOMREngine(OMREngine):
 def _client_with_engine(engine: OMREngine) -> TestClient:
     db_engine = create_memory_engine()
     create_schema(db_engine)
-    app = create_app(create_session_factory(db_engine), omr_engine=engine)
+    app = create_app(
+        create_session_factory(db_engine),
+        omr_engine=engine,
+        settings=Settings(auth_secret_key="test-secret-key"),
+    )
     return TestClient(app)
 
 
@@ -105,6 +109,7 @@ def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPat
         database_url="sqlite+pysqlite:///:memory:",
         omr_engine="homr",
         omr_use_gpu=True,
+        auth_secret_key="test-secret-key",
     )
     app = create_default_app(settings)
     client = TestClient(app)

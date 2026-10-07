@@ -1,11 +1,13 @@
-"""Pruebas de la configuración tipada con pydantic-settings y factories (ADR-0005, #8)."""
+"""Pruebas de la configuración tipada con pydantic-settings y factories (ADR-0005, #8, #44)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cadenza.api import Settings, create_default_app
+import pytest
+from cadenza.api import Settings, create_app, create_default_app
 from cadenza.omr import FakeOMREngine, HOMREngine
+from cadenza.persistence import create_memory_engine, create_session_factory
 
 
 def test_default_settings() -> None:
@@ -14,29 +16,38 @@ def test_default_settings() -> None:
     assert settings.omr_engine == "fake"
     assert settings.omr_use_gpu is False
     assert settings.artifacts_dir == Path("./data/artifacts")
+    assert settings.auth_secret_key == ""
+    assert settings.auth_token_expire_minutes == 30
 
 
-def test_settings_from_env(monkeypatch: object) -> None:
-    import pytest
-
-    mp = pytest.MonkeyPatch()
-    mp.setenv("CADENZA_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-    mp.setenv("CADENZA_OMR_ENGINE", "homr")
-    mp.setenv("CADENZA_OMR_USE_GPU", "true")
-    mp.setenv("CADENZA_ARTIFACTS_DIR", "/custom/artifacts")
+def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CADENZA_DATABASE_URL", "sqlite+pysqlite:///:memory:")
+    monkeypatch.setenv("CADENZA_OMR_ENGINE", "homr")
+    monkeypatch.setenv("CADENZA_OMR_USE_GPU", "true")
+    monkeypatch.setenv("CADENZA_ARTIFACTS_DIR", "/custom/artifacts")
+    monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", "super-secret-from-env")
+    monkeypatch.setenv("CADENZA_AUTH_TOKEN_EXPIRE_MINUTES", "45")
 
     settings = Settings()
     assert settings.database_url == "sqlite+pysqlite:///:memory:"
     assert settings.omr_engine == "homr"
     assert settings.omr_use_gpu is True
     assert settings.artifacts_dir == Path("/custom/artifacts")
-    mp.undo()
+    assert settings.auth_secret_key == "super-secret-from-env"
+    assert settings.auth_token_expire_minutes == 45
+
+
+def test_create_app_fails_without_auth_secret_key() -> None:
+    engine = create_memory_engine()
+    with pytest.raises(RuntimeError, match="CADENZA_AUTH_SECRET_KEY no configurada"):
+        create_app(create_session_factory(engine), settings=Settings(auth_secret_key=""))
 
 
 def test_create_default_app_with_fake_engine() -> None:
     settings = Settings(
         database_url="sqlite+pysqlite:///:memory:",
         omr_engine="fake",
+        auth_secret_key="test-key-fake",
     )
     app = create_default_app(settings)
     assert isinstance(app.state.omr_engine, FakeOMREngine)
@@ -48,6 +59,7 @@ def test_create_default_app_with_homr_engine() -> None:
         database_url="sqlite+pysqlite:///:memory:",
         omr_engine="homr",
         omr_use_gpu=False,
+        auth_secret_key="test-key-homr",
     )
     app = create_default_app(settings)
     assert isinstance(app.state.omr_engine, HOMREngine)

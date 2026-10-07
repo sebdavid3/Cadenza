@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from .main import create_app, create_default_app
+from .main import CurrentUserDep, create_app, create_default_app, get_current_user
+from .security import Argon2PasswordHasher, JwtTokenService
 from .settings import Settings
 
-__all__ = ["Settings", "create_app", "create_default_app"]
+__all__ = [
+    "Argon2PasswordHasher",
+    "CurrentUserDep",
+    "JwtTokenService",
+    "Settings",
+    "create_app",
+    "create_default_app",
+    "get_current_user",
+]

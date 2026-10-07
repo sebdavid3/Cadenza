@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from cadenza.api import create_app
+from cadenza.api import Settings, create_app
 from cadenza.domain import ScoreDocument, build_anchor_index
 from cadenza.omr import FakeOMREngine, OMREngine
 from cadenza.persistence import create_memory_engine, create_schema, create_session_factory
@@ -49,7 +49,11 @@ class _UnbalancedEngine(OMREngine):
 def _client(omr_engine: OMREngine | None = None) -> TestClient:
     engine = create_memory_engine()
     create_schema(engine)
-    app = create_app(create_session_factory(engine), omr_engine=omr_engine)
+    app = create_app(
+        create_session_factory(engine),
+        omr_engine=omr_engine,
+        settings=Settings(auth_secret_key="test-secret-key"),
+    )
     return TestClient(app)
 
 

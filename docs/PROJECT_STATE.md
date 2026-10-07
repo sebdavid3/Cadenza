@@ -7,8 +7,8 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
-| **Último hito completado** | Persistencia de usuarios y propiedad de sesiones ([#43](https://github.com/sebdavid3/Cadenza/issues/43)): tabla `users`, entidad y puerto `UserRepository`, `SqlAlchemyUserRepository`, `owner_id` en `sessions` con migración `0005_users_and_session_owner` y filtrado por propietario con 171 tests verdes |
-| **Próximo paso inmediato** | Issue #44 (Autenticación: servicio de tokens JWT y hash de contraseñas con Argon2id) |
+| **Último hito completado** | Inicio de sesión con token de acceso JWT y Argon2id ([#44](https://github.com/sebdavid3/Cadenza/issues/44)): puertos `PasswordHasher` y `TokenService`, adaptadores Argon2id y JWT, caso de uso `authenticate`, endpoints `/auth/login` y `/auth/me`, dependencia `get_current_user` y clave obligatoria con 190 tests verdes |
+| **Próximo paso inmediato** | Issue #45 con #47 (Usuario actual, sesiones privadas y autoría fijada por el servidor, e inicio de sesión en el visor web) |
 | **Rama activa** | `dev` |
 | **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D10–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D47 (D3, D5 y D26 resueltas; D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
@@ -178,6 +178,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Esquema relacional de `sessions` y `findings` ampliado ([#5](https://github.com/sebdavid3/Cadenza/issues/5)): `image_artifact` (FK a `artifacts`), `model_version` y `status` en `sessions`; `at_seq` en `findings`; migración Alembic `0004_sessions_findings_schema` con `batch_alter_table` y relleno por defecto; puertos, adaptadores, endpoints y 157 tests verdes | Fase 7 / Persistencia | `packages/persistence/`, `packages/application/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Configuración tipada y motor OMR seleccionable en la API ([#8](https://github.com/sebdavid3/Cadenza/issues/8)): `Settings` (`pydantic-settings`), motor `fake` / `homr` (GPU/CPU), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) con 166 tests verdes | Fase 7 / API | `apps/api/`, `packages/omr/`, `packages/domain/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Persistencia de usuarios y propiedad de las sesiones ([#43](https://github.com/sebdavid3/Cadenza/issues/43)): tabla `users`, entidad y puerto `UserRepository`, `SqlAlchemyUserRepository`, `owner_id` en `sessions` con FK y migración Alembic `0005_users_and_session_owner` con relleno por defecto; filtrado por propietario en repositorio y 171 tests verdes | Fase 7 / Persistencia | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Inicio de sesión con token de acceso JWT y Argon2id ([#44](https://github.com/sebdavid3/Cadenza/issues/44)): puertos `PasswordHasher` y `TokenService` con adaptadores Argon2id y JWT, caso de uso `authenticate`, endpoints `/auth/login` y `/auth/me`, dependencia `get_current_user` y clave de firma obligatoria con 190 tests verdes | Fase 7 / API | `apps/api/`, `packages/application/`, `docs/ARCHITECTURE.md` |
 
 ---
 
