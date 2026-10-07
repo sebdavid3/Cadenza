@@ -41,3 +41,9 @@ class Settings(BaseSettings):
         default=30,
         description="Tiempo de validez de los tokens de acceso en minutos (ADR-0012).",
     )
+    max_upload_size_bytes: int = Field(
+        default=20 * 1024 * 1024,
+        description=(
+            "Tamaño máximo permitido para la subida de imágenes en bytes " "(20 MB por defecto)."
+        ),
+    )

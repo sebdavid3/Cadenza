@@ -81,6 +81,12 @@ class FilesystemArtifactStore(ArtifactStore):
     def exists(self, sha256: str) -> bool:
         return self._absolute_path(sha256).is_file()
 
+    def get_media_type(self, sha256: str) -> str | None:
+        record = self.get_record(sha256)
+        if record is not None and record.media_type:
+            return record.media_type
+        return None
+
     def get_record(self, sha256: str) -> ArtifactRecord | None:
         """Consulta el registro relacional en base de datos si la sesión está conectada."""
         if self._session is None:

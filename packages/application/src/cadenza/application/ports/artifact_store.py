@@ -13,6 +13,40 @@ def compute_sha256(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def is_image_content(content: bytes) -> bool:
+    """Verifica si el contenido binario corresponde a una firma de imagen válida."""
+    if len(content) < 4:
+        return False
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return True
+    if content.startswith(b"\xff\xd8\xff"):
+        return True
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return True
+    if content.startswith(b"BM"):
+        return True
+    if content.startswith((b"II*\x00", b"MM\x00*")):
+        return True
+    return bool(content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP")
+
+
+def detect_image_media_type(content: bytes) -> str:
+    """Detecta el tipo MIME de una imagen a partir de sus magic bytes."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if content.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if content.startswith(b"BM"):
+        return "image/bmp"
+    if content.startswith((b"II*\x00", b"MM\x00*")):
+        return "image/tiff"
+    if content.startswith(b"RIFF") and len(content) >= 12 and content[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
 class ArtifactStore(ABC):
     """Puerto para almacenamiento de binarios direccionados por hash sha256."""
 
@@ -33,6 +67,10 @@ class ArtifactStore(ABC):
     @abstractmethod
     def exists(self, sha256: str) -> bool:
         """Indica si el artefacto con el sha256 dado existe en el almacén."""
+
+    def get_media_type(self, sha256: str) -> str | None:
+        """Recupera el tipo MIME registrado para el artefacto, o None si no se conoce."""
+        return None
 
 
 class InMemoryArtifactStore(ArtifactStore):
@@ -58,3 +96,6 @@ class InMemoryArtifactStore(ArtifactStore):
 
     def exists(self, sha256: str) -> bool:
         return sha256 in self._storage
+
+    def get_media_type(self, sha256: str) -> str | None:
+        return self._media_types.get(sha256)
