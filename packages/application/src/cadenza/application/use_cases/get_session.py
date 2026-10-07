@@ -9,7 +9,6 @@ from typing import Any
 from cadenza.domain import (
     EditEvent,
     ScoreIR,
-    UnsupportedEditOpError,
     materialize,
 )
 
@@ -36,15 +35,14 @@ class SessionDetail:
 
 
 def _project(document: dict[str, Any], edits: Sequence[EditEvent]) -> dict[str, Any] | None:
-    """Materializa el `ScoreIR` actual aplicando el log de ediciones; None si no es proyectable."""
+    """Materializa el `ScoreIR` actual aplicando el log de ediciones.
 
+    Con el log validado al insertar (#10), no se silencian errores de proyección.
+    """
     if not edits:
         return None
-    try:
-        score = ScoreIR.from_primitive(document["score"])
-        return materialize(score, edits).to_primitive()
-    except (UnsupportedEditOpError, KeyError, IndexError, ValueError):
-        return None
+    score = ScoreIR.from_primitive(document["score"])
+    return materialize(score, edits).to_primitive()
 
 
 def get_session(

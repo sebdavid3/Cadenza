@@ -1,18 +1,149 @@
-"""Caso de uso: añadir edición al log append-only (ADR-0007, ADR-0009, ADR-0012, #45)."""
+"""Caso de uso: añadir edición al log append-only (ADR-0007, ADR-0009, ADR-0011, ADR-0012, #10)."""
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from fractions import Fraction
 from typing import Any
 
-from cadenza.domain import Anchor, EditEvent, EditOp
+from cadenza.domain import (
+    Anchor,
+    Clef,
+    EditEvent,
+    EditOp,
+    KeySignature,
+    ScoreIR,
+    UnsupportedEditOpError,
+    apply_edit,
+    materialize,
+)
 
-from ..exceptions import Forbidden, SessionNotFound
+from ..exceptions import Forbidden, InvalidEdit, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import SessionRepository
 from ..user import Role, User
+
+
+def _extract_clef(payload: Mapping[str, Any] | None) -> Clef | None:
+    if payload is None:
+        return None
+    raw = payload.get("clef") if "clef" in payload else payload
+    if raw is None:
+        return None
+    if isinstance(raw, Clef):
+        return raw
+    if isinstance(raw, Mapping):
+        return Clef.from_primitive(raw)
+    if isinstance(raw, str):
+        name = raw.strip().lower()
+        if name in ("treble", "sol", "g"):
+            return Clef.treble()
+        if name in ("bass", "fa", "f"):
+            return Clef.bass()
+        if name in ("alto", "do3", "c3"):
+            return Clef.alto()
+        if name in ("tenor", "do4", "c4"):
+            return Clef.tenor()
+        return Clef(sign=raw.strip().upper())
+    return None
+
+
+def _extract_key_signature(payload: Mapping[str, Any] | None) -> KeySignature | None:
+    if payload is None:
+        return None
+    raw = payload.get("key_signature") or payload.get("key") or payload
+    if raw is None:
+        return None
+    if isinstance(raw, KeySignature):
+        return raw
+    if isinstance(raw, Mapping):
+        return KeySignature.from_primitive(raw)
+    if isinstance(raw, int):
+        return KeySignature(fifths=raw)
+    return None
+
+
+def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
+    if not edit.before:
+        return
+
+    anchor = edit.anchor
+    if anchor.part >= len(score.parts):
+        raise InvalidEdit(f"Parte fuera de rango: {anchor.part}")
+    part = score.parts[anchor.part]
+
+    if anchor.staff >= len(part.staves):
+        raise InvalidEdit(f"Pentagrama fuera de rango: {anchor.staff}")
+    staff = part.staves[anchor.staff]
+
+    measure = next((m for m in staff.measures if m.number == anchor.measure), None)
+    if measure is None:
+        raise InvalidEdit(f"Compás inexistente: {anchor.measure}")
+
+    if edit.op is EditOp.SET_CLEF:
+        expected_clef = _extract_clef(edit.before)
+        if measure.clef != expected_clef:
+            raise InvalidEdit(
+                f"Estado previo 'before' de clave no coincide: "
+                f"esperado '{measure.clef}', recibido '{expected_clef}'"
+            )
+        return
+
+    if edit.op is EditOp.SET_KEY:
+        expected_key = _extract_key_signature(edit.before)
+        if measure.key_signature != expected_key:
+            raise InvalidEdit(
+                f"Estado previo 'before' de armadura no coincide: "
+                f"esperado '{measure.key_signature}', recibido '{expected_key}'"
+            )
+        return
+
+    if edit.op is EditOp.INSERT_EVENT:
+        return
+
+    voice_events = [e for e in measure.events if e.voice == anchor.voice]
+    if anchor.event_index >= len(voice_events):
+        raise InvalidEdit(
+            f"Ancla apunta a un evento inexistente en el compás {measure.number}: "
+            f"índice {anchor.event_index} (total {len(voice_events)})"
+        )
+    target = voice_events[anchor.event_index]
+    before_map = dict(edit.before)
+
+    if "pitch" in before_map and before_map["pitch"] != target.pitch:
+        raise InvalidEdit(
+            f"Estado previo 'before' de pitch no coincide: "
+            f"esperado '{target.pitch}', recibido '{before_map['pitch']}'"
+        )
+
+    if "duration_beats" in before_map:
+        raw_dur = before_map["duration_beats"]
+        expected_dur = Fraction(str(raw_dur)) if raw_dur is not None else None
+        if target.duration_beats != expected_dur:
+            raise InvalidEdit(
+                f"Estado previo 'before' de duration_beats no coincide: "
+                f"esperado {target.duration_beats}, recibido {expected_dur}"
+            )
+
+    if "kind" in before_map:
+        raw_kind = str(before_map["kind"])
+        actual_kind = target.kind.value if hasattr(target.kind, "value") else str(target.kind)
+        if actual_kind != raw_kind:
+            raise InvalidEdit(
+                f"Estado previo 'before' de kind no coincide: "
+                f"esperado '{actual_kind}', recibido '{raw_kind}'"
+            )
+
+    if "tie" in before_map:
+        raw_tie = str(before_map["tie"]) if before_map["tie"] is not None else None
+        actual_tie = target.tie.value if target.tie is not None else None
+        if actual_tie != raw_tie:
+            raise InvalidEdit(
+                f"Estado previo 'before' de tie no coincide: "
+                f"esperado '{actual_tie}', recibido '{raw_tie}'"
+            )
 
 
 def append_edit(
@@ -32,8 +163,7 @@ def append_edit(
     """Añade un nuevo evento inmutable al log de la sesión verificando su existencia y propiedad.
 
     La autoría la fija el servidor a partir del usuario actual (ADR-0012).
-    Un transcriptor solo edita sus sesiones (las ajenas se reportan como SessionNotFound).
-    Un investigador solo edita sus propias sesiones (las ajenas lanzan Forbidden).
+    Aplica y valida la edición sobre el estado materializado actual antes de persistir (#10).
     """
 
     session_data = session_repository.get(session_id)
@@ -45,6 +175,11 @@ def append_edit(
 
     if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
         raise Forbidden("Un investigador solo puede editar sus propias sesiones")
+
+    # 1. Reconstruir estado materializado previo a la edición
+    raw_score = ScoreIR.from_primitive(session_data.document["score"])
+    existing_edits = edit_repository.list_events(session_id)
+    current_score = materialize(raw_score, existing_edits)
 
     seq = edit_repository.next_seq(session_id)
     effective_author = author or current_user.username
@@ -61,4 +196,14 @@ def append_edit(
         after=after,
     )
 
+    # 2. Validar que 'before' coincida con el elemento al que apunta el ancla (#10)
+    _validate_before(current_score, edit)
+
+    # 3. Validar que la edición sea aplicable sobre el estado actual (#10)
+    try:
+        apply_edit(current_score, edit)
+    except (IndexError, ValueError, UnsupportedEditOpError) as exc:
+        raise InvalidEdit(f"Edición no aplicable sobre el estado actual: {exc}") from exc
+
+    # 4. Persistir la edición en el log append-only
     return edit_repository.append(session_id, edit)

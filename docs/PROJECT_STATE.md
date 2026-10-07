@@ -7,12 +7,13 @@
 | Campo | Valor |
 |---|---|
 | **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 3: API completa y PostgreSQL) |
-| **Último hito completado** | Persistencia de imagen en `ArtifactStore`, deduplicación por SHA-256, validación 413/415 y endpoint `GET /sessions/{id}/image` ([#9](https://github.com/sebdavid3/Cadenza/issues/9)) con control de acceso ADR-0012 y 225 tests verdes |
-| **Próximo paso inmediato** | Issue #10 (Validación de ediciones antes de añadirlas al log) |
+| **Último hito completado** | Validación de ediciones antes del log y control de conflictos 409 ([#10](https://github.com/sebdavid3/Cadenza/issues/10)): validación en `append_edit` contra estado materializado actual, verificación estricta de `before` (422), captura de colisiones de secuencia (409) y proyección no silenciada en `get_session` con 235 tests verdes |
+| **Próximo paso inmediato** | Issue #48 (Estado actual de la sesión (`seq` e índice de anclas) y ediciones con `base_seq`) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D11–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D24, D26 y D47 resueltas; D10, D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D11–D14, D16–D19, D21, D28–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D24, D26, D27 y D47 resueltas; D10, D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
+
 
 
 ---
@@ -81,7 +82,8 @@ Reglas:
 
 | D25 | Esquema relacional incompleto frente a `ARCHITECTURE.md` §7.2 (`sessions` sin imagen ni versión de modelo, `findings` sin `at_seq`, sin `artifacts`/`effort_metrics`/`model_versions`) | Fase 7 | **Parcial** — `sessions` con `image_artifact` (FK a `artifacts`), `model_version` y `status`, `findings` con `at_seq` (migración `0004`, [#5](https://github.com/sebdavid3/Cadenza/issues/5)); pendientes métricas de esfuerzo ([#13](https://github.com/sebdavid3/Cadenza/issues/13)) y model versions ([#21](https://github.com/sebdavid3/Cadenza/issues/21)) |
 | D26 | La API usa siempre `FakeOMREngine`: el motor real no está conectado al plano online | Fase 7 / M1 | **Resuelta** — `create_default_app` conecta `HOMREngine` (in-process, CPU/GPU) vía `Settings` tipada con ejecución asíncrona fuera del bucle de eventos ([#8](https://github.com/sebdavid3/Cadenza/issues/8)) |
-| D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | Pendiente |
+| D27 | `POST /sessions/{id}/edits` no valida la edición: una edición no proyectable anula `current_score` de forma permanente | Fase 7 / M3 | **Resuelta** — `append_edit` aplica `apply_edit` en memoria sobre el estado materializado antes de persistir, valida `before` (422), captura colisión de `seq` como `SequenceConflict` (409) y `get_session` no silencia errores de proyección ([#10](https://github.com/sebdavid3/Cadenza/issues/10)) |
+
 | D28 | Los hallazgos se calculan solo al transcribir; no hay revalidación tras las correcciones | Fase 7 / M2 | Pendiente |
 | D29 | Sin exportación MIDI ni endpoint de exportación (solo `score_ir_to_musicxml`) | Fase 7 | Pendiente |
 | D30 | `ModelRegistry` solo en memoria; el plano online no consulta la versión activa | Fase 7 / M4 | Pendiente |
@@ -184,6 +186,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Usuario actual, sesiones privadas y visor web autenticado ([#45](https://github.com/sebdavid3/Cadenza/issues/45), [#47](https://github.com/sebdavid3/Cadenza/issues/47)): autorización por propietario en casos de uso (`transcribe_score`, `get_session`, `list_findings`, `append_edit`), autor fijado por el servidor, remoción de `author` en cliente, login en React con token en `sessionStorage`, cabecera `Authorization: Bearer`, manejo de 401 y logout con 193 tests de backend y 12 tests de frontend verdes | Fase 7 / API + Web | `packages/application/`, `apps/api/`, `apps/web/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Gestión de cuentas y autenticación completa ([#46](https://github.com/sebdavid3/Cadenza/issues/46), [#39](https://github.com/sebdavid3/Cadenza/issues/39)): casos de uso `create_user`, `update_user`, `change_password`, `list_users`, endpoints `/users`, `/users/{id}`, `/auth/password`, CLI `create-investigator`, control de rol de investigador, validación de contraseñas de al menos 8 caracteres y 217 tests verdes; cierra el issue paraguas #39 y concluye la Etapa 2 de la Fase 7 | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Persistencia de imagen y endpoint `GET /sessions/{id}/image` ([#9](https://github.com/sebdavid3/Cadenza/issues/9)): persistencia de imagen en `ArtifactStore` con deduplicación por SHA-256, sincronización de `Provenance.source_image_hash`, endpoint `GET /sessions/{id}/image` con control de acceso ADR-0012, validación de tipo de archivo (HTTP 415 para no-imágenes/PDF) y tamaño máximo configurable (HTTP 413) con 225 tests verdes | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Validación de ediciones antes de añadirlas al log ([#10](https://github.com/sebdavid3/Cadenza/issues/10)): validación en `append_edit` contra el estado materializado actual, verificación estricta de `before` (HTTP 422), detección de colisiones de secuencia (HTTP 409), eliminación del enmascaramiento silencioso en `get_session` y 235 tests verdes | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 
 
 ---

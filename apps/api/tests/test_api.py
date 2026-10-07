@@ -123,14 +123,20 @@ def test_findings_for_unknown_session_returns_404(client: TestClient) -> None:
 
 def test_append_edit_is_immutable_append_only(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
-    payload = {
+    payload_first = {
         "op": "SetPitch",
         "anchor": ANCHOR,
         "before": {"pitch": "C4"},
         "after": {"pitch": "D4"},
     }
-    first = client.post(f"/sessions/{session_id}/edits", json=payload)
-    second = client.post(f"/sessions/{session_id}/edits", json=payload)
+    payload_second = {
+        "op": "SetPitch",
+        "anchor": ANCHOR,
+        "before": {"pitch": "D4"},
+        "after": {"pitch": "E4"},
+    }
+    first = client.post(f"/sessions/{session_id}/edits", json=payload_first)
+    second = client.post(f"/sessions/{session_id}/edits", json=payload_second)
     assert first.status_code == 201
     assert second.status_code == 201
     assert first.json()["seq"] == 1

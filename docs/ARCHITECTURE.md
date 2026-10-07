@@ -804,7 +804,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | El cliente conoce el estado sobre el que trabaja y las ediciones declaran su `base_seq` (ADR-0011) | No se expone el `seq` ni el índice de anclas del estado actual; el servidor asigna el `seq` sin comprobar el estado de partida | [#48](https://github.com/sebdavid3/Cadenza/issues/48) |
 | API | Listado de sesiones | Solo se puede leer una sesión conociendo su `id` | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
 | API | Motor OMR elegido por configuración | Implementado: configuración tipada con `pydantic-settings` (`Settings`), motor seleccionable (`fake` o `homr`), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
-| API | Ninguna edición inválida entra al log | No se valida; una edición inválida anula la proyección | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
+| API | Ninguna edición inválida entra al log | Implementado: validación previa contra el estado materializado actual (`before` verificado, 422), captura de colisiones de secuencia (409) y proyección limpia sin enmascarar errores | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
 | API | Revalidación tras las correcciones | Los hallazgos se calculan una vez, al transcribir | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
 | API | Exportación MusicXML y MIDI | Existe `score_ir_to_musicxml`; no hay MIDI ni endpoint | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
 | API | Ciclo de vida de la sesión con cierre explícito | No se puede marcar una sesión como terminada | [#34](https://github.com/sebdavid3/Cadenza/issues/34) |

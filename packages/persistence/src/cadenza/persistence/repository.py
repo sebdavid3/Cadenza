@@ -5,9 +5,10 @@ aplicación; `SqlAlchemyEditEventRepository` es una implementación intercambiab
 (SQLite/PostgreSQL) que nunca expone el ORM hacia afuera.
 """
 
-from cadenza.application import EditEventRepository
+from cadenza.application import EditEventRepository, SequenceConflict
 from cadenza.domain import Anchor, EditEvent, EditOp
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from .models import EditEventRecord
@@ -42,8 +43,19 @@ class SqlAlchemyEditEventRepository(EditEventRepository):
             after=None if edit.after is None else dict(edit.after),
             created_at=edit.created_at,
         )
-        self._session.add(row)
-        self._session.flush()
+        try:
+            self._session.add(row)
+            self._session.flush()
+        except IntegrityError as exc:
+            self._session.rollback()
+            raise SequenceConflict(
+                expected_seq=edit.seq,
+                actual_seq=edit.seq,
+                message=(
+                    f"Conflicto de secuencia al registrar la edición con seq={edit.seq} "
+                    f"en la sesión '{session_id}'."
+                ),
+            ) from exc
         return edit
 
     def list_events(self, session_id: str) -> tuple[EditEvent, ...]:
