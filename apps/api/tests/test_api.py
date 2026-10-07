@@ -168,3 +168,27 @@ def test_transcribe_records_rules_version(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
     detail = client.get(f"/sessions/{session_id}").json()
     assert detail["document"]["provenance"]["rules_version"] == "measure.balance"
+
+
+def test_application_exception_handlers(client: TestClient) -> None:
+    from cadenza.application import InvalidEdit, SequenceConflict
+    from fastapi import FastAPI
+
+    app = client.app
+    assert isinstance(app, FastAPI)
+
+    @app.get("/test-invalid-edit-error")
+    def _raise_invalid() -> None:
+        raise InvalidEdit("edición no proyectable")
+
+    @app.get("/test-sequence-conflict-error")
+    def _raise_conflict() -> None:
+        raise SequenceConflict(expected_seq=2, actual_seq=1)
+
+    r_invalid = client.get("/test-invalid-edit-error")
+    assert r_invalid.status_code == 422
+    assert r_invalid.json()["detail"] == "edición no proyectable"
+
+    r_conflict = client.get("/test-sequence-conflict-error")
+    assert r_conflict.status_code == 409
+    assert "Conflicto de secuencia" in r_conflict.json()["detail"]

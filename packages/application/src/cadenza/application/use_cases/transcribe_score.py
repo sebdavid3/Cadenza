@@ -1,0 +1,57 @@
+"""Caso de uso: transcribir partitura con OMR y validación inicial (ADR-0009)."""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, replace
+from pathlib import Path
+
+from cadenza.omr import OMREngine
+from cadenza.validation import ValidationEngine
+
+from ..ports.session_repository import SessionData, SessionRepository
+
+
+@dataclass(frozen=True)
+class TranscribeResult:
+    """Resultado de la transcripción y validación inicial."""
+
+    session_id: str
+    document_id: str
+    omr_engine: str
+    findings_count: int
+
+
+def transcribe_score(
+    image_path: Path,
+    *,
+    omr_engine: OMREngine,
+    validator: ValidationEngine,
+    session_repository: SessionRepository,
+    session_id: str | None = None,
+) -> TranscribeResult:
+    """Ejecuta el pipeline de transcripción OMR, evalúa reglas y persiste la sesión."""
+
+    document = omr_engine.transcribe(image_path)
+    findings = validator.validate(document)
+    document = replace(
+        document,
+        provenance=replace(document.provenance, rules_version=validator.rules_version),
+    )
+
+    actual_session_id = session_id or str(uuid.uuid4())
+    session_data = SessionData(
+        id=actual_session_id,
+        document_id=document.id,
+        omr_engine=document.provenance.omr_engine,
+        document=document.to_primitive(),
+    )
+
+    session_repository.add(session_data, findings)
+
+    return TranscribeResult(
+        session_id=actual_session_id,
+        document_id=document.id,
+        omr_engine=document.provenance.omr_engine,
+        findings_count=len(findings),
+    )

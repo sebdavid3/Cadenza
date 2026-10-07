@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from cadenza.application import PersistedFinding
 from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
@@ -64,6 +65,17 @@ class FindingRead(BaseModel):
             message=record.message,
             suggested_fix=record.suggested_fix,
             anchor=record.anchor,
+        )
+
+    @classmethod
+    def from_persisted(cls, finding: PersistedFinding) -> FindingRead:
+        return cls(
+            id=finding.id,
+            rule_id=finding.rule_id,
+            severity=finding.severity,
+            message=finding.message,
+            suggested_fix=finding.suggested_fix,
+            anchor=finding.anchor,
         )
 
 

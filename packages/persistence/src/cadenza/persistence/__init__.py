@@ -12,6 +12,7 @@ from .database import (
 )
 from .models import Base, EditEventRecord, FindingRecord, ImmutableEditEventError, Session
 from .repository import EditEventRepository, SqlAlchemyEditEventRepository
+from .session_repository import SqlAlchemySessionRepository
 
 __all__ = [
     "Base",
@@ -22,6 +23,7 @@ __all__ = [
     "Session",
     "SessionFactory",
     "SqlAlchemyEditEventRepository",
+    "SqlAlchemySessionRepository",
     "create_engine_for_url",
     "create_memory_engine",
     "create_schema",
