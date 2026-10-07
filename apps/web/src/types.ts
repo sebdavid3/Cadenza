@@ -107,9 +107,23 @@ export interface EditEvent {
 export interface EditEventCreate {
   op: string;
   anchor: Anchor;
-  author: string;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+}
+
+export type UserRole = "transcriptor" | "investigador";
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  role: UserRole;
+  active: boolean;
+  created_at: string;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
 }
 
 export interface TranscribeResponse {

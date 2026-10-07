@@ -6,9 +6,15 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
+from cadenza.application import Role, User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import HOMREngine, OMREngine, OMRTranscriptionError
-from cadenza.persistence import create_memory_engine, create_schema, create_session_factory
+from cadenza.persistence import (
+    SqlAlchemyUserRepository,
+    create_memory_engine,
+    create_schema,
+    create_session_factory,
+)
 from fastapi.testclient import TestClient
 
 
@@ -38,12 +44,29 @@ class _FailingOMREngine(OMREngine):
 def _client_with_engine(engine: OMREngine) -> TestClient:
     db_engine = create_memory_engine()
     create_schema(db_engine)
+    session_factory = create_session_factory(db_engine)
+    with session_factory() as db:
+        user_repo = SqlAlchemyUserRepository(db)
+        user_repo.add(
+            User(
+                id="test-user",
+                username="tester",
+                password_hash="test-pass",
+                role=Role.INVESTIGADOR,
+                active=True,
+            )
+        )
+        db.commit()
+
     app = create_app(
-        create_session_factory(db_engine),
+        session_factory,
         omr_engine=engine,
-        settings=Settings(auth_secret_key="test-secret-key"),
+        settings=Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long"),
     )
-    return TestClient(app)
+    token = app.state.token_service.create_access_token(user_id="test-user", role=Role.INVESTIGADOR)
+    client = TestClient(app)
+    client.headers["Authorization"] = f"Bearer {token}"
+    return client
 
 
 def test_omr_transcription_error_returns_422() -> None:
@@ -109,10 +132,27 @@ def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPat
         database_url="sqlite+pysqlite:///:memory:",
         omr_engine="homr",
         omr_use_gpu=True,
-        auth_secret_key="test-secret-key",
+        auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long",
     )
     app = create_default_app(settings)
+    with app.state.session_factory() as db:
+        user_repo = SqlAlchemyUserRepository(db)
+        user_repo.add(
+            User(
+                id="homr-tester",
+                username="homr_user",
+                password_hash="test-pass",
+                role=Role.INVESTIGADOR,
+                active=True,
+            )
+        )
+        db.commit()
+
+    token = app.state.token_service.create_access_token(
+        user_id="homr-tester", role=Role.INVESTIGADOR
+    )
     client = TestClient(app)
+    client.headers["Authorization"] = f"Bearer {token}"
 
     upload = {"file": ("score.png", b"\x89PNG\r\n\x1a\n", "image/png")}
     response = client.post("/transcribe", files=upload)

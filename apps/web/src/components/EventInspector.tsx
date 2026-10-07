@@ -10,7 +10,6 @@ export function EventInspector() {
   const history = useEditorStore((state) => state.history);
   const cursor = useEditorStore((state) => state.cursor);
   const author = useEditorStore((state) => state.author);
-  const setAuthor = useEditorStore((state) => state.setAuthor);
   const recordEdit = useEditorStore((state) => state.recordEdit);
   const [pitch, setPitch] = useState("");
   const [busy, setBusy] = useState(false);
@@ -33,7 +32,6 @@ export function EventInspector() {
       const edit = await appendEdit(sessionId, {
         op: "SetPitch",
         anchor: selected,
-        author,
         before: currentPitch ? { pitch: currentPitch } : null,
         after: { pitch },
       });
@@ -62,6 +60,8 @@ export function EventInspector() {
         <dd>{info?.kind ?? "—"}</dd>
         <dt>Duración</dt>
         <dd>{info?.duration ?? "—"}</dd>
+        <dt>Autor</dt>
+        <dd>{author}</dd>
       </dl>
       <label>
         Altura
@@ -70,10 +70,6 @@ export function EventInspector() {
           placeholder="p. ej. C4"
           onChange={(event) => setPitch(event.target.value)}
         />
-      </label>
-      <label>
-        Autor
-        <input value={author} onChange={(event) => setAuthor(event.target.value)} />
       </label>
       <button
         type="button"

@@ -12,6 +12,7 @@ export default defineConfig({
     proxy: {
       "/transcribe": { target: backendTarget, changeOrigin: true },
       "/sessions": { target: backendTarget, changeOrigin: true },
+      "/auth": { target: backendTarget, changeOrigin: true },
       "/health": { target: backendTarget, changeOrigin: true },
     },
   },
