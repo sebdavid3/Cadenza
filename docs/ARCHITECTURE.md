@@ -794,7 +794,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 |---|---|---|---|
 | Aplicación | Casos de uso en `packages/application` | Implementado: `packages/application` con `transcribe_score`, `get_session`, `append_edit`, `list_findings`, puertos `SessionRepository` y `EditEventRepository` | [#7](https://github.com/sebdavid3/Cadenza/issues/7) |
 | Dominio | `ScoreIR` con clave, armadura y ligaduras | Implementado: `Clef`, `KeySignature` y `Tie` en `ScoreIR` (ADR-0010), round-trip en `packages/interchange` | [#2](https://github.com/sebdavid3/Cadenza/issues/2) |
-| Dominio | Las siete operaciones de edición son proyectables | `SetClef`/`SetKey` no se proyectan; `SetAccidental` equivale a `SetPitch` | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
+| Dominio | Las siete operaciones de edición son proyectables | Implementado: proyección determinista de las siete operaciones de `EditOp` (incluyendo `SetClef`, `SetKey` y semántica propia de `SetAccidental`) | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
 | Datos | `ArtifactStore` direccionado por `sha256` | Implementado: puerto `ArtifactStore`, adaptador `FilesystemArtifactStore` (`sha256/ab/cd/<hash>`) y tabla `artifacts` (migración `0003`) | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
 | Datos | Esquema de la sección 7.2 | Solo `sessions`, `findings` y `edit_events`, sin `at_seq` ni referencia a la imagen | [#5](https://github.com/sebdavid3/Cadenza/issues/5) |
 | Datos | PostgreSQL como base de producción | Verificado solo en SQLite | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
