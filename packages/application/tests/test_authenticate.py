@@ -13,6 +13,9 @@ from cadenza.application import (
     authenticate,
 )
 
+TEST_PASS_ALICE = "valid-alice-pass"
+TEST_PASS_BOB = "valid-bob-pass"
+
 
 @pytest.fixture
 def user_repo() -> InMemoryUserRepository:
@@ -23,7 +26,7 @@ def user_repo() -> InMemoryUserRepository:
         User(
             id="usr-1",
             username="alice",
-            password_hash=hasher.hash("secret123"),
+            password_hash=hasher.hash(TEST_PASS_ALICE),
             role=Role.TRANSCRIPTOR,
             active=True,
         )
@@ -33,7 +36,7 @@ def user_repo() -> InMemoryUserRepository:
         User(
             id="usr-2",
             username="bob",
-            password_hash=hasher.hash("secret456"),
+            password_hash=hasher.hash(TEST_PASS_BOB),
             role=Role.INVESTIGADOR,
             active=False,
         )
@@ -52,7 +55,7 @@ def test_authenticate_success(
 ) -> None:
     user = authenticate(
         "alice",
-        "secret123",
+        TEST_PASS_ALICE,
         user_repository=user_repo,
         password_hasher=password_hasher,
     )
@@ -96,7 +99,7 @@ def test_authenticate_inactive_user_raises_not_authenticated(
     with pytest.raises(NotAuthenticated) as exc_info:
         authenticate(
             "bob",
-            "secret456",
+            TEST_PASS_BOB,
             user_repository=user_repo,
             password_hasher=password_hasher,
         )

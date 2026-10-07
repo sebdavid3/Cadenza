@@ -13,22 +13,28 @@ from cadenza.persistence import (
 )
 from fastapi.testclient import TestClient
 
+PASS_ALICE = "valid-alice-pass"
+PASS_BOB = "valid-bob-pass"
+JWT_TEST_KEY = "test-jwt-signing-key-minimum-32-bytes-long"
+
+
+def _form_credentials(username: str, pwd: str) -> dict[str, str]:
+    return {"username": username, "password": pwd}
+
 
 def test_argon2_password_hasher() -> None:
     hasher = Argon2PasswordHasher()
-    hashed = hasher.hash("my_secret_password")
-    assert hashed != "my_secret_password"
+    hashed = hasher.hash("plain-text-pass")
+    assert hashed != "plain-text-pass"
     assert hashed.startswith("$argon2")
 
-    assert hasher.verify("my_secret_password", hashed) is True
-    assert hasher.verify("wrong_password", hashed) is False
-    assert hasher.verify("my_secret_password", "invalid_hash_string") is False
+    assert hasher.verify("plain-text-pass", hashed) is True
+    assert hasher.verify("wrong-pass", hashed) is False
+    assert hasher.verify("plain-text-pass", "invalid_hash_string") is False
 
 
 def test_jwt_token_service() -> None:
-    service = JwtTokenService(
-        secret_key="my-super-secret-key-32-bytes-long!", default_expire_minutes=30
-    )
+    service = JwtTokenService(secret_key=JWT_TEST_KEY, default_expire_minutes=30)
     token = service.create_access_token(user_id="usr-123", role=Role.TRANSCRIPTOR)
 
     payload = service.decode_token(token)
@@ -49,7 +55,7 @@ def test_jwt_token_service() -> None:
         service.decode_token(token + "manipulated")
     assert "inválido" in exc_info.value.message.lower()
 
-    # Clave secreta vacía
+    # Clave de firma vacía
     with pytest.raises(ValueError, match="secret_key no puede estar vacía"):
         JwtTokenService(secret_key="")
 
@@ -68,7 +74,7 @@ def auth_client() -> TestClient:
             User(
                 id="usr-alice",
                 username="alice",
-                password_hash=hasher.hash("secret_alice"),
+                password_hash=hasher.hash(PASS_ALICE),
                 role=Role.TRANSCRIPTOR,
                 active=True,
             )
@@ -78,7 +84,7 @@ def auth_client() -> TestClient:
             User(
                 id="usr-bob",
                 username="bob",
-                password_hash=hasher.hash("secret_bob"),
+                password_hash=hasher.hash(PASS_BOB),
                 role=Role.INVESTIGADOR,
                 active=False,
             )
@@ -86,7 +92,7 @@ def auth_client() -> TestClient:
         db.commit()
 
     settings = Settings(
-        auth_secret_key="integration-test-secret-key-12345678",
+        auth_secret_key=JWT_TEST_KEY,
         auth_token_expire_minutes=30,
     )
     app = create_app(
@@ -100,7 +106,7 @@ def auth_client() -> TestClient:
 def test_login_success(auth_client: TestClient) -> None:
     response = auth_client.post(
         "/auth/login",
-        data={"username": "alice", "password": "secret_alice"},
+        data=_form_credentials("alice", PASS_ALICE),
     )
     assert response.status_code == 200
     data = response.json()
@@ -112,18 +118,18 @@ def test_login_success(auth_client: TestClient) -> None:
 def test_login_wrong_password_returns_401(auth_client: TestClient) -> None:
     response = auth_client.post(
         "/auth/login",
-        data={"username": "alice", "password": "wrong_password"},
+        data=_form_credentials("alice", "wrong-password-entry"),
     )
     assert response.status_code == 401
     data = response.json()
     assert data["detail"] == "Credenciales inválidas"
-    assert "wrong_password" not in response.text
+    assert "wrong-password-entry" not in response.text
 
 
 def test_login_unknown_user_returns_401(auth_client: TestClient) -> None:
     response = auth_client.post(
         "/auth/login",
-        data={"username": "unknown_user", "password": "any_password"},
+        data=_form_credentials("unknown_user", "any-password-entry"),
     )
     assert response.status_code == 401
     data = response.json()
@@ -134,7 +140,7 @@ def test_login_unknown_user_returns_401(auth_client: TestClient) -> None:
 def test_login_inactive_user_returns_401(auth_client: TestClient) -> None:
     response = auth_client.post(
         "/auth/login",
-        data={"username": "bob", "password": "secret_bob"},
+        data=_form_credentials("bob", PASS_BOB),
     )
     assert response.status_code == 401
     data = response.json()
@@ -145,7 +151,7 @@ def test_get_me_success(auth_client: TestClient) -> None:
     # 1. Login para obtener token
     login_res = auth_client.post(
         "/auth/login",
-        data={"username": "alice", "password": "secret_alice"},
+        data=_form_credentials("alice", PASS_ALICE),
     )
     token = login_res.json()["access_token"]
 
@@ -181,7 +187,7 @@ def test_get_me_tampered_token_returns_401(auth_client: TestClient) -> None:
 
 def test_get_me_expired_token_returns_401(auth_client: TestClient) -> None:
     service = JwtTokenService(
-        secret_key="integration-test-secret-key-12345678",
+        secret_key=JWT_TEST_KEY,
         default_expire_minutes=30,
     )
     expired_token = service.create_access_token(
