@@ -54,6 +54,12 @@ class InMemorySessionRepository(SessionRepository):
     def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
         return tuple(self.findings.get(session_id, []))
 
+    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
+        sessions = list(self.sessions.values())
+        if owner_id is not None:
+            sessions = [s for s in sessions if s.owner_id == owner_id]
+        return tuple(sessions)
+
 
 class InMemoryEditEventRepository(EditEventRepository):
     """Fake en memoria para EditEventRepository."""

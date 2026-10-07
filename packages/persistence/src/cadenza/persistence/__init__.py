@@ -18,9 +18,11 @@ from .models import (
     FindingRecord,
     ImmutableEditEventError,
     Session,
+    UserRecord,
 )
 from .repository import EditEventRepository, SqlAlchemyEditEventRepository
 from .session_repository import SqlAlchemySessionRepository
+from .user_repository import SqlAlchemyUserRepository
 
 __all__ = [
     "ArtifactRecord",
@@ -34,6 +36,8 @@ __all__ = [
     "SessionFactory",
     "SqlAlchemyEditEventRepository",
     "SqlAlchemySessionRepository",
+    "SqlAlchemyUserRepository",
+    "UserRecord",
     "create_engine_for_url",
     "create_memory_engine",
     "create_schema",
