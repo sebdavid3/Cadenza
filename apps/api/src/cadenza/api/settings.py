@@ -1,4 +1,4 @@
-"""Configuración tipada del plano online de Cadenza (ADR-0005, #8)."""
+"""Configuración tipada del plano online de Cadenza (ADR-0005, #8, #44)."""
 
 from __future__ import annotations
 
@@ -32,4 +32,12 @@ class Settings(BaseSettings):
     artifacts_dir: Path = Field(
         default=Path("./data/artifacts"),
         description="Directorio raíz para el almacenamiento de artefactos (ArtifactStore).",
+    )
+    auth_secret_key: str = Field(
+        default="",
+        description="Clave secreta obligatoria para la firma de tokens JWT (ADR-0012).",
+    )
+    auth_token_expire_minutes: int = Field(
+        default=30,
+        description="Tiempo de validez de los tokens de acceso en minutos (ADR-0012).",
     )

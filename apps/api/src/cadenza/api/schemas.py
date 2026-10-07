@@ -141,3 +141,20 @@ class SessionDetailRead(BaseModel):
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
+
+
+class TokenResponse(BaseModel):
+    """Respuesta de autenticación con token de acceso Bearer (OAuth2)."""
+
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserRead(BaseModel):
+    """Perfil público de un usuario autenticado (ADR-0012)."""
+
+    id: str
+    username: str
+    role: str
+    active: bool
+    created_at: datetime | None = None

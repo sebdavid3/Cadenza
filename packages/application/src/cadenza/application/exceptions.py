@@ -59,3 +59,19 @@ class DuplicateUsername(ApplicationError):
     def __init__(self, username: str) -> None:
         super().__init__(f"Nombre de usuario ya existente: {username}")
         self.username = username
+
+
+class NotAuthenticated(ApplicationError):
+    """Fallo de autenticación: credenciales inválidas o token ausente/inválido (ADR-0012)."""
+
+    def __init__(self, message: str = "Credenciales inválidas") -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class Forbidden(ApplicationError):
+    """Acceso prohibido: permisos o rol insuficiente para la operación (ADR-0012)."""
+
+    def __init__(self, message: str = "Permisos insuficientes") -> None:
+        super().__init__(message)
+        self.message = message
