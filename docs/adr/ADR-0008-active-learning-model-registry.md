@@ -51,12 +51,12 @@ Se define un puerto con varias implementaciones, de modo que la estrategia sea u
 
 | Estrategia | Fundamento |
 |---|---|
-| `UncertaintyAcquisition` | Línea base clásica (baja confianza); se incluye para **reproducir el hallazgo negativo** de AL-003. |
+| `UncertaintyAcquisition` / `ErrorDensityAcquisition` | Línea base neuro-simbólica: ante la ausencia de probabilidades posteriores calibradas en el decodificador voraz de HOMR (ver investigación INV-0001, issue #31), emplea la **densidad de errores de reglas del validador** como estimador de incertidumbre. Se incluye para contrastar el hallazgo de AL-003. |
 | `DiversityAcquisition` | Cobertura del espacio de características (clustering). |
 | `HybridAcquisition` | Combinación de **densidad de errores del validador (M2) + magnitud de corrección (M3) + diversidad**. Es la **apuesta principal**. |
 
 La `HybridAcquisition` se justifica por el hallazgo de AL-003 y por el carácter
-neuro-simbólico de Cadenza: usa la señal del validador como *proxi* de
+neuro-simbólico de Cadenza: usa la señal del validador como *proxy* de
 incertidumbre, pero la mitiga con diversidad.
 
 ### 3. `DatasetBuilder`

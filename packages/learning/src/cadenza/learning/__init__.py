@@ -5,7 +5,7 @@ from __future__ import annotations
 from .acquisition import AcquisitionStrategy, feature_distance
 from .acquisition.diversity import DiversityAcquisition
 from .acquisition.hybrid import HybridAcquisition
-from .acquisition.uncertainty import UncertaintyAcquisition
+from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisition
 from .config import load_training_config
 from .dataset import DatasetBuilder, TrainingSample
 from .evaluation import normalized_edit_distance, symbol_error_rate
@@ -24,6 +24,7 @@ __all__ = [
     "AcquisitionStrategy",
     "DatasetBuilder",
     "DiversityAcquisition",
+    "ErrorDensityAcquisition",
     "EvaluationMetrics",
     "FakeTrainer",
     "HybridAcquisition",

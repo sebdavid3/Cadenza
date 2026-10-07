@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 finalizada, investigaciones #14 y #31 a continuación) |
-| **Último hito completado** | `ArtifactStore` direccionado por sha256 ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003` en `packages/persistence`; 128 tests verdes |
-| **Próximo paso inmediato** | Investigaciones conjuntas #14 y #31 (salidas internas de HOMR: bbox y confianza) antes de iniciar la Etapa 2 |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 finalizada, investigaciones #14 y #31 concluidas) |
+| **Último hito completado** | Investigaciones conjuntas #14 y #31 concluidas con resultado negativo documentado (`INV-0001`): bbox por evento y confianza directa inviables en HOMR; formulación neuro-simbólica con `ErrorDensityAcquisition` en ADR-0008; 128 tests verdes |
+| **Próximo paso inmediato** | Iniciar Etapa 2 con Issue #3 (Dominio: proyección de SetClef, SetKey y separación de SetAccidental) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D42, D44–D47 (D4 mitigada; D23 y D31 parciales; D7, D9, D15, D20, D22 y D24 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D3, D5, D6, D8, D10–D14, D16–D19, D21, D25–D30, D32–D35, D37–D42, D44–D47 (D23 y D31 parciales; D4, D7, D9, D15, D20, D22, D24 y D36 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -57,7 +57,7 @@ Reglas:
 | D1 | `OemerEngine` (línea base OMR para comparación experimental) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
 | D2 | Preprocesado configurable (deskew, binarización, control de DPI) no implementado | Fase 1 / M1 | Pendiente (sub-tarea) |
 | D3 | Reporte del dispositivo efectivo desde `onnxruntime.get_available_providers()` no expuesto | Fase 1 / M1 | Pendiente (sub-tarea) |
-| D4 | Anclas sin `bbox` real: mitigado con rectángulos sintéticos en `FakeOMREngine`; el OMR real sigue sin coordenadas | Fase 1 / M3 | **Mitigada (parcial)** — desbloquea overlays de 3B; bbox real pendiente |
+| D4 | Anclas sin `bbox` real: HOMR deriva coordenadas imprecisas de atención y las descarta en MusicXML; viable solo a nivel de pentagrama | Fase 1 / M3 | **Resuelta (negativo documentado)** — INV-0001; visor HITL orientado a notación vectorial ([#14](https://github.com/sebdavid3/Cadenza/issues/14)) |
 | D5 | `HOMREngine` no verificado E2E (requiere extra `homr` + GPU/pesos); validado por gating de import y mapper | Fase 1 | Pendiente (entorno) |
 | D6 | Catálogo de reglas incompleto: faltan armadura/alteraciones, colisiones de voz, rango y cierres | Fase 2 / M2 | Pendiente (sub-tarea) |
 | D7 | Persistencia de `Finding`/`EditEvent` en PostgreSQL/JSONB no implementada | Fase 2 / M2 | **Resuelta** — `packages/persistence` (modelos + Alembic) y persistencia en `POST /transcribe` y `POST /sessions/{id}/edits` |
@@ -88,7 +88,7 @@ Reglas:
 | D33 | Semántica de las anclas frente a `InsertEvent`/`DeleteEvent` (riesgo señalado en ADR-0007) | Fase 7 / Dominio | **Decidida** (ADR-0011: ancla posicional relativa a un estado + `origin_anchor`); implementación pendiente |
 | D34 | Evaluación solo sobre PrIMuS: SMB y MUSCIMA++, prometidos en la documentación y en el objetivo 1, sin evaluar | Fase 7 / M6 | Pendiente |
 | D35 | SER no calculada sobre datos reales: falta la serialización de `ScoreIR` a secuencia de símbolos (objetivo 5) | Fase 7 / M4 | Pendiente |
-| D36 | `HOMREngine` no extrae confianza del modelo: la estrategia de incertidumbre usa la densidad de errores del validador | Fase 7 / M1, M4 | Pendiente |
+| D36 | `HOMREngine` no extrae confianza del modelo: decodificación voraz sin softmax en ONNX y sin soporte en MusicXML | Fase 7 / M1, M4 | **Resuelta (negativo documentado)** — INV-0001; incertidumbre neuro-simbólica con `ErrorDensityAcquisition` en ADR-0008 ([#31](https://github.com/sebdavid3/Cadenza/issues/31)) |
 | D37 | Piano simple (dos pentagramas) sin verificar: pruebas, *fixtures* y corpus son monofónicos | Fase 7 / Dominio | Pendiente |
 | D38 | Sin protocolo de estudio de esfuerzo: las sesiones no registran participante ni condición (asistida / no asistida) | Fase 7 / M3 | Pendiente |
 | D39 | Ciclo de vida de la sesión sin definir: no se puede marcar una corrección como finalizada | Fase 7 / M3 | Pendiente |
@@ -171,6 +171,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Capa de aplicación hexagonal extraída ([#7](https://github.com/sebdavid3/Cadenza/issues/7)): paquete `packages/application` (casos de uso `transcribe_score`, `get_session`, `append_edit`, `list_findings`; puertos `SessionRepository` y `EditEventRepository` con adaptadores SQLAlchemy; apps/api como raíz de composición); 114 tests verdes y test de pureza de aplicación | Fase 7 / App | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | `ScoreIR` completo con clave, armadura y ligaduras ([#2](https://github.com/sebdavid3/Cadenza/issues/2)): tipos de valor puros `Clef`, `KeySignature` y `Tie` en `packages/domain` (ADR-0010), lectura/escritura y round-trip en `packages/interchange`, compatibilidad hacia atrás, estabilidad de anclas y 122 tests verdes | Fase 7 / Dominio | `packages/domain/`, `packages/interchange/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | `ArtifactStore` direccionado por `sha256` completado ([#4](https://github.com/sebdavid3/Cadenza/issues/4)): puerto `ArtifactStore` e `InMemoryArtifactStore` en `packages/application`, adaptador `FilesystemArtifactStore` (`data/artifacts/sha256/ab/cd/<hash>`) y tabla `artifacts` con migración `0003_artifacts_table` en `packages/persistence`; 128 tests verdes | Fase 7 / Datos | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Investigaciones #14 y #31 concluidas con resultado negativo documentado: informe `docs/investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md`, precisión de `ADR-0008` e introducción formal de `ErrorDensityAcquisition` en `packages/learning` ([#14](https://github.com/sebdavid3/Cadenza/issues/14), [#31](https://github.com/sebdavid3/Cadenza/issues/31)) | Fase 7 / OMR | `docs/investigaciones/INV-0001-*`, `packages/learning/`, `docs/adr/ADR-0008-*` |
 
 ---
 

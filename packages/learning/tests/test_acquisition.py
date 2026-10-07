@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cadenza.learning import (
     DiversityAcquisition,
+    ErrorDensityAcquisition,
     HybridAcquisition,
     TrainingSample,
     UncertaintyAcquisition,
@@ -61,5 +62,9 @@ def test_strategies_handle_empty_and_zero_budget() -> None:
 
 def test_strategy_ids() -> None:
     assert UncertaintyAcquisition().strategy_id == "uncertainty"
+    assert ErrorDensityAcquisition().strategy_id == "error_density"
     assert DiversityAcquisition().strategy_id == "diversity"
     assert HybridAcquisition().strategy_id == "hybrid"
+    sel_err = ErrorDensityAcquisition().select(_candidates(), 1)
+    sel_unc = UncertaintyAcquisition().select(_candidates(), 1)
+    assert sel_err == sel_unc
