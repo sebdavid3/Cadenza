@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Paso 0 completado) |
-| **Último hito completado** | Paso 0 completado: `CLAUDE.md` con reglas permanentes y `CONVENTIONS.md` actualizado con política de ramas, commits, PRs y calidad para la Fase 7 |
-| **Próximo paso inmediato** | Etapa 1 de la Fase 7: integración continua ([#25](https://github.com/sebdavid3/Cadenza/issues/25)), capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)), `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 1 iniciada) |
+| **Último hito completado** | Integración continua en GitHub Actions implementada ([#25](https://github.com/sebdavid3/Cadenza/issues/25)): workflows para Python 3.12 y web frontend con caché, linters, tests e insignia |
+| **Próximo paso inmediato** | Etapa 1 de la Fase 7: capa de aplicación ([#7](https://github.com/sebdavid3/Cadenza/issues/7)), `ScoreIR` extendido ([#2](https://github.com/sebdavid3/Cadenza/issues/2)) y `ArtifactStore` ([#4](https://github.com/sebdavid3/Cadenza/issues/4)) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D42, D44–D47 (D4 mitigada; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D6, D8, D10–D14, D16–D19, D21–D30, D32–D42, D44–D47 (D4 mitigada; D31 parcial por CI; D7, D9, D15 y D20 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -84,7 +84,7 @@ Reglas:
 | D28 | Los hallazgos se calculan solo al transcribir; no hay revalidación tras las correcciones | Fase 7 / M2 | Pendiente |
 | D29 | Sin exportación MIDI ni endpoint de exportación (solo `score_ir_to_musicxml`) | Fase 7 | Pendiente |
 | D30 | `ModelRegistry` solo en memoria; el plano online no consulta la versión activa | Fase 7 / M4 | Pendiente |
-| D31 | Sin integración continua ni contrato OpenAPI congelado (tipos del frontend escritos a mano) | Fase 7 | Pendiente |
+| D31 | Sin integración continua ni contrato OpenAPI congelado (tipos del frontend escritos a mano) | Fase 7 | **Parcial** — CI operativa en GitHub Actions (`.github/workflows/ci.yml`, [#25](https://github.com/sebdavid3/Cadenza/issues/25)); contrato OpenAPI pendiente ([#26](https://github.com/sebdavid3/Cadenza/issues/26)) |
 | D32 | Sin listado de sesiones: `GET /sessions` no existe y una sesión solo se recupera conociendo su `id` | Fase 7 / M3 | Pendiente |
 | D33 | Semántica de las anclas frente a `InsertEvent`/`DeleteEvent` (riesgo señalado en ADR-0007) | Fase 7 / Dominio | **Decidida** (ADR-0011: ancla posicional relativa a un estado + `origin_anchor`); implementación pendiente |
 | D34 | Evaluación solo sobre PrIMuS: SMB y MUSCIMA++, prometidos en la documentación y en el objetivo 1, sin evaluar | Fase 7 / M6 | Pendiente |
@@ -168,6 +168,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-03 | Decisiones previas al desarrollo: una imagen por sesión (PDF y multipágina fuera de alcance, [#38](https://github.com/sebdavid3/Cadenza/issues/38) cerrado), autenticación completa con sesiones privadas (ADR-0012, [#39](https://github.com/sebdavid3/Cadenza/issues/39) pasa al milestone) y anclas posicionales relativas a un estado con función de traducción (ADR-0011, [#28](https://github.com/sebdavid3/Cadenza/issues/28)); `ARCHITECTURE.md` v1.2 | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md`, `docs/phases/phase_7_architecture_alignment/` |
 | 2026-10-03 | Trabajo derivado de las decisiones convertido en issues: autenticación desglosada en [#43](https://github.com/sebdavid3/Cadenza/issues/43)–[#46](https://github.com/sebdavid3/Cadenza/issues/46) (con [#39](https://github.com/sebdavid3/Cadenza/issues/39) como seguimiento), estado actual de la sesión y `base_seq` ([#48](https://github.com/sebdavid3/Cadenza/issues/48), D46) e inicio de sesión en el visor ([#47](https://github.com/sebdavid3/Cadenza/issues/47), D47); ADR-0011 precisa el control por `base_seq` y ADR-0012, la gestión de cuentas | Fase 7 | `docs/adr/ADR-0011-*`, `docs/adr/ADR-0012-*`, `docs/ARCHITECTURE.md` §6 y §10.2 |
 | 2026-10-07 | Paso 0 de la Fase 7 completado: reglas permanentes en `CLAUDE.md`, política de ramas, commits, PRs y Definition of Done en `docs/CONVENTIONS.md`; árbol formateado con `black` y suites de calidad 100% limpias | Fase 7 (Paso 0) | `CLAUDE.md`, `docs/CONVENTIONS.md`, `pyproject.toml`, rama `docs/0-reglas-de-trabajo` |
+| 2026-10-07 | Integración continua completada ([#25](https://github.com/sebdavid3/Cadenza/issues/25)): workflow GitHub Actions `ci.yml` para Python 3.12 (`pytest`, `mypy`, `ruff`, `black`) y frontend (`vitest`, `build`) con caché e insignia en `README.md` | Fase 7 / Infra | `.github/workflows/ci.yml`, `README.md`, `docs/ARCHITECTURE.md` |
 
 ---
 
