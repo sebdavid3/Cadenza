@@ -35,3 +35,11 @@ class SequenceConflict(ApplicationError):
         )
         self.expected_seq = expected_seq
         self.actual_seq = actual_seq
+
+
+class ArtifactNotFound(ApplicationError):
+    """El artefacto solicitado no existe en el almacén."""
+
+    def __init__(self, sha256: str) -> None:
+        super().__init__(f"Artefacto no encontrado: {sha256}")
+        self.sha256 = sha256
