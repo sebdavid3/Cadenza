@@ -6,11 +6,11 @@
 
 | Campo | Valor |
 |---|---|
-| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 2) |
-| **Último hito completado** | Usuario actual, sesiones privadas y visor web autenticado ([#45](https://github.com/sebdavid3/Cadenza/issues/45), [#47](https://github.com/sebdavid3/Cadenza/issues/47)): validación de propiedad en casos de uso (`transcribe_score`, `get_session`, `list_findings`, `append_edit`), autor fijado por el servidor, remoción de `author` en cliente, login en React con token `sessionStorage`, cabecera `Authorization: Bearer`, manejo de 401 y logout con 193 tests Python y 12 tests web verdes |
-| **Próximo paso inmediato** | Issue #46 (Gestión de cuentas: creación de usuarios, listado, cambio de rol/estado y cambio de contraseña según ADR-0012) |
+| **Fase actual** | Fase 7 — Alineación con la Arquitectura Objetivo — **en ejecución** (Etapa 3 tras completar Etapa 2) |
+| **Último hito completado** | Gestión de cuentas y autenticación completa ([#46](https://github.com/sebdavid3/Cadenza/issues/46), [#39](https://github.com/sebdavid3/Cadenza/issues/39)): casos de uso `create_user`, `update_user`, `change_password`, `list_users`, endpoints `/users`, `/users/{id}`, `/auth/password`, CLI `create-investigator`, control de rol de investigador y contraseñas seguras con 217 tests verdes |
+| **Próximo paso inmediato** | Issue #9 (Imagen persistida en `ArtifactStore` y endpoint `GET /sessions/{id}/image`) |
 | **Rama activa** | `dev` |
-| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D10–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D26 y D47 resueltas; D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
+| **Deuda técnica / Blockers activos** | D1–D2, D6, D8, D11–D14, D16–D19, D21, D27–D30, D32, D34–D35, D38–D42, D44–D46 (D3, D5, D26 y D47 resueltas; D10, D25 y D31 parciales; D4, D7, D9, D15, D20, D22, D23, D24, D33, D36 y D37 resueltas; D43 cerrada como fuera de alcance) |
 | **Guía de estilo / calidad** | [`docs/CONVENTIONS.md`](CONVENTIONS.md) y [`CLAUDE.md`](../CLAUDE.md) — **contrato oficial** de Git, commits y calidad de código |
 | **Fecha de actualización** | 2026-10-07 |
 
@@ -63,7 +63,7 @@ Reglas:
 | D7 | Persistencia de `Finding`/`EditEvent` en PostgreSQL/JSONB no implementada | Fase 2 / M2 | **Resuelta** — `packages/persistence` (modelos + Alembic) y persistencia en `POST /transcribe` y `POST /sessions/{id}/edits` |
 | D8 | Métricas de precisión/recall del validador sobre casos conocidos no reportadas | Fase 2 / M2 | Pendiente (sub-tarea) |
 | D9 | Frontera canónica MusicXML↔`ScoreIR` con `music21` no implementada (sigue el puente `xml.etree` de Fase 1) | Fase 2 | **Resuelta** — `packages/interchange` (`musicxml_to_score_ir`/`read_score`/`score_ir_to_musicxml`); el parser `xml.etree` se retiró |
-| D10 | Persistencia verificada solo en SQLite en memoria: sin migración aplicada ni tests contra PostgreSQL real; API sin autenticación | Fase 3A | Pendiente — PostgreSQL en la Fase 7; autenticación decidida (ADR-0012) y planificada en la Fase 7 |
+| D10 | Persistencia verificada solo en SQLite en memoria: sin migración aplicada ni tests contra PostgreSQL real; API sin autenticación | Fase 3A | **Parcial** — Autenticación e identidad completadas al 100% (ADR-0012, #43–#47); PostgreSQL real se verifica en #6 |
 | D11 | Renderizado de notación con OSMD no implementado: bloqueado por el exportador `ScoreIR`→MusicXML (paquete `export`) y por la instrumentación `Anchor→SVG` (ADR-0006) | Fase 3B / M3 | Pendiente (sub-tarea) |
 | D12 | Reproducción con Tone.js y cursor sincronizado (mapa tiempo→ancla) no implementada | Fase 3B / M3 | Pendiente (sub-tarea) |
 | D13 | Métricas de esfuerzo calculadas solo en el cliente; no se persisten en la base de datos | Fase 3B / M4 | Pendiente (sub-tarea) |
@@ -180,6 +180,7 @@ frontend y quedan fuera de la Fase 7.
 | 2026-10-07 | Persistencia de usuarios y propiedad de las sesiones ([#43](https://github.com/sebdavid3/Cadenza/issues/43)): tabla `users`, entidad y puerto `UserRepository`, `SqlAlchemyUserRepository`, `owner_id` en `sessions` con FK y migración Alembic `0005_users_and_session_owner` con relleno por defecto; filtrado por propietario en repositorio y 171 tests verdes | Fase 7 / Persistencia | `packages/application/`, `packages/persistence/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Inicio de sesión con token de acceso JWT y Argon2id ([#44](https://github.com/sebdavid3/Cadenza/issues/44)): puertos `PasswordHasher` y `TokenService` con adaptadores Argon2id y JWT, caso de uso `authenticate`, endpoints `/auth/login` y `/auth/me`, dependencia `get_current_user` y clave de firma obligatoria con 190 tests verdes | Fase 7 / API | `apps/api/`, `packages/application/`, `docs/ARCHITECTURE.md` |
 | 2026-10-07 | Usuario actual, sesiones privadas y visor web autenticado ([#45](https://github.com/sebdavid3/Cadenza/issues/45), [#47](https://github.com/sebdavid3/Cadenza/issues/47)): autorización por propietario en casos de uso (`transcribe_score`, `get_session`, `list_findings`, `append_edit`), autor fijado por el servidor, remoción de `author` en cliente, login en React con token en `sessionStorage`, cabecera `Authorization: Bearer`, manejo de 401 y logout con 193 tests de backend y 12 tests de frontend verdes | Fase 7 / API + Web | `packages/application/`, `apps/api/`, `apps/web/`, `docs/ARCHITECTURE.md` |
+| 2026-10-07 | Gestión de cuentas y autenticación completa ([#46](https://github.com/sebdavid3/Cadenza/issues/46), [#39](https://github.com/sebdavid3/Cadenza/issues/39)): casos de uso `create_user`, `update_user`, `change_password`, `list_users`, endpoints `/users`, `/users/{id}`, `/auth/password`, CLI `create-investigator`, control de rol de investigador, validación de contraseñas de al menos 8 caracteres y 217 tests verdes; cierra el issue paraguas #39 y concluye la Etapa 2 de la Fase 7 | Fase 7 / API | `packages/application/`, `packages/persistence/`, `apps/api/`, `docs/ARCHITECTURE.md` |
 
 ---
 

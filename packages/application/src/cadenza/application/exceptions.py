@@ -75,3 +75,11 @@ class Forbidden(ApplicationError):
     def __init__(self, message: str = "Permisos insuficientes") -> None:
         super().__init__(message)
         self.message = message
+
+
+class WeakPassword(ApplicationError):
+    """La contraseña no cumple con la longitud mínima de seguridad (ADR-0012)."""
+
+    def __init__(self, min_length: int = 8) -> None:
+        super().__init__(f"La contraseña debe tener al menos {min_length} caracteres")
+        self.min_length = min_length

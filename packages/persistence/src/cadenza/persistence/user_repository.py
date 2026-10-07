@@ -1,8 +1,8 @@
-"""Adaptador SQLAlchemy para el repositorio de usuarios (ADR-0012, #43)."""
+"""Adaptador SQLAlchemy para el repositorio de usuarios (ADR-0012, #43, #46)."""
 
 from __future__ import annotations
 
-from cadenza.application import DuplicateUsername, Role, User, UserRepository
+from cadenza.application import DuplicateUsername, Role, User, UserNotFound, UserRepository
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
@@ -44,6 +44,27 @@ class SqlAlchemyUserRepository(UserRepository):
         ).first()
         if record is None:
             return None
+        return self._to_entity(record)
+
+    def list(self) -> tuple[User, ...]:
+        records = self._session.scalars(
+            select(UserRecord).order_by(UserRecord.created_at.asc(), UserRecord.username.asc())
+        ).all()
+        return tuple(self._to_entity(r) for r in records)
+
+    def update(self, user: User) -> User:
+        record = self._session.get(UserRecord, user.id)
+        if record is None:
+            raise UserNotFound(user.id)
+        record.username = user.username
+        record.password_hash = user.password_hash
+        record.role = user.role.value
+        record.active = user.active
+        try:
+            with self._session.begin_nested():
+                self._session.flush()
+        except IntegrityError as err:
+            raise DuplicateUsername(user.username) from err
         return self._to_entity(record)
 
     @staticmethod

@@ -157,3 +157,33 @@ class UserRead(BaseModel):
     role: str
     active: bool
     created_at: datetime | None = None
+
+
+class UserCreate(BaseModel):
+    """Payload para dar de alta una cuenta (ADR-0012, #46)."""
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8)
+    role: str = Field(pattern="^(transcriptor|investigador)$")
+
+
+class UserUpdate(BaseModel):
+    """Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."""
+
+    role: str | None = Field(default=None, pattern="^(transcriptor|investigador)$")
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Payload para cambio de contraseña por el propio usuario (ADR-0012, #46)."""
+
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8)
+
+
+class StatusResponse(BaseModel):
+    """Respuesta con mensaje de estado de la operación."""
+
+    status: str
+    message: str | None = None

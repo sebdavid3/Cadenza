@@ -133,6 +133,16 @@ uv run uvicorn cadenza.api.main:create_default_app --factory --reload
 - La base de datos se toma de `CADENZA_DATABASE_URL` (por defecto SQLite
   `./cadenza.db`; en producción PostgreSQL vía JSONB).
 
+### Creación del primer usuario investigador
+
+Dado que la plataforma no expone registro público ni recuperación por correo ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)), el primer investigador se crea directamente vía CLI sin pasar por la API:
+
+```bash
+uv run python -m cadenza.api.cli create-investigator --username admin --password "contraseña_segura_min_8"
+```
+
+Una vez creado, el investigador puede iniciar sesión (`POST /auth/login` o en el visor web) y gestionar las cuentas de participantes y transcriptores (`GET /users`, `POST /users`, `PATCH /users/{id}`).
+
 ### Interfaz web HITL
 
 ```bash
@@ -182,10 +192,16 @@ la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.
 
 | Método | Endpoint | Descripción |
 |---|---|---|
-| `POST` | `/transcribe` | Sube una imagen, ejecuta OMR + validación y crea una sesión. |
+| `POST` | `/auth/login` | Autentica credenciales y emite token Bearer JWT. |
+| `GET` | `/auth/me` | Devuelve el perfil del usuario actual autenticado. |
+| `POST` | `/auth/password` | Permite al usuario cambiar su propia contraseña. |
+| `GET` | `/users` | Lista las cuentas registradas (solo investigador). |
+| `POST` | `/users` | Da de alta una nueva cuenta con rol y contraseña inicial (investigador). |
+| `PATCH` | `/users/{id}` | Modifica rol, estado activo/inactivo o restablece contraseña (investigador). |
+| `POST` | `/transcribe` | Sube una imagen, ejecuta OMR + validación y crea una sesión privada. |
 | `GET` | `/sessions/{id}` | Documento, hallazgos, eventos de edición y `current_score` materializado. |
 | `GET` | `/sessions/{id}/findings` | Hallazgos de validación de la sesión. |
-| `POST` | `/sessions/{id}/edits` | Añade una corrección humana inmutable (append-only). |
+| `POST` | `/sessions/{id}/edits` | Añade una corrección humana inmutable (autor fijado por el servidor). |
 
 ---
 
