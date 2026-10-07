@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from cadenza.application import (
     DuplicateUsername,
@@ -9,6 +11,7 @@ from cadenza.application import (
     Role,
     SessionData,
     User,
+    UserNotFound,
 )
 from cadenza.persistence import (
     Base,
@@ -94,6 +97,37 @@ def test_sqlalchemy_user_repository(db_session_factory: SessionFactory) -> None:
                     role=Role.TRANSCRIPTOR,
                 )
             )
+
+
+def test_sqlalchemy_user_repository_list_and_update(db_session_factory: SessionFactory) -> None:
+    with db_session_factory() as db:
+        repo = SqlAlchemyUserRepository(db)
+        u1 = repo.add(User(id="u1", username="user1", password_hash="h1", role=Role.TRANSCRIPTOR))
+        repo.add(User(id="u2", username="user2", password_hash="h2", role=Role.INVESTIGADOR))
+        db.commit()
+
+    with db_session_factory() as db:
+        repo = SqlAlchemyUserRepository(db)
+        users = repo.list()
+        assert len(users) == 2
+        assert {u.username for u in users} == {"user1", "user2"}
+
+        # Actualizar u1: desactivar y cambiar password_hash
+        updated = repo.update(replace(u1, active=False, password_hash="new_h1"))
+        db.commit()
+        assert updated.active is False
+        assert updated.password_hash == "new_h1"
+
+    with db_session_factory() as db:
+        repo = SqlAlchemyUserRepository(db)
+        loaded = repo.get("u1")
+        assert loaded is not None
+        assert loaded.active is False
+        assert loaded.password_hash == "new_h1"
+
+        # Usuario no encontrado
+        with pytest.raises(UserNotFound):
+            repo.update(User(id="missing", username="m", password_hash="h", role=Role.TRANSCRIPTOR))
 
 
 def test_session_repository_list_and_owner_filtering(db_session_factory: SessionFactory) -> None:

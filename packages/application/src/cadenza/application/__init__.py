@@ -10,6 +10,7 @@ from .exceptions import (
     SequenceConflict,
     SessionNotFound,
     UserNotFound,
+    WeakPassword,
 )
 from .ports import (
     ArtifactStore,
@@ -32,9 +33,13 @@ from .use_cases import (
     TranscribeResult,
     append_edit,
     authenticate,
+    change_password,
+    create_user,
     get_session,
     list_findings,
+    list_users,
     transcribe_score,
+    update_user,
 )
 from .user import Role, User
 
@@ -65,10 +70,15 @@ __all__ = [
     "User",
     "UserNotFound",
     "UserRepository",
+    "WeakPassword",
     "append_edit",
     "authenticate",
+    "change_password",
     "compute_sha256",
+    "create_user",
     "get_session",
     "list_findings",
+    "list_users",
     "transcribe_score",
+    "update_user",
 ]

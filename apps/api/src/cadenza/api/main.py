@@ -16,14 +16,18 @@ from pathlib import Path
 from typing import Annotated
 
 from cadenza.application import (
+    DuplicateUsername,
     Forbidden,
     InvalidEdit,
     NotAuthenticated,
     PasswordHasher,
+    Role,
     SequenceConflict,
     SessionNotFound,
     TokenService,
     User,
+    UserNotFound,
+    WeakPassword,
 )
 from cadenza.application import (
     append_edit as append_edit_use_case,
@@ -32,13 +36,25 @@ from cadenza.application import (
     authenticate as authenticate_use_case,
 )
 from cadenza.application import (
+    change_password as change_password_use_case,
+)
+from cadenza.application import (
+    create_user as create_user_use_case,
+)
+from cadenza.application import (
     get_session as get_session_use_case,
 )
 from cadenza.application import (
     list_findings as list_findings_use_case,
 )
 from cadenza.application import (
+    list_users as list_users_use_case,
+)
+from cadenza.application import (
     transcribe_score as transcribe_score_use_case,
+)
+from cadenza.application import (
+    update_user as update_user_use_case,
 )
 from cadenza.omr import FakeOMREngine, HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import (
@@ -57,13 +73,17 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
+    ChangePasswordRequest,
     EditEventCreate,
     EditEventRead,
     FindingRead,
     SessionDetailRead,
+    StatusResponse,
     TokenResponse,
     TranscribeResponse,
+    UserCreate,
     UserRead,
+    UserUpdate,
 )
 from .security import Argon2PasswordHasher, JwtTokenService
 from .settings import Settings
@@ -202,6 +222,27 @@ def create_app(
             content={"detail": exc.message},
         )
 
+    @app.exception_handler(DuplicateUsername)
+    def duplicate_username_handler(request: Request, exc: DuplicateUsername) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": str(exc)},
+        )
+
+    @app.exception_handler(UserNotFound)
+    def user_not_found_handler(request: Request, exc: UserNotFound) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": str(exc)},
+        )
+
+    @app.exception_handler(WeakPassword)
+    def weak_password_handler(request: Request, exc: WeakPassword) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": str(exc)},
+        )
+
     @app.post("/auth/login", response_model=TokenResponse)
     def login(
         form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
@@ -231,6 +272,102 @@ def create_app(
             role=current_user.role.value,
             active=current_user.active,
             created_at=current_user.created_at,
+        )
+
+    @app.post("/auth/password", response_model=StatusResponse)
+    def change_password_endpoint(
+        payload: ChangePasswordRequest,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> StatusResponse:
+        """Permite al usuario autenticado cambiar su propia contraseña."""
+        user_repo = SqlAlchemyUserRepository(db)
+        hasher: PasswordHasher = request.app.state.password_hasher
+        change_password_use_case(
+            payload.current_password,
+            payload.new_password,
+            current_user=current_user,
+            user_repository=user_repo,
+            password_hasher=hasher,
+        )
+        return StatusResponse(status="success", message="Contraseña actualizada")
+
+    @app.get("/users", response_model=list[UserRead])
+    def list_users_endpoint(
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> list[UserRead]:
+        """Lista las cuentas registradas en el sistema. Exclusivo para investigadores."""
+        user_repo = SqlAlchemyUserRepository(db)
+        users = list_users_use_case(
+            current_user=current_user,
+            user_repository=user_repo,
+        )
+        return [
+            UserRead(
+                id=u.id,
+                username=u.username,
+                role=u.role.value,
+                active=u.active,
+                created_at=u.created_at,
+            )
+            for u in users
+        ]
+
+    @app.post("/users", response_model=UserRead, status_code=status.HTTP_201_CREATED)
+    def create_user_endpoint(
+        payload: UserCreate,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> UserRead:
+        """Crea una nueva cuenta de usuario. Exclusivo para investigadores."""
+        user_repo = SqlAlchemyUserRepository(db)
+        hasher: PasswordHasher = request.app.state.password_hasher
+        new_user = create_user_use_case(
+            payload.username,
+            payload.password,
+            Role(payload.role),
+            current_user=current_user,
+            user_repository=user_repo,
+            password_hasher=hasher,
+        )
+        return UserRead(
+            id=new_user.id,
+            username=new_user.username,
+            role=new_user.role.value,
+            active=new_user.active,
+            created_at=new_user.created_at,
+        )
+
+    @app.patch("/users/{user_id}", response_model=UserRead)
+    def update_user_endpoint(
+        user_id: str,
+        payload: UserUpdate,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> UserRead:
+        """Modifica el rol, estado o restablece contraseña de una cuenta."""
+        user_repo = SqlAlchemyUserRepository(db)
+        hasher: PasswordHasher = request.app.state.password_hasher
+        role = Role(payload.role) if payload.role is not None else None
+        updated = update_user_use_case(
+            user_id,
+            current_user=current_user,
+            user_repository=user_repo,
+            role=role,
+            active=payload.active,
+            new_password=payload.password,
+            password_hasher=hasher,
+        )
+        return UserRead(
+            id=updated.id,
+            username=updated.username,
+            role=updated.role.value,
+            active=updated.active,
+            created_at=updated.created_at,
         )
 
     @app.post("/transcribe", response_model=TranscribeResponse, status_code=status.HTTP_201_CREATED)
