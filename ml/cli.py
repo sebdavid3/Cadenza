@@ -15,7 +15,6 @@ import argparse
 import datetime
 import json
 import os
-import random
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -34,6 +33,7 @@ from cadenza.learning import (
     FakeTrainer,
     HybridAcquisition,
     JobConfig,
+    RandomAcquisition,
     RepositoryDatasetReader,
     TrainingSample,
     dataset_hash,
@@ -66,30 +66,13 @@ def _resolve_strategy(name: str, seed: int = 42) -> AcquisitionStrategy:
         return ErrorDensityAcquisition()
     if canonical == "diversity":
         return DiversityAcquisition()
+    if canonical == "random":
+        return RandomAcquisition(seed=seed)
     msg = (
         f"Estrategia desconocida: '{name}'. "
         "Opciones: hybrid, uncertainty, diversity, error_density, random"
     )
     raise ValueError(msg)
-
-
-class RandomAcquisition(AcquisitionStrategy):
-    """Estrategia de adquisición aleatoria determinista para contraste experimental."""
-
-    def __init__(self, seed: int = 42) -> None:
-        self._seed = seed
-
-    @property
-    def strategy_id(self) -> str:
-        return "random"
-
-    def select(self, candidates: Sequence[TrainingSample], budget: int) -> list[TrainingSample]:
-        if budget <= 0 or not candidates:
-            return []
-        items = list(candidates)
-        rng = random.Random(self._seed)
-        rng.shuffle(items)
-        return items[:budget]
 
 
 # =============================================================================

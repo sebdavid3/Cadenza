@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .acquisition import AcquisitionStrategy, feature_distance
+from .acquisition import AcquisitionStrategy, RandomAcquisition, feature_distance
 from .acquisition.diversity import DiversityAcquisition
 from .acquisition.hybrid import HybridAcquisition
 from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisition
@@ -66,6 +66,7 @@ __all__ = [
     "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
+    "RandomAcquisition",
     "RepositoryDatasetReader",
     "TrainedArtifact",
     "Trainer",
