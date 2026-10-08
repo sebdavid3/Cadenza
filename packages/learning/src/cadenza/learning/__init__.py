@@ -15,7 +15,13 @@ from .alignment import (
     split_pitch,
 )
 from .config import load_training_config
-from .dataset import DatasetBuilder, TrainingSample
+from .dataset import (
+    DatasetBuilder,
+    RepositoryDatasetReader,
+    TrainingSample,
+    compute_correction_magnitude,
+    dataset_hash,
+)
 from .evaluation import normalized_edit_distance, symbol_error_rate
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
@@ -57,6 +63,7 @@ __all__ = [
     "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
+    "RepositoryDatasetReader",
     "TrainedArtifact",
     "Trainer",
     "TrainingConfig",
@@ -67,7 +74,9 @@ __all__ = [
     "align_voice_events",
     "categorize_edit_op",
     "compute_binary_metrics",
+    "compute_correction_magnitude",
     "count_edits_by_op",
+    "dataset_hash",
     "derive_edit_events",
     "evaluate_pair",
     "evaluate_score_measures",

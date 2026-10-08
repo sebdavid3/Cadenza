@@ -4,7 +4,10 @@ version = "0.0.0"
 description = "Aprendizaje activo por lotes de Cadenza: DatasetBuilder, estrategias de adquisición, evaluación y Model Registry."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["cadenza-domain"]
+dependencies = [
+    "cadenza-domain",
+    "cadenza-application",
+]
 
 # Métrica oficial OMR-NED (Sheet Music Benchmark) para el capítulo experimental.
 # Extra opcional: el núcleo de aprendizaje no depende de musicdiff.
