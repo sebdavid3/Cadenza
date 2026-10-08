@@ -2,83 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 from cadenza.application import (
-    EditEventRepository,
     Forbidden,
-    PersistedFinding,
+    InMemoryEditEventRepository,
+    InMemorySessionRepository,
     Role,
-    SessionData,
     SessionNotFound,
-    SessionRepository,
     User,
     append_edit,
     get_session,
     list_findings,
     transcribe_score,
 )
-from cadenza.domain import Anchor, EditEvent, EditOp, Finding
+from cadenza.domain import Anchor, EditOp
 from cadenza.omr import FakeOMREngine
 from cadenza.validation import MeasureBalanceRule, ValidationEngine
-
-
-class InMemorySessionRepository(SessionRepository):
-    """Fake en memoria para SessionRepository."""
-
-    def __init__(self) -> None:
-        self.sessions: dict[str, SessionData] = {}
-        self.findings: dict[str, list[PersistedFinding]] = {}
-        self._next_finding_id = 1
-
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
-        self.sessions[session.id] = session
-        persisted = []
-        for finding in findings:
-            persisted.append(
-                PersistedFinding(
-                    id=self._next_finding_id,
-                    rule_id=finding.rule_id,
-                    severity=finding.severity.value,
-                    message=finding.message,
-                    suggested_fix=finding.suggested_fix,
-                    anchor=finding.anchor.to_primitive(),
-                )
-            )
-            self._next_finding_id += 1
-        self.findings[session.id] = persisted
-        return session
-
-    def get(self, session_id: str) -> SessionData | None:
-        return self.sessions.get(session_id)
-
-    def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
-        return tuple(self.findings.get(session_id, []))
-
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
-        sessions = list(self.sessions.values())
-        if owner_id is not None:
-            sessions = [s for s in sessions if s.owner_id == owner_id]
-        return tuple(sessions)
-
-
-class InMemoryEditEventRepository(EditEventRepository):
-    """Fake en memoria para EditEventRepository."""
-
-    def __init__(self) -> None:
-        self.events: dict[str, list[EditEvent]] = {}
-
-    def next_seq(self, session_id: str) -> int:
-        return len(self.events.get(session_id, [])) + 1
-
-    def append(self, session_id: str, edit: EditEvent) -> EditEvent:
-        self.events.setdefault(session_id, []).append(edit)
-        return edit
-
-    def list_events(self, session_id: str) -> tuple[EditEvent, ...]:
-        return tuple(self.events.get(session_id, []))
 
 
 @pytest.fixture

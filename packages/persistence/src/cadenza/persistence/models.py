@@ -71,6 +71,9 @@ class Session(Base):
     status: Mapped[str] = mapped_column(
         String(32), server_default="transcribed", default="transcribed", nullable=False
     )
+    validated_at_seq: Mapped[int] = mapped_column(
+        Integer, server_default="0", default=0, nullable=False
+    )
     image_artifact: Mapped[str | None] = mapped_column(
         String(64),
         ForeignKey(

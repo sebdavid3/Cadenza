@@ -805,7 +805,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Listado de sesiones | Solo se puede leer una sesión conociendo su `id` | [#27](https://github.com/sebdavid3/Cadenza/issues/27) |
 | API | Motor OMR elegido por configuración | Implementado: configuración tipada con `pydantic-settings` (`Settings`), motor seleccionable (`fake` o `homr`), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
 | API | Ninguna edición inválida entra al log | Implementado: validación previa contra el estado materializado actual (`before` verificado, 422), captura de colisiones de secuencia (409) y proyección limpia sin enmascarar errores | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
-| API | Revalidación tras las correcciones | Los hallazgos se calculan una vez, al transcribir | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
+| API | Revalidación tras las correcciones | Implementado: `POST /sessions/{id}/validate` revalida sobre el estado materializado actual, actualiza hallazgos vigentes (`validated_at_seq`) y preserva hallazgos históricos para análisis de esfuerzo (ADR-0013) | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
 | API | Exportación MusicXML y MIDI | Existe `score_ir_to_musicxml`; no hay MIDI ni endpoint | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
 | API | Ciclo de vida de la sesión con cierre explícito | No se puede marcar una sesión como terminada | [#34](https://github.com/sebdavid3/Cadenza/issues/34) |
 | API | Deshacer registrado como evento inverso (ADR-0007) | Deshacer vive solo en el navegador; el log y el editor divergen | [#35](https://github.com/sebdavid3/Cadenza/issues/35) |
@@ -874,6 +874,7 @@ queda fuera de esta fase.
 | [ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` |
 | [ADR-0011](adr/ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales |
 | [ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario |
+| [ADR-0013](adr/ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos |
 
 ---
 

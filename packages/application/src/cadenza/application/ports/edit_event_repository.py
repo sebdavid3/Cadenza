@@ -21,3 +21,20 @@ class EditEventRepository(ABC):
     @abstractmethod
     def list_events(self, session_id: str) -> tuple[EditEvent, ...]:
         """Devuelve todos los eventos de la sesión ordenados por seq."""
+
+
+class InMemoryEditEventRepository(EditEventRepository):
+    """Implementación en memoria de EditEventRepository para pruebas unitarias."""
+
+    def __init__(self) -> None:
+        self.events: dict[str, list[EditEvent]] = {}
+
+    def next_seq(self, session_id: str) -> int:
+        return len(self.events.get(session_id, [])) + 1
+
+    def append(self, session_id: str, edit: EditEvent) -> EditEvent:
+        self.events.setdefault(session_id, []).append(edit)
+        return edit
+
+    def list_events(self, session_id: str) -> tuple[EditEvent, ...]:
+        return tuple(self.events.get(session_id, []))

@@ -55,6 +55,9 @@ from cadenza.application import (
     list_users as list_users_use_case,
 )
 from cadenza.application import (
+    revalidate as revalidate_use_case,
+)
+from cadenza.application import (
     transcribe_score as transcribe_score_use_case,
 )
 from cadenza.application import (
@@ -82,6 +85,7 @@ from .schemas import (
     EditEventCreate,
     EditEventRead,
     FindingRead,
+    RevalidateResponse,
     SessionDetailRead,
     StatusResponse,
     TokenResponse,
@@ -496,13 +500,52 @@ def create_app(
 
     @app.get("/sessions/{session_id}/findings", response_model=list[FindingRead])
     def list_findings(
-        session_id: str, db: DbDep, current_user: CurrentUserDep
+        session_id: str,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        at_seq: int | None = None,
+        latest_only: bool = True,
     ) -> list[FindingRead]:
         session_repo = SqlAlchemySessionRepository(db)
         findings = list_findings_use_case(
-            session_id, session_repository=session_repo, current_user=current_user
+            session_id,
+            session_repository=session_repo,
+            current_user=current_user,
+            at_seq=at_seq,
+            latest_only=latest_only,
         )
         return [FindingRead.from_persisted(f) for f in findings]
+
+    @app.post(
+        "/sessions/{session_id}/validate",
+        response_model=RevalidateResponse,
+    )
+    def validate_session(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> RevalidateResponse:
+        """Revalida la partitura sobre su estado materializado actual (#11, ADR-0013).
+
+        Aplica las reglas sobre el estado materializado actual de la partitura.
+        Los hallazgos vigentes pasan a asociarse a `current_seq`, y los hallazgos
+        de estados anteriores se conservan en la base de datos para análisis de esfuerzo.
+        """
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        result = revalidate_use_case(
+            session_id,
+            validator=request.app.state.validator,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=current_user,
+        )
+        return RevalidateResponse(
+            session_id=result.session_id,
+            current_seq=result.current_seq,
+            findings=[FindingRead.from_persisted(f) for f in result.findings],
+        )
 
     @app.post(
         "/sessions/{session_id}/edits",
