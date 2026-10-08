@@ -116,9 +116,53 @@ uv run python ml/experiments/exp_04_homr_transcribe.py
 `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`. El `run_info.json` de cada run registra
 versión de ORT, providers y si la sesión CUDA se creó de verdad.
 
+## CLI de Jobs Offline (Fase 7, #22)
+
+Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
+([ADR-0008](docs/adr/ADR-0008-active-learning-model-registry.md), `ARCHITECTURE.md` §3.2 y §6.5).
+Los comandos se encadenan mediante artefactos serializados en disco, sin estado en memoria entre ellos.
+
+### Comandos disponibles
+
+```powershell
+# 1. Construir dataset desde la base de datos (sesiones finalizadas y sus ediciones)
+uv run python -m ml build-dataset --config configs/learning/default.json --output data/datasets/dataset.json
+
+# 2. Seleccionar lote de muestras con una estrategia de adquisición y presupuesto
+uv run python -m ml select --input data/datasets/dataset.json --output data/datasets/selected.json `
+  --strategy hybrid --budget 10 --seed 42
+
+# 3. Entrenar modelo (FakeTrainer / Trainer) y almacenar pesos en el ArtifactStore
+uv run python -m ml train --input data/datasets/selected.json --output results/trained_artifact.json `
+  --artifacts-dir data/artifacts
+
+# 4. Evaluar el artefacto entrenado contra los umbrales de promoción
+uv run python -m ml evaluate --input results/trained_artifact.json --output results/evaluation_report.json
+
+# 5. Promover y activar la versión en el ModelRegistry si cumple el umbral
+uv run python -m ml promote --input results/trained_artifact.json --version v1.1.0 `
+  --output results/promotion_result.json
+
+# 6. Pipeline encadenado completo (de punta a punta)
+uv run python -m ml run --config configs/learning/default.json --work-dir results/pipeline_run `
+  --strategy hybrid --budget 10 --version v1.1.0
+```
+
+### Encadenamiento y trazabilidad de artefactos
+
+| Comando | Entrada | Salida | Metadatos persistidos |
+|---|---|---|---|
+| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, muestras |
+| `select` | `dataset.json` | `selected.json` | `dataset_hash`, `source_dataset_hash`, `strategy`, `budget`, `seed` |
+| `train` | `selected.json` | `trained_artifact.json` + `data/artifacts/sha256/...` | `artifact_hash` (pesos), `dataset_hash`, `config_hash`, métricas |
+| `evaluate` | `trained_artifact.json` | `evaluation_report.json` | `metrics` (SER, OMR-NED), `threshold`, `meets_threshold` |
+| `promote` | `trained_artifact.json` | `promotion_result.json` + `model_versions` (BD) | `version`, `promoted`, `active_model_version`, umbral |
+
 ## Reproducibilidad
 
 Los experimentos de Fase 5 usan `SEED = 20260920` y no dependen de red, GPU ni
 base de datos. Los de Fase 6 fijan el corpus por hash en `data/manifest.json`.
+Los jobs offline fijan `dataset_hash`, `config_hash` y semilla en cada artefacto.
 Las salidas en `results/` y el corpus en `data/` están ignorados por git (ver
 `.gitignore`); sus valores se citan en la tesis.
+
