@@ -458,6 +458,14 @@ y emitir hallazgos anclados.
 - La validación se ejecuta al transcribir **y se repite tras las correcciones**
   sobre el `ScoreIR` materializado, de modo que los hallazgos reflejen el estado
   actual del documento.
+- **Evaluación empírica sobre errores reales ([#18](https://github.com/sebdavid3/Cadenza/issues/18), D8):**
+  Evaluado sobre 359 compases de 91 partituras de PrIMuS contra el diff simbólico
+  con el ground truth (`exp_06_validation_metrics.py`), el catálogo obtiene una
+  **precisión global de 64.52%**, **recall de 39.80%**, **F1 de 0.4923** y
+  especificidad de 72.15% (con 71.19% de cobertura en errores de duración y 66.67%
+  en alturas que descompensan la textura), confirmando la utilidad del catálogo
+  simbólico y documentando analíticamente los límites intrínsecos de las reglas
+  sintácticas frente a sustituciones musicalmente gramaticales.
 
 **Aporte.** Es el componente **central** de la contribución: formaliza reglas de
 teoría musical como especificación verificable, y su salida (densidad de errores)
