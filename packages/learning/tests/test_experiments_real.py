@@ -97,6 +97,8 @@ def test_exp_03_smoke_and_penalization(tmp_path: Path) -> None:
     assert res["total_evaluated"] == 1
     assert res["failures_count"] == 0
     assert res["failure_rate"] == 0.0
+    assert "mean_ser" in res["metrics_on_successes"]
+    assert "mean_ser_penalized" in res["metrics_penalized_with_failures"]
 
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
@@ -109,6 +111,13 @@ def test_exp_03_real_baseline_reports_failures_and_penalty() -> None:
     pen = res["metrics_penalized_with_failures"]["mean_omr_ned_penalized"]
     if res["failures_count"] > 0:
         assert pen >= succ
+    # Verificación de métricas SER
+    assert "mean_ser" in res["metrics_on_successes"]
+    assert "mean_ser_penalized" in res["metrics_penalized_with_failures"]
+    succ_ser = res["metrics_on_successes"]["mean_ser"]
+    pen_ser = res["metrics_penalized_with_failures"]["mean_ser_penalized"]
+    if res["failures_count"] > 0 and succ_ser is not None and pen_ser is not None:
+        assert pen_ser >= succ_ser
 
 
 def test_exp_07_smoke() -> None:

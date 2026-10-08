@@ -372,3 +372,73 @@ def test_cli_subprocess_invocation(tmp_path: Path, populated_db_url: str) -> Non
     data = json.loads(dataset_path.read_text(encoding="utf-8"))
     assert data["count"] == 2
     assert "dataset_hash" in data
+
+
+def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url: str) -> None:
+    """Verifica que evaluate reporte SER y OMR-NED y que promote registre la SER real (#30)."""
+    dataset_path = tmp_path / "dataset.json"
+    trained_path = tmp_path / "trained.json"
+    eval_path = tmp_path / "eval_report.json"
+    promoted_path = tmp_path / "promoted.json"
+    artifacts_dir = tmp_path / "artifacts"
+
+    # 1. build-dataset & train
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
+    main(
+        [
+            "train",
+            "--input",
+            str(dataset_path),
+            "--output",
+            str(trained_path),
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--db-url",
+            populated_db_url,
+        ]
+    )
+
+    # 2. evaluate con SER y OMR-NED reales (ej. del baseline HOMR sobre PrIMuS)
+    rc_ev = main(
+        [
+            "evaluate",
+            "--input",
+            str(trained_path),
+            "--output",
+            str(eval_path),
+            "--ser",
+            "0.1124",
+            "--omr-ned",
+            "0.0850",
+        ]
+    )
+    assert rc_ev == 0
+    report = json.loads(eval_path.read_text(encoding="utf-8"))
+    assert report["metrics"]["ser"] == 0.1124
+    assert report["metrics"]["omr_ned"] == 0.0850
+    assert report["meets_threshold"] is True
+
+    # 3. promote registra la SER real en la base de datos
+    rc_pr = main(
+        [
+            "promote",
+            "--input",
+            str(eval_path),
+            "--version",
+            "v1.5.0-real-ser",
+            "--db-url",
+            populated_db_url,
+            "--output",
+            str(promoted_path),
+        ]
+    )
+    assert rc_pr == 0
+    engine = create_engine_for_url(populated_db_url)
+    factory = create_session_factory(engine)
+    with session_scope(factory) as db:
+        reg = SqlAlchemyModelRegistry(db)
+        active = reg.active()
+        assert active is not None
+        assert active.version == "v1.5.0-real-ser"
+        assert active.metrics.ser == 0.1124
+        assert active.metrics.omr_ned == 0.0850
