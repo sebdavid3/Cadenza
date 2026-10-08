@@ -22,7 +22,7 @@ from cadenza.domain import (
     TimeSignature,
 )
 
-from . import ValidationRule
+from .base import ValidationRule
 
 RULE_ID = "measure.balance"
 _DURATION_KINDS = frozenset({EventKind.NOTE, EventKind.REST})

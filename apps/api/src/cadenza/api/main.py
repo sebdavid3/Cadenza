@@ -108,7 +108,7 @@ from cadenza.persistence import (
     create_schema,
     create_session_factory,
 )
-from cadenza.validation import MeasureBalanceRule, ValidationEngine, ValidationRule
+from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
 from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
@@ -320,7 +320,7 @@ def create_app(
     app.state.settings = app_settings
     app.state.omr_engine = omr_engine if omr_engine is not None else FakeOMREngine()
     app.state.validator = ValidationEngine(
-        list(rules) if rules is not None else [MeasureBalanceRule()]
+        list(rules) if rules is not None else get_default_rules()
     )
     app.state.password_hasher = (
         password_hasher if password_hasher is not None else Argon2PasswordHasher()

@@ -1,4 +1,4 @@
-"""Pruebas del motor de validación (aplanado, orden y solo lectura)."""
+"""Pruebas del motor de validación (aplanado, orden, catálogo y solo lectura)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,12 @@ from pathlib import Path
 
 from cadenza.domain import Finding, ScoreDocument, Severity
 from cadenza.omr import FakeOMREngine
-from cadenza.validation import ValidationEngine, ValidationRule
+from cadenza.validation import (
+    DEFAULT_RULES_CATALOG,
+    ValidationEngine,
+    ValidationRule,
+    get_default_rules,
+)
 
 
 class _StubRule(ValidationRule):
@@ -56,3 +61,31 @@ def test_validation_does_not_mutate_document(tmp_path: Path) -> None:
     snapshot = document
     ValidationEngine([_StubRule("a", 1)]).validate(document)
     assert document == snapshot
+
+
+def test_default_rules_catalog_has_five_families() -> None:
+    assert len(DEFAULT_RULES_CATALOG) == 5
+    default_rules = get_default_rules()
+    assert len(default_rules) == 5
+    rule_ids = {r.rule_id for r in default_rules}
+    assert rule_ids == {
+        "key.consistency",
+        "measure.balance",
+        "pitch.range",
+        "tie.resolution",
+        "voice.collision",
+    }
+
+
+def test_engine_initializes_with_default_rules() -> None:
+    engine = ValidationEngine()
+    assert len(engine.rules) == 5
+    assert engine.rules_version == (
+        "key.consistency,measure.balance,pitch.range,tie.resolution,voice.collision"
+    )
+
+
+def test_default_engine_validates_fake_omr_cleanly(tmp_path: Path) -> None:
+    document = _document(tmp_path)
+    findings = ValidationEngine().validate(document)
+    assert findings == []
