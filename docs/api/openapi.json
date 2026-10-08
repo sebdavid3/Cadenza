@@ -1,0 +1,3373 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cadenza API",
+    "description": "API REST de digitalización asistida de partituras (Cadenza v1). Proporciona transcripción con OMR, validación musical automática, registro append-only de correcciones humanas (HITL) y exportación MusicXML 4.0 / MIDI 1.0 (ADR-0004, ADR-0010, ADR-0012, ADR-0014).",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/version": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Versión del servicio y contrato de API",
+        "description": "Devuelve la versión actual del contrato OpenAPI y de la aplicación Cadenza.",
+        "operationId": "get_version_endpoint_version_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Inicio de sesión",
+        "description": "Autentica credenciales mediante formulario OAuth2 y emite un token de acceso Bearer JWT.",
+        "operationId": "login_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_auth_login_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Perfil del usuario autenticado",
+        "description": "Devuelve el perfil y rol del usuario correspondiente al token Bearer provisto.",
+        "operationId": "get_me_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/password": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Cambio de contraseña por el propio usuario",
+        "description": "Permite al usuario autenticado cambiar su contraseña previa comprobación de la contraseña actual.",
+        "operationId": "change_password_endpoint_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/users": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Listar cuentas registradas",
+        "description": "Lista las cuentas registradas en el sistema. Operación exclusiva para usuarios con rol investigador (ADR-0012).",
+        "operationId": "list_users_endpoint_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UserRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Users Endpoint Users Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Dar de alta una nueva cuenta de usuario",
+        "description": "Crea una nueva cuenta de usuario con rol tipado. Exclusivo para investigadores (ADR-0012).",
+        "operationId": "create_user_endpoint_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/users/{user_id}": {
+      "patch": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Modificar rol, estado o restablecer contraseña",
+        "description": "Permite a un investigador modificar datos de acceso o rol de una cuenta existente.",
+        "operationId": "update_user_endpoint_users__user_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transcribe": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Transcribir imagen con OMR y validación inicial",
+        "description": "Sube una imagen de partitura, ejecuta inferencia OMR asíncrona, valida reglas y crea la sesión inicial.",
+        "operationId": "transcribe_transcribe_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_transcribe_transcribe_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscribeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El archivo excede el tamaño máximo permitido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Tipo de archivo no soportado (se requiere imagen PNG o JPEG)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/sessions": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Listar sesiones con resúmenes ligeros paginados",
+        "description": "Lista las sesiones con resúmenes ligeros sin transferir el ScoreDocument JSONB (ADR-0009, ADR-0012).",
+        "operationId": "list_sessions_endpoint_sessions_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSummaryRead"
+                  },
+                  "title": "Response List Sessions Endpoint Sessions Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/image": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Descargar imagen de origen de la sesión",
+        "description": "Recupera la imagen física de origen desde el ArtifactStore verificando permisos de acceso (ADR-0012).",
+        "operationId": "get_session_image_endpoint_sessions__session_id__image_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/export": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Exportar sesión a MusicXML o MIDI",
+        "description": "Exporta el ScoreIR materializado de la sesión a formato MusicXML 4.0 o MIDI 1.0 (Issue #12, ADR-0010).",
+        "operationId": "export_session_endpoint_sessions__session_id__export_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Formato de exportación: 'musicxml' o 'midi'",
+              "title": "Format"
+            },
+            "description": "Formato de exportación: 'musicxml' o 'midi'"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Detalle completo de sesión con estado materializado",
+        "description": "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, current_score materializado y anchor_index enriquecido (ADR-0011).",
+        "operationId": "get_session_sessions__session_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetailRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/findings": {
+      "get": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Listar hallazgos de validación de la sesión",
+        "description": "Devuelve los hallazgos de la sesión, filtrando por defecto solo los activos no descartados (ADR-0013, #36).",
+        "operationId": "list_findings_sessions__session_id__findings_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "at_seq",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "At Seq"
+            }
+          },
+          {
+            "name": "latest_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Latest Only"
+            }
+          },
+          {
+            "name": "include_dismissed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Include Dismissed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FindingRead"
+                  },
+                  "title": "Response List Findings Sessions  Session Id  Findings Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/findings/{finding_id}/dismiss": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Descartar un hallazgo como falso positivo",
+        "description": "Marca un hallazgo como falso positivo descartado con motivo opcional y autoría fijada por el servidor (#36).",
+        "operationId": "dismiss_finding_endpoint_sessions__session_id__findings__finding_id__dismiss_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "finding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Finding Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DismissFindingRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/findings/{finding_id}/restore": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Restaurar un hallazgo previamente descartado",
+        "description": "Restaura un falso positivo previamente descartado al catálogo de hallazgos activos (#36).",
+        "operationId": "restore_finding_endpoint_sessions__session_id__findings__finding_id__restore_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "finding_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Finding Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/validate": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Revalidar partitura sobre su estado materializado actual",
+        "description": "Aplica las reglas sobre el estado materializado actual de la partitura. Los hallazgos vigentes pasan a asociarse a current_seq, y los hallazgos de estados anteriores se conservan para análisis de esfuerzo (ADR-0013, #11).",
+        "operationId": "validate_session_sessions__session_id__validate_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevalidateResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/finalize": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Finalizar sesión y cerrar corrección",
+        "description": "Ejecuta revalidación final y cierra la sesión contra nuevas ediciones humanas (ADR-0014, #34).",
+        "operationId": "finalize_session_endpoint_sessions__session_id__finalize_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FinalizeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/reopen": {
+      "post": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Reabrir una sesión finalizada",
+        "description": "Reabre una sesión finalizada permitiendo retomar la adición de correcciones (ADR-0014, #34).",
+        "operationId": "reopen_session_endpoint_sessions__session_id__reopen_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReopenResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/edits": {
+      "post": {
+        "tags": [
+          "Edits"
+        ],
+        "summary": "Añadir una edición inmutable al log",
+        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012).",
+        "operationId": "append_edit_sessions__session_id__edits_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditEventCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditEventRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/undo": {
+      "post": {
+        "tags": [
+          "Edits"
+        ],
+        "summary": "Deshacer la última edición activa en el servidor",
+        "description": "Registra un evento compensatorio inverso de la última edición activa en el log append-only sin borrar historia (ADR-0007, #35). Devuelve el nuevo current_seq, el ID de la edición deshecha, la partitura materializada actualizada y su índice de anclas.",
+        "operationId": "undo_session_edit_sessions__session_id__undo_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/UndoRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UndoResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/{session_id}/effort": {
+      "post": {
+        "tags": [
+          "Effort"
+        ],
+        "summary": "Persistir métricas de esfuerzo de corrección",
+        "description": "Persiste la duración, latencia hasta la primera edición e intervenciones por compás. Solo el dueño de la sesión puede registrar esfuerzo (ADR-0012, #13).",
+        "operationId": "record_effort_endpoint_sessions__session_id__effort_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EffortMetricsCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffortMetricsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Effort"
+        ],
+        "summary": "Consultar métricas de esfuerzo de la sesión",
+        "description": "Devuelve el historial de registros de métricas de esfuerzo de la sesión (ADR-0012, #13).",
+        "operationId": "get_effort_endpoint_sessions__session_id__effort_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EffortMetricsRead"
+                  },
+                  "title": "Response Get Effort Endpoint Sessions  Session Id  Effort Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnchorEntryPayload": {
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "event": {
+            "$ref": "#/components/schemas/EventRefPayload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "anchor",
+          "event"
+        ],
+        "title": "AnchorEntryPayload",
+        "description": "Entrada individual en el mapa de anclas del ScoreDocument."
+      },
+      "AnchorIndexPayload": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AnchorEntryPayload"
+            },
+            "type": "array",
+            "title": "Entries",
+            "description": "Lista ordenada de asociaciones ancla-evento"
+          }
+        },
+        "type": "object",
+        "title": "AnchorIndexPayload",
+        "description": "Índice determinista de anclas del documento o estado materializado."
+      },
+      "AnchorPayload": {
+        "properties": {
+          "part": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Part"
+          },
+          "staff": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Staff"
+          },
+          "measure": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Measure"
+          },
+          "voice": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Voice"
+          },
+          "event_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Index"
+          },
+          "staff_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Staff Id"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "part",
+          "staff",
+          "measure",
+          "voice",
+          "event_index",
+          "staff_id"
+        ],
+        "title": "AnchorPayload",
+        "description": "Ancla de evento en formato primitivo (contrato compartido del dominio).\n\nEl ancla es posicional y se interpreta respecto al estado `at_seq`\ncorrespondiente: estado 0 para el documento crudo, estado `seq - 1`\n(`base_seq`) para una edición, estado `at_seq` para un hallazgo (ADR-0011)."
+      },
+      "Body_login_auth_login_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^password$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Type"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "password",
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_login_auth_login_post"
+      },
+      "Body_transcribe_transcribe_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_transcribe_transcribe_post"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Current Password"
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "description": "Payload para cambio de contraseña por el propio usuario (ADR-0012, #46)."
+      },
+      "ClefPayload": {
+        "properties": {
+          "sign": {
+            "type": "string",
+            "title": "Sign",
+            "description": "Símbolo de clave ('G', 'F', 'C')"
+          },
+          "line": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Line",
+            "description": "Línea del pentagrama en la que se ubica la clave",
+            "default": 2
+          },
+          "octave_change": {
+            "type": "integer",
+            "title": "Octave Change",
+            "description": "Desplazamiento de octava (+1, -1, 0)",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "sign"
+        ],
+        "title": "ClefPayload",
+        "description": "Clave musical (p. ej. Sol, Fa, Do)."
+      },
+      "DismissFindingRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "title": "DismissFindingRequest",
+        "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
+      },
+      "EditEventCreate": {
+        "properties": {
+          "base_seq": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Base Seq",
+            "description": "Número de secuencia del estado sobre el que se preparó la edición (ADR-0011)"
+          },
+          "op": {
+            "$ref": "#/components/schemas/EditOp"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "base_seq",
+          "op",
+          "anchor"
+        ],
+        "title": "EditEventCreate",
+        "description": "Payload de una corrección humana (el servidor asigna id, seq y fecha).\n\nExige `base_seq`, que identifica el estado sobre el cual se construyó la\nedición (ADR-0011). Si `base_seq` no coincide con el último `seq` de la sesión,\nel servidor responde HTTP 409 Conflict y no persiste nada. El servidor nunca\nreintenta con otro `seq` para no alterar el evento al que apunta el ancla.\n\nEl ancla `anchor` es posicional y se interpreta estrictamente respecto al\nestado base declarado (`base_seq`, ADR-0011)."
+      },
+      "EditEventRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "op": {
+            "type": "string",
+            "title": "Op"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "reverts_edit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverts Edit Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "seq",
+          "op",
+          "author",
+          "anchor",
+          "before",
+          "after",
+          "created_at"
+        ],
+        "title": "EditEventRead"
+      },
+      "EditOp": {
+        "type": "string",
+        "enum": [
+          "SetPitch",
+          "SetDuration",
+          "SetAccidental",
+          "InsertEvent",
+          "DeleteEvent",
+          "SetClef",
+          "SetKey"
+        ],
+        "title": "EditOp",
+        "description": "Operaciones de corrección admitidas sobre un evento anclado.\n\nEsquemas de payload (atributos ``before`` y ``after`` en `EditEvent`):\n\n1. `SET_PITCH` (\"SetPitch\"):\n   - Modifica la altura absoluta de una nota.\n   - ``before``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"C4\"}``).\n   - ``after``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"D4\"}``).\n\n2. `SET_DURATION` (\"SetDuration\"):\n   - Modifica la duración en tiempos (beats) de un evento musical.\n   - ``before``: ``{\"duration_beats\": Fraction | int | float | str}``.\n   - ``after``: ``{\"duration_beats\": Fraction | int | float | str}``.\n\n3. `SET_ACCIDENTAL` (\"SetAccidental\"):\n   - Modifica la alteración de una nota conservando su nombre de nota y octava.\n   - ``before``: ``{\"accidental\": str | None}`` (p. ej. ``{\"accidental\": \"\"}``).\n   - ``after``: ``{\"accidental\": str | None}``\n     (p. ej. ``\"#\"``, ``\"b\"``, ``\"natural\"``, ``\"##\"``, ``\"bb\"``).\n\n4. `INSERT_EVENT` (\"InsertEvent\"):\n   - Inserta un nuevo evento musical antes de la posición anclada.\n   - ``before``: ``None``.\n   - ``after``: ``{\"kind\": str, \"pitch\": str | None, \"duration_beats\": Fraction | str, ...}``.\n\n5. `DELETE_EVENT` (\"DeleteEvent\"):\n   - Elimina el evento musical anclado en la voz del compás.\n   - ``before``: snapshot del evento previo.\n   - ``after``: ``None``.\n\n6. `SET_CLEF` (\"SetClef\"):\n   - Modifica la clave musical del compás al que apunta el ancla.\n   - ``before``: snapshot de clave previa o ``None``.\n   - ``after``: ``{\"clef\": dict | str | Clef}`` o primitivo ``{\"sign\": str, \"line\": int}``.\n\n7. `SET_KEY` (\"SetKey\"):\n   - Modifica la armadura de clave del compás al que apunta el ancla.\n   - ``before``: snapshot de armadura previa o ``None``.\n   - ``after``: ``{\"key_signature\": dict | KeySignature}`` o primitivo ``{\"fifths\": int}``."
+      },
+      "EffortMetricsCreate": {
+        "properties": {
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Duration Ms",
+            "description": "Duración total de corrección en ms"
+          },
+          "time_to_first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time To First Edit Ms",
+            "description": "Tiempo hasta la primera edición en ms"
+          },
+          "interventions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Interventions",
+            "description": "Intervenciones por número de compás"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "duration_ms"
+        ],
+        "title": "EffortMetricsCreate",
+        "description": "Payload para registrar métricas de esfuerzo de corrección (#13)."
+      },
+      "EffortMetricsRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "time_to_first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time To First Edit Ms"
+          },
+          "interventions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Interventions"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "duration_ms",
+          "time_to_first_edit_ms",
+          "interventions",
+          "created_at"
+        ],
+        "title": "EffortMetricsRead",
+        "description": "Métricas de esfuerzo persistidas para una sesión (#13)."
+      },
+      "ErrorDetail": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "description": "Descripción del error o detalle de validación"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorDetail",
+        "description": "Estructura uniforme de mensaje de error HTTP de la API."
+      },
+      "EventRefPayload": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "description": "Tipo de evento musical ('note', 'rest', 'clef', 'key', 'time')"
+          },
+          "ir_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ir Handle",
+            "description": "Identificador interno del manejador IR"
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox",
+            "description": "Coordenadas normalizadas de bounding box"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Confianza asignada al evento"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "EventRefPayload",
+        "description": "Referencia mínima al evento del ScoreIR asociado a un ancla."
+      },
+      "FinalizeResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "final_seq": {
+            "type": "integer",
+            "title": "Final Seq"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "type": "array",
+            "title": "Findings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "status",
+          "final_seq",
+          "findings"
+        ],
+        "title": "FinalizeResponse",
+        "description": "Respuesta tras finalizar una sesión de transcripción (ADR-0014, #34)."
+      },
+      "FindingRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "rule_id": {
+            "type": "string",
+            "title": "Rule Id"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "suggested_fix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Fix"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "at_seq": {
+            "type": "integer",
+            "title": "At Seq",
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "active"
+          },
+          "dismissed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed At"
+          },
+          "dismissed_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissed By"
+          },
+          "dismissal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dismissal Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "rule_id",
+          "severity",
+          "message",
+          "suggested_fix",
+          "anchor"
+        ],
+        "title": "FindingRead"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "KeySignaturePayload": {
+        "properties": {
+          "fifths": {
+            "type": "integer",
+            "maximum": 7.0,
+            "minimum": -7.0,
+            "title": "Fifths",
+            "description": "Número de alteraciones en quintas (-7 bemoles a +7 sostenidos)"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode",
+            "description": "Modo armónico opcional ('major', 'minor')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fifths"
+        ],
+        "title": "KeySignaturePayload",
+        "description": "Armadura de clave expresada en número de quintas respecto a Do mayor."
+      },
+      "MeasurePayload": {
+        "properties": {
+          "number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Number",
+            "description": "Número de compás (1-indexed)"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreEventPayload"
+            },
+            "type": "array",
+            "title": "Events",
+            "description": "Secuencia de eventos musicales"
+          },
+          "time_signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeSignaturePayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Signatura de compás"
+          },
+          "clef": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClefPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Clave musical activa en el compás"
+          },
+          "key_signature": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KeySignaturePayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Armadura de clave activa"
+          }
+        },
+        "type": "object",
+        "required": [
+          "number",
+          "events"
+        ],
+        "title": "MeasurePayload",
+        "description": "Compás que agrupa eventos musicales y metadatos estructurales."
+      },
+      "PartPayload": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identificador de la parte (p. ej. 'part-0')"
+          },
+          "staves": {
+            "items": {
+              "$ref": "#/components/schemas/StaffPayload"
+            },
+            "type": "array",
+            "title": "Staves",
+            "description": "Lista de pentagramas de la parte"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "staves"
+        ],
+        "title": "PartPayload",
+        "description": "Parte instrumental o vocal que agrupa uno o varios pentagramas."
+      },
+      "ProvenancePayload": {
+        "properties": {
+          "omr_engine": {
+            "type": "string",
+            "title": "Omr Engine",
+            "description": "Nombre del motor OMR utilizado ('fake', 'homr')"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Versión del modelo OMR"
+          },
+          "rules_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rules Version",
+            "description": "Versión del catálogo de reglas"
+          },
+          "source_image_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Image Hash",
+            "description": "Hash SHA-256 de la imagen de origen"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "Marca de tiempo ISO-8601 de creación"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device",
+            "description": "Dispositivo de cómputo efectivo ('cpu', 'cuda')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "omr_engine"
+        ],
+        "title": "ProvenancePayload",
+        "description": "Trazabilidad y procedencia de la inferencia OMR y validación."
+      },
+      "ReopenResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "status",
+          "current_seq"
+        ],
+        "title": "ReopenResponse",
+        "description": "Respuesta tras reabrir una sesión finalizada (ADR-0014, #34)."
+      },
+      "RevalidateResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "type": "array",
+            "title": "Findings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "current_seq",
+          "findings"
+        ],
+        "title": "RevalidateResponse",
+        "description": "Respuesta tras revalidación de la partitura (ADR-0011, ADR-0013, #11, #48).\n\nDevuelve el `current_seq` de la sesión y la lista de hallazgos evaluados,\ncada uno con su `at_seq` correspondiente."
+      },
+      "ScoreDocumentPayload": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identificador único del documento"
+          },
+          "score": {
+            "$ref": "#/components/schemas/ScoreIRPayload",
+            "description": "Árbol simbólico ScoreIR"
+          },
+          "anchors": {
+            "$ref": "#/components/schemas/AnchorIndexPayload",
+            "description": "Índice de anclas de la partitura"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ProvenancePayload",
+            "description": "Metadatos de procedencia del documento"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "score",
+          "anchors",
+          "provenance"
+        ],
+        "title": "ScoreDocumentPayload",
+        "description": "Documento musical integral: ScoreIR + Índice de anclas + Provenance."
+      },
+      "ScoreEventPayload": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "description": "Tipo de evento ('note', 'rest', etc.)"
+          },
+          "voice": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Voice",
+            "description": "Índice de voz dentro del pentagrama",
+            "default": 0
+          },
+          "pitch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pitch",
+            "description": "Altura en notación científica (p. ej. 'C4', 'F#5')"
+          },
+          "duration_beats": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Beats",
+            "description": "Duración exacta en pulsos como fracción ('1/4', '1', '3/8')"
+          },
+          "tie": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tie",
+            "description": "Estado de ligadura ('start', 'continue', 'stop')"
+          },
+          "is_chord": {
+            "type": "boolean",
+            "title": "Is Chord",
+            "description": "Indica si la nota pertenece a un acorde simultáneo",
+            "default": false
+          },
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bbox",
+            "description": "Bounding box normalizado"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Puntuación de confianza del reconocimiento"
+          },
+          "ir_handle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ir Handle",
+            "description": "Manejador de referencia interna"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "ScoreEventPayload",
+        "description": "Evento musical individual en un compás (nota, silencio, etc.)."
+      },
+      "ScoreIRPayload": {
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/PartPayload"
+            },
+            "type": "array",
+            "title": "Parts",
+            "description": "Partes que componen la partitura"
+          }
+        },
+        "type": "object",
+        "required": [
+          "parts"
+        ],
+        "title": "ScoreIRPayload",
+        "description": "Representación intermedia simbólica normalizada de la partitura (ScoreIR)."
+      },
+      "SessionDetailRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "omr_engine": {
+            "type": "string",
+            "title": "Omr Engine"
+          },
+          "document": {
+            "$ref": "#/components/schemas/ScoreDocumentPayload"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/EditEventRead"
+            },
+            "type": "array",
+            "title": "Edits"
+          },
+          "current_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoreIRPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq",
+            "default": 0
+          },
+          "anchor_index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorIndexPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "image_artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Artifact"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "transcribed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "document",
+          "findings",
+          "edits"
+        ],
+        "title": "SessionDetailRead",
+        "description": "Documento persistido + findings + correcciones de una sesión (HITL).\n\n`current_seq` indica el estado de secuencia de la partitura actual (`0` para crudo,\n`n` para `n` ediciones). `current_score` es el ScoreIR materializado y\n`anchor_index` contiene el índice de anclas correspondiente al estado actual,\ncon `bbox` y `confidence` heredadas del documento original (ADR-0011)."
+      },
+      "SessionSummaryRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "omr_engine": {
+            "type": "string",
+            "title": "Omr Engine"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "findings_count": {
+            "type": "integer",
+            "title": "Findings Count",
+            "default": 0
+          },
+          "edits_count": {
+            "type": "integer",
+            "title": "Edits Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "status",
+          "created_at"
+        ],
+        "title": "SessionSummaryRead",
+        "description": "Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."
+      },
+      "StaffPayload": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identificador único del pentagrama (p. ej. 'part-0-staff-0')"
+          },
+          "measures": {
+            "items": {
+              "$ref": "#/components/schemas/MeasurePayload"
+            },
+            "type": "array",
+            "title": "Measures",
+            "description": "Lista de compases del pentagrama"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "measures"
+        ],
+        "title": "StaffPayload",
+        "description": "Pentagrama que agrupa compases en una parte."
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "StatusResponse",
+        "description": "Respuesta con mensaje de estado de la operación."
+      },
+      "TimeSignaturePayload": {
+        "properties": {
+          "beats": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Beats",
+            "description": "Número de pulsos por compás"
+          },
+          "beat_type": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Beat Type",
+            "description": "Figura musical que representa un pulso"
+          }
+        },
+        "type": "object",
+        "required": [
+          "beats",
+          "beat_type"
+        ],
+        "title": "TimeSignaturePayload",
+        "description": "Signatura de compás (métrica) de un compás."
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse",
+        "description": "Respuesta de autenticación con token de acceso Bearer (OAuth2)."
+      },
+      "TranscribeResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "document_id": {
+            "type": "string",
+            "title": "Document Id"
+          },
+          "omr_engine": {
+            "type": "string",
+            "title": "Omr Engine"
+          },
+          "findings_count": {
+            "type": "integer",
+            "title": "Findings Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "findings_count"
+        ],
+        "title": "TranscribeResponse"
+      },
+      "UndoRequest": {
+        "properties": {
+          "base_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Seq",
+            "description": "Número de secuencia base esperado. Si se especifica y no coincide con el estado actual, responde 409."
+          }
+        },
+        "type": "object",
+        "title": "UndoRequest",
+        "description": "Payload opcional para deshacer una edición con validación de concurrencia (#35, #48)."
+      },
+      "UndoResponse": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq"
+          },
+          "undone_edit_id": {
+            "type": "string",
+            "title": "Undone Edit Id"
+          },
+          "current_score": {
+            "$ref": "#/components/schemas/ScoreIRPayload"
+          },
+          "anchor_index": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnchorIndexPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "compensatory_edit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compensatory Edit Id"
+          },
+          "compensatory_edit": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EditEventRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "current_seq",
+          "undone_edit_id",
+          "current_score"
+        ],
+        "title": "UndoResponse",
+        "description": "Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."
+      },
+      "UserCreate": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password"
+          },
+          "role": {
+            "type": "string",
+            "pattern": "^(transcriptor|investigador)$",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password",
+          "role"
+        ],
+        "title": "UserCreate",
+        "description": "Payload para dar de alta una cuenta (ADR-0012, #46)."
+      },
+      "UserRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "username",
+          "role",
+          "active"
+        ],
+        "title": "UserRead",
+        "description": "Perfil público de un usuario autenticado (ADR-0012)."
+      },
+      "UserUpdate": {
+        "properties": {
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(transcriptor|investigador)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdate",
+        "description": "Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VersionResponse": {
+        "properties": {
+          "api_version": {
+            "type": "string",
+            "title": "Api Version",
+            "description": "Versión del contrato API v1",
+            "default": "1.0.0"
+          },
+          "app_version": {
+            "type": "string",
+            "title": "App Version",
+            "description": "Versión de la aplicación Cadenza",
+            "default": "1.0.0"
+          }
+        },
+        "type": "object",
+        "title": "VersionResponse",
+        "description": "Versión de la API y del servicio."
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/auth/login"
+          }
+        }
+      },
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Token JWT emitido por POST /auth/login. Enviar en la cabecera 'Authorization: Bearer <token>'."
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Autenticación JWT e identidad del usuario"
+    },
+    {
+      "name": "Users",
+      "description": "Gestión de cuentas (exclusivo para investigadores)"
+    },
+    {
+      "name": "Transcription",
+      "description": "Ingesta de imágenes y transcripción OMR"
+    },
+    {
+      "name": "Sessions",
+      "description": "Ciclo de vida, consulta y exportación de sesiones"
+    },
+    {
+      "name": "Edits",
+      "description": "Registro append-only de ediciones y compensación undo"
+    },
+    {
+      "name": "Validation",
+      "description": "Revalidación musical y gestión de falsos positivos"
+    },
+    {
+      "name": "Effort",
+      "description": "Registro y telemetría de métricas de esfuerzo"
+    },
+    {
+      "name": "System",
+      "description": "Metadatos y versión del servicio"
+    }
+  ]
+}

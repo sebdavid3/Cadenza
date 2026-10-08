@@ -34,6 +34,155 @@ class AnchorPayload(BaseModel):
         return Anchor.from_primitive(self.model_dump())
 
 
+class EventRefPayload(BaseModel):
+    """Referencia mínima al evento del ScoreIR asociado a un ancla."""
+
+    kind: str = Field(description="Tipo de evento musical ('note', 'rest', 'clef', 'key', 'time')")
+    ir_handle: str | None = Field(
+        default=None, description="Identificador interno del manejador IR"
+    )
+    bbox: list[float] | None = Field(
+        default=None, description="Coordenadas normalizadas de bounding box"
+    )
+    confidence: float | None = Field(default=None, description="Confianza asignada al evento")
+
+
+class AnchorEntryPayload(BaseModel):
+    """Entrada individual en el mapa de anclas del ScoreDocument."""
+
+    anchor: AnchorPayload
+    event: EventRefPayload
+
+
+class AnchorIndexPayload(BaseModel):
+    """Índice determinista de anclas del documento o estado materializado."""
+
+    entries: list[AnchorEntryPayload] = Field(
+        default_factory=list, description="Lista ordenada de asociaciones ancla-evento"
+    )
+
+
+class TimeSignaturePayload(BaseModel):
+    """Signatura de compás (métrica) de un compás."""
+
+    beats: int = Field(gt=0, description="Número de pulsos por compás")
+    beat_type: int = Field(gt=0, description="Figura musical que representa un pulso")
+
+
+class ClefPayload(BaseModel):
+    """Clave musical (p. ej. Sol, Fa, Do)."""
+
+    sign: str = Field(description="Símbolo de clave ('G', 'F', 'C')")
+    line: int = Field(
+        default=2, gt=0, description="Línea del pentagrama en la que se ubica la clave"
+    )
+    octave_change: int = Field(default=0, description="Desplazamiento de octava (+1, -1, 0)")
+
+
+class KeySignaturePayload(BaseModel):
+    """Armadura de clave expresada en número de quintas respecto a Do mayor."""
+
+    fifths: int = Field(
+        ge=-7, le=7, description="Número de alteraciones en quintas (-7 bemoles a +7 sostenidos)"
+    )
+    mode: str | None = Field(default=None, description="Modo armónico opcional ('major', 'minor')")
+
+
+class ScoreEventPayload(BaseModel):
+    """Evento musical individual en un compás (nota, silencio, etc.)."""
+
+    kind: str = Field(description="Tipo de evento ('note', 'rest', etc.)")
+    voice: int = Field(default=0, ge=0, description="Índice de voz dentro del pentagrama")
+    pitch: str | None = Field(
+        default=None, description="Altura en notación científica (p. ej. 'C4', 'F#5')"
+    )
+    duration_beats: str | None = Field(
+        default=None, description="Duración exacta en pulsos como fracción ('1/4', '1', '3/8')"
+    )
+    tie: str | None = Field(
+        default=None, description="Estado de ligadura ('start', 'continue', 'stop')"
+    )
+    is_chord: bool = Field(
+        default=False, description="Indica si la nota pertenece a un acorde simultáneo"
+    )
+    bbox: list[float] | None = Field(default=None, description="Bounding box normalizado")
+    confidence: float | None = Field(
+        default=None, description="Puntuación de confianza del reconocimiento"
+    )
+    ir_handle: str | None = Field(default=None, description="Manejador de referencia interna")
+
+
+class MeasurePayload(BaseModel):
+    """Compás que agrupa eventos musicales y metadatos estructurales."""
+
+    number: int = Field(ge=1, description="Número de compás (1-indexed)")
+    events: list[ScoreEventPayload] = Field(description="Secuencia de eventos musicales")
+    time_signature: TimeSignaturePayload | None = Field(
+        default=None, description="Signatura de compás"
+    )
+    clef: ClefPayload | None = Field(default=None, description="Clave musical activa en el compás")
+    key_signature: KeySignaturePayload | None = Field(
+        default=None, description="Armadura de clave activa"
+    )
+
+
+class StaffPayload(BaseModel):
+    """Pentagrama que agrupa compases en una parte."""
+
+    id: str = Field(description="Identificador único del pentagrama (p. ej. 'part-0-staff-0')")
+    measures: list[MeasurePayload] = Field(description="Lista de compases del pentagrama")
+
+
+class PartPayload(BaseModel):
+    """Parte instrumental o vocal que agrupa uno o varios pentagramas."""
+
+    id: str = Field(description="Identificador de la parte (p. ej. 'part-0')")
+    staves: list[StaffPayload] = Field(description="Lista de pentagramas de la parte")
+
+
+class ScoreIRPayload(BaseModel):
+    """Representación intermedia simbólica normalizada de la partitura (ScoreIR)."""
+
+    parts: list[PartPayload] = Field(description="Partes que componen la partitura")
+
+
+class ProvenancePayload(BaseModel):
+    """Trazabilidad y procedencia de la inferencia OMR y validación."""
+
+    omr_engine: str = Field(description="Nombre del motor OMR utilizado ('fake', 'homr')")
+    model_version: str | None = Field(default=None, description="Versión del modelo OMR")
+    rules_version: str | None = Field(default=None, description="Versión del catálogo de reglas")
+    source_image_hash: str | None = Field(
+        default=None, description="Hash SHA-256 de la imagen de origen"
+    )
+    created_at: str | None = Field(default=None, description="Marca de tiempo ISO-8601 de creación")
+    device: str | None = Field(
+        default=None, description="Dispositivo de cómputo efectivo ('cpu', 'cuda')"
+    )
+
+
+class ScoreDocumentPayload(BaseModel):
+    """Documento musical integral: ScoreIR + Índice de anclas + Provenance."""
+
+    id: str = Field(description="Identificador único del documento")
+    score: ScoreIRPayload = Field(description="Árbol simbólico ScoreIR")
+    anchors: AnchorIndexPayload = Field(description="Índice de anclas de la partitura")
+    provenance: ProvenancePayload = Field(description="Metadatos de procedencia del documento")
+
+
+class ErrorDetail(BaseModel):
+    """Estructura uniforme de mensaje de error HTTP de la API."""
+
+    detail: Any = Field(description="Descripción del error o detalle de validación")
+
+
+class VersionResponse(BaseModel):
+    """Versión de la API y del servicio."""
+
+    api_version: str = Field(default="1.0.0", description="Versión del contrato API v1")
+    app_version: str = Field(default="1.0.0", description="Versión de la aplicación Cadenza")
+
+
 class EditEventCreate(BaseModel):
     """Payload de una corrección humana (el servidor asigna id, seq y fecha).
 
@@ -71,7 +220,7 @@ class FindingRead(BaseModel):
     severity: str
     message: str
     suggested_fix: str | None
-    anchor: dict[str, Any]
+    anchor: AnchorPayload
     at_seq: int = 0
     status: str = "active"
     dismissed_at: datetime | None = None
@@ -86,7 +235,7 @@ class FindingRead(BaseModel):
             severity=record.severity,
             message=record.message,
             suggested_fix=record.suggested_fix,
-            anchor=record.anchor,
+            anchor=AnchorPayload.model_validate(record.anchor),
             at_seq=record.at_seq,
             status=record.status,
             dismissed_at=record.dismissed_at,
@@ -102,7 +251,7 @@ class FindingRead(BaseModel):
             severity=finding.severity,
             message=finding.message,
             suggested_fix=finding.suggested_fix,
-            anchor=finding.anchor,
+            anchor=AnchorPayload.model_validate(finding.anchor),
             at_seq=finding.at_seq,
             status=finding.status,
             dismissed_at=finding.dismissed_at,
@@ -123,7 +272,7 @@ class EditEventRead(BaseModel):
     seq: int
     op: str
     author: str
-    anchor: dict[str, Any]
+    anchor: AnchorPayload
     before: dict[str, Any] | None
     after: dict[str, Any] | None
     reverts_edit_id: str | None = None
@@ -137,7 +286,7 @@ class EditEventRead(BaseModel):
             seq=record.seq,
             op=record.op,
             author=record.author,
-            anchor=record.anchor,
+            anchor=AnchorPayload.model_validate(record.anchor),
             before=record.before,
             after=record.after,
             reverts_edit_id=record.reverts_edit_id,
@@ -152,7 +301,7 @@ class EditEventRead(BaseModel):
             seq=edit.seq,
             op=edit.op.value,
             author=edit.author,
-            anchor=edit.anchor.to_primitive(),
+            anchor=AnchorPayload.model_validate(edit.anchor.to_primitive()),
             before=None if edit.before is None else dict(edit.before),
             after=None if edit.after is None else dict(edit.after),
             reverts_edit_id=edit.reverts_edit_id,
@@ -172,12 +321,12 @@ class SessionDetailRead(BaseModel):
     session_id: str
     document_id: str
     omr_engine: str
-    document: dict[str, Any]
+    document: ScoreDocumentPayload
     findings: list[FindingRead]
     edits: list[EditEventRead]
-    current_score: dict[str, Any]
+    current_score: ScoreIRPayload | None = None
     current_seq: int = 0
-    anchor_index: dict[str, Any] | None = None
+    anchor_index: AnchorIndexPayload | None = None
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
@@ -243,8 +392,8 @@ class UndoResponse(BaseModel):
     session_id: str
     current_seq: int
     undone_edit_id: str
-    current_score: dict[str, Any]
-    anchor_index: dict[str, Any] | None = None
+    current_score: ScoreIRPayload
+    anchor_index: AnchorIndexPayload | None = None
     compensatory_edit_id: str | None = None
     compensatory_edit: EditEventRead | None = None
 
