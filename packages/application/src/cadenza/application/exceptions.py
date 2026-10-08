@@ -107,3 +107,16 @@ class SessionClosed(ApplicationError):
         super().__init__(msg)
         self.session_id = session_id
         self.message = msg
+
+
+class UnsupportedExportFormat(ApplicationError):
+    """El formato de exportación solicitado no es admitido (Issue #12)."""
+
+    def __init__(self, fmt: str) -> None:
+        msg = (
+            f"Formato de exportación no admitido: '{fmt}'. "
+            "Los formatos válidos son: 'musicxml' y 'midi'."
+        )
+        super().__init__(msg)
+        self.format = fmt
+        self.message = msg

@@ -269,6 +269,7 @@ name = "cadenza-interchange"
 version = "0.0.0"
 source = { editable = "packages/interchange" }
 dependencies = [
+    { name = "cadenza-application" },
     { name = "cadenza-domain" },
     { name = "music21" },
 ]
@@ -280,6 +281,7 @@ converters = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "converter21", marker = "extra == 'converters'", specifier = ">=4.0.1" },
     { name = "music21", specifier = ">=10" },

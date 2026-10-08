@@ -4,6 +4,7 @@ from .append_edit import append_edit
 from .authenticate import authenticate
 from .change_password import change_password
 from .create_user import create_user
+from .export_score import export_score
 from .finalize_session import FinalizeResult, finalize_session
 from .get_session import SessionDetail, get_session
 from .get_session_image import SessionImageData, get_session_image
@@ -26,6 +27,7 @@ __all__ = [
     "authenticate",
     "change_password",
     "create_user",
+    "export_score",
     "finalize_session",
     "get_session",
     "get_session_image",

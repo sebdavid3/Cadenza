@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Frontera canónica de notación de Cadenza: MusicXML/MEI/**kern <-> ScoreIR (music21)."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
-dependencies = ["cadenza-domain", "music21>=10"]
+dependencies = ["cadenza-application", "cadenza-domain", "music21>=10"]
 
 # converter21 aporta a music21 los importadores de Humdrum (**kern) y MEI, que
 # usan los corpus de evaluación (PrIMuS en MEI, SMB en **kern).
