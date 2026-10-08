@@ -293,6 +293,7 @@ name = "cadenza-learning"
 version = "0.0.0"
 source = { editable = "packages/learning" }
 dependencies = [
+    { name = "cadenza-application" },
     { name = "cadenza-domain" },
 ]
 
@@ -304,6 +305,7 @@ metrics = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "converter21", marker = "extra == 'metrics'", specifier = ">=4.0.1" },
     { name = "musicdiff", marker = "extra == 'metrics'", specifier = ">=5.2" },
