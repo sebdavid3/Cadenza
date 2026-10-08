@@ -85,8 +85,16 @@ class SessionRepository(ABC):
         """
 
     @abstractmethod
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
-        """Devuelve el listado de sesiones, opcionalmente filtrado por propietario."""
+    def update_status(self, session_id: str, status: str) -> SessionData:
+        """Actualiza el estado del ciclo de vida de la sesión (#34, ADR-0014)."""
+
+    @abstractmethod
+    def list(
+        self,
+        owner_id: str | None = None,
+        status: str | None = None,
+    ) -> tuple[SessionData, ...]:
+        """Devuelve el listado de sesiones, opcionalmente filtrado por propietario y/o estado."""
 
 
 class InMemorySessionRepository(SessionRepository):
@@ -170,8 +178,22 @@ class InMemorySessionRepository(SessionRepository):
             return tuple(f for f in findings_list if f.at_seq == record.validated_at_seq)
         return tuple(findings_list)
 
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
+    def update_status(self, session_id: str, status: str) -> SessionData:
+        record = self.sessions.get(session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        updated = replace(record, status=status)
+        self.sessions[session_id] = updated
+        return updated
+
+    def list(
+        self,
+        owner_id: str | None = None,
+        status: str | None = None,
+    ) -> tuple[SessionData, ...]:
         sessions = list(self.sessions.values())
         if owner_id is not None:
             sessions = [s for s in sessions if s.owner_id == owner_id]
+        if status is not None:
+            sessions = [s for s in sessions if s.status == status]
         return tuple(sessions)

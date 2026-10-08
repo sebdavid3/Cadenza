@@ -23,6 +23,7 @@ from cadenza.application import (
     PasswordHasher,
     Role,
     SequenceConflict,
+    SessionClosed,
     SessionNotFound,
     TokenService,
     User,
@@ -43,6 +44,9 @@ from cadenza.application import (
     create_user as create_user_use_case,
 )
 from cadenza.application import (
+    finalize_session as finalize_session_use_case,
+)
+from cadenza.application import (
     get_session as get_session_use_case,
 )
 from cadenza.application import (
@@ -53,6 +57,9 @@ from cadenza.application import (
 )
 from cadenza.application import (
     list_users as list_users_use_case,
+)
+from cadenza.application import (
+    reopen_session as reopen_session_use_case,
 )
 from cadenza.application import (
     revalidate as revalidate_use_case,
@@ -84,7 +91,9 @@ from .schemas import (
     ChangePasswordRequest,
     EditEventCreate,
     EditEventRead,
+    FinalizeResponse,
     FindingRead,
+    ReopenResponse,
     RevalidateResponse,
     SessionDetailRead,
     StatusResponse,
@@ -217,6 +226,13 @@ def create_app(
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={"detail": str(exc)},
+        )
+
+    @app.exception_handler(SessionClosed)
+    def session_closed_handler(request: Request, exc: SessionClosed) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": exc.message},
         )
 
     @app.exception_handler(OMRTranscriptionError)
@@ -545,6 +561,60 @@ def create_app(
             session_id=result.session_id,
             current_seq=result.current_seq,
             findings=[FindingRead.from_persisted(f) for f in result.findings],
+        )
+
+    @app.post(
+        "/sessions/{session_id}/finalize",
+        response_model=FinalizeResponse,
+    )
+    def finalize_session_endpoint(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> FinalizeResponse:
+        """Finaliza una sesión de transcripción revalidándola y cerrándola.
+
+        ADR-0014, #34.
+        """
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        result = finalize_session_use_case(
+            session_id,
+            validator=request.app.state.validator,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=current_user,
+        )
+        return FinalizeResponse(
+            session_id=result.session_id,
+            status=result.status,
+            final_seq=result.final_seq,
+            findings=[FindingRead.from_persisted(f) for f in result.findings],
+        )
+
+    @app.post(
+        "/sessions/{session_id}/reopen",
+        response_model=ReopenResponse,
+    )
+    def reopen_session_endpoint(
+        session_id: str,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> ReopenResponse:
+        """Reabre una sesión finalizada permitiendo nuevas ediciones (#34, ADR-0014)."""
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        result = reopen_session_use_case(
+            session_id,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=current_user,
+        )
+        return ReopenResponse(
+            session_id=result.session_id,
+            status=result.status,
+            current_seq=result.current_seq,
         )
 
     @app.post(

@@ -20,9 +20,16 @@ from cadenza.domain import (
     materialize,
 )
 
-from ..exceptions import Forbidden, InvalidEdit, SequenceConflict, SessionNotFound
+from ..exceptions import (
+    Forbidden,
+    InvalidEdit,
+    SequenceConflict,
+    SessionClosed,
+    SessionNotFound,
+)
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import SessionRepository
+from ..session_status import SessionStatus
 from ..user import Role, User
 
 
@@ -178,7 +185,11 @@ def append_edit(
     if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
         raise Forbidden("Un investigador solo puede editar sus propias sesiones")
 
-    # 1. Verificar base_seq contra el estado actual de la sesión (ADR-0011, #48)
+    # 1. Comprobar que la sesión no esté finalizada (#34, ADR-0014)
+    if session_data.status == SessionStatus.FINALIZED:
+        raise SessionClosed(session_id)
+
+    # 2. Verificar base_seq contra el estado actual de la sesión (ADR-0011, #48)
     existing_edits = edit_repository.list_events(session_id)
     current_seq = existing_edits[-1].seq if existing_edits else 0
     if base_seq != current_seq:
@@ -191,7 +202,7 @@ def append_edit(
             ),
         )
 
-    # 2. Reconstruir estado materializado previo a la edición
+    # 3. Reconstruir estado materializado previo a la edición
     raw_score = ScoreIR.from_primitive(session_data.document["score"])
     current_score = materialize(raw_score, existing_edits)
 
@@ -210,14 +221,20 @@ def append_edit(
         after=after,
     )
 
-    # 2. Validar que 'before' coincida con el elemento al que apunta el ancla (#10)
+    # 4. Validar que 'before' coincida con el elemento al que apunta el ancla (#10)
     _validate_before(current_score, edit)
 
-    # 3. Validar que la edición sea aplicable sobre el estado actual (#10)
+    # 5. Validar que la edición sea aplicable sobre el estado actual (#10)
     try:
         apply_edit(current_score, edit)
     except (IndexError, ValueError, UnsupportedEditOpError) as exc:
         raise InvalidEdit(f"Edición no aplicable sobre el estado actual: {exc}") from exc
 
-    # 4. Persistir la edición en el log append-only
-    return edit_repository.append(session_id, edit)
+    # 6. Persistir la edición en el log append-only
+    appended = edit_repository.append(session_id, edit)
+
+    # 7. Si la sesión estaba en 'transcribed', pasa a 'correcting' (#34, ADR-0014)
+    if session_data.status == SessionStatus.TRANSCRIBED:
+        session_repository.update_status(session_id, SessionStatus.CORRECTING)
+
+    return appended

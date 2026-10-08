@@ -68,7 +68,11 @@ class DatasetBuilder:
         document: ScoreDocument,
         edits: Sequence[EditEvent],
         findings: Sequence[Finding] = (),
+        *,
+        status: str = "finalized",
     ) -> tuple[TrainingSample, ...]:
+        if status != "finalized":
+            return ()
         event_counts = _event_counts(document)
         finding_counts = _finding_counts(findings)
         samples: list[TrainingSample] = []
