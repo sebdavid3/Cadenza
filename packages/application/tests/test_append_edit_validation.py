@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 from cadenza.application import (
+    InMemoryArtifactStore,
+    InMemorySessionRepository,
     InvalidEdit,
     Role,
     SequenceConflict,
@@ -18,36 +19,10 @@ from cadenza.application import (
 )
 from cadenza.application.ports import (
     EditEventRepository,
-    InMemoryArtifactStore,
-    PersistedFinding,
-    SessionData,
-    SessionRepository,
 )
-from cadenza.domain import Anchor, EditEvent, EditOp, Finding
+from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.omr import FakeOMREngine
 from cadenza.validation import ValidationEngine
-
-
-class InMemorySessionRepo(SessionRepository):
-    def __init__(self) -> None:
-        self.sessions: dict[str, SessionData] = {}
-        self.findings: dict[str, list[PersistedFinding]] = {}
-
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
-        self.sessions[session.id] = session
-        self.findings[session.id] = []
-        return session
-
-    def get(self, session_id: str) -> SessionData | None:
-        return self.sessions.get(session_id)
-
-    def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
-        return tuple(self.findings.get(session_id, []))
-
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
-        if owner_id is not None:
-            return tuple(s for s in self.sessions.values() if s.owner_id == owner_id)
-        return tuple(self.sessions.values())
 
 
 class InMemoryEditRepo(EditEventRepository):
@@ -80,11 +55,11 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
 
 
 @pytest.fixture
-def test_setup() -> tuple[str, User, InMemorySessionRepo, InMemoryEditRepo]:
+def test_setup() -> tuple[str, User, InMemorySessionRepository, InMemoryEditRepo]:
     owner = User(
         id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR, active=True
     )
-    session_repo = InMemorySessionRepo()
+    session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditRepo()
     store = InMemoryArtifactStore()
 
@@ -120,7 +95,7 @@ def _anchor(measure: int, event_index: int) -> Anchor:
 
 
 def test_append_edit_rejects_non_existent_anchor(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
 
@@ -146,7 +121,7 @@ def test_append_edit_rejects_non_existent_anchor(
 
 
 def test_append_edit_rejects_out_of_range_event_index(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
 
@@ -171,7 +146,7 @@ def test_append_edit_rejects_out_of_range_event_index(
 
 
 def test_append_edit_rejects_mismatched_before(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
 
@@ -197,7 +172,7 @@ def test_append_edit_rejects_mismatched_before(
 
 
 def test_append_edit_success_with_matching_before(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
 
@@ -236,7 +211,7 @@ def test_append_edit_success_with_matching_before(
 
 
 def test_append_edit_sequence_conflict(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
     anchor = _anchor(measure=1, event_index=0)
@@ -287,7 +262,7 @@ def test_append_edit_sequence_conflict(
 
 
 def test_get_session_does_not_silence_projection_errors(
-    test_setup: tuple[str, User, InMemorySessionRepo, InMemoryEditRepo],
+    test_setup: tuple[str, User, InMemorySessionRepository, InMemoryEditRepo],
 ) -> None:
     session_id, user, session_repo, edit_repo = test_setup
 

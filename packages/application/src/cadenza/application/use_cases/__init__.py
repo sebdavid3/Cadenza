@@ -8,10 +8,12 @@ from .get_session import SessionDetail, get_session
 from .get_session_image import SessionImageData, get_session_image
 from .list_findings import list_findings
 from .list_users import list_users
+from .revalidate import RevalidateResult, revalidate
 from .transcribe_score import TranscribeResult, transcribe_score
 from .update_user import update_user
 
 __all__ = [
+    "RevalidateResult",
     "SessionDetail",
     "SessionImageData",
     "TranscribeResult",
@@ -23,6 +25,7 @@ __all__ = [
     "get_session_image",
     "list_findings",
     "list_users",
+    "revalidate",
     "transcribe_score",
     "update_user",
 ]

@@ -7,7 +7,7 @@ from .artifact_store import (
     detect_image_media_type,
     is_image_content,
 )
-from .edit_event_repository import EditEventRepository
+from .edit_event_repository import EditEventRepository, InMemoryEditEventRepository
 from .security import (
     InMemoryPasswordHasher,
     InMemoryTokenService,
@@ -15,14 +15,21 @@ from .security import (
     TokenPayload,
     TokenService,
 )
-from .session_repository import PersistedFinding, SessionData, SessionRepository
+from .session_repository import (
+    InMemorySessionRepository,
+    PersistedFinding,
+    SessionData,
+    SessionRepository,
+)
 from .user_repository import InMemoryUserRepository, UserRepository
 
 __all__ = [
     "ArtifactStore",
     "EditEventRepository",
     "InMemoryArtifactStore",
+    "InMemoryEditEventRepository",
     "InMemoryPasswordHasher",
+    "InMemorySessionRepository",
     "InMemoryTokenService",
     "InMemoryUserRepository",
     "PasswordHasher",

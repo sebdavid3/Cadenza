@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 from cadenza.application import (
     InMemoryArtifactStore,
+    InMemorySessionRepository,
     Role,
     SessionNotFound,
     User,
@@ -17,37 +17,8 @@ from cadenza.application import (
     is_image_content,
     transcribe_score,
 )
-from cadenza.application.ports.session_repository import (
-    PersistedFinding,
-    SessionData,
-    SessionRepository,
-)
-from cadenza.domain import Finding
 from cadenza.omr import FakeOMREngine
 from cadenza.validation import ValidationEngine
-
-
-class InMemorySessionRepository(SessionRepository):
-    def __init__(self) -> None:
-        self.sessions: dict[str, SessionData] = {}
-        self.findings: dict[str, list[PersistedFinding]] = {}
-
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
-        self.sessions[session.id] = session
-        self.findings[session.id] = []
-        return session
-
-    def get(self, session_id: str) -> SessionData | None:
-        return self.sessions.get(session_id)
-
-    def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
-        return tuple(self.findings.get(session_id, []))
-
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
-        if owner_id is not None:
-            return tuple(s for s in self.sessions.values() if s.owner_id == owner_id)
-        return tuple(self.sessions.values())
-
 
 PNG_SAMPLE = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"

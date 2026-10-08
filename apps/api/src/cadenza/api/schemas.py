@@ -163,7 +163,7 @@ class SessionDetailRead(BaseModel):
 
 
 class RevalidateResponse(BaseModel):
-    """Respuesta tras revalidación de la partitura (ADR-0011, #11, #48).
+    """Respuesta tras revalidación de la partitura (ADR-0011, ADR-0013, #11, #48).
 
     Devuelve el `current_seq` de la sesión y la lista de hallazgos evaluados,
     cada uno con su `at_seq` correspondiente.

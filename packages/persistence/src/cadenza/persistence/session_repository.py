@@ -4,9 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from cadenza.application import PersistedFinding, SessionData, SessionRepository
+from cadenza.application import (
+    PersistedFinding,
+    SessionData,
+    SessionNotFound,
+    SessionRepository,
+)
 from cadenza.domain import Finding
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session as DbSession
 
 from .models import FindingRecord
@@ -27,6 +32,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             omr_engine=session.omr_engine,
             model_version=session.model_version,
             status=session.status,
+            validated_at_seq=session.validated_at_seq,
             image_artifact=session.image_artifact,
             document=session.document,
         )
@@ -59,6 +65,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             image_artifact=record.image_artifact,
             model_version=record.model_version,
             status=record.status,
+            validated_at_seq=record.validated_at_seq,
         )
 
     def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
@@ -78,16 +85,77 @@ class SqlAlchemySessionRepository(SessionRepository):
                 image_artifact=record.image_artifact,
                 model_version=record.model_version,
                 status=record.status,
+                validated_at_seq=record.validated_at_seq,
             )
             for record in records
         )
 
-    def list_findings(self, session_id: str) -> tuple[PersistedFinding, ...]:
-        rows = self._session.scalars(
-            select(FindingRecord)
-            .where(FindingRecord.session_id == session_id)
-            .order_by(FindingRecord.id)
-        ).all()
+    def replace_findings(
+        self,
+        session_id: str,
+        findings: Sequence[Finding],
+        *,
+        at_seq: int,
+    ) -> tuple[PersistedFinding, ...]:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        record.validated_at_seq = at_seq
+
+        # Re-evaluar el mismo estado sustituye sus hallazgos (idempotencia por
+        # `(session_id, at_seq)`); los de otros estados se conservan (ADR-0013).
+        self._session.execute(
+            delete(FindingRecord).where(
+                FindingRecord.session_id == session_id,
+                FindingRecord.at_seq == at_seq,
+            )
+        )
+
+        new_records = [
+            FindingRecord(
+                session_id=session_id,
+                at_seq=at_seq,
+                rule_id=finding.rule_id,
+                severity=finding.severity.value,
+                message=finding.message,
+                suggested_fix=finding.suggested_fix,
+                anchor=finding.anchor.to_primitive(),
+            )
+            for finding in findings
+        ]
+        self._session.add_all(new_records)
+        self._session.flush()
+
+        return tuple(
+            PersistedFinding(
+                id=r.id,
+                rule_id=r.rule_id,
+                severity=r.severity,
+                message=r.message,
+                suggested_fix=r.suggested_fix,
+                anchor=r.anchor,
+                at_seq=r.at_seq,
+            )
+            for r in new_records
+        )
+
+    def list_findings(
+        self,
+        session_id: str,
+        *,
+        at_seq: int | None = None,
+        latest_only: bool = True,
+    ) -> tuple[PersistedFinding, ...]:
+        stmt = select(FindingRecord).where(FindingRecord.session_id == session_id)
+        if at_seq is not None:
+            stmt = stmt.where(FindingRecord.at_seq == at_seq)
+        elif latest_only:
+            record = self._session.get(SessionRecord, session_id)
+            if record is None:
+                return ()
+            stmt = stmt.where(FindingRecord.at_seq == record.validated_at_seq)
+
+        rows = self._session.scalars(stmt.order_by(FindingRecord.id)).all()
         return tuple(
             PersistedFinding(
                 id=row.id,

@@ -128,6 +128,7 @@ def test_sqlalchemy_session_repository_roundtrip() -> None:
             status="reviewed",
             image_artifact="deadbeef5678",
             document={"id": "doc-3"},
+            validated_at_seq=2,
         )
         finding = Finding(
             rule_id="r1",
@@ -154,3 +155,73 @@ def test_sqlalchemy_session_repository_roundtrip() -> None:
         assert findings[0].at_seq == 2
         assert findings[0].rule_id == "r1"
         assert findings[0].severity == "warning"
+
+
+def test_replace_findings_and_historical_preservation() -> None:
+    factory = _factory()
+    with factory() as db:
+        repo = SqlAlchemySessionRepository(db)
+        from cadenza.application import SessionData
+        from cadenza.domain import Anchor, Finding, Severity
+
+        session_data = SessionData(
+            id="s4",
+            document_id="doc-4",
+            omr_engine="fake",
+            document={"id": "doc-4"},
+        )
+        finding_initial = Finding(
+            rule_id="measure.balance",
+            severity=Severity.ERROR,
+            message="unbalanced",
+            suggested_fix=None,
+            anchor=Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="s-0"),
+            at_seq=0,
+        )
+        repo.add(session_data, [finding_initial])
+        db.commit()
+
+    with factory() as db:
+        repo = SqlAlchemySessionRepository(db)
+        loaded = repo.get("s4")
+        assert loaded is not None
+        assert loaded.validated_at_seq == 0
+        assert len(repo.list_findings("s4", latest_only=True)) == 1
+
+        # Reemplazar hallazgos en seq=1 con lista vacía (error corregido)
+        repo.replace_findings("s4", [], at_seq=1)
+        db.commit()
+
+    with factory() as db:
+        repo = SqlAlchemySessionRepository(db)
+        loaded_after = repo.get("s4")
+        assert loaded_after is not None
+        assert loaded_after.validated_at_seq == 1
+        assert len(repo.list_findings("s4", at_seq=0)) == 1
+        assert len(repo.list_findings("s4", at_seq=1)) == 0
+
+        # Idempotencia: re-evaluar en seq=1 con un nuevo hallazgo dos veces consecutivas
+        from cadenza.application import SessionNotFound
+
+        finding_new = Finding(
+            rule_id="measure.balance",
+            severity=Severity.ERROR,
+            message="unbalanced again",
+            suggested_fix=None,
+            anchor=Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="s-0"),
+            at_seq=1,
+        )
+        repo.replace_findings("s4", [finding_new], at_seq=1)
+        db.commit()
+        # Segunda llamada con el mismo at_seq=1 no duplica
+        repo.replace_findings("s4", [finding_new], at_seq=1)
+        db.commit()
+
+        assert len(repo.list_findings("s4", latest_only=True)) == 1
+        assert len(repo.list_findings("s4", at_seq=1)) == 1
+        assert len(repo.list_findings("s4", latest_only=False)) == 2
+
+        import pytest
+
+        with pytest.raises(SessionNotFound):
+            repo.replace_findings("nonexistent", [], at_seq=1)

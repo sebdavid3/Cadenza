@@ -12,8 +12,10 @@ def list_findings(
     *,
     session_repository: SessionRepository,
     current_user: User,
+    at_seq: int | None = None,
+    latest_only: bool = True,
 ) -> tuple[PersistedFinding, ...]:
-    """Devuelve los hallazgos vigentes de la sesión, verificando existencia y propiedad."""
+    """Devuelve los hallazgos de la sesión, verificando existencia y propiedad."""
 
     session_data = session_repository.get(session_id)
     if session_data is None:
@@ -22,4 +24,8 @@ def list_findings(
     if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
         raise SessionNotFound(session_id)
 
-    return session_repository.list_findings(session_id)
+    return session_repository.list_findings(
+        session_id,
+        at_seq=at_seq,
+        latest_only=latest_only,
+    )
