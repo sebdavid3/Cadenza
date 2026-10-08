@@ -68,10 +68,35 @@ class SqlAlchemySessionRepository(SessionRepository):
             validated_at_seq=record.validated_at_seq,
         )
 
-    def list(self, owner_id: str | None = None) -> tuple[SessionData, ...]:
+    def update_status(self, session_id: str, status: str) -> SessionData:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        record.status = status
+        self._session.flush()
+        return SessionData(
+            id=record.id,
+            owner_id=record.owner_id,
+            document_id=record.document_id,
+            omr_engine=record.omr_engine,
+            document=record.document,
+            created_at=record.created_at,
+            image_artifact=record.image_artifact,
+            model_version=record.model_version,
+            status=record.status,
+            validated_at_seq=record.validated_at_seq,
+        )
+
+    def list(
+        self,
+        owner_id: str | None = None,
+        status: str | None = None,
+    ) -> tuple[SessionData, ...]:
         stmt = select(SessionRecord)
         if owner_id is not None:
             stmt = stmt.where(SessionRecord.owner_id == owner_id)
+        if status is not None:
+            stmt = stmt.where(SessionRecord.status == status)
         stmt = stmt.order_by(SessionRecord.created_at)
         records = self._session.scalars(stmt).all()
         return tuple(

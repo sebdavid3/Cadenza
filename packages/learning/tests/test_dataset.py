@@ -60,3 +60,17 @@ def test_build_preserves_origin_bbox_across_structural_edits() -> None:
     assert sample.anchor.event_index == 1
     assert sample.before_pitch == "D4"
     assert sample.after_pitch == "E4"
+
+
+def test_build_only_accepts_finalized_sessions() -> None:
+    document = make_document()
+    edits = [make_edit(1, make_anchor(0), "C4", "D4")]
+    builder = DatasetBuilder()
+
+    # Sesión finalizada produce muestras
+    assert len(builder.build(document, edits, status="finalized")) == 1
+
+    # Sesiones en corrección, transcritas o fallidas no producen muestras
+    assert builder.build(document, edits, status="correcting") == ()
+    assert builder.build(document, edits, status="transcribed") == ()
+    assert builder.build(document, edits, status="failed") == ()

@@ -91,3 +91,19 @@ class WeakPassword(ApplicationError):
     def __init__(self, min_length: int = 8) -> None:
         super().__init__(f"La contraseña debe tener al menos {min_length} caracteres")
         self.min_length = min_length
+
+
+class SessionClosed(ApplicationError):
+    """La sesión está finalizada y no admite más ediciones sin reapertura explícita.
+
+    ADR-0014, #34.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        msg = (
+            f"La sesión '{session_id}' está finalizada y no admite más ediciones. "
+            "Debe reabrirse explícitamente para continuar editando."
+        )
+        super().__init__(msg)
+        self.session_id = session_id
+        self.message = msg

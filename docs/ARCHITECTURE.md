@@ -576,6 +576,7 @@ de estado (existe / pendiente) están en la sección
 | `revalidate` | id → hallazgos | Ejecuta el catálogo de reglas sobre el `ScoreIR` materializado y registra los hallazgos con el `seq` al que corresponden. |
 | `dismiss_finding` | id, hallazgo → — | Marca un hallazgo como falso positivo; no reaparece mientras el evento señalado no cambie. |
 | `finalize_session` | id → sesión | Cierra la corrección: revalida, fija el `seq` final y deja la sesión disponible para el plano offline. |
+| `reopen_session` | id → sesión | Reabre una sesión finalizada permitiendo nuevas ediciones (#34, ADR-0014). |
 | `export_score` | id, formato → bytes | Serializa el `ScoreIR` materializado a MusicXML 4.0 o MIDI 1.0. |
 | `record_effort` | id, métricas → — | Persiste las métricas de esfuerzo de la sesión de corrección. |
 
@@ -602,7 +603,7 @@ Reglas de la capa:
 |---|---|---|
 | `OMREngine` | `transcribe(image_path) -> ScoreDocument` | `HOMREngine`, `OemerEngine`, `FakeOMREngine` |
 | `ValidationRule` | `evaluate(document) -> list[Finding]` | Balance de compás, armadura y alteraciones, colisión de voces, rango, cierres |
-| `SessionRepository` | `add`, `get`, `list`, `list_findings`, `replace_findings` | SQLAlchemy |
+| `SessionRepository` | `add`, `get`, `list`, `update_status`, `list_findings`, `replace_findings` | SQLAlchemy |
 | `EditEventRepository` | `next_seq`, `append`, `list_events` | SQLAlchemy |
 | `UserRepository` | `add`, `get`, `get_by_username` | SQLAlchemy |
 | `PasswordHasher` | `hash(password)`, `verify(password, hash)` | Argon2id |
@@ -642,6 +643,7 @@ Reglas de la capa:
 | `POST` | `/sessions/{id}/validate` | `revalidate` |
 | `POST` | `/sessions/{id}/findings/{finding_id}/dismiss` | `dismiss_finding` |
 | `POST` | `/sessions/{id}/finalize` | `finalize_session` |
+| `POST` | `/sessions/{id}/reopen` | `reopen_session` |
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
 
@@ -807,7 +809,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Ninguna edición inválida entra al log | Implementado: validación previa contra el estado materializado actual (`before` verificado, 422), captura de colisiones de secuencia (409) y proyección limpia sin enmascarar errores | [#10](https://github.com/sebdavid3/Cadenza/issues/10) |
 | API | Revalidación tras las correcciones | Implementado: `POST /sessions/{id}/validate` revalida sobre el estado materializado actual, actualiza hallazgos vigentes (`validated_at_seq`) y preserva hallazgos históricos para análisis de esfuerzo (ADR-0013) | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
 | API | Exportación MusicXML y MIDI | Existe `score_ir_to_musicxml`; no hay MIDI ni endpoint | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
-| API | Ciclo de vida de la sesión con cierre explícito | No se puede marcar una sesión como terminada | [#34](https://github.com/sebdavid3/Cadenza/issues/34) |
+| API | Ciclo de vida de la sesión con cierre explícito | Implementado: estados (`transcribed`, `correcting`, `finalized`, `failed`), casos de uso y endpoints `POST /sessions/{id}/finalize` y `POST /sessions/{id}/reopen`, bloqueo de ediciones en finalizadas (409 Conflict), revalidación al finalizar y consumo exclusivo en `DatasetBuilder` (ADR-0014) | [#34](https://github.com/sebdavid3/Cadenza/issues/34) |
 | API | Deshacer registrado como evento inverso (ADR-0007) | Deshacer vive solo en el navegador; el log y el editor divergen | [#35](https://github.com/sebdavid3/Cadenza/issues/35) |
 | API | Hallazgos descartables como falsos positivos | Un hallazgo solo desaparece modificando la partitura | [#36](https://github.com/sebdavid3/Cadenza/issues/36) |
 | API | Métricas de esfuerzo persistidas | Se calculan solo en el navegador | [#13](https://github.com/sebdavid3/Cadenza/issues/13) |
@@ -875,6 +877,7 @@ queda fuera de esta fase.
 | [ADR-0011](adr/ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales |
 | [ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario |
 | [ADR-0013](adr/ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos |
+| [ADR-0014](adr/ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) |
 
 ---
 

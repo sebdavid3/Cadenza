@@ -174,6 +174,23 @@ class RevalidateResponse(BaseModel):
     findings: list[FindingRead]
 
 
+class FinalizeResponse(BaseModel):
+    """Respuesta tras finalizar una sesión de transcripción (ADR-0014, #34)."""
+
+    session_id: str
+    status: str
+    final_seq: int
+    findings: list[FindingRead]
+
+
+class ReopenResponse(BaseModel):
+    """Respuesta tras reabrir una sesión finalizada (ADR-0014, #34)."""
+
+    session_id: str
+    status: str
+    current_seq: int
+
+
 class UndoResponse(BaseModel):
     """Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."""
 
