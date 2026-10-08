@@ -43,6 +43,7 @@ from ml.experiments.common import (  # noqa: E402
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
     SAMPLE_SIZE_JUSTIFICATION,
+    get_run_info,
     write_run_info,
 )
 
@@ -108,7 +109,9 @@ def _measure_corpus(
     limit: int | None = None,
     force_recompute: bool = False,
     seed: int = DEFAULT_SEED,
+    write_results: bool | None = None,
 ) -> dict[str, Any]:
+    should_write = write_results if write_results is not None else (limit is None)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     root = manifest_path.parent
     corpus_name = str(manifest.get("corpus", "corpus"))
@@ -189,11 +192,12 @@ def _measure_corpus(
         success_ned_values.append(ned)
         penalized_ned_values.append(ned)
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
-        writer.writeheader()
-        writer.writerows(rows)
+    if should_write:
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+            writer.writeheader()
+            writer.writerows(rows)
 
     total_count = len(rows)
     successes_count = len(success_ned_values)
@@ -207,7 +211,10 @@ def _measure_corpus(
     mean_penalized = statistics.fmean(penalized_ned_values) if penalized_ned_values else None
     median_penalized = statistics.median(penalized_ned_values) if penalized_ned_values else None
 
-    run_info = write_run_info("exp_03", seed=seed, manifest_path=manifest_path)
+    if should_write:
+        run_info = write_run_info("exp_03", seed=seed, manifest_path=manifest_path)
+    else:
+        run_info = get_run_info("exp_03", seed=seed, manifest_path=manifest_path)
 
     summary: dict[str, Any] = {
         "experiment": "exp_03_omr_quality",
@@ -244,8 +251,9 @@ def _measure_corpus(
         "csv": str(csv_path),
     }
 
-    out_json = RESULTS_DIR / "omr_baseline_summary.json"
-    out_json.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
+    if should_write:
+        out_json = RESULTS_DIR / "omr_baseline_summary.json"
+        out_json.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
     return summary
 
 
@@ -285,6 +293,7 @@ def run(
     limit: int | None,
     force_recompute: bool = False,
     seed: int = DEFAULT_SEED,
+    write_results: bool | None = None,
 ) -> dict[str, Any]:
     if predictions is None:
         corpus_name = str(json.loads(manifest.read_text(encoding="utf-8")).get("corpus", "corpus"))
@@ -295,6 +304,7 @@ def run(
         limit=limit,
         force_recompute=force_recompute,
         seed=seed,
+        write_results=write_results,
     )
 
 

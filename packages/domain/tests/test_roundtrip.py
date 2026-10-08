@@ -77,6 +77,18 @@ def test_provenance_roundtrip() -> None:
     assert Provenance.from_primitive(provenance.to_primitive()) == provenance
 
 
+def test_provenance_with_preprocessing_roundtrip() -> None:
+    provenance = Provenance(
+        omr_engine="homr",
+        model_version="0.1.0",
+        rules_version="rules-1",
+        source_image_hash="deadbeef",
+        created_at=datetime(2026, 9, 20, tzinfo=UTC),
+        preprocessing={"deskew": True, "binarize": True, "rescale": False, "target_dpi": 300},
+    )
+    assert Provenance.from_primitive(provenance.to_primitive()) == provenance
+
+
 def test_score_document_roundtrip() -> None:
     score = _sample_score()
     document = ScoreDocument(

@@ -22,6 +22,7 @@ from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 
 from ..engine import OMREngine
 from ..errors import OMRTranscriptionError
+from ..preprocessing import PreprocessingConfig, preprocess_image_file
 
 ENGINE_ID = "homr"
 _HOMR_EXTRA_HINT = (
@@ -173,11 +174,17 @@ class HOMREngine(OMREngine):
         document_id: str | None = None,
         model_version: str | None = None,
         weights_path: Path | None = None,
+        preprocessing: PreprocessingConfig | None = None,
     ) -> None:
         self._use_gpu = use_gpu
         self._document_id = document_id
         self._model_version = model_version
         self._weights_path = weights_path
+        self._preprocessing = preprocessing
+
+    @property
+    def preprocessing(self) -> PreprocessingConfig | None:
+        return self._preprocessing
 
     @classmethod
     def from_active_model(
@@ -187,14 +194,23 @@ class HOMREngine(OMREngine):
         *,
         use_gpu: bool = True,
         document_id: str | None = None,
+        preprocessing: PreprocessingConfig | None = None,
     ) -> HOMREngine:
         """Instancia HOMREngine con la versión de modelo activa si existe (#21)."""
         if model_registry is None:
-            return cls(use_gpu=use_gpu, document_id=document_id)
+            return cls(
+                use_gpu=use_gpu,
+                document_id=document_id,
+                preprocessing=preprocessing,
+            )
 
         active = model_registry.active()
         if active is None:
-            return cls(use_gpu=use_gpu, document_id=document_id)
+            return cls(
+                use_gpu=use_gpu,
+                document_id=document_id,
+                preprocessing=preprocessing,
+            )
 
         weights_path: Path | None = None
         if artifact_store is not None and hasattr(artifact_store, "resolve_path"):
@@ -208,6 +224,7 @@ class HOMREngine(OMREngine):
             document_id=document_id,
             model_version=active.version,
             weights_path=weights_path,
+            preprocessing=preprocessing,
         )
 
     @property
@@ -219,7 +236,12 @@ class HOMREngine(OMREngine):
         """Devuelve el dispositivo efectivo de inferencia ('cuda' o 'cpu')."""
         return get_effective_device(self._use_gpu)
 
-    def transcribe_musicxml(self, image_path: Path) -> str:
+    def transcribe_musicxml(
+        self,
+        image_path: Path,
+        *,
+        override_preprocessing: PreprocessingConfig | None = None,
+    ) -> str:
         """Devuelve el MusicXML nativo de HOMR sin pasar por el `ScoreIR`.
 
         Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
@@ -232,6 +254,23 @@ class HOMREngine(OMREngine):
 
         homr_main = _import_homr()
         use_gpu = self._use_gpu and _gpu_available(homr_main)
+        effective_preproc = (
+            override_preprocessing if override_preprocessing is not None else self._preprocessing
+        )
+
+        if effective_preproc is not None and effective_preproc.enabled:
+            with tempfile.TemporaryDirectory(prefix="cadenza-preproc-") as temp_dir:
+                preproc_path = Path(temp_dir) / f"preprocessed_{image_path.name}"
+                if not preproc_path.suffix:
+                    preproc_path = preproc_path.with_suffix(".png")
+                preprocess_image_file(image_path, preproc_path, effective_preproc)
+                return _run_homr(
+                    homr_main,
+                    preproc_path,
+                    use_gpu,
+                    weights_path=self._weights_path,
+                )
+
         return _run_homr(homr_main, image_path, use_gpu, weights_path=self._weights_path)
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
@@ -243,7 +282,22 @@ class HOMREngine(OMREngine):
             raise FileNotFoundError(f"image not found: {image_path}")
 
         source_hash = _sha256(image_path)
-        xml_text = self.transcribe_musicxml(image_path)
+        effective_preproc = self._preprocessing
+        preproc_meta: dict[str, Any] | None = None
+
+        if effective_preproc is not None and effective_preproc.enabled:
+            with tempfile.TemporaryDirectory(prefix="cadenza-preproc-") as temp_dir:
+                preproc_path = Path(temp_dir) / f"preprocessed_{image_path.name}"
+                if not preproc_path.suffix:
+                    preproc_path = preproc_path.with_suffix(".png")
+                preproc_meta = preprocess_image_file(image_path, preproc_path, effective_preproc)
+                xml_text = self.transcribe_musicxml(
+                    image_path,
+                    override_preprocessing=effective_preproc,
+                )
+        else:
+            xml_text = self.transcribe_musicxml(image_path)
+
         score = musicxml_to_score_ir(xml_text)
         effective_version = self._model_version or _homr_version()
         return ScoreDocument(
@@ -255,5 +309,7 @@ class HOMREngine(OMREngine):
                 model_version=effective_version,
                 source_image_hash=source_hash,
                 device=self.device,
+                preprocessing=preproc_meta
+                or (effective_preproc.to_primitive() if effective_preproc else None),
             ),
         )

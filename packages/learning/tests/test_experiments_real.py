@@ -101,7 +101,7 @@ def test_exp_03_smoke_and_penalization(tmp_path: Path) -> None:
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
 def test_exp_03_real_baseline_reports_failures_and_penalty() -> None:
-    res = exp_03_omr_quality.run(DATA_MANIFEST, predictions=None, limit=15)
+    res = exp_03_omr_quality.run(DATA_MANIFEST, predictions=None, limit=15, write_results=False)
     assert res["experiment"] == "exp_03_omr_quality"
     assert res["total_evaluated"] == 15
     # La tasa penalizada debe ser mayor o igual a la media sobre éxitos si hubo algún fallo
@@ -109,3 +109,28 @@ def test_exp_03_real_baseline_reports_failures_and_penalty() -> None:
     pen = res["metrics_penalized_with_failures"]["mean_omr_ned_penalized"]
     if res["failures_count"] > 0:
         assert pen >= succ
+
+
+def test_exp_07_smoke() -> None:
+    from ml.experiments import exp_07_preprocessing_impact
+
+    res = exp_07_preprocessing_impact.run_preprocessing_experiment(
+        DATA_MANIFEST, smoke=True, write_results=False
+    )
+    assert res["experiment"] == "exp_07_preprocessing_impact"
+    assert res["total_samples"] == 10
+    assert "transformations_summary" in res
+    assert res["with_preprocessing"]["failure_rate"] <= res["baseline"]["failure_rate"]
+
+
+@pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
+def test_exp_07_preprocessing_impact_on_primus() -> None:
+    from ml.experiments import exp_07_preprocessing_impact
+
+    res = exp_07_preprocessing_impact.run_preprocessing_experiment(
+        DATA_MANIFEST, limit=10, write_results=False
+    )
+    assert res["experiment"] == "exp_07_preprocessing_impact"
+    assert res["total_samples"] == 10
+    assert res["transformations_summary"]["mean_otsu_threshold"] > 100
+    assert res["transformations_summary"]["mean_rescale_factor"] > 1.0

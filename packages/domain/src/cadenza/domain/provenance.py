@@ -22,6 +22,7 @@ class Provenance:
     source_image_hash: str | None = None
     created_at: datetime | None = None
     device: str | None = None
+    preprocessing: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.omr_engine:
@@ -35,11 +36,13 @@ class Provenance:
             "source_image_hash": self.source_image_hash,
             "created_at": self.created_at.isoformat() if self.created_at is not None else None,
             "device": self.device,
+            "preprocessing": (dict(self.preprocessing) if self.preprocessing is not None else None),
         }
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Provenance:
         created = data.get("created_at")
+        raw_preproc = data.get("preprocessing")
         return cls(
             omr_engine=str(data["omr_engine"]),
             model_version=None if data.get("model_version") is None else str(data["model_version"]),
@@ -49,4 +52,5 @@ class Provenance:
             ),
             created_at=None if created is None else datetime.fromisoformat(str(created)),
             device=None if data.get("device") is None else str(data["device"]),
+            preprocessing=None if raw_preproc is None else dict(raw_preproc),
         )
