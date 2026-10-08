@@ -19,8 +19,10 @@ from cadenza.domain import (
     TimeSignature,
     build_anchor_index,
 )
+from PIL import Image
 
 from ..engine import OMREngine
+from ..preprocessing import PreprocessingConfig, preprocess_image
 
 FAKE_ENGINE_ID = "fake"
 FAKE_MODEL_VERSION = "fake-1"
@@ -104,9 +106,11 @@ class FakeOMREngine(OMREngine):
         document_id: str = FAKE_DOCUMENT_ID,
         *,
         model_version: str | None = None,
+        preprocessing: PreprocessingConfig | None = None,
     ) -> None:
         self._document_id = document_id
         self._model_version = model_version
+        self._preprocessing = preprocessing
 
     @classmethod
     def from_active_model(
@@ -115,13 +119,18 @@ class FakeOMREngine(OMREngine):
         artifact_store: Any | None = None,
         *,
         document_id: str = FAKE_DOCUMENT_ID,
+        preprocessing: PreprocessingConfig | None = None,
     ) -> FakeOMREngine:
         """Instancia FakeOMREngine con la versión de modelo activa si existe (#21)."""
         if model_registry is None:
-            return cls(document_id=document_id)
+            return cls(document_id=document_id, preprocessing=preprocessing)
         active = model_registry.active()
         version_str = active.version if active is not None else None
-        return cls(document_id=document_id, model_version=version_str)
+        return cls(
+            document_id=document_id,
+            model_version=version_str,
+            preprocessing=preprocessing,
+        )
 
     @property
     def engine_id(self) -> str:
@@ -129,6 +138,17 @@ class FakeOMREngine(OMREngine):
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         score = _sample_ir()
+        preproc_meta = None
+        if self._preprocessing is not None and self._preprocessing.enabled:
+            if image_path.is_file():
+                try:
+                    with Image.open(image_path) as img:
+                        _, preproc_meta = preprocess_image(img, self._preprocessing)
+                except Exception:
+                    preproc_meta = self._preprocessing.to_primitive()
+            else:
+                preproc_meta = self._preprocessing.to_primitive()
+
         return ScoreDocument(
             id=self._document_id,
             score=score,
@@ -137,5 +157,6 @@ class FakeOMREngine(OMREngine):
                 omr_engine=FAKE_ENGINE_ID,
                 model_version=self._model_version or FAKE_MODEL_VERSION,
                 device="cpu",
+                preprocessing=preproc_meta,
             ),
         )

@@ -159,6 +159,10 @@ class ProvenancePayload(BaseModel):
     device: str | None = Field(
         default=None, description="Dispositivo de cómputo efectivo ('cpu', 'cuda')"
     )
+    preprocessing: dict[str, Any] | None = Field(
+        default=None,
+        description="Metadatos y configuración de la etapa de preprocesado aplicada",
+    )
 
 
 class ScoreDocumentPayload(BaseModel):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,3 +54,40 @@ class Settings(BaseSettings):
             "En producción permanece en False, dependiendo de migraciones Alembic (#6)."
         ),
     )
+    omr_preprocess_enabled: bool = Field(
+        default=False,
+        description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",
+    )
+    omr_preprocess_deskew: bool = Field(
+        default=False,
+        description="Activa el enderezado automático (deskew) de pentagramas.",
+    )
+    omr_preprocess_binarize: bool = Field(
+        default=False,
+        description="Activa la binarización (umbralización Otsu o adaptativa).",
+    )
+    omr_preprocess_rescale: bool = Field(
+        default=False,
+        description="Activa el control de resolución / escalado de imagen.",
+    )
+    omr_preprocess_target_dpi: int = Field(
+        default=300,
+        description=(
+            "DPI objetivo para el control de resolución cuando "
+            "omr_preprocess_rescale está activo."
+        ),
+    )
+
+    def build_preprocessing_config(self) -> Any | None:
+        """Construye un PreprocessingConfig si el preprocesado está habilitado."""
+        if not self.omr_preprocess_enabled:
+            return None
+        from cadenza.omr import PreprocessingConfig
+
+        return PreprocessingConfig(
+            enabled=True,
+            deskew=self.omr_preprocess_deskew,
+            binarize=self.omr_preprocess_binarize,
+            rescale=self.omr_preprocess_rescale,
+            target_dpi=self.omr_preprocess_target_dpi,
+        )

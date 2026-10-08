@@ -684,8 +684,9 @@ def create_app(
         active_version = model_registry.active()
         effective_engine = request.app.state.omr_engine
         if active_version is not None and hasattr(type(effective_engine), "from_active_model"):
+            preproc_config = getattr(effective_engine, "_preprocessing", None)
             effective_engine = type(effective_engine).from_active_model(
-                model_registry, artifact_store
+                model_registry, artifact_store, preprocessing=preproc_config
             )
 
         with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
@@ -1253,11 +1254,15 @@ def create_default_app(
     ):
         create_schema(engine)
 
+    preproc_config = app_settings.build_preprocessing_config()
     omr_engine: OMREngine
     if app_settings.omr_engine == "homr":
-        omr_engine = HOMREngine(use_gpu=app_settings.omr_use_gpu)
+        omr_engine = HOMREngine(
+            use_gpu=app_settings.omr_use_gpu,
+            preprocessing=preproc_config,
+        )
     else:
-        omr_engine = FakeOMREngine()
+        omr_engine = FakeOMREngine(preprocessing=preproc_config)
 
     return create_app(
         create_session_factory(engine),

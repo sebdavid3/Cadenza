@@ -273,6 +273,8 @@ export interface ProvenancePayload {
   created_at?: string | null;
   /** Dispositivo de cómputo efectivo ('cpu', 'cuda') */
   device?: string | null;
+  /** Metadatos y configuración de la etapa de preprocesado aplicada */
+  preprocessing?: Record<string, unknown> | null;
 }
 
 /**

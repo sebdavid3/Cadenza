@@ -2587,6 +2587,19 @@
             ],
             "title": "Device",
             "description": "Dispositivo de cómputo efectivo ('cpu', 'cuda')"
+          },
+          "preprocessing": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preprocessing",
+            "description": "Metadatos y configuración de la etapa de preprocesado aplicada"
           }
         },
         "type": "object",
