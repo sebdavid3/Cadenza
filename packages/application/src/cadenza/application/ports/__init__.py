@@ -20,6 +20,7 @@ from .session_repository import (
     PersistedFinding,
     SessionData,
     SessionRepository,
+    SessionSummary,
 )
 from .user_repository import InMemoryUserRepository, UserRepository
 
@@ -36,6 +37,7 @@ __all__ = [
     "PersistedFinding",
     "SessionData",
     "SessionRepository",
+    "SessionSummary",
     "TokenPayload",
     "TokenService",
     "UserRepository",

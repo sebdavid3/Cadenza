@@ -162,6 +162,19 @@ class SessionDetailRead(BaseModel):
     status: str = "transcribed"
 
 
+class SessionSummaryRead(BaseModel):
+    """Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."""
+
+    session_id: str
+    document_id: str
+    omr_engine: str
+    model_version: str | None = None
+    status: str
+    created_at: datetime
+    findings_count: int = 0
+    edits_count: int = 0
+
+
 class RevalidateResponse(BaseModel):
     """Respuesta tras revalidación de la partitura (ADR-0011, ADR-0013, #11, #48).
 
