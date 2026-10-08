@@ -8,6 +8,11 @@ from .artifact_store import (
     is_image_content,
 )
 from .edit_event_repository import EditEventRepository, InMemoryEditEventRepository
+from .effort_repository import (
+    EffortMetricsData,
+    EffortRepository,
+    InMemoryEffortRepository,
+)
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .security import (
     InMemoryPasswordHasher,
@@ -28,8 +33,11 @@ from .user_repository import InMemoryUserRepository, UserRepository
 __all__ = [
     "ArtifactStore",
     "EditEventRepository",
+    "EffortMetricsData",
+    "EffortRepository",
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
+    "InMemoryEffortRepository",
     "InMemoryPasswordHasher",
     "InMemoryScoreExporter",
     "InMemorySessionRepository",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from cadenza.application import PersistedFinding
+from cadenza.application import EffortMetricsData, PersistedFinding
 from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
@@ -259,3 +259,39 @@ class StatusResponse(BaseModel):
 
     status: str
     message: str | None = None
+
+
+class EffortMetricsCreate(BaseModel):
+    """Payload para registrar métricas de esfuerzo de corrección (#13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    duration_ms: int = Field(ge=0, description="Duración total de corrección en ms")
+    time_to_first_edit_ms: int | None = Field(
+        default=None, ge=0, description="Tiempo hasta la primera edición en ms"
+    )
+    interventions: dict[str, int] = Field(
+        default_factory=dict, description="Intervenciones por número de compás"
+    )
+
+
+class EffortMetricsRead(BaseModel):
+    """Métricas de esfuerzo persistidas para una sesión (#13)."""
+
+    id: str
+    session_id: str
+    duration_ms: int
+    time_to_first_edit_ms: int | None
+    interventions: dict[str, int]
+    created_at: datetime
+
+    @classmethod
+    def from_data(cls, data: EffortMetricsData) -> EffortMetricsRead:
+        return cls(
+            id=data.id,
+            session_id=data.session_id,
+            duration_ms=data.duration_ms,
+            time_to_first_edit_ms=data.time_to_first_edit_ms,
+            interventions=data.interventions,
+            created_at=data.created_at,
+        )

@@ -52,6 +52,9 @@ from cadenza.application import (
     finalize_session as finalize_session_use_case,
 )
 from cadenza.application import (
+    get_effort as get_effort_use_case,
+)
+from cadenza.application import (
     get_session as get_session_use_case,
 )
 from cadenza.application import (
@@ -65,6 +68,9 @@ from cadenza.application import (
 )
 from cadenza.application import (
     list_users as list_users_use_case,
+)
+from cadenza.application import (
+    record_effort as record_effort_use_case,
 )
 from cadenza.application import (
     reopen_session as reopen_session_use_case,
@@ -84,6 +90,7 @@ from cadenza.persistence import (
     FilesystemArtifactStore,
     SessionFactory,
     SqlAlchemyEditEventRepository,
+    SqlAlchemyEffortRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -100,6 +107,8 @@ from .schemas import (
     ChangePasswordRequest,
     EditEventCreate,
     EditEventRead,
+    EffortMetricsCreate,
+    EffortMetricsRead,
     FinalizeResponse,
     FindingRead,
     ReopenResponse,
@@ -747,6 +756,62 @@ def create_app(
             after=payload.after,
         )
         return EditEventRead.from_edit(edit, session_id)
+
+    @app.post(
+        "/sessions/{session_id}/effort",
+        response_model=EffortMetricsRead,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def record_effort_endpoint(
+        session_id: str,
+        payload: EffortMetricsCreate,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> EffortMetricsRead:
+        """Persiste las métricas de esfuerzo de corrección de una sesión (#13, D13).
+
+        - Requiere autenticación.
+        - Control de acceso ADR-0012:
+          * Transcriptor ajeno responde 404 (SessionNotFound).
+          * Investigador ajeno responde 403 (Forbidden): solo el dueño registra esfuerzo.
+        """
+        session_repo = SqlAlchemySessionRepository(db)
+        effort_repo = SqlAlchemyEffortRepository(db)
+        data = record_effort_use_case(
+            session_repo,
+            effort_repo,
+            session_id=session_id,
+            duration_ms=payload.duration_ms,
+            time_to_first_edit_ms=payload.time_to_first_edit_ms,
+            interventions=payload.interventions,
+            current_user=current_user,
+        )
+        return EffortMetricsRead.from_data(data)
+
+    @app.get(
+        "/sessions/{session_id}/effort",
+        response_model=list[EffortMetricsRead],
+    )
+    def get_effort_endpoint(
+        session_id: str,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> list[EffortMetricsRead]:
+        """Devuelve las métricas de esfuerzo registradas para una sesión (#13).
+
+        - Requiere autenticación.
+        - Control de acceso ADR-0012:
+          * Transcriptor ajeno responde 404 (SessionNotFound).
+        """
+        session_repo = SqlAlchemySessionRepository(db)
+        effort_repo = SqlAlchemyEffortRepository(db)
+        metrics = get_effort_use_case(
+            session_repo,
+            effort_repo,
+            session_id=session_id,
+            current_user=current_user,
+        )
+        return [EffortMetricsRead.from_data(m) for m in metrics]
 
     return app
 

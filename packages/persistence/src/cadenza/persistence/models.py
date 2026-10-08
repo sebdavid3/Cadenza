@@ -98,6 +98,9 @@ class Session(Base):
     # Sin `delete-orphan`: el log de ediciones es inmutable y no se borra con la
     # sesión (ADR-0007). La FK con `ondelete="RESTRICT"` lo refuerza en la base.
     edits: Mapped[list[EditEventRecord]] = relationship(back_populates="session")
+    effort_metrics: Mapped[list[EffortMetricsRecord]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class FindingRecord(Base):
@@ -170,3 +173,25 @@ class ArtifactRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class EffortMetricsRecord(Base):
+    """Métricas de esfuerzo humano en la corrección de una sesión (ADR-0004, #13)."""
+
+    __tablename__ = "effort_metrics"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    time_to_first_edit_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    interventions: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    session: Mapped[Session] = relationship(back_populates="effort_metrics")
