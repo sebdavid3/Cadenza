@@ -522,9 +522,10 @@ mayor valor y mejorar progresivamente el reconocimiento.
 
 **Diseño.**
 
-- **`DatasetBuilder`:** traduce `(imagen, ScoreIR crudo, ScoreIR corregido,
+- **`DatasetBuilder` y `alignment`:** traduce `(imagen, ScoreIR crudo, ScoreIR corregido,
   EditEvents)` a tuplas de entrenamiento compatibles con el pipeline de HOMR,
-  alineando por anclas.
+  alineando compás a compás y voz a voz (`derive_edit_events`) para simular al
+  corrector ideal y transformar de forma determinista la salida del OMR en el ground truth.
 - **`AcquisitionStrategy` (puerto)** con implementaciones comparables
   ([ADR-0008](adr/ADR-0008-active-learning-model-registry.md)):
   - `UncertaintyAcquisition` — línea base para reproducir el hallazgo negativo de
