@@ -18,6 +18,7 @@ def test_default_settings() -> None:
     assert settings.artifacts_dir == Path("./data/artifacts")
     assert settings.auth_secret_key == ""
     assert settings.auth_token_expire_minutes == 30
+    assert settings.auto_create_schema is False
 
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -27,6 +28,7 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CADENZA_ARTIFACTS_DIR", "/custom/artifacts")
     monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", "super-secret-from-env")
     monkeypatch.setenv("CADENZA_AUTH_TOKEN_EXPIRE_MINUTES", "45")
+    monkeypatch.setenv("CADENZA_AUTO_CREATE_SCHEMA", "true")
 
     settings = Settings()
     assert settings.database_url == "sqlite+pysqlite:///:memory:"
@@ -35,6 +37,7 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.artifacts_dir == Path("/custom/artifacts")
     assert settings.auth_secret_key == "super-secret-from-env"
     assert settings.auth_token_expire_minutes == 45
+    assert settings.auto_create_schema is True
 
 
 def test_create_app_fails_without_auth_secret_key() -> None:

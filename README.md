@@ -123,15 +123,41 @@ uv run black --check .             # formato
 
 ## Ejecución
 
-### API (nueva arquitectura)
+### API en desarrollo local
 
 ```bash
 uv run uvicorn cadenza.api.main:create_default_app --factory --reload
 ```
 
 - Documentación interactiva: <http://127.0.0.1:8000/docs>
-- La base de datos se toma de `CADENZA_DATABASE_URL` (por defecto SQLite
-  `./cadenza.db`; en producción PostgreSQL vía JSONB).
+- La base de datos se toma de `CADENZA_DATABASE_URL` (por defecto SQLite `./cadenza.db`; en producción PostgreSQL vía JSONB).
+
+### Plano Online con Docker Compose y PostgreSQL (#6)
+
+Para desplegar el entorno reproducible de producción con PostgreSQL 16 y la API:
+
+```bash
+# 1. Copiar y configurar las variables de entorno
+cp .env.example .env
+
+# 2. Levantar los servicios en Docker
+docker compose up --build
+```
+
+El servicio `api` espera a que `postgres` reporte estado saludable mediante *healthcheck*, ejecuta automáticamente las migraciones pendientes con Alembic (`alembic -c packages/persistence/alembic.ini upgrade head`) y arranca el servidor ASGI Uvicorn en el puerto 8000.
+
+Para gestionar migraciones con Alembic de forma manual:
+
+```bash
+# Aplicar todas las migraciones
+uv run alembic -c packages/persistence/alembic.ini upgrade head
+
+# Revertir una revisión
+uv run alembic -c packages/persistence/alembic.ini downgrade -1
+
+# Generar el script SQL estático (modo offline) para PostgreSQL
+uv run alembic -c packages/persistence/alembic.ini upgrade head --sql
+```
 
 ### Creación del primer usuario investigador
 

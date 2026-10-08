@@ -47,3 +47,10 @@ class Settings(BaseSettings):
             "Tamaño máximo permitido para la subida de imágenes en bytes " "(20 MB por defecto)."
         ),
     )
+    auto_create_schema: bool = Field(
+        default=False,
+        description=(
+            "Si es True, crea el esquema DDL al arrancar (solo para desarrollo/tests). "
+            "En producción permanece en False, dependiendo de migraciones Alembic (#6)."
+        ),
+    )
