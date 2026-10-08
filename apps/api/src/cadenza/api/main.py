@@ -22,10 +22,12 @@ from cadenza.application import (
     NotAuthenticated,
     PasswordHasher,
     Role,
+    ScoreExporter,
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
     TokenService,
+    UnsupportedExportFormat,
     User,
     UserNotFound,
     WeakPassword,
@@ -42,6 +44,9 @@ from cadenza.application import (
 )
 from cadenza.application import (
     create_user as create_user_use_case,
+)
+from cadenza.application import (
+    export_score as export_score_use_case,
 )
 from cadenza.application import (
     finalize_session as finalize_session_use_case,
@@ -73,6 +78,7 @@ from cadenza.application import (
 from cadenza.application import (
     update_user as update_user_use_case,
 )
+from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import FakeOMREngine, HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -181,6 +187,7 @@ def create_app(
     password_hasher: PasswordHasher | None = None,
     token_service: TokenService | None = None,
     artifact_store: ArtifactStore | None = None,
+    score_exporter: ScoreExporter | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
@@ -210,6 +217,18 @@ def create_app(
         )
     )
     app.state.artifact_store = artifact_store
+    app.state.score_exporter = (
+        score_exporter if score_exporter is not None else Music21ScoreExporter()
+    )
+
+    @app.exception_handler(UnsupportedExportFormat)
+    def unsupported_export_format_handler(
+        request: Request, exc: UnsupportedExportFormat
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.message, "format": exc.format},
+        )
 
     @app.exception_handler(SessionNotFound)
     def session_not_found_handler(request: Request, exc: SessionNotFound) -> JSONResponse:
@@ -526,6 +545,45 @@ def create_app(
             current_user=current_user,
         )
         return Response(content=image_data.content, media_type=image_data.media_type)
+
+    @app.get(
+        "/sessions/{session_id}/export",
+        summary="Exportar sesión a MusicXML o MIDI",
+        description=(
+            "Exporta el ScoreIR materializado de la sesión a formato "
+            "MusicXML 4.0 o MIDI 1.0 (Issue #12, ADR-0010)."
+        ),
+    )
+    def export_session_endpoint(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        format: str = Query(..., description="Formato de exportación: 'musicxml' o 'midi'"),
+    ) -> Response:
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        exporter: ScoreExporter = (
+            getattr(request.app.state, "score_exporter", None) or Music21ScoreExporter()
+        )
+        exported = export_score_use_case(
+            session_repo,
+            edit_repo,
+            exporter,
+            session_id=session_id,
+            format=format,
+            current_user=current_user,
+        )
+        content_bytes = (
+            exported.content.encode("utf-8")
+            if isinstance(exported.content, str)
+            else exported.content
+        )
+        return Response(
+            content=content_bytes,
+            media_type=exported.media_type,
+            headers={"Content-Disposition": f'attachment; filename="{exported.filename}"'},
+        )
 
     @app.get("/sessions/{session_id}", response_model=SessionDetailRead)
     def get_session(session_id: str, db: DbDep, current_user: CurrentUserDep) -> SessionDetailRead:

@@ -8,6 +8,7 @@ from .artifact_store import (
     is_image_content,
 )
 from .edit_event_repository import EditEventRepository, InMemoryEditEventRepository
+from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .security import (
     InMemoryPasswordHasher,
     InMemoryTokenService,
@@ -30,11 +31,13 @@ __all__ = [
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
     "InMemoryPasswordHasher",
+    "InMemoryScoreExporter",
     "InMemorySessionRepository",
     "InMemoryTokenService",
     "InMemoryUserRepository",
     "PasswordHasher",
     "PersistedFinding",
+    "ScoreExporter",
     "SessionData",
     "SessionRepository",
     "SessionSummary",

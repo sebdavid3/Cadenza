@@ -25,7 +25,7 @@ from cadenza.domain import (
     Tie,
     TimeSignature,
 )
-from music21 import chord, clef, converter, key, layout, meter, musicxml, note, stream, tie
+from music21 import chord, clef, converter, key, layout, meter, midi, musicxml, note, stream, tie
 
 _MAX_DENOMINATOR = 1000
 
@@ -349,8 +349,8 @@ def _build_measure(measure: Measure) -> Any:
     return built
 
 
-def score_ir_to_musicxml(score: ScoreIR) -> str:
-    """Serializa un `ScoreIR` a MusicXML (base para la exportación, D11)."""
+def score_ir_to_music21(score: ScoreIR) -> stream.Score:
+    """Convierte un `ScoreIR` a un objeto `music21.stream.Score` estructurado."""
 
     out = stream.Score()
     for part_index, part in enumerate(score.parts):
@@ -373,5 +373,20 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
                 for measure in staff.measures:
                     built_part.append(_build_measure(measure))
             out.insert(0, built_part)
+    return out
+
+
+def score_ir_to_musicxml(score: ScoreIR) -> str:
+    """Serializa un `ScoreIR` a MusicXML 4.0 (base para la exportación, D11)."""
+
+    out = score_ir_to_music21(score)
     exported: bytes = musicxml.m21ToXml.GeneralObjectExporter(out).parse()
     return exported.decode("utf-8")
+
+
+def score_ir_to_midi(score: ScoreIR) -> bytes:
+    """Serializa un `ScoreIR` a bytes en formato MIDI 1.0 (Issue #12, ADR-0010)."""
+
+    out = score_ir_to_music21(score)
+    mf = midi.translate.streamToMidiFile(out)
+    return bytes(mf.writestr())
