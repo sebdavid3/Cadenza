@@ -118,6 +118,12 @@ class FindingRecord(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     suggested_fix: Mapped[str | None] = mapped_column(Text, nullable=True)
     anchor: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), server_default="active", default="active", nullable=False
+    )
+    dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dismissed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    dismissal_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

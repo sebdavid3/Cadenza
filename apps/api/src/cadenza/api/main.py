@@ -17,6 +17,7 @@ from typing import Annotated
 from cadenza.application import (
     ArtifactStore,
     DuplicateUsername,
+    FindingNotFound,
     Forbidden,
     InvalidEdit,
     NoEditsToUndo,
@@ -47,6 +48,9 @@ from cadenza.application import (
     create_user as create_user_use_case,
 )
 from cadenza.application import (
+    dismiss_finding as dismiss_finding_use_case,
+)
+from cadenza.application import (
     export_score as export_score_use_case,
 )
 from cadenza.application import (
@@ -75,6 +79,9 @@ from cadenza.application import (
 )
 from cadenza.application import (
     reopen_session as reopen_session_use_case,
+)
+from cadenza.application import (
+    restore_finding as restore_finding_use_case,
 )
 from cadenza.application import (
     revalidate as revalidate_use_case,
@@ -109,6 +116,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
     ChangePasswordRequest,
+    DismissFindingRequest,
     EditEventCreate,
     EditEventRead,
     EffortMetricsCreate,
@@ -250,6 +258,13 @@ def create_app(
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"detail": "session not found"},
+        )
+
+    @app.exception_handler(FindingNotFound)
+    def finding_not_found_handler(request: Request, exc: FindingNotFound) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "finding not found"},
         )
 
     @app.exception_handler(InvalidEdit)
@@ -640,6 +655,7 @@ def create_app(
         current_user: CurrentUserDep,
         at_seq: int | None = None,
         latest_only: bool = True,
+        include_dismissed: bool = False,
     ) -> list[FindingRead]:
         session_repo = SqlAlchemySessionRepository(db)
         findings = list_findings_use_case(
@@ -648,8 +664,52 @@ def create_app(
             current_user=current_user,
             at_seq=at_seq,
             latest_only=latest_only,
+            include_dismissed=include_dismissed,
         )
         return [FindingRead.from_persisted(f) for f in findings]
+
+    @app.post(
+        "/sessions/{session_id}/findings/{finding_id}/dismiss",
+        response_model=FindingRead,
+    )
+    def dismiss_finding_endpoint(
+        session_id: str,
+        finding_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        payload: DismissFindingRequest | None = None,
+    ) -> FindingRead:
+        """Descarta un hallazgo como falso positivo (#36)."""
+        session_repo = SqlAlchemySessionRepository(db)
+        reason = payload.reason if payload is not None else None
+        dismissed = dismiss_finding_use_case(
+            session_id,
+            finding_id,
+            session_repository=session_repo,
+            current_user=current_user,
+            reason=reason,
+        )
+        return FindingRead.from_persisted(dismissed)
+
+    @app.post(
+        "/sessions/{session_id}/findings/{finding_id}/restore",
+        response_model=FindingRead,
+    )
+    def restore_finding_endpoint(
+        session_id: str,
+        finding_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> FindingRead:
+        """Restaura un hallazgo previamente descartado a estado activo (#36)."""
+        session_repo = SqlAlchemySessionRepository(db)
+        restored = restore_finding_use_case(
+            session_id,
+            finding_id,
+            session_repository=session_repo,
+            current_user=current_user,
+        )
+        return FindingRead.from_persisted(restored)
 
     @app.post(
         "/sessions/{session_id}/validate",
