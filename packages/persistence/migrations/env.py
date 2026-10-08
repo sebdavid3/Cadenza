@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -16,20 +17,34 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def _get_url() -> str:
+    return (
+        os.getenv("CADENZA_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or config.get_main_option("sqlalchemy.url")
+        or "sqlite+pysqlite:///./cadenza.db"
+    )
+
+
 def run_migrations_offline() -> None:
+    url = _get_url()
     context.configure(
-        url=config.get_main_option("sqlalchemy.url"),
+        url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        output_buffer=config.stdout,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
+    url = _get_url()
+    configuration = config.get_section(config.config_ini_section, {}) or {}
+    configuration["sqlalchemy.url"] = url
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )

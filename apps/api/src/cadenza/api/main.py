@@ -931,7 +931,11 @@ def create_default_app(settings: Settings | None = None) -> FastAPI:
 
     app_settings = settings or Settings()
     engine = create_engine_for_url(app_settings.database_url)
-    create_schema(engine)
+    # En producción no se crea el esquema al arrancar; se depende de las migraciones (#6).
+    if app_settings.auto_create_schema or (
+        app_settings.database_url.startswith("sqlite") and ":memory:" in app_settings.database_url
+    ):
+        create_schema(engine)
 
     omr_engine: OMREngine
     if app_settings.omr_engine == "homr":

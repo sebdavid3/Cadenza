@@ -1,0 +1,42 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cadenza-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CADENZA_POSTGRES_DB:-cadenza}
+      POSTGRES_USER: ${CADENZA_POSTGRES_USER:-cadenza}
+      POSTGRES_PASSWORD: ${CADENZA_POSTGRES_PASSWORD}
+    ports:
+      - "${CADENZA_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cadenza-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CADENZA_DATABASE_URL: ${CADENZA_DATABASE_URL}
+      CADENZA_AUTH_SECRET_KEY: ${CADENZA_AUTH_SECRET_KEY}
+      CADENZA_OMR_ENGINE: ${CADENZA_OMR_ENGINE:-fake}
+      CADENZA_ARTIFACTS_DIR: /app/data/artifacts
+      CADENZA_AUTO_CREATE_SCHEMA: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts_data:/app/data/artifacts
+
+volumes:
+  postgres_data:
+  artifacts_data:
