@@ -174,6 +174,45 @@ class TrainingSample:
     before: Mapping[str, Any] | None = None
     after: Mapping[str, Any] | None = None
 
+    def to_primitive(self) -> dict[str, Any]:
+        """Serializa la muestra a un diccionario con tipos primitivos."""
+        return {
+            "document_id": self.document_id,
+            "anchor": self.anchor.to_primitive(),
+            "before_pitch": self.before_pitch,
+            "after_pitch": self.after_pitch,
+            "correction_magnitude": self.correction_magnitude,
+            "error_density": self.error_density,
+            "features": list(self.features),
+            "op": self.op.value,
+            "image_sha256": self.image_sha256,
+            "seq": self.seq,
+            "before": dict(self.before) if self.before is not None else None,
+            "after": dict(self.after) if self.after is not None else None,
+        }
+
+    @classmethod
+    def from_primitive(cls, data: Mapping[str, Any]) -> TrainingSample:
+        """Reconstruye una muestra a partir de un diccionario primitivo."""
+        raw_anchor = data["anchor"]
+        anchor = (
+            Anchor.from_primitive(raw_anchor) if isinstance(raw_anchor, Mapping) else raw_anchor
+        )
+        return cls(
+            document_id=str(data["document_id"]),
+            anchor=anchor,
+            before_pitch=data.get("before_pitch"),
+            after_pitch=data.get("after_pitch"),
+            correction_magnitude=float(data.get("correction_magnitude", 0.0)),
+            error_density=float(data.get("error_density", 0.0)),
+            features=tuple(float(f) for f in data.get("features", ())),
+            op=EditOp(data["op"]) if "op" in data else EditOp.SET_PITCH,
+            image_sha256=data.get("image_sha256"),
+            seq=int(data.get("seq", 0)),
+            before=data.get("before"),
+            after=data.get("after"),
+        )
+
     def key(self) -> tuple[str, ...]:
         """Clave de orden determinista (documento + seq + op + ruta lógica del ancla)."""
 
@@ -208,6 +247,22 @@ def dataset_hash(samples: Sequence[TrainingSample]) -> str:
         ).encode("utf-8")
         hasher.update(canonical_bytes)
     return hasher.hexdigest()
+
+
+def serialize_dataset(samples: Sequence[TrainingSample]) -> dict[str, Any]:
+    """Serializa una colección de muestras a una estructura canónica en diccionario."""
+    ordered = sorted(samples, key=TrainingSample.key)
+    return {
+        "dataset_hash": dataset_hash(ordered),
+        "count": len(ordered),
+        "samples": [sample.to_primitive() for sample in ordered],
+    }
+
+
+def deserialize_dataset(data: Mapping[str, Any]) -> tuple[TrainingSample, ...]:
+    """Deserializa una colección de muestras a partir de un diccionario."""
+    raw_samples = data.get("samples", [])
+    return tuple(TrainingSample.from_primitive(s) for s in raw_samples)
 
 
 MeasureKey = tuple[int, int, int]

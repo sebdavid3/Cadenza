@@ -669,6 +669,7 @@ TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos
 | `train` | Ajusta el modelo con una configuración versionada y exporta ONNX al `ArtifactStore`. |
 | `evaluate` | Calcula SER y OMR-NED contra el corpus de evaluación. |
 | `promote` | Registra la versión y la activa solo si supera el umbral. |
+| `run` | Ejecuta el pipeline completo de punta a punta de forma encadenada. |
 
 ---
 
@@ -830,7 +831,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Implementado: lector desacoplado `RepositoryDatasetReader` vía puertos `SessionRepository` y `EditEventRepository` (sin ORM directo), cobertura de todas las operaciones de `EditOp` con magnitudes fundamentadas, referencia de imagen por `image_sha256` y `dataset_hash` determinista | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
 | M4 | Correcciones derivadas de errores reales de OMR | Implementado: derivación determinista en `packages/learning/src/cadenza/learning/alignment.py` (`align_voice_events`, `derive_edit_events`) con Needleman-Wunsch por compás y voz, verificación formal `materialize(predicted, edits) == ground_truth` sobre 91 incipits de PrIMuS (544 ediciones) y distribución clasificada | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
 | M4 | *Model Registry* persistente y carga del modelo activo | Implementado: tabla `model_versions` con migración Alembic `0010_model_versions`, pesos ONNX en `ArtifactStore` con FK restringida, adaptador `SqlAlchemyModelRegistry`, promoción gobernada por `PromotionThreshold`, y carga dinámica del modelo activo en OMR (`FakeOMREngine`, `HOMREngine`) y plano online (`/transcribe`) | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
-| M4 | Jobs offline orquestados por CLI | Solo scripts de experimentos | [#22](https://github.com/sebdavid3/Cadenza/issues/22) |
+| M4 | Jobs offline orquestados por CLI | Implementado: herramienta de línea de comandos en `ml/cli.py` (`python -m ml`) con subcomandos `build-dataset`, `select`, `train`, `evaluate`, `promote` y `run`, encadenamiento reproducible mediante artefactos serializados con constancia de `dataset_hash`, `config_hash` y semilla, sin estado en memoria entre comandos | [#22](https://github.com/sebdavid3/Cadenza/issues/22) |
 | M4 | Entrenador real (PyTorch → ONNX) | `FakeTrainer` | [#23](https://github.com/sebdavid3/Cadenza/issues/23) |
 | Experimentos | Resultados sobre datos reales | `exp_01` y `exp_02` usan datos sintéticos | [#24](https://github.com/sebdavid3/Cadenza/issues/24) |
 | Experimentos | SER reportada junto al OMR-NED | Solo OMR-NED; no hay serialización de `ScoreIR` a símbolos | [#30](https://github.com/sebdavid3/Cadenza/issues/30) |
