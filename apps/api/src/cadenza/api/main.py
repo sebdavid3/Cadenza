@@ -56,6 +56,9 @@ from cadenza.application import (
     list_findings as list_findings_use_case,
 )
 from cadenza.application import (
+    list_sessions as list_sessions_use_case,
+)
+from cadenza.application import (
     list_users as list_users_use_case,
 )
 from cadenza.application import (
@@ -82,7 +85,7 @@ from cadenza.persistence import (
     create_session_factory,
 )
 from cadenza.validation import MeasureBalanceRule, ValidationEngine, ValidationRule
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session as DbSession
@@ -96,6 +99,7 @@ from .schemas import (
     ReopenResponse,
     RevalidateResponse,
     SessionDetailRead,
+    SessionSummaryRead,
     StatusResponse,
     TokenResponse,
     TranscribeResponse,
@@ -469,6 +473,41 @@ def create_app(
             omr_engine=result.omr_engine,
             findings_count=result.findings_count,
         )
+
+    @app.get("/sessions", response_model=list[SessionSummaryRead])
+    def list_sessions_endpoint(
+        db: DbDep,
+        current_user: CurrentUserDep,
+        status: str | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[SessionSummaryRead]:
+        """Lista las sesiones con resúmenes ligeros paginados (#27, ADR-0009, ADR-0012).
+
+        Un transcriptor solo ve sus sesiones; un investigador las ve todas.
+        La consulta no carga la columna JSONB document.
+        """
+        session_repo = SqlAlchemySessionRepository(db)
+        summaries = list_sessions_use_case(
+            session_repository=session_repo,
+            current_user=current_user,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        return [
+            SessionSummaryRead(
+                session_id=s.session_id,
+                document_id=s.document_id,
+                omr_engine=s.omr_engine,
+                model_version=s.model_version,
+                status=s.status,
+                created_at=s.created_at,
+                findings_count=s.findings_count,
+                edits_count=s.edits_count,
+            )
+            for s in summaries
+        ]
 
     @app.get("/sessions/{session_id}/image")
     def get_session_image_endpoint(

@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from cadenza.application import (
     PersistedFinding,
     SessionData,
     SessionNotFound,
     SessionRepository,
+    SessionSummary,
 )
 from cadenza.domain import Finding
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session as DbSession
 
-from .models import FindingRecord
+from .models import EditEventRecord, FindingRecord
 from .models import Session as SessionRecord
 
 
@@ -35,6 +37,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             validated_at_seq=session.validated_at_seq,
             image_artifact=session.image_artifact,
             document=session.document,
+            created_at=session.created_at or datetime.now(UTC),
         )
         record.findings = [
             FindingRecord(
@@ -190,6 +193,68 @@ class SqlAlchemySessionRepository(SessionRepository):
                 suggested_fix=row.suggested_fix,
                 anchor=row.anchor,
                 at_seq=row.at_seq,
+            )
+            for row in rows
+        )
+
+    def list_summaries(
+        self,
+        *,
+        owner_id: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[SessionSummary, ...]:
+        findings_count_sq = (
+            select(func.count(FindingRecord.id))
+            .where(
+                FindingRecord.session_id == SessionRecord.id,
+                FindingRecord.at_seq == SessionRecord.validated_at_seq,
+            )
+            .correlate(SessionRecord)
+            .scalar_subquery()
+        )
+        edits_count_sq = (
+            select(func.count(EditEventRecord.id))
+            .where(EditEventRecord.session_id == SessionRecord.id)
+            .correlate(SessionRecord)
+            .scalar_subquery()
+        )
+
+        stmt = select(
+            SessionRecord.id,
+            SessionRecord.document_id,
+            SessionRecord.omr_engine,
+            SessionRecord.model_version,
+            SessionRecord.status,
+            SessionRecord.created_at,
+            SessionRecord.owner_id,
+            findings_count_sq.label("findings_count"),
+            edits_count_sq.label("edits_count"),
+        )
+        if owner_id is not None:
+            stmt = stmt.where(SessionRecord.owner_id == owner_id)
+        if status is not None:
+            stmt = stmt.where(SessionRecord.status == status)
+
+        stmt = (
+            stmt.order_by(SessionRecord.created_at.desc(), SessionRecord.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+
+        rows = self._session.execute(stmt).all()
+        return tuple(
+            SessionSummary(
+                session_id=row.id,
+                document_id=row.document_id,
+                omr_engine=row.omr_engine,
+                model_version=row.model_version,
+                status=row.status,
+                created_at=row.created_at,
+                owner_id=row.owner_id,
+                findings_count=int(row.findings_count or 0),
+                edits_count=int(row.edits_count or 0),
             )
             for row in rows
         )

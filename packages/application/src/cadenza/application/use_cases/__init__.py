@@ -8,6 +8,7 @@ from .finalize_session import FinalizeResult, finalize_session
 from .get_session import SessionDetail, get_session
 from .get_session_image import SessionImageData, get_session_image
 from .list_findings import list_findings
+from .list_sessions import list_sessions
 from .list_users import list_users
 from .reopen_session import ReopenResult, reopen_session
 from .revalidate import RevalidateResult, revalidate
@@ -29,6 +30,7 @@ __all__ = [
     "get_session",
     "get_session_image",
     "list_findings",
+    "list_sessions",
     "list_users",
     "reopen_session",
     "revalidate",
