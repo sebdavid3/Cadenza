@@ -1,29 +1,44 @@
 """Reglas de validación puras y registrables (M2).
 
-`rules/__init__.py` define la interfaz base `ValidationRule`; las reglas
-concretas viven en módulos hermanos (p. ej. `rules/measure_balance.py`). Se usa
-el paquete (y no un `rules.py`) para evitar la colisión módulo/paquete.
+Expone la interfaz base `ValidationRule` y el catálogo completo de las cinco
+familias de reglas musicales de la arquitectura objetivo:
+1. Balance de compás (`MeasureBalanceRule`)
+2. Rango tonal por clave (`PitchRangeRule`)
+3. Consistencia de armadura y alteraciones (`KeyConsistencyRule`)
+4. Colisión de voces y solapamiento temporal (`VoiceCollisionRule`)
+5. Resolución y cierre de ligaduras (`TieResolutionRule`)
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from .base import ValidationRule
+from .key_consistency import KeyConsistencyRule
+from .measure_balance import MeasureBalanceRule
+from .pitch_range import PitchRangeRule
+from .tie_resolution import TieResolutionRule
+from .voice_collision import VoiceCollisionRule
 
-from cadenza.domain import Finding, ScoreDocument
+DEFAULT_RULES_CATALOG: tuple[type[ValidationRule], ...] = (
+    KeyConsistencyRule,
+    MeasureBalanceRule,
+    PitchRangeRule,
+    TieResolutionRule,
+    VoiceCollisionRule,
+)
 
 
-class ValidationRule(ABC):
-    """Regla pura de solo lectura sobre un `ScoreDocument`.
+def get_default_rules() -> tuple[ValidationRule, ...]:
+    """Instancia y devuelve el catálogo estándar completo de las cinco reglas."""
+    return tuple(cls() for cls in DEFAULT_RULES_CATALOG)
 
-    `evaluate` **nunca** muta el documento (el dominio es inmutable) y devuelve
-    los `Finding` anclados que correspondan a la regla.
-    """
 
-    @property
-    @abstractmethod
-    def rule_id(self) -> str:
-        """Identificador estable de la regla, usado en `Finding.rule_id`."""
-
-    @abstractmethod
-    def evaluate(self, document: ScoreDocument) -> list[Finding]:
-        """Devuelve los hallazgos de la regla sobre el documento."""
+__all__ = [
+    "DEFAULT_RULES_CATALOG",
+    "KeyConsistencyRule",
+    "MeasureBalanceRule",
+    "PitchRangeRule",
+    "TieResolutionRule",
+    "ValidationRule",
+    "VoiceCollisionRule",
+    "get_default_rules",
+]
