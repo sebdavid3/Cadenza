@@ -39,3 +39,13 @@ def feature_distance(left: TrainingSample, right: TrainingSample) -> float:
 
 def sorted_candidates(candidates: Sequence[TrainingSample]) -> list[TrainingSample]:
     return sorted(candidates, key=TrainingSample.key)
+
+
+from .random import RandomAcquisition  # noqa: E402
+
+__all__ = [
+    "AcquisitionStrategy",
+    "RandomAcquisition",
+    "feature_distance",
+    "sorted_candidates",
+]
