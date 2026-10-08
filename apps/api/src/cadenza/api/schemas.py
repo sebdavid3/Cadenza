@@ -73,6 +73,10 @@ class FindingRead(BaseModel):
     suggested_fix: str | None
     anchor: dict[str, Any]
     at_seq: int = 0
+    status: str = "active"
+    dismissed_at: datetime | None = None
+    dismissed_by: str | None = None
+    dismissal_reason: str | None = None
 
     @classmethod
     def from_record(cls, record: FindingRecord) -> FindingRead:
@@ -84,6 +88,10 @@ class FindingRead(BaseModel):
             suggested_fix=record.suggested_fix,
             anchor=record.anchor,
             at_seq=record.at_seq,
+            status=record.status,
+            dismissed_at=record.dismissed_at,
+            dismissed_by=record.dismissed_by,
+            dismissal_reason=record.dismissal_reason,
         )
 
     @classmethod
@@ -96,7 +104,17 @@ class FindingRead(BaseModel):
             suggested_fix=finding.suggested_fix,
             anchor=finding.anchor,
             at_seq=finding.at_seq,
+            status=finding.status,
+            dismissed_at=finding.dismissed_at,
+            dismissed_by=finding.dismissed_by,
+            dismissal_reason=finding.dismissal_reason,
         )
+
+
+class DismissFindingRequest(BaseModel):
+    """Payload opcional para descartar un hallazgo como falso positivo (#36)."""
+
+    reason: str | None = None
 
 
 class EditEventRead(BaseModel):

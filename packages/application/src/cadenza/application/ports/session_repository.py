@@ -5,12 +5,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from cadenza.domain import Finding
 
-from ..exceptions import SessionNotFound
+from ..exceptions import FindingNotFound, SessionNotFound
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,10 @@ class PersistedFinding:
     suggested_fix: str | None
     anchor: dict[str, Any]
     at_seq: int = 0
+    status: str = "active"
+    dismissed_at: datetime | None = None
+    dismissed_by: str | None = None
+    dismissal_reason: str | None = None
 
 
 class SessionRepository(ABC):
@@ -75,14 +79,36 @@ class SessionRepository(ABC):
         findings: Sequence[Finding],
         *,
         at_seq: int,
+        dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         """Persiste los hallazgos evaluados en at_seq y actualiza los hallazgos vigentes.
 
         Es idempotente por `(session_id, at_seq)`: re-evaluar el mismo estado
         sustituye los hallazgos de ese `at_seq`. Los hallazgos de otras
         secuencias se conservan para el análisis de esfuerzo (#11, ADR-0013).
+        Si se provee `dismissed_statuses`, preserva el estado descartado de
+        los hallazgos correspondientes (#36).
         Lanza `SessionNotFound` si la sesión no existe.
         """
+
+    @abstractmethod
+    def dismiss_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+        *,
+        user: str,
+        reason: str | None = None,
+    ) -> PersistedFinding:
+        """Marca un hallazgo como descartado (falso positivo, #36)."""
+
+    @abstractmethod
+    def restore_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+    ) -> PersistedFinding:
+        """Restaura un hallazgo previamente descartado a estado activo (#36)."""
 
     @abstractmethod
     def list_findings(
@@ -91,13 +117,21 @@ class SessionRepository(ABC):
         *,
         at_seq: int | None = None,
         latest_only: bool = True,
+        include_dismissed: bool = False,
     ) -> tuple[PersistedFinding, ...]:
         """Devuelve los hallazgos asociados a la sesión.
 
-        Por defecto (`latest_only=True`), devuelve los hallazgos vigentes del estado
-        más reciente evaluado (`validated_at_seq`). Si `latest_only=False` y `at_seq=None`,
-        devuelve todos los hallazgos históricos.
+        Por defecto (`latest_only=True`, `include_dismissed=False`), devuelve los hallazgos
+        vigentes del estado más reciente evaluado (`validated_at_seq`) que no han sido
+        descartados. Si `include_dismissed=True`, incluye también los hallazgos descartados.
         """
+
+    @abstractmethod
+    def list_dismissed_findings(
+        self,
+        session_id: str,
+    ) -> tuple[PersistedFinding, ...]:
+        """Devuelve los falsos positivos descartados de la sesión (#36, #18)."""
 
     @abstractmethod
     def update_status(self, session_id: str, status: str) -> SessionData:
@@ -160,6 +194,7 @@ class InMemorySessionRepository(SessionRepository):
         findings: Sequence[Finding],
         *,
         at_seq: int,
+        dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         record = self.sessions.get(session_id)
         if record is None:
@@ -172,7 +207,12 @@ class InMemorySessionRepository(SessionRepository):
         ]
 
         persisted: list[PersistedFinding] = []
-        for finding in findings:
+        for i, finding in enumerate(findings):
+            d_state = (
+                dismissed_statuses[i]
+                if dismissed_statuses is not None and i < len(dismissed_statuses)
+                else None
+            )
             persisted.append(
                 PersistedFinding(
                     id=self._next_finding_id,
@@ -182,11 +222,64 @@ class InMemorySessionRepository(SessionRepository):
                     suggested_fix=finding.suggested_fix,
                     anchor=finding.anchor.to_primitive(),
                     at_seq=at_seq,
+                    status=d_state.status if d_state is not None else "active",
+                    dismissed_at=d_state.dismissed_at if d_state is not None else None,
+                    dismissed_by=d_state.dismissed_by if d_state is not None else None,
+                    dismissal_reason=d_state.dismissal_reason if d_state is not None else None,
                 )
             )
             self._next_finding_id += 1
         self.findings.setdefault(session_id, []).extend(persisted)
         return tuple(persisted)
+
+    def dismiss_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+        *,
+        user: str,
+        reason: str | None = None,
+    ) -> PersistedFinding:
+        record = self.sessions.get(session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+
+        session_findings = self.findings.get(session_id, [])
+        for i, f in enumerate(session_findings):
+            if f.id == finding_id:
+                updated = replace(
+                    f,
+                    status="dismissed",
+                    dismissed_at=datetime.now(UTC),
+                    dismissed_by=user,
+                    dismissal_reason=reason,
+                )
+                session_findings[i] = updated
+                return updated
+        raise FindingNotFound(finding_id)
+
+    def restore_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+    ) -> PersistedFinding:
+        record = self.sessions.get(session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+
+        session_findings = self.findings.get(session_id, [])
+        for i, f in enumerate(session_findings):
+            if f.id == finding_id:
+                updated = replace(
+                    f,
+                    status="active",
+                    dismissed_at=None,
+                    dismissed_by=None,
+                    dismissal_reason=None,
+                )
+                session_findings[i] = updated
+                return updated
+        raise FindingNotFound(finding_id)
 
     def list_findings(
         self,
@@ -194,16 +287,28 @@ class InMemorySessionRepository(SessionRepository):
         *,
         at_seq: int | None = None,
         latest_only: bool = True,
+        include_dismissed: bool = False,
     ) -> tuple[PersistedFinding, ...]:
         record = self.sessions.get(session_id)
         if record is None:
             return ()
         findings_list = self.findings.get(session_id, [])
+        if not include_dismissed:
+            findings_list = [f for f in findings_list if f.status == "active"]
         if at_seq is not None:
             return tuple(f for f in findings_list if f.at_seq == at_seq)
         if latest_only:
             return tuple(f for f in findings_list if f.at_seq == record.validated_at_seq)
         return tuple(findings_list)
+
+    def list_dismissed_findings(
+        self,
+        session_id: str,
+    ) -> tuple[PersistedFinding, ...]:
+        record = self.sessions.get(session_id)
+        if record is None:
+            return ()
+        return tuple(f for f in self.findings.get(session_id, []) if f.status == "dismissed")
 
     def update_status(self, session_id: str, status: str) -> SessionData:
         record = self.sessions.get(session_id)
@@ -248,7 +353,13 @@ class InMemorySessionRepository(SessionRepository):
         summaries: list[SessionSummary] = []
         for s in paged:
             session_findings = self.findings.get(s.id, [])
-            findings_count = len([f for f in session_findings if f.at_seq == s.validated_at_seq])
+            findings_count = len(
+                [
+                    f
+                    for f in session_findings
+                    if f.at_seq == s.validated_at_seq and f.status == "active"
+                ]
+            )
             edits_count = (
                 len(self.edit_repository.list_events(s.id))
                 if self.edit_repository is not None

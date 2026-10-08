@@ -130,3 +130,13 @@ class NoEditsToUndo(ApplicationError):
         super().__init__(msg)
         self.session_id = session_id
         self.message = msg
+
+
+class FindingNotFound(ApplicationError):
+    """El hallazgo solicitado no existe en la sesión (#36)."""
+
+    def __init__(self, finding_id: int) -> None:
+        msg = f"Hallazgo no encontrado: {finding_id}"
+        super().__init__(msg)
+        self.finding_id = finding_id
+        self.message = msg

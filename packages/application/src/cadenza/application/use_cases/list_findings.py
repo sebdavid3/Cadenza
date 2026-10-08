@@ -14,6 +14,7 @@ def list_findings(
     current_user: User,
     at_seq: int | None = None,
     latest_only: bool = True,
+    include_dismissed: bool = False,
 ) -> tuple[PersistedFinding, ...]:
     """Devuelve los hallazgos de la sesión, verificando existencia y propiedad."""
 
@@ -28,4 +29,5 @@ def list_findings(
         session_id,
         at_seq=at_seq,
         latest_only=latest_only,
+        include_dismissed=include_dismissed,
     )

@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from cadenza.application import (
+    FindingNotFound,
     PersistedFinding,
     SessionData,
     SessionNotFound,
@@ -18,6 +19,22 @@ from sqlalchemy.orm import Session as DbSession
 
 from .models import EditEventRecord, FindingRecord
 from .models import Session as SessionRecord
+
+
+def _to_persisted_finding(record: FindingRecord) -> PersistedFinding:
+    return PersistedFinding(
+        id=record.id,
+        rule_id=record.rule_id,
+        severity=record.severity,
+        message=record.message,
+        suggested_fix=record.suggested_fix,
+        anchor=record.anchor,
+        at_seq=record.at_seq,
+        status=record.status,
+        dismissed_at=record.dismissed_at,
+        dismissed_by=record.dismissed_by,
+        dismissal_reason=record.dismissal_reason,
+    )
 
 
 class SqlAlchemySessionRepository(SessionRepository):
@@ -47,6 +64,7 @@ class SqlAlchemySessionRepository(SessionRepository):
                 message=finding.message,
                 suggested_fix=finding.suggested_fix,
                 anchor=finding.anchor.to_primitive(),
+                status="active",
             )
             for finding in findings
         ]
@@ -124,6 +142,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         findings: Sequence[Finding],
         *,
         at_seq: int,
+        dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         record = self._session.get(SessionRecord, session_id)
         if record is None:
@@ -139,33 +158,85 @@ class SqlAlchemySessionRepository(SessionRepository):
             )
         )
 
-        new_records = [
-            FindingRecord(
-                session_id=session_id,
-                at_seq=at_seq,
-                rule_id=finding.rule_id,
-                severity=finding.severity.value,
-                message=finding.message,
-                suggested_fix=finding.suggested_fix,
-                anchor=finding.anchor.to_primitive(),
+        new_records: list[FindingRecord] = []
+        for i, finding in enumerate(findings):
+            d_state = (
+                dismissed_statuses[i]
+                if dismissed_statuses is not None and i < len(dismissed_statuses)
+                else None
             )
-            for finding in findings
-        ]
+            new_records.append(
+                FindingRecord(
+                    session_id=session_id,
+                    at_seq=at_seq,
+                    rule_id=finding.rule_id,
+                    severity=finding.severity.value,
+                    message=finding.message,
+                    suggested_fix=finding.suggested_fix,
+                    anchor=finding.anchor.to_primitive(),
+                    status=d_state.status if d_state is not None else "active",
+                    dismissed_at=d_state.dismissed_at if d_state is not None else None,
+                    dismissed_by=d_state.dismissed_by if d_state is not None else None,
+                    dismissal_reason=d_state.dismissal_reason if d_state is not None else None,
+                )
+            )
         self._session.add_all(new_records)
         self._session.flush()
 
-        return tuple(
-            PersistedFinding(
-                id=r.id,
-                rule_id=r.rule_id,
-                severity=r.severity,
-                message=r.message,
-                suggested_fix=r.suggested_fix,
-                anchor=r.anchor,
-                at_seq=r.at_seq,
-            )
-            for r in new_records
+        return tuple(_to_persisted_finding(r) for r in new_records)
+
+    def dismiss_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+        *,
+        user: str,
+        reason: str | None = None,
+    ) -> PersistedFinding:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+
+        stmt = select(FindingRecord).where(
+            FindingRecord.session_id == session_id,
+            FindingRecord.id == finding_id,
         )
+        finding_row = self._session.scalars(stmt).one_or_none()
+        if finding_row is None:
+            raise FindingNotFound(finding_id)
+
+        finding_row.status = "dismissed"
+        finding_row.dismissed_at = datetime.now(UTC)
+        finding_row.dismissed_by = user
+        finding_row.dismissal_reason = reason
+        self._session.flush()
+
+        return _to_persisted_finding(finding_row)
+
+    def restore_finding(
+        self,
+        session_id: str,
+        finding_id: int,
+    ) -> PersistedFinding:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+
+        stmt = select(FindingRecord).where(
+            FindingRecord.session_id == session_id,
+            FindingRecord.id == finding_id,
+        )
+        finding_row = self._session.scalars(stmt).one_or_none()
+        if finding_row is None:
+            raise FindingNotFound(finding_id)
+
+        finding_row.status = "active"
+        finding_row.dismissed_at = None
+        finding_row.dismissed_by = None
+        finding_row.dismissal_reason = None
+        self._session.flush()
+
+        return _to_persisted_finding(finding_row)
 
     def list_findings(
         self,
@@ -173,8 +244,11 @@ class SqlAlchemySessionRepository(SessionRepository):
         *,
         at_seq: int | None = None,
         latest_only: bool = True,
+        include_dismissed: bool = False,
     ) -> tuple[PersistedFinding, ...]:
         stmt = select(FindingRecord).where(FindingRecord.session_id == session_id)
+        if not include_dismissed:
+            stmt = stmt.where(FindingRecord.status == "active")
         if at_seq is not None:
             stmt = stmt.where(FindingRecord.at_seq == at_seq)
         elif latest_only:
@@ -184,18 +258,25 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(FindingRecord.at_seq == record.validated_at_seq)
 
         rows = self._session.scalars(stmt.order_by(FindingRecord.id)).all()
-        return tuple(
-            PersistedFinding(
-                id=row.id,
-                rule_id=row.rule_id,
-                severity=row.severity,
-                message=row.message,
-                suggested_fix=row.suggested_fix,
-                anchor=row.anchor,
-                at_seq=row.at_seq,
+        return tuple(_to_persisted_finding(row) for row in rows)
+
+    def list_dismissed_findings(
+        self,
+        session_id: str,
+    ) -> tuple[PersistedFinding, ...]:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            return ()
+        stmt = (
+            select(FindingRecord)
+            .where(
+                FindingRecord.session_id == session_id,
+                FindingRecord.status == "dismissed",
             )
-            for row in rows
+            .order_by(FindingRecord.id)
         )
+        rows = self._session.scalars(stmt).all()
+        return tuple(_to_persisted_finding(row) for row in rows)
 
     def list_summaries(
         self,
@@ -210,6 +291,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             .where(
                 FindingRecord.session_id == SessionRecord.id,
                 FindingRecord.at_seq == SessionRecord.validated_at_seq,
+                FindingRecord.status == "active",
             )
             .correlate(SessionRecord)
             .scalar_subquery()
