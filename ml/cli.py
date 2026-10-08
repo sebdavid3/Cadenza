@@ -292,6 +292,32 @@ def evaluate_command(args: argparse.Namespace) -> int:
     ser = float(args.ser if args.ser is not None else raw_metrics.get("ser", 0.1))
     omr_ned = float(args.omr_ned if args.omr_ned is not None else raw_metrics.get("omr_ned", 0.08))
 
+    # Si se especifica un manifest de evaluación, computar métricas empíricas reales
+    if getattr(args, "manifest", None) and Path(args.manifest).is_file():
+        from ml.experiments.exp_03_omr_quality import run as run_exp_03
+
+        manifest_path = Path(args.manifest)
+        preds_dir = Path(args.predictions_dir) if getattr(args, "predictions_dir", None) else None
+        exp_summary = run_exp_03(
+            manifest_path,
+            predictions=preds_dir,
+            limit=None,
+            write_results=False,
+        )
+        if getattr(args, "penalized", False):
+            m_block = exp_summary.get("metrics_penalized_with_failures", {})
+            m_ser = m_block.get("mean_ser_penalized")
+            m_ned = m_block.get("mean_omr_ned_penalized")
+        else:
+            m_block = exp_summary.get("metrics_on_successes", {})
+            m_ser = m_block.get("mean_ser")
+            m_ned = m_block.get("mean_omr_ned")
+
+        if m_ser is not None and args.ser is None:
+            ser = float(m_ser)
+        if m_ned is not None and args.omr_ned is None:
+            omr_ned = float(m_ned)
+
     threshold = config.promotion_threshold
     meets_threshold = bool(ser <= threshold.max_ser and omr_ned <= threshold.max_omr_ned)
 
@@ -652,6 +678,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--ser", type=float, default=None, help="Sobreescribir SER evaluada.")
     p_eval.add_argument(
         "--omr-ned", type=float, default=None, help="Sobreescribir OMR-NED evaluada."
+    )
+    p_eval.add_argument(
+        "--manifest",
+        default=None,
+        help="Manifest de evaluación para calcular métricas empíricas reales.",
+    )
+    p_eval.add_argument(
+        "--predictions-dir",
+        default=None,
+        help="Directorio con transcripciones MusicXML del motor evaluado.",
+    )
+    p_eval.add_argument(
+        "--penalized",
+        action="store_true",
+        help="Usar métricas penalizadas imputando fallos de segmentación a 1.0.",
     )
 
     # 5. promote

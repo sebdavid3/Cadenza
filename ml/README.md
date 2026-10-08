@@ -76,15 +76,19 @@ Si el emparejamiento fallara, se pueden fijar las carpetas con `--images-dir` y
 (**kern). La descarga directa se pasa con `--url`; las URLs de aterrizaje
 oficiales están en el registro (`info`).
 
-### `exp_03_omr_quality.py` — OMR-NED oficial
+### `exp_03_omr_quality.py` — Calidad OMR oficial (OMR-NED y SER)
 
 ```powershell
 uv run python ml/experiments/exp_03_omr_quality.py
 ```
 
 Sin corpus corre en modo *smoke* con un fixture; con `data/manifest.json` y
-predicciones en `data/<corpus>/predictions/<id>.musicxml`, mide OMR-NED por par
-y escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
+predicciones en `data/<corpus>/predictions/<id>.musicxml`, mide:
+1. **OMR-NED** (normalizada a nivel gráfico con `musicdiff`).
+2. **SER** (tasa de error simbólico a nivel de secuencia canónica de símbolos con `score_ser_pair`).
+Reporta métricas sobre éxitos (91 incipits: OMR-NED 0.2285, SER 0.1124) y métricas penalizadas
+con fallos de segmentación (100 incipits imputando 1.0: OMR-NED 0.2979, SER 0.1923).
+Escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
 
 ### `exp_04_homr_transcribe.py` — transcripción real (CPU/GPU)
 

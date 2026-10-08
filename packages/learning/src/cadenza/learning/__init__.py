@@ -24,7 +24,19 @@ from .dataset import (
     deserialize_dataset,
     serialize_dataset,
 )
-from .evaluation import normalized_edit_distance, symbol_error_rate
+from .evaluation import (
+    SerResult,
+    format_clef_symbol,
+    format_duration_symbol,
+    format_key_signature_symbol,
+    format_time_signature_symbol,
+    normalized_edit_distance,
+    resolve_pitch_with_key_signature,
+    score_ser_pair,
+    score_to_symbol_sequence,
+    score_to_symbols,
+    symbol_error_rate,
+)
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
 from .registry import (
@@ -68,6 +80,7 @@ __all__ = [
     "PromotionThreshold",
     "RandomAcquisition",
     "RepositoryDatasetReader",
+    "SerResult",
     "TrainedArtifact",
     "Trainer",
     "TrainingConfig",
@@ -87,6 +100,10 @@ __all__ = [
     "evaluate_pair",
     "evaluate_score_measures",
     "feature_distance",
+    "format_clef_symbol",
+    "format_duration_symbol",
+    "format_key_signature_symbol",
+    "format_time_signature_symbol",
     "is_structurally_equal",
     "load_job_config",
     "load_training_config",
@@ -94,6 +111,10 @@ __all__ = [
     "omr_ned_batch",
     "omr_ned_pair",
     "pitch_to_midi",
+    "resolve_pitch_with_key_signature",
+    "score_ser_pair",
+    "score_to_symbol_sequence",
+    "score_to_symbols",
     "semitone_distance",
     "serialize_dataset",
     "split_pitch",
