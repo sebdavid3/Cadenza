@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from cadenza.domain import (
     BBox,
@@ -98,8 +99,29 @@ class FakeOMREngine(OMREngine):
     CI/CD, sin descargar pesos ni depender de hardware.
     """
 
-    def __init__(self, document_id: str = FAKE_DOCUMENT_ID) -> None:
+    def __init__(
+        self,
+        document_id: str = FAKE_DOCUMENT_ID,
+        *,
+        model_version: str | None = None,
+    ) -> None:
         self._document_id = document_id
+        self._model_version = model_version
+
+    @classmethod
+    def from_active_model(
+        cls,
+        model_registry: Any | None,
+        artifact_store: Any | None = None,
+        *,
+        document_id: str = FAKE_DOCUMENT_ID,
+    ) -> FakeOMREngine:
+        """Instancia FakeOMREngine con la versión de modelo activa si existe (#21)."""
+        if model_registry is None:
+            return cls(document_id=document_id)
+        active = model_registry.active()
+        version_str = active.version if active is not None else None
+        return cls(document_id=document_id, model_version=version_str)
 
     @property
     def engine_id(self) -> str:
@@ -113,7 +135,7 @@ class FakeOMREngine(OMREngine):
             anchors=build_anchor_index(score),
             provenance=Provenance(
                 omr_engine=FAKE_ENGINE_ID,
-                model_version=FAKE_MODEL_VERSION,
+                model_version=self._model_version or FAKE_MODEL_VERSION,
                 device="cpu",
             ),
         )

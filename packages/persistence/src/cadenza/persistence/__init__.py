@@ -12,6 +12,7 @@ from .database import (
     session_scope,
 )
 from .effort_repository import SqlAlchemyEffortRepository
+from .model_registry import SqlAlchemyModelRegistry
 from .models import (
     ArtifactRecord,
     Base,
@@ -19,6 +20,7 @@ from .models import (
     EffortMetricsRecord,
     FindingRecord,
     ImmutableEditEventError,
+    ModelVersionRecord,
     Session,
     UserRecord,
 )
@@ -35,10 +37,12 @@ __all__ = [
     "FilesystemArtifactStore",
     "FindingRecord",
     "ImmutableEditEventError",
+    "ModelVersionRecord",
     "Session",
     "SessionFactory",
     "SqlAlchemyEditEventRepository",
     "SqlAlchemyEffortRepository",
+    "SqlAlchemyModelRegistry",
     "SqlAlchemySessionRepository",
     "SqlAlchemyUserRepository",
     "UserRecord",
