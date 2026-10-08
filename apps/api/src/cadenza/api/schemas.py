@@ -108,6 +108,7 @@ class EditEventRead(BaseModel):
     anchor: dict[str, Any]
     before: dict[str, Any] | None
     after: dict[str, Any] | None
+    reverts_edit_id: str | None = None
     created_at: datetime
 
     @classmethod
@@ -121,6 +122,7 @@ class EditEventRead(BaseModel):
             anchor=record.anchor,
             before=record.before,
             after=record.after,
+            reverts_edit_id=record.reverts_edit_id,
             created_at=record.created_at,
         )
 
@@ -135,6 +137,7 @@ class EditEventRead(BaseModel):
             anchor=edit.anchor.to_primitive(),
             before=None if edit.before is None else dict(edit.before),
             after=None if edit.after is None else dict(edit.after),
+            reverts_edit_id=edit.reverts_edit_id,
             created_at=edit.created_at,
         )
 
@@ -204,6 +207,18 @@ class ReopenResponse(BaseModel):
     current_seq: int
 
 
+class UndoRequest(BaseModel):
+    """Payload opcional para deshacer una edición con validación de concurrencia (#35, #48)."""
+
+    base_seq: int | None = Field(
+        default=None,
+        description=(
+            "Número de secuencia base esperado. Si se especifica y no coincide "
+            "con el estado actual, responde 409."
+        ),
+    )
+
+
 class UndoResponse(BaseModel):
     """Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."""
 
@@ -212,6 +227,8 @@ class UndoResponse(BaseModel):
     undone_edit_id: str
     current_score: dict[str, Any]
     anchor_index: dict[str, Any] | None = None
+    compensatory_edit_id: str | None = None
+    compensatory_edit: EditEventRead | None = None
 
 
 class TokenResponse(BaseModel):

@@ -141,6 +141,11 @@ class EditEventRecord(Base):
     anchor: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
     before: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
     after: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
+    reverts_edit_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("edit_events.id", ondelete="RESTRICT", name="fk_edit_events_reverts_edit_id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     session: Mapped[Session] = relationship(back_populates="edits")

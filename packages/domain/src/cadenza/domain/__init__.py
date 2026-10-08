@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
-from .edit import EditEvent, EditOp
+from .edit import EditEvent, EditOp, create_inverse_edit, get_last_active_edit
 from .finding import Finding, Severity, translate_finding
 from .key_signature import KeySignature
 from .projection import (
@@ -56,6 +56,8 @@ __all__ = [
     "UnsupportedEditOpError",
     "apply_edit",
     "build_anchor_index",
+    "create_inverse_edit",
+    "get_last_active_edit",
     "materialize",
     "origin_anchor",
     "translate_anchor",

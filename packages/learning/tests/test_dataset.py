@@ -74,3 +74,22 @@ def test_build_only_accepts_finalized_sessions() -> None:
     assert builder.build(document, edits, status="correcting") == ()
     assert builder.build(document, edits, status="transcribed") == ()
     assert builder.build(document, edits, status="failed") == ()
+
+
+def test_build_excludes_undone_edits_and_compensatory_reversions() -> None:
+    document = make_document()
+    edits = [
+        # Edit 1 y su reversión compensatoria Edit 2
+        make_edit(1, make_anchor(0), "C4", "D4"),
+        make_edit(2, make_anchor(0), "D4", "C4", reverts_edit_id="edit-1"),
+        # Edit 3 activo que persiste
+        make_edit(3, make_anchor(1), "D4", "E4"),
+    ]
+    builder = DatasetBuilder()
+    samples = builder.build(document, edits, status="finalized")
+
+    # Solo Edit 3 debe generar muestra; Edit 1 y Edit 2 se ignoran (#35)
+    assert len(samples) == 1
+    assert samples[0].before_pitch == "D4"
+    assert samples[0].after_pitch == "E4"
+    assert samples[0].anchor.event_index == 1

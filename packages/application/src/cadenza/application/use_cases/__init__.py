@@ -16,6 +16,7 @@ from .record_effort import record_effort
 from .reopen_session import ReopenResult, reopen_session
 from .revalidate import RevalidateResult, revalidate
 from .transcribe_score import TranscribeResult, transcribe_score
+from .undo_edit import UndoResult, undo_edit
 from .update_user import update_user
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "SessionDetail",
     "SessionImageData",
     "TranscribeResult",
+    "UndoResult",
     "append_edit",
     "authenticate",
     "change_password",
@@ -41,5 +43,6 @@ __all__ = [
     "reopen_session",
     "revalidate",
     "transcribe_score",
+    "undo_edit",
     "update_user",
 ]

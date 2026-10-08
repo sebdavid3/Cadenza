@@ -13,6 +13,7 @@ from cadenza.application import (
     User,
     compute_interventions_from_edits,
     contrast_interventions,
+    count_reversions_from_edits,
     get_effort,
     record_effort,
 )
@@ -320,3 +321,54 @@ def test_get_effort_owner_and_investigator(
             session_id="non-existent",
             current_user=owner_user,
         )
+
+
+def test_effort_distinguishes_reversions_and_undone_corrections() -> None:
+    edits = [
+        EditEvent(
+            id="e1",
+            document_id="doc-1",
+            seq=1,
+            op=EditOp.SET_PITCH,
+            anchor=Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="staff-1"),
+            author="tester",
+            created_at=datetime.now(UTC),
+            before={"pitch": "C4"},
+            after={"pitch": "D4"},
+        ),
+        EditEvent(
+            id="e2",
+            document_id="doc-1",
+            seq=2,
+            op=EditOp.SET_PITCH,
+            anchor=Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="staff-1"),
+            author="tester",
+            created_at=datetime.now(UTC),
+            before={"pitch": "D4"},
+            after={"pitch": "C4"},
+            reverts_edit_id="e1",
+        ),
+        EditEvent(
+            id="e3",
+            document_id="doc-1",
+            seq=3,
+            op=EditOp.SET_PITCH,
+            anchor=Anchor(part=0, staff=0, measure=2, voice=0, event_index=0, staff_id="staff-1"),
+            author="tester",
+            created_at=datetime.now(UTC),
+            before={"pitch": "E4"},
+            after={"pitch": "F4"},
+        ),
+    ]
+
+    # Total de eventos registrados: 2 en compás 1, 1 en compás 2
+    raw_counts = compute_interventions_from_edits(edits)
+    assert raw_counts == {"1": 2, "2": 1}
+
+    # Solo correcciones activas (descartando e1 y su reversión e2)
+    active_counts = compute_interventions_from_edits(edits, active_only=True)
+    assert active_counts == {"2": 1}
+
+    # Conteo específico de reversiones (deshacer)
+    reversion_counts = count_reversions_from_edits(edits)
+    assert reversion_counts == {"1": 1}

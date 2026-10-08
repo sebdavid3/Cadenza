@@ -120,3 +120,13 @@ class UnsupportedExportFormat(ApplicationError):
         super().__init__(msg)
         self.format = fmt
         self.message = msg
+
+
+class NoEditsToUndo(ApplicationError):
+    """No hay ediciones activas para deshacer en la sesión (#35, ADR-0007)."""
+
+    def __init__(self, session_id: str) -> None:
+        msg = f"No hay ediciones activas para deshacer en la sesión '{session_id}'."
+        super().__init__(msg)
+        self.session_id = session_id
+        self.message = msg
