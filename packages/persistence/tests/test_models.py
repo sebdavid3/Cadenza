@@ -104,13 +104,28 @@ def test_edit_events_are_append_only() -> None:
                 created_at=datetime(2026, 9, 20, tzinfo=UTC),
             )
         )
+        db.add(
+            EditEventRecord(
+                id="e3",
+                session_id="s2",
+                seq=3,
+                op="SetPitch",
+                author="tester",
+                anchor={"part": 0},
+                before={"pitch": "E4"},
+                after={"pitch": "D4"},
+                reverts_edit_id="e2",
+                created_at=datetime(2026, 9, 20, tzinfo=UTC),
+            )
+        )
         db.commit()
 
     with factory() as db:
         rows = db.scalars(select(EditEventRecord).order_by(EditEventRecord.seq)).all()
-        assert [row.seq for row in rows] == [1, 2]
+        assert [row.seq for row in rows] == [1, 2, 3]
         assert rows[0].before == {"pitch": "C4"}
         assert rows[1].after == {"pitch": "E4"}
+        assert rows[2].reverts_edit_id == "e2"
 
 
 def test_sqlalchemy_session_repository_roundtrip() -> None:

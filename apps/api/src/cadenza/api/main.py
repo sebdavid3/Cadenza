@@ -19,6 +19,7 @@ from cadenza.application import (
     DuplicateUsername,
     Forbidden,
     InvalidEdit,
+    NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
     Role,
@@ -82,6 +83,9 @@ from cadenza.application import (
     transcribe_score as transcribe_score_use_case,
 )
 from cadenza.application import (
+    undo_edit as undo_edit_use_case,
+)
+from cadenza.application import (
     update_user as update_user_use_case,
 )
 from cadenza.interchange import Music21ScoreExporter
@@ -118,6 +122,8 @@ from .schemas import (
     StatusResponse,
     TokenResponse,
     TranscribeResponse,
+    UndoRequest,
+    UndoResponse,
     UserCreate,
     UserRead,
     UserUpdate,
@@ -248,6 +254,13 @@ def create_app(
 
     @app.exception_handler(InvalidEdit)
     def invalid_edit_handler(request: Request, exc: InvalidEdit) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.message},
+        )
+
+    @app.exception_handler(NoEditsToUndo)
+    def no_edits_to_undo_handler(request: Request, exc: NoEditsToUndo) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": exc.message},
@@ -756,6 +769,43 @@ def create_app(
             after=payload.after,
         )
         return EditEventRead.from_edit(edit, session_id)
+
+    @app.post(
+        "/sessions/{session_id}/undo",
+        response_model=UndoResponse,
+        summary="Deshacer la última edición activa en el servidor",
+        description=(
+            "Registra un evento compensatorio inverso de la última edición activa "
+            "en el log append-only sin borrar historia (ADR-0007, #35). "
+            "Devuelve el nuevo current_seq, el ID de la edición deshecha, "
+            "la partitura materializada actualizada y su índice de anclas."
+        ),
+    )
+    def undo_session_edit(
+        session_id: str,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        payload: UndoRequest | None = None,
+    ) -> UndoResponse:
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        base_seq = payload.base_seq if payload is not None else None
+        result = undo_edit_use_case(
+            session_id,
+            base_seq=base_seq,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=current_user,
+        )
+        return UndoResponse(
+            session_id=result.session_id,
+            current_seq=result.current_seq,
+            undone_edit_id=result.undone_edit_id,
+            current_score=result.current_score,
+            anchor_index=result.anchor_index,
+            compensatory_edit_id=result.compensatory_edit.id,
+            compensatory_edit=EditEventRead.from_edit(result.compensatory_edit, session_id),
+        )
 
     @app.post(
         "/sessions/{session_id}/effort",

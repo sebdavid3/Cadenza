@@ -41,6 +41,7 @@ class SqlAlchemyEditEventRepository(EditEventRepository):
             anchor=edit.anchor.to_primitive(),
             before=None if edit.before is None else dict(edit.before),
             after=None if edit.after is None else dict(edit.after),
+            reverts_edit_id=edit.reverts_edit_id,
             created_at=edit.created_at,
         )
         try:
@@ -83,4 +84,5 @@ class SqlAlchemyEditEventRepository(EditEventRepository):
             created_at=row.created_at,
             before=row.before,
             after=row.after,
+            reverts_edit_id=row.reverts_edit_id,
         )

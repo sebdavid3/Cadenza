@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -82,6 +82,7 @@ class EditEvent:
     created_at: datetime
     before: Mapping[str, Any] | None = None
     after: Mapping[str, Any] | None = None
+    reverts_edit_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -97,6 +98,11 @@ class EditEvent:
         if self.after is not None:
             object.__setattr__(self, "after", MappingProxyType(dict(self.after)))
 
+    @property
+    def is_reversion(self) -> bool:
+        """Indica si este evento es una reversión compensatoria de una edición previa."""
+        return self.reverts_edit_id is not None
+
     def __hash__(self) -> int:
         # Incluye una huella estable de ``before``/``after`` para mantener la
         # coherencia con la igualdad generada (dos eventos iguales hashean igual).
@@ -111,11 +117,12 @@ class EditEvent:
                 self.created_at,
                 None if self.before is None else hash(frozenset(self.before.items())),
                 None if self.after is None else hash(frozenset(self.after.items())),
+                self.reverts_edit_id,
             )
         )
 
     def to_primitive(self) -> dict[str, Any]:
-        return {
+        prim: dict[str, Any] = {
             "id": self.id,
             "document_id": self.document_id,
             "seq": self.seq,
@@ -126,11 +133,15 @@ class EditEvent:
             "before": None if self.before is None else dict(self.before),
             "after": None if self.after is None else dict(self.after),
         }
+        if self.reverts_edit_id is not None:
+            prim["reverts_edit_id"] = self.reverts_edit_id
+        return prim
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> EditEvent:
         before = data.get("before")
         after = data.get("after")
+        reverts = data.get("reverts_edit_id")
         return cls(
             id=str(data["id"]),
             document_id=str(data["document_id"]),
@@ -141,4 +152,72 @@ class EditEvent:
             created_at=datetime.fromisoformat(str(data["created_at"])),
             before=None if before is None else dict(before),
             after=None if after is None else dict(after),
+            reverts_edit_id=str(reverts) if reverts is not None else None,
         )
+
+
+def create_inverse_edit(
+    edit: EditEvent,
+    *,
+    id: str,
+    seq: int,
+    author: str,
+    created_at: datetime,
+) -> EditEvent:
+    """Construye el evento compensatorio inverso de una edición (ADR-0007, #35).
+
+    Invierte semánticamente cualquier operación de `EditOp`:
+    - SetPitch / SetDuration / SetAccidental / SetClef / SetKey:
+      intercambia `before` y `after`.
+    - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
+      `before = edit.after` y `after = None`.
+    - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con
+      `before = None` y `after = edit.before`.
+
+    El evento compensatorio referencia explícitamente la edición que revierte
+    mediante `reverts_edit_id = edit.id`.
+    """
+    if edit.op is EditOp.INSERT_EVENT:
+        inv_op = EditOp.DELETE_EVENT
+        inv_before = dict(edit.after) if edit.after is not None else None
+        inv_after = None
+    elif edit.op is EditOp.DELETE_EVENT:
+        inv_op = EditOp.INSERT_EVENT
+        inv_before = None
+        inv_after = dict(edit.before) if edit.before is not None else None
+    else:
+        inv_op = edit.op
+        inv_before = dict(edit.after) if edit.after is not None else None
+        inv_after = dict(edit.before) if edit.before is not None else None
+
+    return EditEvent(
+        id=id,
+        document_id=edit.document_id,
+        seq=seq,
+        anchor=edit.anchor,
+        op=inv_op,
+        author=author,
+        created_at=created_at,
+        before=inv_before,
+        after=inv_after,
+        reverts_edit_id=edit.id,
+    )
+
+
+def get_last_active_edit(edits: Sequence[EditEvent]) -> EditEvent | None:
+    """Obtiene la última edición vigente que no ha sido deshecha en la sesión (#35).
+
+    Aplica una pila de estado: cada evento compensatorio con `reverts_edit_id`
+    retira del conjunto activo a la edición que revirtió. Devuelve None si
+    no hay ediciones activas.
+    """
+    active: list[EditEvent] = []
+    for e in edits:
+        if e.reverts_edit_id is not None:
+            for i in range(len(active) - 1, -1, -1):
+                if active[i].id == e.reverts_edit_id:
+                    active.pop(i)
+                    break
+        else:
+            active.append(e)
+    return active[-1] if active else None

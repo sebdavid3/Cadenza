@@ -4,6 +4,7 @@ from .effort import (
     MeasureInterventionComparison,
     compute_interventions_from_edits,
     contrast_interventions,
+    count_reversions_from_edits,
 )
 from .exceptions import (
     ApplicationError,
@@ -11,6 +12,7 @@ from .exceptions import (
     DuplicateUsername,
     Forbidden,
     InvalidEdit,
+    NoEditsToUndo,
     NotAuthenticated,
     SequenceConflict,
     SessionClosed,
@@ -54,6 +56,7 @@ from .use_cases import (
     SessionDetail,
     SessionImageData,
     TranscribeResult,
+    UndoResult,
     append_edit,
     authenticate,
     change_password,
@@ -70,6 +73,7 @@ from .use_cases import (
     reopen_session,
     revalidate,
     transcribe_score,
+    undo_edit,
     update_user,
 )
 from .user import Role, User
@@ -96,6 +100,7 @@ __all__ = [
     "InMemoryUserRepository",
     "InvalidEdit",
     "MeasureInterventionComparison",
+    "NoEditsToUndo",
     "NotAuthenticated",
     "PasswordHasher",
     "PersistedFinding",
@@ -115,6 +120,7 @@ __all__ = [
     "TokenPayload",
     "TokenService",
     "TranscribeResult",
+    "UndoResult",
     "UnsupportedExportFormat",
     "User",
     "UserNotFound",
@@ -126,6 +132,7 @@ __all__ = [
     "compute_interventions_from_edits",
     "compute_sha256",
     "contrast_interventions",
+    "count_reversions_from_edits",
     "create_user",
     "detect_image_media_type",
     "export_score",
@@ -141,5 +148,6 @@ __all__ = [
     "reopen_session",
     "revalidate",
     "transcribe_score",
+    "undo_edit",
     "update_user",
 ]

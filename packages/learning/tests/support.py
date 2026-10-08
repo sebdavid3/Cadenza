@@ -62,6 +62,7 @@ def make_edit(
     *,
     document_id: str = "doc-1",
     op: EditOp = EditOp.SET_PITCH,
+    reverts_edit_id: str | None = None,
 ) -> EditEvent:
     return EditEvent(
         id=f"edit-{seq}",
@@ -73,6 +74,7 @@ def make_edit(
         created_at=datetime(2026, 9, 20, tzinfo=UTC),
         before=None if before is None else {"pitch": before},
         after=None if after is None else {"pitch": after},
+        reverts_edit_id=reverts_edit_id,
     )
 
 

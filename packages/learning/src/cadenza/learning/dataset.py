@@ -77,8 +77,12 @@ class DatasetBuilder:
         finding_counts = _finding_counts(findings)
         samples: list[TrainingSample] = []
 
+        reverted_ids = {e.reverts_edit_id for e in edits if e.reverts_edit_id is not None}
+
         for edit in edits:
             if edit.document_id != document.id or edit.op is not EditOp.SET_PITCH:
+                continue
+            if edit.is_reversion or edit.id in reverted_ids:
                 continue
             before = edit.before.get("pitch") if edit.before else None
             after = edit.after.get("pitch") if edit.after else None
