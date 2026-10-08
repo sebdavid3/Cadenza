@@ -78,6 +78,13 @@ class FilesystemArtifactStore(ArtifactStore):
             raise ArtifactNotFound(sha256)
         return abs_path.read_bytes()
 
+    def resolve_path(self, sha256: str) -> Path:
+        """Devuelve la ruta absoluta en disco al artefacto especificado por sha256."""
+        abs_path = self._absolute_path(sha256)
+        if not abs_path.is_file():
+            raise ArtifactNotFound(sha256)
+        return abs_path
+
     def exists(self, sha256: str) -> bool:
         return self._absolute_path(sha256).is_file()
 

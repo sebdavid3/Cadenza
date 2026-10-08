@@ -102,6 +102,7 @@ from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemyEffortRepository,
+    SqlAlchemyModelRegistry,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -260,6 +261,7 @@ def create_app(
     token_service: TokenService | None = None,
     artifact_store: ArtifactStore | None = None,
     score_exporter: ScoreExporter | None = None,
+    model_registry: Any | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
@@ -337,6 +339,7 @@ def create_app(
     app.state.score_exporter = (
         score_exporter if score_exporter is not None else Music21ScoreExporter()
     )
+    app.state.model_registry = model_registry
 
     @app.exception_handler(UnsupportedExportFormat)
     def unsupported_export_format_handler(
@@ -674,13 +677,24 @@ def create_app(
         session_repo = SqlAlchemySessionRepository(db)
         artifact_store = get_artifact_store(request, db)
 
+        # Resolver versión activa del modelo OMR si existe en el registry (#21)
+        model_registry = getattr(
+            request.app.state, "model_registry", None
+        ) or SqlAlchemyModelRegistry(db)
+        active_version = model_registry.active()
+        effective_engine = request.app.state.omr_engine
+        if active_version is not None and hasattr(type(effective_engine), "from_active_model"):
+            effective_engine = type(effective_engine).from_active_model(
+                model_registry, artifact_store
+            )
+
         with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
             upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
             upload_path.write_bytes(content)
             result = await asyncio.to_thread(
                 transcribe_score_use_case,
                 upload_path,
-                omr_engine=request.app.state.omr_engine,
+                omr_engine=effective_engine,
                 validator=request.app.state.validator,
                 session_repository=session_repo,
                 current_user=current_user,
@@ -1224,7 +1238,11 @@ def create_app(
     return app
 
 
-def create_default_app(settings: Settings | None = None) -> FastAPI:
+def create_default_app(
+    settings: Settings | None = None,
+    *,
+    model_registry: Any | None = None,
+) -> FastAPI:
     """Factory para uvicorn: carga Settings tipada de entorno y conecta el motor OMR."""
 
     app_settings = settings or Settings()
@@ -1245,4 +1263,5 @@ def create_default_app(settings: Settings | None = None) -> FastAPI:
         create_session_factory(engine),
         omr_engine=omr_engine,
         settings=app_settings,
+        model_registry=model_registry,
     )

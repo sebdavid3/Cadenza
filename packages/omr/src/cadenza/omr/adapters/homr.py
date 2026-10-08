@@ -114,7 +114,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
+def _run_homr(
+    homr_main: Any,
+    image_path: Path,
+    use_gpu: bool,
+    weights_path: Path | None = None,
+) -> str:
     """Ejecuta el pipeline de HOMR en un directorio temporal y devuelve el MusicXML."""
 
     from homr.music_xml_generator import XmlGeneratorArguments
@@ -126,11 +131,12 @@ def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
         staged_image = Path(work_dir) / image_path.name
         shutil.copy2(image_path, staged_image)
 
-        homr_main.download_weights(
-            segnet_use_gpu=use_gpu,
-            transformer_use_gpu=use_gpu,
-            coreml_encoder=False,
-        )
+        if weights_path is None:
+            homr_main.download_weights(
+                segnet_use_gpu=use_gpu,
+                transformer_use_gpu=use_gpu,
+                coreml_encoder=False,
+            )
         config = homr_main.ProcessingConfig(
             enable_debug=False,
             enable_cache=False,
@@ -160,9 +166,49 @@ def _run_homr(homr_main: Any, image_path: Path, use_gpu: bool) -> str:
 class HOMREngine(OMREngine):
     """Adaptador principal: HOMR sobre `onnxruntime`, integrado in-process."""
 
-    def __init__(self, *, use_gpu: bool = True, document_id: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        use_gpu: bool = True,
+        document_id: str | None = None,
+        model_version: str | None = None,
+        weights_path: Path | None = None,
+    ) -> None:
         self._use_gpu = use_gpu
         self._document_id = document_id
+        self._model_version = model_version
+        self._weights_path = weights_path
+
+    @classmethod
+    def from_active_model(
+        cls,
+        model_registry: Any | None,
+        artifact_store: Any | None = None,
+        *,
+        use_gpu: bool = True,
+        document_id: str | None = None,
+    ) -> HOMREngine:
+        """Instancia HOMREngine con la versión de modelo activa si existe (#21)."""
+        if model_registry is None:
+            return cls(use_gpu=use_gpu, document_id=document_id)
+
+        active = model_registry.active()
+        if active is None:
+            return cls(use_gpu=use_gpu, document_id=document_id)
+
+        weights_path: Path | None = None
+        if artifact_store is not None and hasattr(artifact_store, "resolve_path"):
+            try:
+                weights_path = Path(artifact_store.resolve_path(active.artifact_hash))
+            except Exception:
+                weights_path = None
+
+        return cls(
+            use_gpu=use_gpu,
+            document_id=document_id,
+            model_version=active.version,
+            weights_path=weights_path,
+        )
 
     @property
     def engine_id(self) -> str:
@@ -186,7 +232,7 @@ class HOMREngine(OMREngine):
 
         homr_main = _import_homr()
         use_gpu = self._use_gpu and _gpu_available(homr_main)
-        return _run_homr(homr_main, image_path, use_gpu)
+        return _run_homr(homr_main, image_path, use_gpu, weights_path=self._weights_path)
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
@@ -199,13 +245,14 @@ class HOMREngine(OMREngine):
         source_hash = _sha256(image_path)
         xml_text = self.transcribe_musicxml(image_path)
         score = musicxml_to_score_ir(xml_text)
+        effective_version = self._model_version or _homr_version()
         return ScoreDocument(
             id=self._document_id or f"homr-{source_hash[:12]}",
             score=score,
             anchors=build_anchor_index(score),
             provenance=Provenance(
                 omr_engine=ENGINE_ID,
-                model_version=_homr_version(),
+                model_version=effective_version,
                 source_image_hash=source_hash,
                 device=self.device,
             ),

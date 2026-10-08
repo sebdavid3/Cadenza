@@ -13,6 +13,14 @@ from .effort_repository import (
     EffortRepository,
     InMemoryEffortRepository,
 )
+from .model_registry import (
+    EvaluationMetrics,
+    InMemoryModelRegistry,
+    ModelRegistry,
+    ModelVersionData,
+    PromotionRejected,
+    PromotionThreshold,
+)
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .security import (
     InMemoryPasswordHasher,
@@ -35,16 +43,22 @@ __all__ = [
     "EditEventRepository",
     "EffortMetricsData",
     "EffortRepository",
+    "EvaluationMetrics",
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
     "InMemoryEffortRepository",
+    "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
     "InMemoryScoreExporter",
     "InMemorySessionRepository",
     "InMemoryTokenService",
     "InMemoryUserRepository",
+    "ModelRegistry",
+    "ModelVersionData",
     "PasswordHasher",
     "PersistedFinding",
+    "PromotionRejected",
+    "PromotionThreshold",
     "ScoreExporter",
     "SessionData",
     "SessionRepository",

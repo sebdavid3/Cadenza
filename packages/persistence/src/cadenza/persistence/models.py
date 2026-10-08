@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -206,3 +207,32 @@ class EffortMetricsRecord(Base):
     )
 
     session: Mapped[Session] = relationship(back_populates="effort_metrics")
+
+
+class ModelVersionRecord(Base):
+    """Versión registrada en el Model Registry (ADR-0008, ARCHITECTURE.md §7.2, #21)."""
+
+    __tablename__ = "model_versions"
+
+    version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_hash: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "artifacts.sha256",
+            ondelete="RESTRICT",
+            name="fk_model_versions_artifact_hash",
+        ),
+        nullable=False,
+    )
+    dataset_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    ser: Mapped[float] = mapped_column(Float, nullable=False)
+    omr_ned: Mapped[float] = mapped_column(Float, nullable=False)
+    promoted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    artifact: Mapped[ArtifactRecord] = relationship("ArtifactRecord", foreign_keys=[artifact_hash])
