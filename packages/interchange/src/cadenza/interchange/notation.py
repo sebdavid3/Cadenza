@@ -41,6 +41,12 @@ def _register_converters() -> None:
         import converter21
     except ImportError:  # pragma: no cover - depende del extra opcional
         return
+    import music21.metadata
+
+    if not hasattr(music21.metadata.Metadata, "_convertValue"):
+        music21.metadata.Metadata._convertValue = staticmethod(
+            music21.metadata.Metadata.convertValue
+        )
     converter21.register()  # pragma: no cover - depende del extra opcional
 
 
@@ -159,8 +165,14 @@ def _measure_key_signature(measure: Any, is_first: bool = False) -> KeySignature
 def _measures(part: Any) -> tuple[Measure, ...]:
     found = list(part.getElementsByClass(stream.Measure))
     measures: list[Measure] = []
+    zero_count = sum(1 for m in found if getattr(m, "number", None) == 0)
+    has_unassigned_measure_numbers = zero_count > 1
+
     for position, measure in enumerate(found, start=1):
-        number = measure.number if isinstance(measure.number, int) else position
+        if has_unassigned_measure_numbers:
+            number = position
+        else:
+            number = measure.number if isinstance(measure.number, int) else position
         is_first = position == 1
         measures.append(
             Measure(

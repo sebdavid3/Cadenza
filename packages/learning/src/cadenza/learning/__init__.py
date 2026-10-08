@@ -6,6 +6,14 @@ from .acquisition import AcquisitionStrategy, feature_distance
 from .acquisition.diversity import DiversityAcquisition
 from .acquisition.hybrid import HybridAcquisition
 from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisition
+from .alignment import (
+    EditDistribution,
+    align_voice_events,
+    count_edits_by_op,
+    derive_edit_events,
+    is_structurally_equal,
+    split_pitch,
+)
 from .config import load_training_config
 from .dataset import DatasetBuilder, TrainingSample
 from .evaluation import normalized_edit_distance, symbol_error_rate
@@ -24,6 +32,7 @@ __all__ = [
     "AcquisitionStrategy",
     "DatasetBuilder",
     "DiversityAcquisition",
+    "EditDistribution",
     "ErrorDensityAcquisition",
     "EvaluationMetrics",
     "FakeTrainer",
@@ -39,12 +48,17 @@ __all__ = [
     "TrainingConfig",
     "TrainingSample",
     "UncertaintyAcquisition",
+    "align_voice_events",
+    "count_edits_by_op",
+    "derive_edit_events",
     "feature_distance",
+    "is_structurally_equal",
     "load_training_config",
     "normalized_edit_distance",
     "omr_ned_batch",
     "omr_ned_pair",
     "pitch_to_midi",
     "semitone_distance",
+    "split_pitch",
     "symbol_error_rate",
 ]
