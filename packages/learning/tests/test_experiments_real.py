@@ -298,3 +298,38 @@ def test_exp_06_validation_smb_custom_manifest(tmp_path: Path) -> None:
     )
     assert report.total_measures == 4
     assert report.global_metrics.accuracy == 1.0
+
+
+def test_exp_10_effort_study_smoke(tmp_path: Path) -> None:
+    from ml.experiments import exp_10_effort_study
+
+    summary = exp_10_effort_study.run_effort_study_export(
+        output_dir=tmp_path,
+        smoke=True,
+        seed=12345,
+    )
+
+    assert summary["protocol_version"] == "1.0"
+    assert summary["total_sessions"] == 32
+    assert summary["total_participants"] == 8
+    assert "assisted" in summary["conditions"]
+    assert "unassisted" in summary["conditions"]
+
+    # Validar archivos generados
+    assert (tmp_path / "effort_study_sessions.csv").is_file()
+    assert (tmp_path / "effort_study_by_measure.csv").is_file()
+    assert (tmp_path / "effort_study_summary.json").is_file()
+    assert (tmp_path / "exp_10_run_info.json").is_file()
+
+    # Reducciones mayores a 0
+    assert summary["effort_reduction"]["time_per_measure_reduction_percent"] > 0
+    assert summary["effort_reduction"]["cognitive_workload_reduction_percent"] > 0
+
+
+def test_ml_cli_export_effort(tmp_path: Path) -> None:
+    from ml import cli
+
+    code = cli.main(["export-effort", "--smoke", "--output-dir", str(tmp_path), "--seed", "999"])
+    assert code == 0
+    assert (tmp_path / "effort_study_sessions.csv").is_file()
+    assert (tmp_path / "effort_study_summary.json").is_file()

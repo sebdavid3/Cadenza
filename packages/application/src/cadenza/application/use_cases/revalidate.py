@@ -100,6 +100,15 @@ def revalidate(
     edits = edit_repository.list_events(session_id)
     current_seq = edits[-1].seq if edits else 0
 
+    # Sesión no asistida: no genera hallazgos del validador (#33, D38)
+    if session_data.condition == "unassisted":
+        session_repository.replace_findings(session_id, (), at_seq=current_seq)
+        return RevalidateResult(
+            session_id=session_id,
+            current_seq=current_seq,
+            findings=(),
+        )
+
     # 2. Materializar ScoreIR y AnchorIndex
     raw_score = ScoreIR.from_primitive(session_data.document["score"])
     raw_anchors = (

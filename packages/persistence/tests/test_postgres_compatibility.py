@@ -93,6 +93,7 @@ def test_alembic_migrations_offline_sql_generation_for_postgresql() -> None:
     assert "CREATE TABLE effort_metrics" in generated_sql
     assert "CREATE TABLE model_versions" in generated_sql
     assert "0010_model_versions" in generated_sql
+    assert "0011_session_condition_and_test_score" in generated_sql
 
 
 def _get_live_postgres_url() -> str | None:

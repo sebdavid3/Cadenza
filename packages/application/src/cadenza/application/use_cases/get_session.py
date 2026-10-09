@@ -35,6 +35,9 @@ class SessionDetail:
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
+    condition: str = "assisted"
+    test_score_id: str | None = None
+    owner_id: str = "default-user"
 
 
 def get_session(
@@ -99,4 +102,7 @@ def get_session(
         image_artifact=session_data.image_artifact,
         model_version=session_data.model_version,
         status=session_data.status,
+        condition=session_data.condition,
+        test_score_id=session_data.test_score_id,
+        owner_id=session_data.owner_id,
     )

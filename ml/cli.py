@@ -775,7 +775,44 @@ def build_parser() -> argparse.ArgumentParser:
         help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
     )
 
+    # 7. export-effort (#33, D38)
+    p_effort = subparsers.add_parser(
+        "export-effort",
+        help="Exporta métricas del estudio de esfuerzo a formato tabular (#33).",
+    )
+    p_effort.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
+    p_effort.add_argument(
+        "--output-dir",
+        default="results",
+        help="Directorio de destino para los archivos CSV y JSON.",
+    )
+    p_effort.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Generar datos sintéticos deterministas para pruebas rápidas.",
+    )
+    p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
+
     return parser
+
+
+def export_effort_command(args: argparse.Namespace) -> int:
+    """Exporta métricas de esfuerzo a formato tabular (#33, D38)."""
+    repo_root = Path(__file__).resolve().parents[1]
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+
+    from ml.experiments.exp_10_effort_study import run_effort_study_export
+
+    summary = run_effort_study_export(
+        db_url=args.db_url,
+        output_dir=args.output_dir,
+        smoke=args.smoke,
+        seed=args.seed,
+    )
+    print(f"Exportación de esfuerzo completada en: {args.output_dir}")
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -794,6 +831,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return promote_command(args)
     if args.subcommand == "run":
         return run_command(args)
+    if args.subcommand == "export-effort":
+        return export_effort_command(args)
 
     parser.print_help()
     return 1

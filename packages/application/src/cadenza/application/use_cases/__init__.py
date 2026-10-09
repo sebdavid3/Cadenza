@@ -17,7 +17,7 @@ from .record_effort import record_effort
 from .reopen_session import ReopenResult, reopen_session
 from .restore_finding import restore_finding
 from .revalidate import RevalidateResult, revalidate
-from .transcribe_score import TranscribeResult, transcribe_score
+from .transcribe_score import TranscribeResult, normalize_condition, transcribe_score
 from .undo_edit import UndoResult, undo_edit
 from .update_user import update_user
 
@@ -42,6 +42,7 @@ __all__ = [
     "list_findings",
     "list_sessions",
     "list_users",
+    "normalize_condition",
     "record_effort",
     "reopen_session",
     "restore_finding",
