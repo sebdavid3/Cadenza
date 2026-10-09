@@ -442,3 +442,53 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
         assert active.version == "v1.5.0-real-ser"
         assert active.metrics.ser == 0.1124
         assert active.metrics.omr_ned == 0.0850
+
+
+def test_cli_train_with_trainer_options(tmp_path: Path, populated_db_url: str) -> None:
+    dataset_path = tmp_path / "dataset.json"
+    trained_fake = tmp_path / "trained_fake.json"
+    trained_auto = tmp_path / "trained_auto.json"
+    artifacts_dir = tmp_path / "artifacts"
+
+    # Construir dataset
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
+
+    # 1. train explícito con --trainer fake
+    rc_fake = main(
+        [
+            "train",
+            "--input",
+            str(dataset_path),
+            "--output",
+            str(trained_fake),
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--db-url",
+            populated_db_url,
+            "--trainer",
+            "fake",
+        ]
+    )
+    assert rc_fake == 0
+    fake_data = json.loads(trained_fake.read_text(encoding="utf-8"))
+    assert fake_data["trainer"] == "FakeTrainer"
+
+    # 2. train con --trainer auto (fallback a FakeTrainer cuando torch no está)
+    rc_auto = main(
+        [
+            "train",
+            "--input",
+            str(dataset_path),
+            "--output",
+            str(trained_auto),
+            "--artifacts-dir",
+            str(artifacts_dir),
+            "--db-url",
+            populated_db_url,
+            "--trainer",
+            "auto",
+        ]
+    )
+    assert rc_auto == 0
+    auto_data = json.loads(trained_auto.read_text(encoding="utf-8"))
+    assert auto_data["trainer"] in ("FakeTrainer", "PyTorchTrainer")

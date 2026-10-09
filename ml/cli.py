@@ -30,12 +30,12 @@ from cadenza.learning import (
     AcquisitionStrategy,
     DiversityAcquisition,
     ErrorDensityAcquisition,
-    FakeTrainer,
     HybridAcquisition,
     JobConfig,
     RandomAcquisition,
     RepositoryDatasetReader,
     TrainingSample,
+    create_trainer,
     dataset_hash,
     deserialize_dataset,
     load_job_config,
@@ -215,7 +215,8 @@ def train_command(args: argparse.Namespace) -> int:
     if ser_override is not None and omr_ned_override is not None:
         trainer_metrics = EvaluationMetrics(ser=ser_override, omr_ned=omr_ned_override)
 
-    trainer = FakeTrainer(metrics=trainer_metrics)
+    trainer_backend = getattr(args, "trainer", "auto")
+    trainer = create_trainer(backend=trainer_backend, metrics=trainer_metrics)
     trained_artifact = trainer.train(samples, config.to_training_config())
 
     # Persistir los pesos binarios en el ArtifactStore
@@ -227,14 +228,16 @@ def train_command(args: argparse.Namespace) -> int:
 
     with session_scope(factory) as db:
         store = FilesystemArtifactStore(artifacts_dir, session=db)
-        # Generar contenido determinista de pesos para el modelo entrenado
-        weight_payload = (
-            b"ONNX_WEIGHTS_VERSION_1\n"
-            + f"artifact_hash={trained_artifact.artifact_hash}\n".encode()
-            + f"dataset_hash={d_hash}\n".encode()
-            + f"config_hash={config.config_hash}\n".encode()
-            + f"seed={config.seed}\n".encode()
-        )
+        if trained_artifact.weights_binary is not None:
+            weight_payload = trained_artifact.weights_binary
+        else:
+            weight_payload = (
+                b"ONNX_WEIGHTS_VERSION_1\n"
+                + f"artifact_hash={trained_artifact.artifact_hash}\n".encode()
+                + f"dataset_hash={d_hash}\n".encode()
+                + f"config_hash={config.config_hash}\n".encode()
+                + f"seed={config.seed}\n".encode()
+            )
         stored_artifact_hash = store.put(
             weight_payload, kind="model", media_type="application/octet-stream"
         )
@@ -249,6 +252,7 @@ def train_command(args: argparse.Namespace) -> int:
         "seed": config.seed,
         "epochs": config.epochs,
         "learning_rate": config.learning_rate,
+        "trainer": trainer.__class__.__name__,
         "metrics": {
             "ser": trained_artifact.metrics.ser,
             "omr_ned": trained_artifact.metrics.omr_ned,
@@ -259,7 +263,7 @@ def train_command(args: argparse.Namespace) -> int:
 
     output_path.write_text(json.dumps(result_data, indent=2), encoding="utf-8")
 
-    print("[train] Entrenamiento finalizado exitosamente (FakeTrainer).")
+    print(f"[train] Entrenamiento finalizado exitosamente ({trainer.__class__.__name__}).")
     print(f"  artifact_hash (pesos): {stored_artifact_hash}")
     print(f"  dataset_hash         : {d_hash}")
     print(f"  config_hash          : {config.config_hash}")
@@ -528,6 +532,7 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         ser=args.ser,
         omr_ned=args.omr_ned,
+        trainer=getattr(args, "trainer", "auto"),
     )
     rc = train_command(t_args)
     if rc != 0:
@@ -657,6 +662,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="OMR-NED para el entrenador simulado (opcional).",
     )
+    p_train.add_argument(
+        "--trainer",
+        choices=["auto", "fake", "torch"],
+        default="auto",
+        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
+    )
 
     # 4. evaluate
     p_eval = subparsers.add_parser(
@@ -756,6 +767,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--allow-rejected", action="store_true", help="No fallar si la promoción es rechazada."
+    )
+    p_run.add_argument(
+        "--trainer",
+        choices=["auto", "fake", "torch"],
+        default="auto",
+        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
     )
 
     return parser

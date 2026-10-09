@@ -13,6 +13,7 @@ dependencies = [
 # Extra opcional: el núcleo de aprendizaje no depende de musicdiff.
 [project.optional-dependencies]
 metrics = ["musicdiff>=5.2", "converter21>=4.0.1"]
+torch = ["torch>=2.2.0"]
 
 [build-system]
 requires = ["hatchling"]
