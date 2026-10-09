@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -168,3 +169,132 @@ def test_exp_08_corpus_evaluation() -> None:
     assert "metrics_on_successes" in res
     assert "metrics_penalized_with_failures" in res
     assert "comparison_vs_homr" in res
+
+
+def test_corpus_smb_and_muscima_spec() -> None:
+    from ml.experiments.corpus import CORPORA
+
+    assert "smb" in CORPORA
+    assert "muscima_pp" in CORPORA
+    assert CORPORA["smb"].ground_truth_format != ""
+    assert "MuNG" in CORPORA["muscima_pp"].ground_truth_format
+
+
+def test_corpus_build_manifest_smb_and_muscima(tmp_path: Path) -> None:
+    from ml.experiments.corpus import build_manifest
+
+    # Subconjunto SMB
+    smb_dir = tmp_path / "smb"
+    smb_dir.mkdir(parents=True)
+    (smb_dir / "score_01.png").write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+    (smb_dir / "score_01.krn").write_text("**kern\n*k[]\n4c\n*-", encoding="utf-8")
+
+    manifest_smb = build_manifest(tmp_path, "smb")
+    assert manifest_smb["corpus"] == "smb"
+    assert manifest_smb["count"] == 1
+    entries_smb = manifest_smb["entries"]
+    assert isinstance(entries_smb, list)
+    assert entries_smb[0]["id"] == "score_01"
+
+    # Subconjunto MUSCIMA++
+    muscima_dir = tmp_path / "muscima_pp"
+    muscima_dir.mkdir(parents=True)
+    (muscima_dir / "CVC_01.png").write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
+    (muscima_dir / "CVC_01.xml").write_text("<mung></mung>", encoding="utf-8")
+
+    manifest_muscima = build_manifest(tmp_path, "muscima_pp")
+    assert manifest_muscima["corpus"] == "muscima_pp"
+    assert manifest_muscima["count"] == 1
+    entries_muscima = manifest_muscima["entries"]
+    assert isinstance(entries_muscima, list)
+    assert entries_muscima[0]["id"] == "CVC_01"
+
+
+def test_exp_09_multicorpus_smoke() -> None:
+    from ml.experiments import exp_09_multicorpus_evaluation
+
+    res = exp_09_multicorpus_evaluation.run_multicorpus_experiment(smoke=True, write_results=False)
+    assert res["experiment"] == "exp_09_multicorpus_evaluation"
+    assert res["mode"] == "smoke"
+    assert "smb" in res["corpora_evaluated"]
+    assert "muscima_pp" in res["corpora_evaluated"]
+
+    smb_data = res["corpora_evaluated"]["smb"]
+    assert smb_data["omr_quality"]["total_evaluated"] == 3
+    assert smb_data["omr_quality"]["failures_count"] == 1
+    assert smb_data["omr_quality"]["failure_rate"] > 0
+    assert smb_data["effort_reduction"]["effort_reduction_percent"] > 0
+    assert "validation_metrics" in smb_data
+
+    muscima_data = res["corpora_evaluated"]["muscima_pp"]
+    assert muscima_data["analysis"]["has_sequential_symbolic_ground_truth"] is False
+    assert muscima_data["analysis"]["optical_generalization_evaluation"]["failure_rate"] == 1.0
+
+
+def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:
+    # Preparar predicción y GT de SMB usando piano.musicxml
+    piano_xml = (
+        REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "piano.musicxml"
+    ).read_text(encoding="utf-8")
+
+    smb_root = tmp_path / "smb"
+    preds_dir = smb_root / "predictions"
+    gt_dir = smb_root / "gt"
+    preds_dir.mkdir(parents=True)
+    gt_dir.mkdir(parents=True)
+
+    (gt_dir / "piano_score.musicxml").write_text(piano_xml, encoding="utf-8")
+    (preds_dir / "piano_score.musicxml").write_text(piano_xml, encoding="utf-8")
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_data = {
+        "corpus": "smb",
+        "entries": [
+            {
+                "id": "piano_score",
+                "ground_truth": "smb/gt/piano_score.musicxml",
+            }
+        ],
+    }
+    manifest_file.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    res = exp_01_effort.run(manifest_path=manifest_file, predictions_dir=preds_dir)
+    assert res["experiment"] == "exp_01_effort"
+    assert res["mode"] == "real_data_smb"
+    assert res["corpus"] == "smb"
+    assert res["inspection_effort"]["total_measures"] == 4  # 2 staves * 2 measures
+
+
+def test_exp_06_validation_smb_custom_manifest(tmp_path: Path) -> None:
+    from ml.experiments import exp_06_validation_metrics
+
+    piano_xml = (
+        REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "piano.musicxml"
+    ).read_text(encoding="utf-8")
+
+    smb_root = tmp_path / "smb"
+    preds_dir = smb_root / "predictions"
+    gt_dir = smb_root / "gt"
+    preds_dir.mkdir(parents=True)
+    gt_dir.mkdir(parents=True)
+
+    (gt_dir / "piano_score.musicxml").write_text(piano_xml, encoding="utf-8")
+    (preds_dir / "piano_score.musicxml").write_text(piano_xml, encoding="utf-8")
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_data = {
+        "corpus": "smb",
+        "entries": [
+            {
+                "id": "piano_score",
+                "ground_truth": "smb/gt/piano_score.musicxml",
+            }
+        ],
+    }
+    manifest_file.write_text(json.dumps(manifest_data), encoding="utf-8")
+
+    report = exp_06_validation_metrics.run_validation_experiment(
+        manifest_path=manifest_file, predictions_dir=preds_dir
+    )
+    assert report.total_measures == 4
+    assert report.global_metrics.accuracy == 1.0
