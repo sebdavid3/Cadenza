@@ -194,6 +194,26 @@ export interface EventRefPayload {
 }
 
 /**
+ * Información temporal de un evento musical para reproducción sincronizada (#42, D12).
+ */
+export interface EventTimingRead {
+  /** Ancla lógica del evento */
+  anchor: AnchorPayload;
+  /** Tipo de evento musical (note, rest, clef, etc.) */
+  kind: string;
+  /** Número de compás */
+  measure_number: number;
+  /** Voz del evento */
+  voice: number;
+  /** Instante global de inicio en pulsos desde el comienzo (fracción exacta) */
+  offset_beats: string;
+  /** Duración del evento en pulsos (fracción exacta) */
+  duration_beats: string;
+  /** Instante de inicio relativo al comienzo del compás */
+  measure_offset_beats: string;
+}
+
+/**
  * Respuesta tras finalizar una sesión de transcripción (ADR-0014, #34).
  */
 export interface FinalizeResponse {
@@ -413,6 +433,20 @@ export interface TimeSignaturePayload {
   beats: number;
   /** Figura musical que representa un pulso */
   beat_type: number;
+}
+
+/**
+ * Mapa determinista tiempo-ancla de la partitura para el cursor de reproducción (#42, D12).
+ */
+export interface TimingMapRead {
+  /** Identificador de la sesión */
+  session_id: string;
+  /** Duración total acumulada de la partitura en pulsos (fracción exacta) */
+  total_beats: string;
+  /** Instante global de inicio de cada compás en pulsos */
+  measure_offsets?: Record<string, string>;
+  /** Lista ordenada de eventos y sus instantes en el tiempo */
+  events?: EventTimingRead[];
 }
 
 /**

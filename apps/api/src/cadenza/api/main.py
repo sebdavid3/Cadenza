@@ -67,6 +67,9 @@ from cadenza.application import (
     get_session_image as get_session_image_use_case,
 )
 from cadenza.application import (
+    get_timing as get_timing_use_case,
+)
+from cadenza.application import (
     list_findings as list_findings_use_case,
 )
 from cadenza.application import (
@@ -125,6 +128,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
     AnchorIndexPayload,
+    AnchorPayload,
     ChangePasswordRequest,
     DismissFindingRequest,
     EditEventCreate,
@@ -132,6 +136,7 @@ from .schemas import (
     EffortMetricsCreate,
     EffortMetricsRead,
     ErrorDetail,
+    EventTimingRead,
     FinalizeResponse,
     FindingRead,
     ReopenResponse,
@@ -141,6 +146,7 @@ from .schemas import (
     SessionDetailRead,
     SessionSummaryRead,
     StatusResponse,
+    TimingMapRead,
     TokenResponse,
     TranscribeResponse,
     UndoRequest,
@@ -935,6 +941,49 @@ def create_app(
             condition=detail.condition,
             test_score_id=detail.test_score_id,
             owner_id=detail.owner_id,
+        )
+
+    @app.get(
+        "/sessions/{session_id}/timing",
+        response_model=TimingMapRead,
+        tags=["Sessions"],
+        summary="Obtener mapa tiempo-ancla para reproducción sincronizada",
+        description=(
+            "Calcula y devuelve el mapa determinista de tiempos de inicio y duración "
+            "en pulsos para cada evento musical de la sesión (#42, D12)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+    )
+    def get_session_timing(
+        session_id: str,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> TimingMapRead:
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        timing_map = get_timing_use_case(
+            session_id,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            current_user=current_user,
+        )
+
+        return TimingMapRead(
+            session_id=session_id,
+            total_beats=str(timing_map.total_beats),
+            measure_offsets={str(k): str(v) for k, v in timing_map.measure_offsets.items()},
+            events=[
+                EventTimingRead(
+                    anchor=AnchorPayload.model_validate(ev.anchor.to_primitive()),
+                    kind=ev.kind.value,
+                    measure_number=ev.measure_number,
+                    voice=ev.voice,
+                    offset_beats=str(ev.offset_beats),
+                    duration_beats=str(ev.duration_beats),
+                    measure_offset_beats=str(ev.measure_offset_beats),
+                )
+                for ev in timing_map.events
+            ],
         )
 
     @app.get(

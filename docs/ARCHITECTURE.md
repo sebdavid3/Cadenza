@@ -587,6 +587,7 @@ de estado (existe / pendiente) están en la sección
 | `finalize_session` | id → sesión | Cierra la corrección: revalida, fija el `seq` final y deja la sesión disponible para el plano offline. |
 | `reopen_session` | id → sesión | Reabre una sesión finalizada permitiendo nuevas ediciones (#34, ADR-0014). |
 | `export_score` | id, formato → bytes | Serializa el `ScoreIR` materializado a MusicXML 4.0 o MIDI 1.0. |
+| `get_timing` | id → `TimingMap` | Calcula el mapa determinista de tiempo-ancla (inicio y duración en pulsos por ancla) para sincronizar el cursor de reproducción (#42, D12). |
 | `record_effort` | id, métricas → — | Persiste las métricas de esfuerzo de la sesión de corrección. |
 
 Reglas de la capa:
@@ -654,6 +655,7 @@ Reglas de la capa:
 | `POST` | `/sessions/{id}/finalize` | `finalize_session` |
 | `POST` | `/sessions/{id}/reopen` | `reopen_session` |
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
+| `GET` | `/sessions/{id}/timing` | `get_timing` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
 
 Todos los endpoints exigen un token de acceso (`Authorization: Bearer`), salvo
@@ -840,10 +842,11 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Experimentos | Estudio de esfuerzo con participantes y condición asistida/no asistida | Implementado: protocolo metodológico formalizado en `docs/experimentos/protocolo_medicion_esfuerzo.md` (diseño intrasujeto con Cuadrado Latino 2x2, contrabalanceo, métricas temporales/intervenciones, NASA-TLX y consentimiento ético disociado de PII ADR-0012); trazabilidad por sesión con columnas `condition` y `test_score_id` (migración `0011`); supresión completa de hallazgos en transcripción y revalidación para condición no asistida; módulo de exportación tabular `ml/experiments/exp_10_effort_study.py` (salidas `effort_study_sessions.csv`, `effort_study_by_measure.csv`, `effort_study_summary.json`) e integración en CLI `ml export-effort` con modo determinista `--smoke` | [#33](https://github.com/sebdavid3/Cadenza/issues/33) |
 | Infraestructura | Integración continua | GitHub Actions (`ci.yml`: backend Python 3.12 y frontend web) | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
 | API | Contrato OpenAPI congelado y tipos generados | Implementado: `docs/api/openapi.json` v1.0.0, tipos generados en `apps/web/src/types.ts` y CI en `test_openapi_contract.py` | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
+| Dominio | Mapa tiempo→ancla para reproducción sincronizada | Implementado: función pura `compute_timing_map` en `packages/domain`, caso de uso `get_timing`, endpoint `GET /sessions/{id}/timing` y tipos OpenAPI/TypeScript sincronizados | [#42](https://github.com/sebdavid3/Cadenza/issues/42) |
 
-Quedan además cuatro piezas **con alcance por decidir**, registradas fuera del
-milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)),
-retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)) y mapa tiempo→ancla para la reproducción ([#42](https://github.com/sebdavid3/Cadenza/issues/42)).
+Quedan además tres piezas **con alcance por decidir**, registradas fuera del
+milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y
+retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)).
 La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
 La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) es trabajo de frontend
 y también queda fuera del milestone.

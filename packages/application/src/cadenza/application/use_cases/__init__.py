@@ -10,6 +10,7 @@ from .finalize_session import FinalizeResult, finalize_session
 from .get_effort import get_effort
 from .get_session import SessionDetail, get_session
 from .get_session_image import SessionImageData, get_session_image
+from .get_timing import get_timing
 from .list_findings import list_findings
 from .list_sessions import list_sessions
 from .list_users import list_users
@@ -39,6 +40,7 @@ __all__ = [
     "get_effort",
     "get_session",
     "get_session_image",
+    "get_timing",
     "list_findings",
     "list_sessions",
     "list_users",
