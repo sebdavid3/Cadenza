@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import UTC, datetime, timedelta
 
 import argon2
 import argon2.exceptions
 import jwt
 from cadenza.application import NotAuthenticated, PasswordHasher, Role, TokenPayload, TokenService
+from fastapi import HTTPException, status
 
 
 class Argon2PasswordHasher(PasswordHasher):
@@ -79,3 +82,45 @@ class JwtTokenService(TokenService):
             raise NotAuthenticated("Token caducado") from err
         except (jwt.PyJWTError, ValueError) as err:
             raise NotAuthenticated("Token inválido") from err
+
+
+class LoginRateLimiter:
+    """Control en memoria de intentos fallidos de inicio de sesión (#40)."""
+
+    def __init__(self, max_attempts: int = 5, window_seconds: int = 300) -> None:
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self._failures: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def check(self, key: str) -> None:
+        """Verifica si la clave ha superado el límite de intentos permitidos."""
+        if self.max_attempts <= 0:
+            return
+        now = time.time()
+        with self._lock:
+            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+            self._failures[key] = failures
+            if len(failures) >= self.max_attempts:
+                oldest = failures[0]
+                retry_after = max(1, int(self.window_seconds - (now - oldest)))
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Demasiados intentos fallidos. Reintente en {retry_after} segundos.",
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+    def record_failure(self, key: str) -> None:
+        """Registra un intento fallido para la clave especificada."""
+        if self.max_attempts <= 0:
+            return
+        now = time.time()
+        with self._lock:
+            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+            failures.append(now)
+            self._failures[key] = failures
+
+    def reset(self, key: str) -> None:
+        """Limpia el historial de fallos tras un inicio de sesión exitoso."""
+        with self._lock:
+            self._failures.pop(key, None)

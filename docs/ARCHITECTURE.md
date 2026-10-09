@@ -657,6 +657,9 @@ Reglas de la capa:
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
 | `GET` | `/sessions/{id}/timing` | `get_timing` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
+| `GET` | `/health` | comprobación de salud y dependencias (#40, D44, ADR-0015) |
+| `GET` | `/version` | versión de contrato de API y aplicación |
+
 
 Todos los endpoints exigen un token de acceso (`Authorization: Bearer`), salvo
 `/auth/login`. El contrato se publica como OpenAPI y de él se generan los tipos
@@ -890,6 +893,8 @@ queda fuera de esta fase.
 | [ADR-0012](adr/ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario |
 | [ADR-0013](adr/ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos |
 | [ADR-0014](adr/ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) |
+| [ADR-0015](adr/ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend (salud, registro, CORS, CUDA, copias) |
+
 
 ---
 

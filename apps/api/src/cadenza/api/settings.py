@@ -54,6 +54,18 @@ class Settings(BaseSettings):
             "En producción permanece en False, dependiendo de migraciones Alembic (#6)."
         ),
     )
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Lista de orígenes permitidos para peticiones CORS (CADENZA_CORS_ORIGINS).",
+    )
+    login_rate_limit_max_attempts: int = Field(
+        default=5,
+        description="Máximo de intentos fallidos antes de bloquear temporalmente el login (#40).",
+    )
+    login_rate_limit_window_seconds: int = Field(
+        default=300,
+        description="Ventana de tiempo en segundos para el límite de intentos de login (#40).",
+    )
     omr_preprocess_enabled: bool = Field(
         default=False,
         description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",

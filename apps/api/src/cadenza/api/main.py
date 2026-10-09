@@ -9,7 +9,10 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 from __future__ import annotations
 
 import asyncio
+import logging
 import tempfile
+import time
+import uuid
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Annotated, Any
@@ -106,6 +109,7 @@ from cadenza.omr import (
     OemerEngine,
     OMREngine,
     OMRTranscriptionError,
+    get_effective_device,
 )
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -121,9 +125,11 @@ from cadenza.persistence import (
 )
 from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
 from .schemas import (
@@ -139,6 +145,7 @@ from .schemas import (
     EventTimingRead,
     FinalizeResponse,
     FindingRead,
+    HealthStatusResponse,
     ReopenResponse,
     RevalidateResponse,
     ScoreDocumentPayload,
@@ -156,10 +163,12 @@ from .schemas import (
     UserUpdate,
     VersionResponse,
 )
-from .security import Argon2PasswordHasher, JwtTokenService
+from .security import Argon2PasswordHasher, JwtTokenService, LoginRateLimiter
 from .settings import Settings
 
+logger = logging.getLogger("cadenza.api")
 API_VERSION = "1.0.0"
+
 
 AUTH_401: dict[int | str, dict[str, Any]] = {
     status.HTTP_401_UNAUTHORIZED: {
@@ -311,9 +320,52 @@ def create_app(
                 "description": "Revalidación musical y gestión de falsos positivos",
             },
             {"name": "Effort", "description": "Registro y telemetría de métricas de esfuerzo"},
-            {"name": "System", "description": "Metadatos y versión del servicio"},
+            {"name": "System", "description": "Metadatos, salud y versión del servicio"},
         ],
     )
+
+    if app_settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=app_settings.cors_origins,
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID", "X-API-Version"],
+        )
+
+    @app.middleware("http")
+    async def request_id_and_access_log_middleware(request: Request, call_next: Any) -> Response:
+        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        request.state.request_id = req_id
+        start_time = time.perf_counter()
+
+        response: Response = await call_next(request)
+
+        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        response.headers["X-Request-ID"] = req_id
+
+        session_id = request.headers.get("X-Session-ID")
+        if not session_id and "/sessions/" in request.url.path:
+            parts = request.url.path.split("/")
+            try:
+                idx = parts.index("sessions")
+                if idx + 1 < len(parts) and parts[idx + 1]:
+                    session_id = parts[idx + 1]
+            except ValueError:
+                pass
+
+        logger.info(
+            "request_completed method=%s path=%s status=%d duration_ms=%.2f "
+            "request_id=%s session_id=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            req_id,
+            session_id or "-",
+        )
+        return response
 
     @app.middleware("http")
     async def add_api_version_header(request: Request, call_next: Any) -> Response:
@@ -331,8 +383,75 @@ def create_app(
     def get_version_endpoint() -> VersionResponse:
         return VersionResponse(api_version=API_VERSION, app_version=API_VERSION)
 
+    @app.get(
+        "/health",
+        response_model=HealthStatusResponse,
+        tags=["System"],
+        summary="Estado de salud y operatividad del servicio",
+        description=(
+            "Verifica la conectividad con la base de datos, el acceso al ArtifactStore, "
+            "el motor OMR activo y el dispositivo de cómputo efectivo (#40, D44)."
+        ),
+        responses={
+            status.HTTP_200_OK: {"description": "Servicio saludable"},
+            status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Servicio no operativo"},
+        },
+    )
+    def get_health_endpoint(request: Request, db: DbDep) -> JSONResponse:
+        db_status = "connected"
+        try:
+            db.execute(text("SELECT 1"))
+        except Exception as err:
+            logger.error("Health check db error: %s", err)
+            db_status = "error"
+
+        store_status = "accessible"
+        store = request.app.state.artifact_store
+        try:
+            if store is not None and hasattr(store, "_root_dir"):
+                Path(store._root_dir).mkdir(parents=True, exist_ok=True)
+        except Exception as err:
+            logger.error("Health check artifact store error: %s", err)
+            store_status = "error"
+
+        engine = request.app.state.omr_engine
+        if isinstance(engine, FakeOMREngine):
+            engine_name = "fake"
+        elif isinstance(engine, HOMREngine):
+            engine_name = "homr"
+        elif isinstance(engine, OemerEngine):
+            engine_name = "oemer"
+        else:
+            engine_name = getattr(
+                engine,
+                "name",
+                getattr(request.app.state.settings, "omr_engine", "unknown"),
+            )
+        try:
+            device = getattr(engine, "device", None) or get_effective_device()
+        except Exception:
+            device = "cpu"
+
+        is_healthy = db_status == "connected" and store_status == "accessible"
+        status_str = "healthy" if is_healthy else "unhealthy"
+        http_code = status.HTTP_200_OK if is_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+
+        payload = {
+            "status": status_str,
+            "version": API_VERSION,
+            "database": db_status,
+            "artifact_store": store_status,
+            "omr_engine": engine_name,
+            "device": str(device),
+        }
+        return JSONResponse(status_code=http_code, content=payload)
+
     app.state.session_factory = session_factory
     app.state.settings = app_settings
+    app.state.login_rate_limiter = LoginRateLimiter(
+        max_attempts=app_settings.login_rate_limit_max_attempts,
+        window_seconds=app_settings.login_rate_limit_window_seconds,
+    )
 
     if omr_engine is not None:
         resolved_engine = omr_engine
@@ -472,26 +591,43 @@ def create_app(
         summary="Inicio de sesión",
         description=(
             "Autentica credenciales mediante formulario OAuth2 "
-            "y emite un token de acceso Bearer JWT."
+            "y emite un token de acceso Bearer JWT (#40)."
         ),
-        responses={**UNPROCESSABLE_422},
+        responses={
+            status.HTTP_429_TOO_MANY_REQUESTS: {
+                "model": ErrorDetail,
+                "description": "Límite de intentos de autenticación superado",
+            },
+            **UNPROCESSABLE_422,
+        },
     )
     def login(
         form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
         request: Request,
         db: DbDep,
     ) -> TokenResponse:
-        """Autentica las credenciales del usuario y emite un token de acceso JWT."""
+        """Autentica credenciales y emite un token JWT con rate limiting (#40)."""
+        client_host = request.client.host if request.client else "unknown"
+        rate_key = f"{client_host}:{form_data.username}"
+        rate_limiter: LoginRateLimiter = request.app.state.login_rate_limiter
+        rate_limiter.check(rate_key)
+
         user_repo = SqlAlchemyUserRepository(db)
         hasher: PasswordHasher = request.app.state.password_hasher
         token_serv: TokenService = request.app.state.token_service
 
-        user = authenticate_use_case(
-            form_data.username,
-            form_data.password,
-            user_repository=user_repo,
-            password_hasher=hasher,
-        )
+        try:
+            user = authenticate_use_case(
+                form_data.username,
+                form_data.password,
+                user_repository=user_repo,
+                password_hasher=hasher,
+            )
+        except NotAuthenticated:
+            rate_limiter.record_failure(rate_key)
+            raise
+
+        rate_limiter.reset(rate_key)
         token = token_serv.create_access_token(user_id=user.id, role=user.role)
         return TokenResponse(access_token=token, token_type="bearer")
 

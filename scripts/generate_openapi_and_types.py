@@ -26,7 +26,7 @@ def schema_to_ts_type(
 ) -> str:
     """Convierte una definición de JSON Schema a una expresión de tipo TypeScript."""
     if "$ref" in schema:
-        ref_name = schema["$ref"].split("/")[-1]
+        ref_name = str(schema["$ref"]).split("/")[-1]
         return ref_name
 
     if "anyOf" in schema:
