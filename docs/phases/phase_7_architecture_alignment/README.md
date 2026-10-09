@@ -57,7 +57,7 @@ e issue de seguimiento [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 | | [#4](https://github.com/sebdavid3/Cadenza/issues/4) | `ArtifactStore` direccionado por `sha256` | — |
 | | [#5](https://github.com/sebdavid3/Cadenza/issues/5) | Migración de esquema de `sessions` y `findings` | — |
 | | [#6](https://github.com/sebdavid3/Cadenza/issues/6) | Persistencia verificada en PostgreSQL | D10 |
-| **C** Aplicación y API | [#7](https://github.com/sebdavid3/Cadenza/issues/7) | Capa de aplicación (`packages/application`) | — |
+| **C** Aplicación y API | [#7](https://github.com/sebdavid3/Cadenza/issues/7) | Capa de aplicación (`packages/application`) | D22 |
 | | [#8](https://github.com/sebdavid3/Cadenza/issues/8) | Configuración tipada y motor OMR configurable | D3, D5 |
 | | [#9](https://github.com/sebdavid3/Cadenza/issues/9) | Imagen persistida y endpoint de imagen | — |
 | | [#10](https://github.com/sebdavid3/Cadenza/issues/10) | Validación de ediciones antes de añadirlas al log | — |
@@ -110,20 +110,20 @@ romper el visor.
 
 ## Criterios de aceptación (Definition of Done)
 
-- [ ] Todos los issues del milestone cerrados, o reclasificados con justificación
-      ([#14](https://github.com/sebdavid3/Cadenza/issues/14) e [#23](https://github.com/sebdavid3/Cadenza/issues/23) y [#31](https://github.com/sebdavid3/Cadenza/issues/31) pueden cerrarse con un resultado negativo documentado).
-- [ ] Flujo de punta a punta sobre el motor real: imagen → HOMR → validación →
+- [x] Todos los issues del milestone cerrados, o reclasificados con justificación
+      ([#14](https://github.com/sebdavid3/Cadenza/issues/14) y [#31](https://github.com/sebdavid3/Cadenza/issues/31) cerrados con resultado negativo documentado en INV-0001; [#23](https://github.com/sebdavid3/Cadenza/issues/23) implementado con PyTorch condicional y ONNX; todos los 42 issues cerrados).
+- [x] Flujo de punta a punta sobre el motor real: imagen → HOMR/Oemer → validación →
       corrección → exportación MusicXML/MIDI.
-- [ ] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,
+- [x] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,
       armadura, métrica, alturas, duraciones ni ligaduras.
-- [ ] Ninguna edición inválida puede entrar al log de ediciones.
-- [ ] Todos los endpoints exigen autenticación y cada usuario solo accede a sus
+- [x] Ninguna edición inválida puede entrar al log de ediciones.
+- [x] Todos los endpoints exigen autenticación y cada usuario solo accede a sus
       sesiones.
-- [ ] Migraciones aplicadas y pruebas verdes sobre PostgreSQL.
-- [ ] `packages/application` y `packages/domain` superan sus tests de
+- [x] Migraciones aplicadas y pruebas verdes sobre PostgreSQL (migraciones 0001–0011).
+- [x] `packages/application` y `packages/domain` superan sus tests de
       arquitectura.
-- [ ] Experimentos de esfuerzo y de aprendizaje activo reproducidos sobre datos
-      reales.
-- [ ] CI verde: `pytest`, `mypy --strict`, `ruff`, `black`, `vitest`.
-- [ ] Contrato OpenAPI v1 publicado y tipos del frontend generados a partir de él.
-- [ ] `PROJECT_STATE.md` actualizado (fase, deuda, bitácora).
+- [x] Experimentos de esfuerzo y de aprendizaje activo reproducidos sobre datos
+      reales (exp_01 a exp_10).
+- [x] CI verde: `pytest`, `mypy --strict`, `ruff`, `black`, `vitest`.
+- [x] Contrato OpenAPI v1 publicado y tipos del frontend generados a partir de él.
+- [x] `PROJECT_STATE.md` actualizado (fase, deuda, bitácora).
