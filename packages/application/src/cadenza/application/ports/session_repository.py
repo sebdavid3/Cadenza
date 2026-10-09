@@ -27,6 +27,8 @@ class SessionData:
     status: str = "transcribed"
     owner_id: str = "default-user"
     validated_at_seq: int = 0
+    condition: str = "assisted"
+    test_score_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,8 @@ class SessionSummary:
     owner_id: str
     findings_count: int
     edits_count: int
+    condition: str = "assisted"
+    test_score_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -151,6 +155,8 @@ class SessionRepository(ABC):
         *,
         owner_id: str | None = None,
         status: str | None = None,
+        condition: str | None = None,
+        test_score_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[SessionSummary, ...]:
@@ -335,6 +341,8 @@ class InMemorySessionRepository(SessionRepository):
         *,
         owner_id: str | None = None,
         status: str | None = None,
+        condition: str | None = None,
+        test_score_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[SessionSummary, ...]:
@@ -343,6 +351,10 @@ class InMemorySessionRepository(SessionRepository):
             filtered = [s for s in filtered if s.owner_id == owner_id]
         if status is not None:
             filtered = [s for s in filtered if s.status == status]
+        if condition is not None:
+            filtered = [s for s in filtered if s.condition == condition]
+        if test_score_id is not None:
+            filtered = [s for s in filtered if s.test_score_id == test_score_id]
 
         sorted_sessions = sorted(
             filtered,
@@ -376,6 +388,8 @@ class InMemorySessionRepository(SessionRepository):
                     owner_id=s.owner_id,
                     findings_count=findings_count,
                     edits_count=edits_count,
+                    condition=s.condition,
+                    test_score_id=s.test_score_id,
                 )
             )
         return tuple(summaries)

@@ -34,6 +34,7 @@ from cadenza.application import (
     UserNotFound,
     WeakPassword,
     is_image_content,
+    normalize_condition,
 )
 from cadenza.application import (
     append_edit as append_edit_use_case,
@@ -116,7 +117,7 @@ from cadenza.persistence import (
     create_session_factory,
 )
 from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
-from fastapi import Depends, FastAPI, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -661,8 +662,34 @@ def create_app(
         db: DbDep,
         current_user: CurrentUserDep,
         file: Annotated[UploadFile, File()],
+        condition: Annotated[
+            str | None,
+            Query(description="Condición experimental: 'assisted' o 'unassisted'"),
+        ] = None,
+        test_score_id: Annotated[
+            str | None,
+            Query(description="Identificador de la partitura de prueba"),
+        ] = None,
+        condition_form: Annotated[
+            str | None,
+            Form(alias="condition"),
+        ] = None,
+        test_score_id_form: Annotated[
+            str | None,
+            Form(alias="test_score_id"),
+        ] = None,
     ) -> TranscribeResponse:
         app_settings: Settings = request.app.state.settings
+
+        raw_condition = condition_form or condition or "assisted"
+        effective_score_id = test_score_id_form or test_score_id
+        try:
+            effective_condition = normalize_condition(raw_condition)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
 
         # 1. Validar Content-Type declarado
         declared_type = (file.content_type or "").lower()
@@ -721,6 +748,8 @@ def create_app(
                 session_repository=session_repo,
                 current_user=current_user,
                 artifact_store=artifact_store,
+                condition=effective_condition,
+                test_score_id=effective_score_id,
             )
 
         return TranscribeResponse(
@@ -728,6 +757,8 @@ def create_app(
             document_id=result.document_id,
             omr_engine=result.omr_engine,
             findings_count=result.findings_count,
+            condition=result.condition,
+            test_score_id=result.test_score_id,
         )
 
     @app.get(
@@ -745,6 +776,13 @@ def create_app(
         db: DbDep,
         current_user: CurrentUserDep,
         status: str | None = None,
+        condition: str | None = Query(
+            default=None,
+            description="Filtrar por condición experimental ('assisted' o 'unassisted')",
+        ),
+        test_score_id: str | None = Query(
+            default=None, description="Filtrar por partitura de prueba"
+        ),
         limit: int = Query(default=50, ge=1, le=100),
         offset: int = Query(default=0, ge=0),
     ) -> list[SessionSummaryRead]:
@@ -758,6 +796,8 @@ def create_app(
             session_repository=session_repo,
             current_user=current_user,
             status=status,
+            condition=condition,
+            test_score_id=test_score_id,
             limit=limit,
             offset=offset,
         )
@@ -771,6 +811,9 @@ def create_app(
                 created_at=s.created_at,
                 findings_count=s.findings_count,
                 edits_count=s.edits_count,
+                condition=s.condition,
+                test_score_id=s.test_score_id,
+                owner_id=s.owner_id,
             )
             for s in summaries
         ]
@@ -889,6 +932,9 @@ def create_app(
             image_artifact=detail.image_artifact,
             model_version=detail.model_version,
             status=detail.status,
+            condition=detail.condition,
+            test_score_id=detail.test_score_id,
+            owner_id=detail.owner_id,
         )
 
     @app.get(

@@ -365,6 +365,9 @@ export interface SessionDetailRead {
   image_artifact?: string | null;
   model_version?: string | null;
   status?: string;
+  condition?: string;
+  test_score_id?: string | null;
+  owner_id?: string | null;
 }
 
 /**
@@ -379,6 +382,9 @@ export interface SessionSummaryRead {
   created_at: string;
   findings_count?: number;
   edits_count?: number;
+  condition?: string;
+  test_score_id?: string | null;
+  owner_id?: string | null;
 }
 
 /**
@@ -422,6 +428,8 @@ export interface TranscribeResponse {
   document_id: string;
   omr_engine: string;
   findings_count: number;
+  condition?: string;
+  test_score_id?: string | null;
 }
 
 /**

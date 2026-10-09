@@ -85,6 +85,10 @@ class Session(Base):
         nullable=True,
     )
     document: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    condition: Mapped[str] = mapped_column(
+        String(32), server_default="assisted", default="assisted", nullable=False
+    )
+    test_score_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

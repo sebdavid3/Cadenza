@@ -386,15 +386,58 @@
         "summary": "Transcribir imagen con OMR y validación inicial",
         "description": "Sube una imagen de partitura, ejecuta inferencia OMR asíncrona, valida reglas y crea la sesión inicial.",
         "operationId": "transcribe_transcribe_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "condition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Condición experimental: 'assisted' o 'unassisted'",
+              "title": "Condition"
+            },
+            "description": "Condición experimental: 'assisted' o 'unassisted'"
+          },
+          {
+            "name": "test_score_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Identificador de la partitura de prueba",
+              "title": "Test Score Id"
+            },
+            "description": "Identificador de la partitura de prueba"
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/Body_transcribe_transcribe_post"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -447,12 +490,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ]
+        }
       }
     },
     "/sessions": {
@@ -484,6 +522,42 @@
               ],
               "title": "Status"
             }
+          },
+          {
+            "name": "condition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtrar por condición experimental ('assisted' o 'unassisted')",
+              "title": "Condition"
+            },
+            "description": "Filtrar por condición experimental ('assisted' o 'unassisted')"
+          },
+          {
+            "name": "test_score_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filtrar por partitura de prueba",
+              "title": "Test Score Id"
+            },
+            "description": "Filtrar por partitura de prueba"
           },
           {
             "name": "limit",
@@ -1903,6 +1977,28 @@
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "File"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Score Id"
           }
         },
         "type": "object",
@@ -2893,6 +2989,33 @@
             "type": "string",
             "title": "Status",
             "default": "transcribed"
+          },
+          "condition": {
+            "type": "string",
+            "title": "Condition",
+            "default": "assisted"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Score Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
           }
         },
         "type": "object",
@@ -2950,6 +3073,33 @@
             "type": "integer",
             "title": "Edits Count",
             "default": 0
+          },
+          "condition": {
+            "type": "string",
+            "title": "Condition",
+            "default": "assisted"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Score Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
           }
         },
         "type": "object",
@@ -3071,6 +3221,22 @@
           "findings_count": {
             "type": "integer",
             "title": "Findings Count"
+          },
+          "condition": {
+            "type": "string",
+            "title": "Condition",
+            "default": "assisted"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Score Id"
           }
         },
         "type": "object",

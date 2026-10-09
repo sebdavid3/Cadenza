@@ -216,6 +216,8 @@ class TranscribeResponse(BaseModel):
     document_id: str
     omr_engine: str
     findings_count: int
+    condition: str = "assisted"
+    test_score_id: str | None = None
 
 
 class FindingRead(BaseModel):
@@ -334,6 +336,9 @@ class SessionDetailRead(BaseModel):
     image_artifact: str | None = None
     model_version: str | None = None
     status: str = "transcribed"
+    condition: str = "assisted"
+    test_score_id: str | None = None
+    owner_id: str | None = None
 
 
 class SessionSummaryRead(BaseModel):
@@ -347,6 +352,9 @@ class SessionSummaryRead(BaseModel):
     created_at: datetime
     findings_count: int = 0
     edits_count: int = 0
+    condition: str = "assisted"
+    test_score_id: str | None = None
+    owner_id: str | None = None
 
 
 class RevalidateResponse(BaseModel):

@@ -21,6 +21,7 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 | [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
 | [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques alineada con `ARCHITECTURE.md` v1.2, que es el diseño técnico vigente. |
 | [`literatura/`](literatura/) | Colección de 43 fichas bibliográficas organizadas por área temática y componentes del sistema. |
+| [`experimentos/protocolo_medicion_esfuerzo.md`](experimentos/protocolo_medicion_esfuerzo.md) | Protocolo metodológico de medición de esfuerzo con participantes (estudio HITL con Cuadrado Latino, condiciones asistida/no asistida, NASA-TLX y consentimiento informado). |
 
 ---
 

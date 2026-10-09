@@ -11,6 +11,8 @@ def list_sessions(
     session_repository: SessionRepository,
     current_user: User,
     status: str | None = None,
+    condition: str | None = None,
+    test_score_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[SessionSummary, ...]:
@@ -33,6 +35,8 @@ def list_sessions(
     return session_repository.list_summaries(
         owner_id=owner_id,
         status=status,
+        condition=condition,
+        test_score_id=test_score_id,
         limit=limit,
         offset=offset,
     )

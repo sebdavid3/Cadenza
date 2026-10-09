@@ -54,6 +54,8 @@ class SqlAlchemySessionRepository(SessionRepository):
             validated_at_seq=session.validated_at_seq,
             image_artifact=session.image_artifact,
             document=session.document,
+            condition=session.condition,
+            test_score_id=session.test_score_id,
             created_at=session.created_at or datetime.now(UTC),
         )
         record.findings = [
@@ -87,6 +89,8 @@ class SqlAlchemySessionRepository(SessionRepository):
             model_version=record.model_version,
             status=record.status,
             validated_at_seq=record.validated_at_seq,
+            condition=record.condition,
+            test_score_id=record.test_score_id,
         )
 
     def update_status(self, session_id: str, status: str) -> SessionData:
@@ -106,6 +110,8 @@ class SqlAlchemySessionRepository(SessionRepository):
             model_version=record.model_version,
             status=record.status,
             validated_at_seq=record.validated_at_seq,
+            condition=record.condition,
+            test_score_id=record.test_score_id,
         )
 
     def list(
@@ -132,6 +138,8 @@ class SqlAlchemySessionRepository(SessionRepository):
                 model_version=record.model_version,
                 status=record.status,
                 validated_at_seq=record.validated_at_seq,
+                condition=record.condition,
+                test_score_id=record.test_score_id,
             )
             for record in records
         )
@@ -283,6 +291,8 @@ class SqlAlchemySessionRepository(SessionRepository):
         *,
         owner_id: str | None = None,
         status: str | None = None,
+        condition: str | None = None,
+        test_score_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[SessionSummary, ...]:
@@ -311,6 +321,8 @@ class SqlAlchemySessionRepository(SessionRepository):
             SessionRecord.status,
             SessionRecord.created_at,
             SessionRecord.owner_id,
+            SessionRecord.condition,
+            SessionRecord.test_score_id,
             findings_count_sq.label("findings_count"),
             edits_count_sq.label("edits_count"),
         )
@@ -318,6 +330,10 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(SessionRecord.owner_id == owner_id)
         if status is not None:
             stmt = stmt.where(SessionRecord.status == status)
+        if condition is not None:
+            stmt = stmt.where(SessionRecord.condition == condition)
+        if test_score_id is not None:
+            stmt = stmt.where(SessionRecord.test_score_id == test_score_id)
 
         stmt = (
             stmt.order_by(SessionRecord.created_at.desc(), SessionRecord.id.desc())
@@ -337,6 +353,8 @@ class SqlAlchemySessionRepository(SessionRepository):
                 owner_id=row.owner_id,
                 findings_count=int(row.findings_count or 0),
                 edits_count=int(row.edits_count or 0),
+                condition=row.condition,
+                test_score_id=row.test_score_id,
             )
             for row in rows
         )
