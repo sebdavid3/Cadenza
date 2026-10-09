@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app, create_default_app
-from cadenza.omr import FakeOMREngine, HOMREngine
+from cadenza.omr import FakeOMREngine, HOMREngine, OemerEngine
 from cadenza.persistence import create_memory_engine, create_session_factory
 
 
@@ -68,3 +68,15 @@ def test_create_default_app_with_homr_engine() -> None:
     assert isinstance(app.state.omr_engine, HOMREngine)
     assert app.state.settings.omr_engine == "homr"
     assert app.state.settings.omr_use_gpu is False
+
+
+def test_create_default_app_with_oemer_engine() -> None:
+    settings = Settings(
+        database_url="sqlite+pysqlite:///:memory:",
+        omr_engine="oemer",
+        omr_use_gpu=False,
+        auth_secret_key="test-key-oemer",
+    )
+    app = create_default_app(settings)
+    assert isinstance(app.state.omr_engine, OemerEngine)
+    assert app.state.settings.omr_engine == "oemer"

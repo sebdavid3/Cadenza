@@ -143,3 +143,28 @@ def test_exp_07_preprocessing_impact_on_primus() -> None:
     assert res["total_samples"] == 10
     assert res["transformations_summary"]["mean_otsu_threshold"] > 100
     assert res["transformations_summary"]["mean_rescale_factor"] > 1.0
+
+
+def test_exp_08_smoke() -> None:
+    from ml.experiments import exp_08_oemer_baseline
+
+    res = exp_08_oemer_baseline.run_experiment(smoke=True)
+    assert res["experiment"] == "exp_08_oemer_baseline"
+    assert res["mode"] == "smoke"
+    assert res["total_evaluated"] == 1
+    assert "metrics_on_successes" in res
+    assert "comparison_vs_homr" in res
+    assert "delta_omr_ned" in res["comparison_vs_homr"]
+    assert "delta_ser" in res["comparison_vs_homr"]
+
+
+@pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
+def test_exp_08_corpus_evaluation() -> None:
+    from ml.experiments import exp_08_oemer_baseline
+
+    res = exp_08_oemer_baseline.run_experiment(manifest=DATA_MANIFEST, limit=5, write_results=False)
+    assert res["experiment"] == "exp_08_oemer_baseline"
+    assert res["total_evaluated"] == 5
+    assert "metrics_on_successes" in res
+    assert "metrics_penalized_with_failures" in res
+    assert "comparison_vs_homr" in res

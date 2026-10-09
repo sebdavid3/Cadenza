@@ -81,6 +81,8 @@ exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 module = [
     "homr",
     "homr.*",
+    "oemer",
+    "oemer.*",
     "onnxruntime.*",
     "cv2.*",
     "numpy.*",
@@ -93,6 +95,7 @@ module = [
 ]
 ignore_missing_imports = true
 follow_imports = "skip"
+
 
 [tool.pytest.ini_options]
 testpaths = ["apps", "packages"]

@@ -21,9 +21,9 @@ class Settings(BaseSettings):
         default="sqlite+pysqlite:///./cadenza.db",
         description="URL de conexión SQLAlchemy para la base de datos.",
     )
-    omr_engine: Literal["fake", "homr"] = Field(
+    omr_engine: Literal["fake", "homr", "oemer"] = Field(
         default="fake",
-        description="Motor OMR seleccionado para inferencia ('fake' o 'homr').",
+        description="Motor OMR seleccionado para inferencia ('fake', 'homr' o 'oemer').",
     )
     omr_use_gpu: bool = Field(
         default=False,

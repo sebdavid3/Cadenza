@@ -96,7 +96,13 @@ from cadenza.application import (
     update_user as update_user_use_case,
 )
 from cadenza.interchange import Music21ScoreExporter
-from cadenza.omr import FakeOMREngine, HOMREngine, OMREngine, OMRTranscriptionError
+from cadenza.omr import (
+    FakeOMREngine,
+    HOMREngine,
+    OemerEngine,
+    OMREngine,
+    OMRTranscriptionError,
+)
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SessionFactory,
@@ -320,7 +326,22 @@ def create_app(
 
     app.state.session_factory = session_factory
     app.state.settings = app_settings
-    app.state.omr_engine = omr_engine if omr_engine is not None else FakeOMREngine()
+
+    if omr_engine is not None:
+        resolved_engine = omr_engine
+    elif app_settings.omr_engine == "homr":
+        resolved_engine = HOMREngine(
+            use_gpu=app_settings.omr_use_gpu,
+            preprocessing=app_settings.build_preprocessing_config(),
+        )
+    elif app_settings.omr_engine == "oemer":
+        resolved_engine = OemerEngine(
+            use_gpu=app_settings.omr_use_gpu,
+            preprocessing=app_settings.build_preprocessing_config(),
+        )
+    else:
+        resolved_engine = FakeOMREngine(preprocessing=app_settings.build_preprocessing_config())
+    app.state.omr_engine = resolved_engine
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else get_default_rules()
     )
@@ -1258,6 +1279,11 @@ def create_default_app(
     omr_engine: OMREngine
     if app_settings.omr_engine == "homr":
         omr_engine = HOMREngine(
+            use_gpu=app_settings.omr_use_gpu,
+            preprocessing=preproc_config,
+        )
+    elif app_settings.omr_engine == "oemer":
+        omr_engine = OemerEngine(
             use_gpu=app_settings.omr_use_gpu,
             preprocessing=preproc_config,
         )
