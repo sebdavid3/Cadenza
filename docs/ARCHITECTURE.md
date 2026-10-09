@@ -850,12 +850,15 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Dominio | Mapa tiempo→ancla para reproducción sincronizada | Implementado: función pura `compute_timing_map` en `packages/domain`, caso de uso `get_timing`, endpoint `GET /sessions/{id}/timing` y tipos OpenAPI/TypeScript sincronizados | [#42](https://github.com/sebdavid3/Cadenza/issues/42) |
 | Infraestructura | Operación y despliegue del backend | Implementado: sondas de salud `GET /health`, registro estructurado con `X-Request-ID`, CORS configurable, protección contra fuerza bruta con límite de intentos, contenedor CUDA offline y scripts de backup y restauración con verificación SHA-256 (ADR-0015, deuda D44) | [#40](https://github.com/sebdavid3/Cadenza/issues/40) |
 | API | Decisión de transcripción síncrona respaldada por benchmark | Resuelto: benchmark empírico de latencia en `ml/experiments/exp_11_latency_benchmark.py` (CPU vs GPU, incipit vs página completa SMB; peor caso CPU ~7.35s con >75% de margen sobre timeout de 30s); decisión formalizada en ADR-0016 confirmando que el procesamiento síncrono con `asyncio.to_thread` es suficiente y óptimo para el alcance de página única sin añadir la complejidad accidental de colas asíncronas distribuidas (deuda D42) | [#37](https://github.com/sebdavid3/Cadenza/issues/37) |
+| Repositorio | Plan de migración y paridad para el retiro de legacy | Resuelto: matriz de paridad exhaustiva en `docs/migracion_legacy.md` contrastando `legacy/` frente a la arquitectura hexagonal (superada al 100% en backend, Docker y ML); definición formal del criterio de paridad para el retiro físico (Fase 8 en `apps/web`); preservación inmutable del MVP en etiqueta git `archive/legacy-mvp` y congelamiento/deprecación de `legacy/` (deuda D45) | [#41](https://github.com/sebdavid3/Cadenza/issues/41) |
 
-Queda además una pieza **con alcance por decidir**, registrada fuera del
-milestone: retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)).
-La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance. La transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)) se resolvió empíricamente a favor del modelo síncrono (ADR-0016). La operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y el mapa de tiempo ([#42](https://github.com/sebdavid3/Cadenza/issues/42)) fueron implementados al 100%.
-La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) es trabajo de frontend
-y también queda fuera del milestone.
+Todas las piezas con alcance por decidir fuera del milestone han quedado formalmente
+resueltas: retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)),
+transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)),
+operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y
+mapa de tiempo ([#42](https://github.com/sebdavid3/Cadenza/issues/42)).
+La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
+La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) fue completada al 100%.
 
 El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 
