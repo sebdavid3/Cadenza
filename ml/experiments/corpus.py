@@ -58,8 +58,22 @@ CORPORA: dict[str, CorpusSpec] = {
         name="smb",
         description="Sheet Music Benchmark (SMB) — 685 páginas, splits oficiales",
         landing_url="https://doi.org/10.5281/zenodo.17706531",
-        ground_truth_format="**kern (Humdrum)",
+        ground_truth_format="**kern (Humdrum) / MusicXML",
         license_note="Zenodo — confirmar licencia del registro",
+    ),
+    "muscima_pp": CorpusSpec(
+        name="muscima_pp",
+        description="MUSCIMA++ v2.0 — manuscritos modernos con grafos MuNG / CGF (140 páginas)",
+        landing_url="https://github.com/OMR-Research/muscima-pp",
+        ground_truth_format="MuNG XML / CGF (anotaciones de glifos y relaciones)",
+        license_note="CC BY-NC-SA 4.0 (anotación sobre CVC-MUSCIMA)",
+    ),
+    "muscima-pp": CorpusSpec(
+        name="muscima-pp",
+        description="MUSCIMA++ v2.0 — manuscritos modernos con grafos MuNG / CGF (140 páginas)",
+        landing_url="https://github.com/OMR-Research/muscima-pp",
+        ground_truth_format="MuNG XML / CGF (anotaciones de glifos y relaciones)",
+        license_note="CC BY-NC-SA 4.0 (anotación sobre CVC-MUSCIMA)",
     ),
 }
 

@@ -223,7 +223,7 @@ def _run_real_primus(
 
     result_payload: dict[str, Any] = {
         "experiment": "exp_01_effort",
-        "mode": "real_data_primus",
+        "mode": f"real_data_{corpus_name}",
         "corpus": corpus_name,
         "seed": seed,
         "transcribed_scores": len(score_summaries),

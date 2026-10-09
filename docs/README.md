@@ -45,8 +45,8 @@ El protocolo experimental de Cadenza se estructura sobre la **terna oficial de d
 | Dataset | Tipo de Partitura | Volumen / Contenido | Rol en la Evaluación |
 |---|---|---|---|
 | **PrIMuS / Camera-PrIMuS** | Impresas monofónicas | 87.678 incipits reales con y sin distorsiones fotográficas | Evaluación cuantitativa de transcripción base y robustez visual |
-| **Sheet Music Benchmark (SMB)** | Impresas (monofonía y pianoform) | 685 páginas completas con divisiones estándar y métrica OMR-NED | Evaluación de página completa y análisis de errores estructurados |
-| **MUSCIMA++** | Manuscritas modernas | 140 páginas con más de 91.000 símbolos anotados a nivel de glifo | Evaluación de adaptabilidad a trazos manuscritos modernos |
+| **Sheet Music Benchmark (SMB)** | Impresas (monofonía y pianoform) | 685 páginas completas con divisiones estándar y métrica OMR-NED | Evaluación de página completa / piano (2 pentagramas) y análisis de errores estructurados |
+| **MUSCIMA++** | Manuscritas modernas | 140 páginas con más de 91.000 símbolos anotados a nivel de glifo (grafos MuNG) | Diagnóstico de adaptabilidad caligráfica (alcance simbólico end-to-end acotado por ausencia de GT secuencial) |
 
 ---
 
