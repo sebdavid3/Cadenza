@@ -31,6 +31,7 @@ from .score import (
 )
 from .tie import Tie
 from .time_signature import TimeSignature
+from .timing import EventTiming, TimingMap, compute_timing_map
 
 __all__ = [
     "Anchor",
@@ -42,6 +43,7 @@ __all__ = [
     "Event",
     "EventKind",
     "EventRef",
+    "EventTiming",
     "Finding",
     "KeySignature",
     "Measure",
@@ -53,9 +55,11 @@ __all__ = [
     "Staff",
     "Tie",
     "TimeSignature",
+    "TimingMap",
     "UnsupportedEditOpError",
     "apply_edit",
     "build_anchor_index",
+    "compute_timing_map",
     "create_inverse_edit",
     "get_last_active_edit",
     "materialize",

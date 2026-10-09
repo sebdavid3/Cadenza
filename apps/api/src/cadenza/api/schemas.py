@@ -491,3 +491,38 @@ class EffortMetricsRead(BaseModel):
             interventions=data.interventions,
             created_at=data.created_at,
         )
+
+
+class EventTimingRead(BaseModel):
+    """Información temporal de un evento musical para reproducción sincronizada (#42, D12)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    anchor: AnchorPayload = Field(..., description="Ancla lógica del evento")
+    kind: str = Field(..., description="Tipo de evento musical (note, rest, clef, etc.)")
+    measure_number: int = Field(..., ge=1, description="Número de compás")
+    voice: int = Field(..., ge=0, description="Voz del evento")
+    offset_beats: str = Field(
+        ..., description="Instante global de inicio en pulsos desde el comienzo (fracción exacta)"
+    )
+    duration_beats: str = Field(..., description="Duración del evento en pulsos (fracción exacta)")
+    measure_offset_beats: str = Field(
+        ..., description="Instante de inicio relativo al comienzo del compás"
+    )
+
+
+class TimingMapRead(BaseModel):
+    """Mapa determinista tiempo-ancla de la partitura para el cursor de reproducción (#42, D12)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(..., description="Identificador de la sesión")
+    total_beats: str = Field(
+        ..., description="Duración total acumulada de la partitura en pulsos (fracción exacta)"
+    )
+    measure_offsets: dict[str, str] = Field(
+        default_factory=dict, description="Instante global de inicio de cada compás en pulsos"
+    )
+    events: list[EventTimingRead] = Field(
+        default_factory=list, description="Lista ordenada de eventos y sus instantes en el tiempo"
+    )
