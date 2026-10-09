@@ -32,11 +32,38 @@ services:
       CADENZA_OMR_ENGINE: ${CADENZA_OMR_ENGINE:-fake}
       CADENZA_ARTIFACTS_DIR: /app/data/artifacts
       CADENZA_AUTO_CREATE_SCHEMA: "false"
+      CADENZA_CORS_ORIGINS: ${CADENZA_CORS_ORIGINS:-*}
     ports:
       - "8000:8000"
     volumes:
       - artifacts_data:/app/data/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ml-batch:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml-cuda
+    container_name: cadenza-ml-batch
+    profiles: ["batch"]
+    environment:
+      CADENZA_DATABASE_URL: ${CADENZA_DATABASE_URL}
+      CADENZA_ARTIFACTS_DIR: /app/data/artifacts
+    volumes:
+      - artifacts_data:/app/data/artifacts
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
 
 volumes:
   postgres_data:
   artifacts_data:
+

@@ -526,3 +526,27 @@ class TimingMapRead(BaseModel):
     events: list[EventTimingRead] = Field(
         default_factory=list, description="Lista ordenada de eventos y sus instantes en el tiempo"
     )
+
+
+class HealthStatusResponse(BaseModel):
+    """Estado de operatividad y salud del sistema backend (#40, D44)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(
+        ..., description="Estado general del servicio ('healthy', 'degraded', 'unhealthy')"
+    )
+    version: str = Field(..., description="Versión de la API y aplicación")
+    database: str = Field(
+        ..., description="Estado de conectividad con la base de datos ('connected' o 'error')"
+    )
+    artifact_store: str = Field(
+        ...,
+        description="Accesibilidad del almacenamiento de artefactos ('accessible' o 'error')",
+    )
+    omr_engine: str = Field(
+        ..., description="Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
+    )
+    device: str = Field(
+        ..., description="Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.)"
+    )

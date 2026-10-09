@@ -242,6 +242,24 @@ export interface HTTPValidationError {
 }
 
 /**
+ * Estado de operatividad y salud del sistema backend (#40, D44).
+ */
+export interface HealthStatusResponse {
+  /** Estado general del servicio ('healthy', 'degraded', 'unhealthy') */
+  status: string;
+  /** Versión de la API y aplicación */
+  version: string;
+  /** Estado de conectividad con la base de datos ('connected' o 'error') */
+  database: string;
+  /** Accesibilidad del almacenamiento de artefactos ('accessible' o 'error') */
+  artifact_store: string;
+  /** Nombre del motor OMR configurado ('fake', 'homr', 'oemer') */
+  omr_engine: string;
+  /** Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.) */
+  device: string;
+}
+
+/**
  * Armadura de clave expresada en número de quintas respecto a Do mayor.
  */
 export interface KeySignaturePayload {

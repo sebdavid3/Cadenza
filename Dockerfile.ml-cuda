@@ -1,0 +1,56 @@
+# Dockerfile con aceleración NVIDIA CUDA para el plano offline de Cadenza (#40, D44, ARCHITECTURE §4)
+# Permite ejecutar entrenamientos por lotes (PyTorchTrainer), inferencia OMR acelerada (HOMREngine)
+# y la suite de evaluación y active learning (ml/cli.py) en entornos con GPU NVIDIA.
+
+FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04 AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+
+WORKDIR /app
+
+# Instalar dependencias del sistema operativo y Python 3.12
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common \
+    curl \
+    git \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar uv para gestión determinista de dependencias
+COPY --from=ghcr.io/astral-sh/uv:0.5.21 /uv /uvx /bin/
+
+# Copiar manifiestos de paquetes del workspace
+COPY pyproject.toml uv.lock* ./
+COPY apps/api/pyproject.toml apps/api/
+COPY packages/application/pyproject.toml packages/application/
+COPY packages/domain/pyproject.toml packages/domain/
+COPY packages/interchange/pyproject.toml packages/interchange/
+COPY packages/learning/pyproject.toml packages/learning/
+COPY packages/omr/pyproject.toml packages/omr/
+COPY packages/persistence/pyproject.toml packages/persistence/
+COPY packages/validation/pyproject.toml packages/validation/
+
+# Copiar código fuente y configs
+COPY packages/ packages/
+COPY ml/ ml/
+COPY configs/ configs/
+
+# Sincronizar entorno virtual con extras de aprendizaje y métricas
+RUN uv sync --frozen --extra torch --extra metrics || uv sync --extra torch --extra metrics
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/packages/application/src:/app/packages/domain/src:/app/packages/interchange/src:/app/packages/learning/src:/app/packages/omr/src:/app/packages/persistence/src:/app/packages/validation/src"
+
+# Punto de entrada por defecto: CLI de Machine Learning de Cadenza
+ENTRYPOINT ["python", "-m", "ml"]
+CMD ["--help"]

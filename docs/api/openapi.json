@@ -28,13 +28,38 @@
         }
       }
     },
+    "/health": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Estado de salud y operatividad del servicio",
+        "description": "Verifica la conectividad con la base de datos, el acceso al ArtifactStore, el motor OMR activo y el dispositivo de cómputo efectivo (#40, D44).",
+        "operationId": "get_health_endpoint_health_get",
+        "responses": {
+          "200": {
+            "description": "Servicio saludable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthStatusResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Servicio no operativo"
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
           "Auth"
         ],
         "summary": "Inicio de sesión",
-        "description": "Autentica credenciales mediante formulario OAuth2 y emite un token de acceso Bearer JWT.",
+        "description": "Autentica credenciales mediante formulario OAuth2 y emite un token de acceso Bearer JWT (#40).",
         "operationId": "login_auth_login_post",
         "requestBody": {
           "content": {
@@ -53,6 +78,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Límite de intentos de autenticación superado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
                 }
               }
             }
@@ -2637,6 +2672,52 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "HealthStatusResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado general del servicio ('healthy', 'degraded', 'unhealthy')"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version",
+            "description": "Versión de la API y aplicación"
+          },
+          "database": {
+            "type": "string",
+            "title": "Database",
+            "description": "Estado de conectividad con la base de datos ('connected' o 'error')"
+          },
+          "artifact_store": {
+            "type": "string",
+            "title": "Artifact Store",
+            "description": "Accesibilidad del almacenamiento de artefactos ('accessible' o 'error')"
+          },
+          "omr_engine": {
+            "type": "string",
+            "title": "Omr Engine",
+            "description": "Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
+          },
+          "device": {
+            "type": "string",
+            "title": "Device",
+            "description": "Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "version",
+          "database",
+          "artifact_store",
+          "omr_engine",
+          "device"
+        ],
+        "title": "HealthStatusResponse",
+        "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
+      },
       "KeySignaturePayload": {
         "properties": {
           "fifths": {
@@ -3715,7 +3796,7 @@
     },
     {
       "name": "System",
-      "description": "Metadatos y versión del servicio"
+      "description": "Metadatos, salud y versión del servicio"
     }
   ]
 }
