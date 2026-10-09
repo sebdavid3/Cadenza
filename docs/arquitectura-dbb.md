@@ -1,6 +1,8 @@
 # Arquitectura General y Diagrama de Bloques de Construcción (DBB)
 
-Este documento describe la arquitectura de software extremo a extremo (E2E) de la plataforma **Cadenza**. El diseño sigue la metodología de **Diagramas de Bloques de Construcción (DBB)**, estructurada en niveles de detalle (caja negra, caja blanca y flujo de proceso).
+Este documento describe la arquitectura de software extremo a extremo (E2E) de la plataforma **Cadenza** con la metodología de **Diagramas de Bloques de Construcción (DBB)**, estructurada en niveles de detalle (caja negra, caja blanca y flujo de proceso).
+
+Es la **vista de bloques** de la arquitectura objetivo. El diseño técnico vigente —decisiones, organización de los datos, catálogo de funciones y estado de implementación— está en [`ARCHITECTURE.md`](ARCHITECTURE.md) (v1.2); ante cualquier diferencia, prevalece ese documento.
 
 > **Diagramas:** escritos en [D2](https://d2lang.com/). Para renderizarlos, copiar el bloque `d2` a un archivo `.d2` y ejecutar `d2 archivo.d2` (o usar el [playground](https://play.d2lang.com)). El orden es determinista: el Nivel 2 usa `grid-columns`/`grid-rows` y el Nivel 3 es un diagrama de secuencia con **aristas rectas** (layout ELK con `layered.edgeRouting: "ORTHOGONAL"`), donde cada mensaje ocupa su propia fila — sin texto superpuesto. **Importante:** D2 no resuelve nombres cortos de nodos anidados — clases y aristas usan SIEMPRE la ruta completa (p. ej. `flujo.etapa1.UI`), o se crean nodos duplicados.
 
@@ -39,7 +41,7 @@ Entrada: "Imagen de Partitura\n(Foto, Scan, Datasets)"
 Cadenza: "Plataforma Cadenza\n(Caja Negra)"
 MusicXML: "Exportación MusicXML\n(Editable)"
 MIDI: "Exportación MIDI\n(Reproducción)"
-Audio: "Reproducción automática\nde la canción en la página"
+Audio: "Reproducción de la partitura\nen la página"
 
 Usuario.class: actor
 Cadenza.class: system
@@ -52,18 +54,24 @@ Entrada -> Cadenza: "1. Carga partitura"
 Usuario -> Cadenza: "2. Corrige inconsistencias e interactúa"
 Cadenza -> MusicXML: "3. Produce"
 Cadenza -> MIDI: "3. Produce"
-Cadenza -> Audio: "4. Reproduce automáticamente"
+Cadenza -> Audio: "4. Reproduce"
 ```
 
-* **Entradas:** Imágenes de partituras (fotografías o escaneos en formatos PNG/JPG) procedentes de archivos personales o de los datasets públicos de evaluación (PrIMuS, SMB, MUSCIMA++).
-* **Salidas:** Archivos de música simbólica en formato **MusicXML 4.0** (editable en cualquier editor convencional) y **MIDI 1.0** (para reproducción audible de la transcripción). Además, la plataforma **reproduce automáticamente la canción en la página** apenas se genera la partitura digitalizada, para que el transcriptor la verifique auditivamente sin necesidad de descargar archivos.
-* **Actores:** El usuario transcriptor, quien supervisa la salida y edita activamente los errores señalados por el motor de validación.
+* **Entradas:** Imágenes de partituras (fotografías o escaneos en formatos PNG/JPG, una imagen por sesión) procedentes de archivos personales o de los datasets públicos de evaluación (PrIMuS, SMB, MUSCIMA++).
+* **Salidas:** Archivos de música simbólica en formato **MusicXML 4.0** (editable en cualquier editor convencional) y **MIDI 1.0** (para reproducción audible de la transcripción). Además, la plataforma **reproduce la partitura en la página** para que el transcriptor la verifique auditivamente sin descargar archivos.
+* **Actores:** El usuario transcriptor, quien supervisa la salida y edita activamente los errores señalados por el motor de validación. Cada usuario inicia sesión y solo accede a sus propias partituras.
 
 ---
 
 ## 2. Nivel 2: Arquitectura del Sistema (Caja Blanca / DBB)
 
-En este nivel, abrimos la caja negra de **Cadenza** y exponemos su estructura interna. El sistema se organiza en **cinco bloques estructurales**: Capa de Presentación (Frontend), Motor de Transcripción, Capa de Lógica de Negocio (Backend), Módulo de Aprendizaje Activo y Capa de Datos. Este nivel es la vista **estructural** (sin aristas): el flujo de proceso numerado se detalla en el Nivel 3.
+En este nivel se abre la caja negra de **Cadenza** y se expone su estructura interna. El sistema se organiza en **cinco bloques estructurales** repartidos en dos planos de cómputo:
+
+* **Plano online** (peticiones del usuario): Capa de Presentación, Capa de Lógica de Negocio y Motor de Transcripción.
+* **Plano offline** (trabajos por lotes): Módulo de Aprendizaje Activo.
+* **Capa de Datos:** único punto de contacto entre ambos planos.
+
+Este nivel es la vista **estructural** (sin aristas): el flujo de proceso numerado se detalla en el Nivel 3.
 
 ```d2
 classes: {
@@ -79,6 +87,12 @@ classes: {
     style.stroke-width: 2
     style.border-radius: 8
   }
+  batch: {
+    style.fill: "#D7BDE2"
+    style.stroke: "#7D3C98"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
   data: {
     style.fill: "#F5CBA7"
     style.stroke: "#D35400"
@@ -91,43 +105,46 @@ Plataforma_Cadenza: "Plataforma de Digitalización Asistida" {
   grid-columns: 5
   grid-gap: 16
 
-  presentation_layer: "Capa de Presentación (Frontend - Cliente UI)" {
+  presentation_layer: "Capa de Presentación (Frontend - plano online)" {
     grid-rows: 5
     UI: "UI de Corrección Asistida (HITL)"
-    Visor: "Visor Interactivo (Renderizado SVG/Canvas)"
+    Visor: "Visor Interactivo (imagen + notación SVG)"
     Editor: "Panel de Edición de Símbolos"
     Importador: "Importador de Partituras (Fotos/Escaneos)"
-    Reproductor: "Reproductor de Partitura (Playback automático)"
+    Reproductor: "Reproductor de Partitura (Tone.js)"
   }
 
-  omr_motor: "Motor de Transcripción (DWR)" {
-    grid-rows: 1
-    DWR: "Wrapper DWR (Motor OMR)"
-  }
-
-  backend_layer: "Capa de Lógica de Negocio (Backend API Server)" {
+  backend_layer: "Capa de Lógica de Negocio (Backend - plano online)" {
     grid-rows: 4
-    Orquestador: "Orquestador & API Gateway"
-    Validador: "Reglas de Teoría Musical (music21)"
-    Auditor: "Auditor de Inconsistencias"
-    Exportador: "Generador de Partituras (MusicXML/MIDI)"
+    Gateway: "API Gateway (FastAPI)"
+    Aplicacion: "Capa de Aplicación (casos de uso)"
+    Validador: "Motor de Validación (reglas de teoría musical)"
+    Exportador: "Exportador (MusicXML/MIDI)"
   }
 
-  active_learning_module: "Módulo de Aprendizaje Activo" {
+  omr_motor: "Motor de Transcripción (plano online)" {
     grid-rows: 2
-    Selector: "Selector de Muestras de Valor"
-    ALEngine: "AL Engine (TFLite — entrenamiento en el dispositivo)"
+    OMR: "OMREngine (HOMR sobre onnxruntime)"
+    Interchange: "Puente de notación (MusicXML -> ScoreIR)"
   }
 
-  data_layer: "Capa de Datos (Almacenamiento Local)" {
+  active_learning_module: "Módulo de Aprendizaje Activo (plano offline)" {
+    grid-rows: 4
+    Dataset: "DatasetBuilder"
+    Selector: "Selector de Muestras (AcquisitionStrategy)"
+    Trainer: "Trainer (PyTorch, por lotes en servidor)"
+    Evaluador: "Evaluador (SER / OMR-NED)"
+  }
+
+  data_layer: "Capa de Datos" {
     grid-rows: 3
-    DB: "Base de Datos Local (SQLite/IndexedDB)" {
+    DB: "Base de Datos (PostgreSQL + JSONB)" {
       shape: cylinder
     }
-    Imagenes: "Imágenes de Partituras (BLOBs/URLs, filesystem)" {
+    Artefactos: "ArtifactStore (imágenes, MusicXML, ONNX por sha256)" {
       shape: page
     }
-    Modelos: "Modelos de DWR (Pesos entrenados)" {
+    Registro: "Model Registry (versiones y métricas)" {
       shape: cylinder
     }
   }
@@ -140,33 +157,38 @@ Plataforma_Cadenza.presentation_layer.Visor.class: client
 Plataforma_Cadenza.presentation_layer.Editor.class: client
 Plataforma_Cadenza.presentation_layer.Importador.class: client
 Plataforma_Cadenza.presentation_layer.Reproductor.class: client
-Plataforma_Cadenza.omr_motor.DWR.class: server
-Plataforma_Cadenza.backend_layer.Orquestador.class: server
+Plataforma_Cadenza.backend_layer.Gateway.class: server
+Plataforma_Cadenza.backend_layer.Aplicacion.class: server
 Plataforma_Cadenza.backend_layer.Validador.class: server
-Plataforma_Cadenza.backend_layer.Auditor.class: server
 Plataforma_Cadenza.backend_layer.Exportador.class: server
-Plataforma_Cadenza.active_learning_module.Selector.class: server
-Plataforma_Cadenza.active_learning_module.ALEngine.class: server
+Plataforma_Cadenza.omr_motor.OMR.class: server
+Plataforma_Cadenza.omr_motor.Interchange.class: server
+Plataforma_Cadenza.active_learning_module.Dataset.class: batch
+Plataforma_Cadenza.active_learning_module.Selector.class: batch
+Plataforma_Cadenza.active_learning_module.Trainer.class: batch
+Plataforma_Cadenza.active_learning_module.Evaluador.class: batch
 Plataforma_Cadenza.data_layer.DB.class: data
-Plataforma_Cadenza.data_layer.Imagenes.class: data
-Plataforma_Cadenza.data_layer.Modelos.class: data
+Plataforma_Cadenza.data_layer.Artefactos.class: data
+Plataforma_Cadenza.data_layer.Registro.class: data
 ```
 
 Los cinco bloques estructurales, en orden:
 
-| # | Bloque | Componentes |
-|---|---|---|
-| 1 | Capa de Presentación (Frontend) | UI de Corrección Asistida, Visor Interactivo, Panel de Edición de Símbolos, Importador de Partituras, Reproductor de Partitura |
-| 2 | Motor de Transcripción (DWR) | Wrapper DWR (motor OMR) |
-| 3 | Capa de Lógica de Negocio (Backend) | Orquestador & API Gateway, Reglas de Teoría Musical, Auditor de Inconsistencias, Generador de Partituras |
-| 4 | Módulo de Aprendizaje Activo | Selector de Muestras de Valor, AL Engine (TFLite) |
-| 5 | Capa de Datos (Almacenamiento Local) | Base de Datos Local, Imágenes de Partituras, Modelos de DWR |
+| # | Bloque | Plano | Componentes | Paquetes |
+|---|---|---|---|---|
+| 1 | Capa de Presentación (Frontend) | Online | UI de Corrección Asistida, Visor Interactivo, Panel de Edición de Símbolos, Importador de Partituras, Reproductor de Partitura | `apps/web` |
+| 2 | Capa de Lógica de Negocio (Backend) | Online | API Gateway, Capa de Aplicación, Motor de Validación, Exportador | `apps/api`, `packages/application`, `packages/validation`, `packages/interchange` |
+| 3 | Motor de Transcripción | Online | `OMREngine` (HOMR), Puente de notación | `packages/omr`, `packages/interchange` |
+| 4 | Módulo de Aprendizaje Activo | Offline | `DatasetBuilder`, Selector de Muestras, Trainer, Evaluador | `packages/learning`, `ml/` |
+| 5 | Capa de Datos | Compartida | Base de Datos, `ArtifactStore`, *Model Registry* | `packages/persistence` |
+
+Todos los bloques comparten el **dominio** (`packages/domain`): el `ScoreDocument`, las anclas, los `Finding` y los `EditEvent`.
 
 ---
 
 ## 3. Nivel 3: Flujo de Proceso Extremo a Extremo (E2E)
 
-Este nivel muestra el flujo completo del sistema como **diagrama de secuencia**: cada participante es un componente de la plataforma y cada mensaje numerado (1–20) corresponde a un paso del flujo. Las flechas **sólidas** son llamadas/avance del pipeline; las **punteadas** son respuestas o retroalimentación (resultados que vuelven al llamador, ciclo de corrección HITL y ciclo de aprendizaje activo). Cada mensaje ocupa su propia fila del diagrama, por lo que no hay texto superpuesto; la descripción completa de cada paso está en la tabla de pasos más abajo.
+Este nivel muestra el flujo completo del sistema como **diagrama de secuencia**: cada participante es un componente de la plataforma y cada mensaje numerado (1–22) corresponde a un paso del flujo. Las flechas **sólidas** son llamadas/avance del pipeline; las **punteadas** son respuestas o retroalimentación. Los pasos 1–16 ocurren en el plano online, durante la sesión del usuario; los pasos 17–22 son un **trabajo por lotes** que se ejecuta aparte y solo se comunica con el plano online a través de la Capa de Datos.
 
 ```d2
 vars: {
@@ -180,77 +202,72 @@ vars: {
 }
 
 flujo: "Flujo de Proceso E2E (numerado)" {
-  PartituraImg: "Partitura Original (imagen/scan)"
   Usuario: "Usuario (Transcriptor)"
   UI: "UI de Corrección Asistida (HITL)"
-  Orquestador: "Orquestador & API Gateway"
-  DWR: "Wrapper DWR (Motor OMR)"
-  Validador: "Reglas de Teoría Musical (music21)"
-  Auditor: "Auditor de Inconsistencias"
-  DB: "Base de Datos Local (SQLite/IndexedDB)"
-  Selector: "Selector de Muestras de Valor"
-  ALEngine: "AL Engine (TFLite — entrenamiento en el dispositivo)"
-  Exportador: "Generador de Partituras (MusicXML/MIDI)"
-  SalidaXML: "Archivo MusicXML (Editable)"
-  SalidaMIDI: "Archivo MIDI (Reproducción)"
-  Reproductor: "Reproductor de Partitura (Playback automático)"
-  Visor: "Visor Interactivo (SVG/Canvas)"
-  Editor: "Panel de Edición de Símbolos"
+  Gateway: "API Gateway + Capa de Aplicación"
+  Artefactos: "ArtifactStore"
+  OMR: "OMREngine (HOMR)"
+  Validador: "Motor de Validación"
+  DB: "Base de Datos (PostgreSQL)"
+  Exportador: "Exportador (MusicXML/MIDI)"
+  Dataset: "DatasetBuilder (offline)"
+  Selector: "Selector de Muestras (offline)"
+  Trainer: "Trainer + Evaluador (offline)"
+  Registro: "Model Registry"
 
-  PartituraImg -> UI: "1. Sube imagen"
-  UI -> Orquestador: "2. Envía archivo"
-  Orquestador --> UI: "3. Muestra previsualización"
-  Orquestador -> DWR: "4. Ejecuta pipeline OMR"
-  DWR --> Orquestador: "5. Genera MusicXML crudo"
-  Orquestador -> Validador: "6. Envía para auditoría"
-  Validador -> Auditor: "7. Aplica reglas musicales"
-  Auditor --> Orquestador: "8. Reporta zonas sospechosas (JSON)"
-  Orquestador -> DB: "9. Almacena estado de la sesión"
-  Orquestador --> UI: "10. Retorna imagen + XML + errores"
-  Usuario -> Editor: "11. Revisa alertas y edita"
-  Editor -> Visor: "12. Corrige alturas, ritmos y duraciones"
-  Visor --> UI: "13. Guarda partitura corregida"
-  UI -> Orquestador: "14. Envía correcciones"
-  Orquestador -> DB: "15. Almacena par original/corregido"
-  DB -> Selector: "16. Selecciona muestras de valor"
-  Selector -> ALEngine: "17. Entrena/ajusta en el dispositivo"
-  ALEngine --> DWR: "18. Actualiza pesos del modelo"
-  Orquestador -> Exportador: "19. Genera partitura digitalizada"
-  Exportador -> SalidaXML: "Exporta MusicXML editable"
-  Exportador -> SalidaMIDI: "Exporta MIDI"
-  Exportador -> Reproductor: "20. Reproduce la canción automáticamente"
-  Reproductor --> Visor: "Sincroniza audio con la partitura"
+  Usuario -> UI: "1. Sube imagen"
+  UI -> Gateway: "2. Envía archivo"
+  Gateway -> Artefactos: "3. Guarda imagen (sha256)"
+  Gateway -> OMR: "4. Ejecuta transcripción"
+  OMR --> Gateway: "5. ScoreDocument crudo (ScoreIR + anclas)"
+  Gateway -> Validador: "6. Valida el documento"
+  Validador --> Gateway: "7. Hallazgos anclados"
+  Gateway -> DB: "8. Persiste sesión y hallazgos"
+  Gateway --> UI: "9. Retorna documento + hallazgos"
+  Usuario -> UI: "10. Revisa alertas y corrige"
+  UI -> Gateway: "11. Envía corrección (EditEvent)"
+  Gateway -> DB: "12. Verifica y añade al log inmutable"
+  Gateway -> Validador: "13. Revalida el estado actual"
+  Gateway --> UI: "14. Estado actualizado + hallazgos vigentes"
+  UI -> Gateway: "15. Solicita exportación"
+  Gateway -> Exportador: "16. Genera MusicXML / MIDI"
+  DB -> Dataset: "17. Sesiones y correcciones"
+  Dataset -> Selector: "18. Muestras de entrenamiento"
+  Selector -> Trainer: "19. Lote seleccionado"
+  Trainer -> Artefactos: "20. Modelo ONNX"
+  Trainer -> Registro: "21. Registra versión y métricas"
+  Registro --> OMR: "22. Promoción gobernada por umbral"
 }
 ```
 
 ### Pasos del flujo (E2E)
 
-| Paso | De → A | Descripción | Tipo |
+| Paso | De → A | Descripción | Plano |
 |---|---|---|---|
-| 1 | Partitura Original → UI | Sube imagen | Pipeline |
-| 2 | UI → Orquestador | Envía archivo | Pipeline |
-| 3 | Orquestador → UI | Muestra previsualización de la imagen cargada | Pipeline |
-| 4 | Orquestador → Wrapper DWR | Ejecuta pipeline OMR | Pipeline |
-| 5 | Wrapper DWR → Orquestador | Genera MusicXML crudo | Pipeline |
-| 6 | Orquestador → Reglas de Teoría Musical | Envía para auditoría | Pipeline |
-| 7 | Reglas de Teoría Musical → Auditor | Aplica reglas musicales (music21) | Pipeline |
-| 8 | Auditor → Orquestador | Reporta zonas sospechosas (JSON) | Pipeline |
-| 9 | Orquestador → Base de Datos Local | Almacena estado de la sesión | Pipeline |
-| 10 | Orquestador → UI | Retorna imagen + XML + errores | Pipeline |
-| 11 | Usuario → Editor | Revisa alertas y edita | Pipeline |
-| 12 | Editor → Visor | Corrige alturas, ritmos y duraciones | Pipeline |
-| 13 | Visor → UI | Guarda partitura corregida | Retroalimentación (HITL) |
-| 14 | UI → Orquestador | Envía correcciones | Retroalimentación (HITL) |
-| 15 | Orquestador → Base de Datos Local | Almacena par original/corregido | Pipeline |
-| 16 | Base de Datos Local → Selector | Selecciona muestras de valor | Pipeline |
-| 17 | Selector → AL Engine | Entrena/ajusta en el dispositivo (TFLite) | Pipeline |
-| 18 | AL Engine → Wrapper DWR | Actualiza pesos del modelo | Retroalimentación (aprendizaje) |
-| 19 | Orquestador → Generador de Partituras | Genera partitura digitalizada | Pipeline |
-| 20 | Generador de Partituras → Reproductor | Reproduce la canción automáticamente | Pipeline |
+| 1 | Usuario → UI | Sube la imagen de la partitura | Online |
+| 2 | UI → API Gateway | Envía el archivo | Online |
+| 3 | Aplicación → ArtifactStore | Guarda la imagen direccionada por `sha256` | Online |
+| 4 | Aplicación → OMREngine | Ejecuta la transcripción (HOMR) | Online |
+| 5 | OMREngine → Aplicación | Devuelve el `ScoreDocument` crudo (`ScoreIR` + anclas + procedencia) | Online |
+| 6 | Aplicación → Motor de Validación | Aplica el catálogo de reglas | Online |
+| 7 | Motor de Validación → Aplicación | Devuelve los hallazgos anclados | Online |
+| 8 | Aplicación → Base de Datos | Persiste la sesión y los hallazgos | Online |
+| 9 | API Gateway → UI | Retorna documento y hallazgos | Online |
+| 10 | Usuario → UI | Revisa las alertas y corrige | Online (HITL) |
+| 11 | UI → API Gateway | Envía la corrección como `EditEvent` | Online (HITL) |
+| 12 | Aplicación → Base de Datos | Comprueba que la edición es aplicable y la añade al log inmutable | Online (HITL) |
+| 13 | Aplicación → Motor de Validación | Revalida el estado materializado | Online (HITL) |
+| 14 | API Gateway → UI | Devuelve el estado actualizado y los hallazgos vigentes | Online (HITL) |
+| 15 | UI → API Gateway | Solicita la exportación | Online |
+| 16 | Aplicación → Exportador | Genera MusicXML 4.0 o MIDI 1.0 desde el estado actual | Online |
+| 17 | Base de Datos → DatasetBuilder | Lee sesiones y correcciones acumuladas | Offline |
+| 18 | DatasetBuilder → Selector | Produce las muestras de entrenamiento | Offline |
+| 19 | Selector → Trainer | Entrega el lote seleccionado | Offline |
+| 20 | Trainer → ArtifactStore | Guarda el modelo ajustado en ONNX | Offline |
+| 21 | Trainer → Model Registry | Registra la versión con sus métricas (SER, OMR-NED) | Offline |
+| 22 | Model Registry → OMREngine | Activa la versión solo si supera el umbral | Retroalimentación (aprendizaje) |
 
-Flujo continuo (sin numerar): `UI → Visor` y `UI → Editor` (renderizado y herramientas de edición), `Generador → MusicXML/MIDI` (exportación de archivos) y `Reproductor → Visor` (sincronización de audio).
-
-> **Nota:** el diagrama de secuencia y esta tabla son equivalentes: cada mensaje numerado (1–20) corresponde a una fila de la tabla; los mensajes sin número (exportación de archivos y sincronización de audio) son los flujos continuos.
+Los pasos 10–14 se repiten por cada corrección. La reproducción de audio ocurre en el navegador a partir del estado actual de la partitura y no requiere pasos adicionales en el servidor.
 
 ---
 
@@ -259,59 +276,68 @@ Flujo continuo (sin numerar): `UI → Visor` y `UI → Editor` (renderizado y he
 ### Capa de Presentación (Frontend)
 
 1. **UI de Corrección Asistida (HITL):**
-   * **Descripción:** Interfaz de usuario interactiva (desarrollada en HTML5/JS) donde el transcriptor carga sus partituras, visualiza los resultados y gestiona el flujo de trabajo.
-   * **Responsabilidad:** Coordinar las vistas y comunicarse con el backend API a través de llamadas REST.
+   * **Descripción:** Aplicación web (React + TypeScript) donde el transcriptor carga sus partituras, visualiza los resultados y gestiona el flujo de trabajo.
+   * **Responsabilidad:** Coordinar las vistas y comunicarse con el backend a través de la API REST.
 2. **Visor Interactivo:**
-   * **Descripción:** Canvas o visor SVG interactivo (basado en librerías de renderizado musical simbólico como *OpenSheetMusicDisplay*) que dibuja la partitura digital sobrepuesta a la imagen original o de manera paralela.
-   * **Responsabilidad:** Pintar los errores de validación mediante recuadros de advertencia (overlays de color rojo/amarillo) en los compases o notas que fallaron las pruebas sintácticas, y sincronizar la reproducción de audio con el cursor sobre la partitura.
+   * **Descripción:** Vista de la imagen original y de la notación renderizada en SVG (*OpenSheetMusicDisplay*), en paralelo.
+   * **Responsabilidad:** Pintar los hallazgos de validación como recuadros de advertencia sobre los eventos señalados, mediante el mapa de anclas, y sincronizar el cursor con la reproducción.
 3. **Panel de Edición de Símbolos:**
-   * **Descripción:** Panel de herramientas rápido que permite al usuario modificar la altura, duración o presencia de un símbolo musical (notas, alteraciones, compás) directamente sobre la partitura renderizada.
-   * **Responsabilidad:** Capturar las acciones de edición y actualizar el modelo simbólico de la partitura.
+   * **Descripción:** Panel de herramientas para modificar altura, duración, alteración, clave o armadura, e insertar o borrar eventos.
+   * **Responsabilidad:** Convertir cada acción en un `EditEvent` anclado y enviarlo al backend; ofrecer deshacer y rehacer.
 4. **Importador de Partituras:**
-   * **Descripción:** Módulo de carga de partituras físicas (fotografías y escaneos PNG/JPG) desde el dispositivo o datasets.
-   * **Responsabilidad:** Validar la imagen cargada, mostrar su previsualización en la UI y enviarla al backend para su procesamiento.
-5. **Reproductor de Partitura (Playback Automático):**
-   * **Descripción:** Componente de audio del frontend (p. ej. MIDI.js / Web Audio) que sintetiza la partitura digitalizada en sonido.
-   * **Responsabilidad:** Reproducir automáticamente la canción en la página apenas el backend genera la partitura digitalizada (MusicXML/MIDI ya validado), para que el transcriptor la verifique auditivamente sin exportar archivos. La reproducción se sincroniza con el Visor Interactivo.
-
-### Motor de Transcripción (DWR)
-
-1. **Wrapper DWR (Motor OMR):**
-   * **Descripción:** Envoltorio del motor de reconocimiento óptico de música (punto de partida: la biblioteca `oemer`) para segmentación de pentagramas, clasificación de glifos y ensamblaje de la partitura.
-   * **Responsabilidad:** Tomar una imagen cruda y generar el archivo MusicXML inicial (que contiene errores nativos del reconocimiento), y recibir los pesos actualizados por el ciclo de aprendizaje activo.
+   * **Descripción:** Módulo de carga de partituras (fotografías y escaneos PNG/JPG).
+   * **Responsabilidad:** Validar la imagen, mostrar su previsualización y enviarla al backend.
+5. **Reproductor de Partitura:**
+   * **Descripción:** Componente de audio del navegador (Tone.js).
+   * **Responsabilidad:** Sintetizar el estado actual de la partitura para la verificación auditiva, sincronizado con el Visor.
 
 ### Capa de Lógica de Negocio (Backend)
 
-1. **Orquestador & API Gateway:**
-   * **Descripción:** Servidor API en Python (FastAPI/Flask) que coordina los subsistemas del backend y responde a las solicitudes del Frontend.
-   * **Responsabilidad:** Recibir la imagen, llamar al motor OMR, dirigir la validación, persistir el estado de la sesión y empaquetar los resultados para el cliente.
-2. **Reglas de Teoría Musical (music21):**
-   * **Descripción:** Motor de reglas lógicas construido utilizando el toolkit de musicología computacional `music21`.
-   * **Responsabilidad:** Parsear el MusicXML y aplicar chequeos lógicos (ej. sumar las duraciones en cada compás para compararlas con la métrica definida).
-3. **Auditor de Inconsistencias:**
-   * **Descripción:** Compilador de alertas de error.
-   * **Responsabilidad:** Transformar los errores detectados en el paso de reglas teóricas en una lista estructurada (en formato JSON) con coordenadas de compás, tipo de error y notas sospechosas para que el frontend las dibuje.
-4. **Generador de Partituras (Exportador):**
-   * **Descripción:** Serializador final de datos.
-   * **Responsabilidad:** Convertir el archivo MusicXML ya corregido y validado a su versión final editable, sintetizar el audio/evento en formato MIDI y entregar la partitura digitalizada al **Reproductor** del frontend para su reproducción automática en la página.
+1. **API Gateway:**
+   * **Descripción:** Servidor FastAPI.
+   * **Responsabilidad:** Autenticar cada petición, traducir peticiones y respuestas HTTP y componer las dependencias; no contiene lógica de negocio.
+2. **Capa de Aplicación:**
+   * **Descripción:** Casos de uso del sistema (`transcribe_score`, `append_edit`, `revalidate`, `export_score`, `record_effort`).
+   * **Responsabilidad:** Orquestar el motor OMR, la validación, la persistencia y la exportación. Garantiza que ninguna edición inválida entre al log.
+3. **Motor de Validación:**
+   * **Descripción:** Catálogo de reglas puras de teoría musical sobre el `ScoreIR` (balance de compás, armadura y alteraciones, colisión de voces, rango, cierres).
+   * **Responsabilidad:** Emitir hallazgos anclados, con severidad y sugerencia de corrección, al transcribir y tras cada corrección.
+4. **Exportador:**
+   * **Descripción:** Serializador del `ScoreIR` (sobre `music21`, en `packages/interchange`).
+   * **Responsabilidad:** Generar MusicXML 4.0 y MIDI 1.0 a partir del estado actual de la partitura.
 
-### Módulo de Aprendizaje Activo
+### Motor de Transcripción
 
-1. **Selector de Muestras de Valor:**
-   * **Descripción:** Algoritmo del ciclo de Aprendizaje Activo encargado de la estrategia de selección de muestras (Active Learning Pool).
-   * **Responsabilidad:** En lugar de seleccionar por confianza simple (la cual es ineficaz según AL-003), selecciona partituras basadas en su **diversidad de errores** reportados por el Auditor y en la magnitud de las correcciones del transcriptor.
-2. **AL Engine (TFLite):**
-   * **Descripción:** Pipeline de reentrenamiento/ajuste fino que corre **en el dispositivo** (TFLite, sin servidor de entrenamiento).
-   * **Responsabilidad:** Tomar los pares de imágenes y MusicXML corregidos por el usuario, formatearlos como datos de entrenamiento y ajustar los pesos del Wrapper DWR (fine-tuning de los modelos de detección de símbolos).
+1. **`OMREngine` (HOMR):**
+   * **Descripción:** Adaptador del motor de reconocimiento óptico HOMR, ejecutado *in-process* sobre `onnxruntime` (CPU o GPU). `oemer` se integra como adaptador alternativo para la línea base experimental y `FakeOMREngine` para pruebas.
+   * **Responsabilidad:** Tomar una imagen y producir el `ScoreDocument` crudo, usando la versión de modelo activa en el *Model Registry*.
+2. **Puente de notación:**
+   * **Descripción:** Conversor entre formatos simbólicos y el `ScoreIR` (`packages/interchange`).
+   * **Responsabilidad:** Normalizar el MusicXML que produce el motor a la representación interna.
 
-### Capa de Datos (Persistencia)
+### Módulo de Aprendizaje Activo (plano offline)
 
-1. **Base de Datos Local (SQLite/IndexedDB):**
-   * **Descripción:** Base de datos relacional ligera local (SQLite en el backend; IndexedDB en el navegador).
-   * **Responsabilidad:** Almacenar de forma segura el historial de transcripciones, los metadatos de las correcciones del usuario (insumo para medir el esfuerzo cognitivo y evaluar la UX) y el estado de cada sesión.
-2. **Imágenes de Partituras (BLOBs/URLs, filesystem):**
-   * **Descripción:** Almacenamiento de las imágenes originales cargadas.
-   * **Responsabilidad:** Guardar las partituras físicas digitalizadas como BLOBs/URLs en el filesystem local, asociadas a su transcripción.
-3. **Modelos de DWR (Pesos entrenados):**
-   * **Descripción:** Almacenamiento de los pesos de los modelos del motor OMR.
-   * **Responsabilidad:** Persistir las versiones de pesos actualizadas por el ciclo de aprendizaje activo para su uso en nuevas transcripciones.
+1. **`DatasetBuilder`:**
+   * **Descripción:** Constructor del conjunto de entrenamiento.
+   * **Responsabilidad:** Leer sesiones y correcciones persistidas y traducirlas a muestras alineadas por anclas.
+2. **Selector de Muestras:**
+   * **Descripción:** Estrategias de adquisición intercambiables (incertidumbre, diversidad, híbrida).
+   * **Responsabilidad:** Elegir las muestras de mayor valor. En lugar de la confianza simple (ineficaz según AL-003), la estrategia principal combina la densidad de errores del validador, la magnitud de las correcciones y la diversidad.
+3. **Trainer:**
+   * **Descripción:** Ajuste fino **por lotes en el servidor** (PyTorch), con configuración versionada y semillas fijas. No hay entrenamiento en el dispositivo.
+   * **Responsabilidad:** Ajustar el modelo de reconocimiento con el lote seleccionado y exportarlo a ONNX.
+4. **Evaluador:**
+   * **Descripción:** Cálculo de métricas estándar (SER, OMR-NED).
+   * **Responsabilidad:** Medir cada versión candidata contra el corpus de evaluación.
+
+### Capa de Datos
+
+1. **Base de Datos (PostgreSQL + JSONB):**
+   * **Descripción:** Base relacional con columnas JSONB para las estructuras variables; SQLite queda como alternativa para pruebas.
+   * **Responsabilidad:** Almacenar usuarios, sesiones, hallazgos, el log inmutable de correcciones y las métricas de esfuerzo.
+2. **`ArtifactStore`:**
+   * **Descripción:** Almacén de archivos direccionado por el `sha256` de su contenido.
+   * **Responsabilidad:** Guardar imágenes originales, MusicXML y modelos ONNX fuera de la base de datos.
+3. ***Model Registry*:**
+   * **Descripción:** Catálogo de versiones de modelo con sus métricas, dataset y configuración.
+   * **Responsabilidad:** Gobernar qué versión usa el plano online; una versión se promueve solo si supera el umbral.

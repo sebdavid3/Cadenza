@@ -1,0 +1,41 @@
+% =====================================================================
+% VI. MARCO TEÓRICO
+% =====================================================================
+\section{Marco Te\'orico}
+\label{sec:marco-teorico}
+
+\subsection{Antecedentes de la Investigaci\'on (Estado del Arte)}
+\label{sec:antecedentes-estado-arte}
+
+El Reconocimiento \'Optico de M\'usica (OMR, por sus siglas en ingl\'es) ha sido objeto de estudio durante m\'as de cinco d\'ecadas \cite{omr2020}, evolucionando de manera significativa desde los primeros sistemas fragmentados basados en reglas heur\'isticas hasta los modernos \emph{pipelines} impulsados por aprendizaje profundo \cite{rebelo2012}. En la literatura reciente, estudios fundamentales consolidan la taxonom\'ia cl\'asica del OMR en etapas de preprocesamiento, detecci\'on de pentagramas, clasificaci\'on de s\'imbolos y ensamblaje sint\'actico \cite{omr2020}. Sin embargo, a pesar de la capacidad actual de arquitecturas como las Redes Neuronales Convolucionales y Recurrentes (CRNN) o los Transformadores Visuales para procesar p\'aginas completas \emph{end-to-end} \cite{calvo2018}\cite{riosvila2026}, se evidencia una brecha tecnol\'ogica cr\'itica: los modelos modernos alcanzan altas precisiones estad\'isticas, pero generan transcripciones con errores estructurales (compases desbalanceados, alteraciones inconsistentes) que impiden su uso directo en entornos reales de digitalizaci\'on.
+
+Estudios recientes sobre la aplicaci\'on de OMR en manuscritos modernos destacan que la variabilidad geom\'etrica de la escritura y las distorsiones visuales degradan severamente la confiabilidad del reconocimiento autom\'atico \cite{ricordi2024}. Como consecuencia de esta desconexi\'on entre la inferencia probabil\'istica y la sintaxis musical, los transcriptores se ven obligados a realizar correcciones manuales exhaustivas, lo que resulta en un elevado costo operativo \cite{rizo2023}. Esto evidencia un claro vac\'io de conocimiento en la literatura, espec\'ificamente en la falta de integraci\'on efectiva de validadores formales y ciclos de mejora continua adaptados al flujo pr\'actico de trabajo.
+
+\subsection{Bases Te\'oricas}
+\label{sec:bases-teoricas}
+
+Para abordar las deficiencias identificadas en el estado del arte, la presente investigaci\'on se fundamenta en tres pilares te\'oricos principales:
+
+\subsubsection{Modelos de Aprendizaje Profundo en OMR}
+La transcripci\'on base del sistema se apoya en los postulados de arquitecturas neuronales avanzadas orientadas a partituras monof\'onicas y de piano simple \cite{calvo2018}\cite{riosvila2026}. Se emplean modelos que integran el reconocimiento y clasificaci\'on de glifos musicales sobre im\'agenes bidimensionales, permitiendo un procesamiento integral de la notaci\'on musical occidental. Como motor central de inferencia, la plataforma implementa \texttt{HOMR} \cite{homr2024}, un sistema que combina transformadores visuales y segmentaci\'on neuronal para la transcripci\'on autom\'atica inicial a MusicXML, sirviendo como l\'inea base probabil\'istica sobre la cual operar\'an los subsistemas de refinamiento asistido.
+
+\subsubsection{Validaci\'on Sem\'antica y Simb\'olica}
+La teor\'ia musical impone restricciones deterministas sobre la estructura de una partitura, las cuales no son asimiladas expl\'icitamente por los modelos neuronales puros. La validaci\'on sem\'antica simb\'olica se sustenta en el uso de motores anal\'iticos algor\'itmicos que aplican reglas estrictas de teor\'ia musical para verificar la consistencia r\'itmica, el balance m\'etrico de los compases y la validez de las armaduras \cite{cuthbert2010}. Este enfoque te\'orico es fundamental para mitigar la ``semiton\'ia intelecta'' (errores impl\'icitos en la notaci\'on) \cite{rizo2023}, permitiendo al sistema marcar anomal\'ias estructurales sin requerir intervenci\'on humana exploratoria directa.
+
+\subsubsection{Aprendizaje Activo e Interacci\'on Humana (Human-in-the-Loop)}
+El tercer pilar se enmarca en los paradigmas del \emph{Interactive Machine Learning} \cite{amershi2014}\cite{holzinger2016} y el Aprendizaje Activo (\emph{Active Learning}) \cite{settles2009}. Este marco te\'orico postula que el esfuerzo humano en el aprendizaje autom\'atico debe focalizarse en los puntos de mayor incertidumbre algor\'itmica. Mediante estrategias de selecci\'on basadas en las anomal\'ias detectadas, la interacci\'on del experto musical en la interfaz no solo corrige la salida, sino que sirve como pares de datos de alto valor para reentrenar y adaptar los modelos en el borde (\emph{on-device}), minimizando el desperdicio tradicional de la retroalimentaci\'on experta \cite{mlsp2025}.
+
+\subsection{Marco Conceptual y Sistema de Variables}
+\label{sec:marco-conceptual-variables}
+
+Con el prop\'osito de evitar ambig\"uedades metodol\'ogicas, se establecen las siguientes definiciones operacionales, limitadas al dominio de partituras impresas y manuscritas modernas de complejidad monof\'onica o piano simple:
+\begin{itemize}
+    \item \textbf{Digitalizaci\'on Asistida (Variable Independiente):} Corresponde al flujo integral de procesamiento h\'ibrido que combina la inferencia OMR, la validaci\'on sint\'actica automatizada y la retroalimentaci\'on humana interactiva.
+    \item \textbf{Esfuerzo Humano y Fidelidad (Variables Dependientes):} La fidelidad se operacionaliza cuantitativamente mediante la Tasa de Error Simb\'olico (SER) y la m\'etrica de distancia de edici\'on OMR-NED \cite{smb2026}. El esfuerzo se mide a trav\'es del tiempo total de edici\'on y la cantidad de intervenciones manuales requeridas por comp\'as.
+    \item \textbf{Formatos Simb\'olicos (MusicXML / MIDI):} Representaciones estructuradas, editables y reproducibles utilizadas como est\'andares sint\'acticos para el intercambio (\emph{MusicXML 4.0} \cite{musicxml2021}) y la evaluaci\'on del sistema frente al \emph{Ground Truth} (\emph{MIDI 1.0} \cite{midi1996}).
+\end{itemize}
+
+\subsection{Articulaci\'on del Marco Te\'orico con las Hip\'otesis}
+\label{sec:articulacion-hipotesis}
+
+La convergencia de estas perspectivas te\'oricas permite justificar la arquitectura metodol\'ogica de la plataforma. La integraci\'on de los modelos neuronales (OMR) con motores de validaci\'on determinista y la aplicaci\'on de aprendizaje activo cubren la brecha existente entre la transcripci\'on probabil\'istica bruta y la utilidad real para los archivos musicales. En \'ultima instancia, este sustento te\'orico sustenta directamente el supuesto de la investigaci\'on: implementar un sistema de validaci\'on neuro-simb\'olica y aprendizaje activo reduce el esfuerzo emp\'irico de revisi\'on humana e incrementa de forma comprobable la fidelidad de la digitalizaci\'on musical contempor\'anea.

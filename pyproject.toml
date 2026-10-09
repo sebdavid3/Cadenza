@@ -1,0 +1,106 @@
+[project]
+name = "cadenza"
+version = "0.0.0"
+description = "Cadenza — plataforma de digitalización asistida de partituras"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+dependencies = []
+
+# La raíz es un proyecto virtual: gobierna el workspace y la configuración global.
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+    "apps/api",
+    "packages/application",
+    "packages/domain",
+    "packages/interchange",
+    "packages/learning",
+    "packages/omr",
+    "packages/persistence",
+    "packages/validation",
+]
+
+# ---------------------------------------------------------------------------
+# Configuración única de calidad (un solo punto de verdad del repositorio).
+# ---------------------------------------------------------------------------
+
+[dependency-groups]
+dev = [
+    "cadenza-api",
+    "cadenza-application",
+    "cadenza-domain",
+    "cadenza-interchange",
+    "cadenza-learning",
+    "cadenza-omr",
+    "cadenza-persistence",
+    "cadenza-validation",
+    "cadenza-learning[metrics]",
+    "httpx>=0.27",
+    "pytest>=8.2",
+    "ruff>=0.6",
+    "black>=24.4",
+    "mypy>=1.11",
+]
+
+[tool.uv.sources]
+cadenza-api = { workspace = true }
+cadenza-application = { workspace = true }
+cadenza-domain = { workspace = true }
+cadenza-interchange = { workspace = true }
+cadenza-learning = { workspace = true }
+cadenza-omr = { workspace = true }
+cadenza-persistence = { workspace = true }
+cadenza-validation = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# El prototipo legacy (`legacy/`) se rige por sus propias herramientas; las
+# migraciones de Alembic siguen su propio estilo generado.
+extend-exclude = ["legacy", ".opencode", "packages/persistence/migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+extend-exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "apps/api/src:packages/application/src:packages/domain/src:packages/interchange/src:packages/learning/src:packages/omr/src:packages/persistence/src:packages/validation/src"
+explicit_package_bases = true
+exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
+
+[[tool.mypy.overrides]]
+module = [
+    "homr",
+    "homr.*",
+    "oemer",
+    "oemer.*",
+    "onnx",
+    "onnx.*",
+    "onnxruntime.*",
+    "cv2.*",
+    "numpy.*",
+    "music21",
+    "music21.*",
+    "converter21",
+    "converter21.*",
+    "musicdiff",
+    "musicdiff.*",
+]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+
+[tool.pytest.ini_options]
+testpaths = ["apps", "packages"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "-q"

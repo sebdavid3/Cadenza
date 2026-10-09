@@ -27,9 +27,9 @@ backend_trash/
 
 # Node / Frontend
 node_modules/
-frontend/node_modules/
-frontend/dist/
-frontend/dist-ssr/
+legacy/frontend/node_modules/
+legacy/frontend/dist/
+legacy/frontend/dist-ssr/
 *.local
 
 # Environment variables
@@ -59,3 +59,10 @@ Thumbs.db
 # Temp files
 /tmp/
 *.tar.gz
+
+# Artefactos de experimentos (CSV/JSON generados en la tesis)
+/results/*
+!/results/.gitkeep
+
+# Corpus descargado (imágenes + ground truth; no se versionan blobs)
+/data/

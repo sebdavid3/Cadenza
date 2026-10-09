@@ -1,38 +1,69 @@
 services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.gpu
+  postgres:
+    image: postgres:16-alpine
+    container_name: cadenza-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CADENZA_POSTGRES_DB:-cadenza}
+      POSTGRES_USER: ${CADENZA_POSTGRES_USER:-cadenza}
+      POSTGRES_PASSWORD: ${CADENZA_POSTGRES_PASSWORD}
     ports:
-      - "8010:8000"
+      - "${CADENZA_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cadenza-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CADENZA_DATABASE_URL: ${CADENZA_DATABASE_URL}
+      CADENZA_AUTH_SECRET_KEY: ${CADENZA_AUTH_SECRET_KEY}
+      CADENZA_OMR_ENGINE: ${CADENZA_OMR_ENGINE:-fake}
+      CADENZA_ARTIFACTS_DIR: /app/data/artifacts
+      CADENZA_AUTO_CREATE_SCHEMA: "false"
+      CADENZA_CORS_ORIGINS: ${CADENZA_CORS_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts_data:/app/data/artifacts
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  ml-batch:
+    build:
+      context: .
+      dockerfile: Dockerfile.ml-cuda
+    container_name: cadenza-ml-batch
+    profiles: ["batch"]
+    environment:
+      CADENZA_DATABASE_URL: ${CADENZA_DATABASE_URL}
+      CADENZA_ARTIFACTS_DIR: /app/data/artifacts
+    volumes:
+      - artifacts_data:/app/data/artifacts
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              count: all
               capabilities: [gpu]
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - CUDA_VISIBLE_DEVICES=0
-    volumes:
-      - /tmp/homr-proto:/tmp/homr-proto
-      - homr_torch_cache:/root/.cache/torch
-      - homr_models_cache:/root/.cache/homr
-    restart: unless-stopped
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    ports:
-      - "5180:5173"
-    environment:
-      - VITE_PROXY_TARGET=http://backend:8000
-    depends_on:
-      - backend
-    restart: unless-stopped
 
 volumes:
-  homr_torch_cache:
-  homr_models_cache:
+  postgres_data:
+  artifacts_data:
+
