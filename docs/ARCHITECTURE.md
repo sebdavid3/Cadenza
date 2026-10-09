@@ -320,7 +320,9 @@ comunicados **únicamente por datos persistidos y artefactos versionados**
 - **Tecnología:** FastAPI (async), `onnxruntime` (CPU/GPU), PostgreSQL,
   `ArtifactStore`.
 - **Reglas:** ninguna operación de entrenamiento ocurre aquí; el trabajo pesado
-  de OMR se ejecuta fuera del bucle de eventos; el dispositivo efectivo se
+  de OMR se ejecuta fuera del bucle de eventos mediante `asyncio.to_thread`
+  (ADR-0016: transcripción síncrona de página única suficiente y sin colas
+  distribuidas); el dispositivo efectivo se
   reporta desde `onnxruntime.get_available_providers()`, **nunca** desde
   `torch.cuda`.
 
@@ -846,11 +848,12 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Infraestructura | Integración continua | GitHub Actions (`ci.yml`: backend Python 3.12 y frontend web) | [#25](https://github.com/sebdavid3/Cadenza/issues/25) |
 | API | Contrato OpenAPI congelado y tipos generados | Implementado: `docs/api/openapi.json` v1.0.0, tipos generados en `apps/web/src/types.ts` y CI en `test_openapi_contract.py` | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
 | Dominio | Mapa tiempo→ancla para reproducción sincronizada | Implementado: función pura `compute_timing_map` en `packages/domain`, caso de uso `get_timing`, endpoint `GET /sessions/{id}/timing` y tipos OpenAPI/TypeScript sincronizados | [#42](https://github.com/sebdavid3/Cadenza/issues/42) |
+| Infraestructura | Operación y despliegue del backend | Implementado: sondas de salud `GET /health`, registro estructurado con `X-Request-ID`, CORS configurable, protección contra fuerza bruta con límite de intentos, contenedor CUDA offline y scripts de backup y restauración con verificación SHA-256 (ADR-0015, deuda D44) | [#40](https://github.com/sebdavid3/Cadenza/issues/40) |
+| API | Decisión de transcripción síncrona respaldada por benchmark | Resuelto: benchmark empírico de latencia en `ml/experiments/exp_11_latency_benchmark.py` (CPU vs GPU, incipit vs página completa SMB; peor caso CPU ~7.35s con >75% de margen sobre timeout de 30s); decisión formalizada en ADR-0016 confirmando que el procesamiento síncrono con `asyncio.to_thread` es suficiente y óptimo para el alcance de página única sin añadir la complejidad accidental de colas asíncronas distribuidas (deuda D42) | [#37](https://github.com/sebdavid3/Cadenza/issues/37) |
 
-Quedan además tres piezas **con alcance por decidir**, registradas fuera del
-milestone: transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)), operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y
-retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)).
-La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
+Queda además una pieza **con alcance por decidir**, registrada fuera del
+milestone: retiro de `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)).
+La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance. La transcripción asíncrona ([#37](https://github.com/sebdavid3/Cadenza/issues/37)) se resolvió empíricamente a favor del modelo síncrono (ADR-0016). La operación del backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y el mapa de tiempo ([#42](https://github.com/sebdavid3/Cadenza/issues/42)) fueron implementados al 100%.
 La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) es trabajo de frontend
 y también queda fuera del milestone.
 
@@ -894,6 +897,7 @@ queda fuera de esta fase.
 | [ADR-0013](adr/ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos |
 | [ADR-0014](adr/ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) |
 | [ADR-0015](adr/ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend (salud, registro, CORS, CUDA, copias) |
+| [ADR-0016](adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas |
 
 
 ---

@@ -42,5 +42,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos | Aceptado | M2, M3, M4 |
 | [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) | Aceptado | M2, M3, M4 |
 | [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend (salud, registro, CORS, CUDA, copias) | Aceptado | Infra, Transversal |
+| [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas | Aceptado | API, Plano Online |
 
 
