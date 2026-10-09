@@ -231,14 +231,16 @@ la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.
 
 ---
 
-## Prototipo legacy (referencia)
+## Prototipo legacy (deprecado / referencia)
 
 El prototipo MVP original (FastAPI + HOMR + Docker CUDA + visor OSMD + Tone.js)
-se conserva en `legacy/` —`legacy/backend`, `legacy/frontend`, `legacy/scripts` y
-`legacy/docker-compose*.yml`—. Sigue operativo durante la migración a la
-arquitectura hexagonal y **no** es el código de producción.
+se conserva congelado en `legacy/` (`legacy/backend`, `legacy/frontend`, `legacy/scripts` y
+`legacy/docker-compose*.yml`) y preservado permanentemente en la etiqueta git `archive/legacy-mvp`.
+Ha sido ampliamente superado por la nueva arquitectura hexagonal (`packages/`, `apps/api/`, `apps/web/`).
+Para consultar la matriz de paridad y la hoja de ruta de retiro definitivo, véase [`docs/migracion_legacy.md`](docs/migracion_legacy.md).
 
 ```bash
+# Ejecución histórica (congelada)
 ./legacy/scripts/run-docker-gpu.sh     # Docker con GPU NVIDIA
 ./legacy/scripts/run-docker-cpu.sh     # Docker en CPU (fallback)
 ./legacy/scripts/run-local.sh          # Entorno local (Linux/macOS/WSL)
@@ -250,8 +252,9 @@ arquitectura hexagonal y **no** es el código de producción.
 
 - [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — estado vivo, deuda técnica y bitácora.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura objetivo, funciones, datos y brechas.
+- [`docs/migracion_legacy.md`](docs/migracion_legacy.md) — plan de migración y matriz de paridad para el retiro de legacy.
 - [`docs/arquitectura-dbb.md`](docs/arquitectura-dbb.md) — diagramas de bloques (DBB).
-- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0012).
+- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0016).
 - [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — convenciones de Git y calidad.
 - [`docs/literatura/`](docs/literatura/) — estado del arte y corpus de evaluación.
 - [`latex/`](latex/) — documento maestro de la tesis.
