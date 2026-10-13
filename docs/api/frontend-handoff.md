@@ -100,20 +100,20 @@ El backend gestiona undo append-only:
 
 ### 4.4. Tiempos de Transcripción y Timeout Recomendado (#106)
 
-El endpoint `POST /transcribe` es **síncrono**: procesa la imagen y devuelve directamente la sesión inicializada con su partitura y hallazgos. Tras eliminar la cola de latencia por OCR de título en el motor HOMR (issue #106), los tiempos medidos son:
+El endpoint `POST /transcribe` es **síncrono**: procesa la imagen y devuelve directamente la sesión inicializada con su partitura y hallazgos. Con la eliminación de la detección de título por RapidOCR y la renuncia explícita a la limitación de energía de Windows 11 (EcoQoS / Power Throttling, issue #106), los tiempos medidos son:
 
 - **Incipits / fragmentos de 1 pentagrama (caso principal del plano online interactivo):**
-  - **GPU:** mediana de 4,1 s (media 3,1 s, máx 5,1 s; 0 peticiones ≥ 30 s).
-  - **CPU:** mediana de 1,2 s (media 3,7 s, máx 14,1 s; 0 peticiones ≥ 30 s).
+  - **GPU:** mediana de 0,7 s (media 0,7 s, máx 0,9 s; 0 peticiones ≥ 30 s).
+  - **CPU:** mediana de 1,2 s (media 1,2 s, máx 1,5 s; 0 peticiones ≥ 30 s).
 - **Páginas densas apiladas (hasta 12 pentagramas):**
-  - **GPU:** mediana de 23,2 s (máx 37,6 s).
-  - **CPU:** mediana de 11,9 s (máx 126,8 s).
-- **Arranque en frío (primera petición tras iniciar el backend):**
-  - GPU: hasta 12,4 s.
-  - CPU: hasta 2,1 s.
+  - **GPU:** mediana de 6,4 s (máx 7,6 s).
+  - **CPU:** mediana de 11,6 s (máx 12,0 s).
+- **Arranque en frío (primera petición tras iniciar el proceso):**
+  - **GPU:** hasta 4,2 s (mediana 3,6 s).
+  - **CPU:** hasta 2,0 s (mediana 2,0 s).
 
 **Recomendaciones para el Frontend:**
-1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **120 s** si el despliegue opera en CPU o si se admiten partituras densas. Para entornos con GPU procesando incipits, un valor de 30 a 60 s es suficiente.
+1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **30 s**. Este valor ofrece más de un 100 % de margen frente al peor caso medido en CPU (12,0 s para páginas de 12 pentagramas) y casi un 300 % frente a GPU (7,6 s). Si el backend opera en un entorno Windows 11 sin la renuncia a EcoQoS (`CADENZA_DISABLE_POWER_THROTTLING=false`), el proceso podría ser confinado a E-cores requiriendo hasta 120 s en páginas densas, pero con la configuración estándar (`true`) 30 s es plenamente suficiente (ADR-0016).
 2. **Indicador de progreso:** El frontend debe mostrar un estado visual de carga explícito y no bloqueante (barra de progreso o indicador de actividad) mientras `POST /transcribe` resuelve la inferencia.
 
 ---

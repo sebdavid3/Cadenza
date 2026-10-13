@@ -89,6 +89,13 @@ class Settings(BaseSettings):
             "omr_preprocess_rescale está activo."
         ),
     )
+    disable_power_throttling: bool = Field(
+        default=True,
+        description=(
+            "Si es True, solicita desactivar la limitación de energía (EcoQoS/Power Throttling) "
+            "del proceso en Windows al arrancar (#106)."
+        ),
+    )
 
     def build_preprocessing_config(self) -> Any | None:
         """Construye un PreprocessingConfig si el preprocesado está habilitado."""

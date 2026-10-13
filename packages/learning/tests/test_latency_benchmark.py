@@ -341,3 +341,58 @@ def test_run_benchmark_requires_corpus(tmp_path: Path) -> None:
 def test_run_benchmark_rejects_unknown_device(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="device"):
         run_benchmark(device="tpu", manifest=_manifest(tmp_path), output_dir=tmp_path / "out")
+
+
+def test_run_benchmark_records_cpu_threads_and_protocol_mode(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    out = tmp_path / "out"
+    summary = run_benchmark(
+        device="cpu",
+        manifest=manifest,
+        output_dir=out,
+        incipits=1,
+        staves=(2,),
+        runs=2,
+        power_throttling="disabled",
+        engine_factory=lambda _use_gpu: _StubEngine(),
+    )
+    assert summary["protocol"]["power_throttling"] == "disabled"
+    measured = summary["devices"]["cpu"]
+    assert measured["protocol"]["power_throttling"] == "disabled"
+    assert "cold_start_cpu_threads" in measured
+    assert len(measured["cold_start_cpu_threads"]) == 1
+    assert "cpu_threads" in measured["configurations"]["incipit_1_staff"]
+    assert len(measured["configurations"]["incipit_1_staff"]["cpu_threads"]) == 2
+
+
+def test_run_benchmark_different_power_throttling_modes_do_not_accumulate(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    out = tmp_path / "out"
+
+    first = run_benchmark(
+        device="cpu",
+        manifest=manifest,
+        output_dir=out,
+        incipits=1,
+        staves=(2,),
+        runs=2,
+        power_throttling="disabled",
+        engine_factory=lambda _use_gpu: _StubEngine(),
+    )
+    assert first["devices"]["cpu"]["invocations"] == 1
+    assert first["devices"]["cpu"]["configurations"]["incipit_1_staff"]["stats"]["count"] == 2
+
+    # Segunda ejecución con modo forced: protocolo distinto, no debe acumular
+    second = run_benchmark(
+        device="cpu",
+        manifest=manifest,
+        output_dir=out,
+        incipits=1,
+        staves=(2,),
+        runs=2,
+        power_throttling="forced",
+        engine_factory=lambda _use_gpu: _StubEngine(),
+    )
+    assert second["devices"]["cpu"]["invocations"] == 1
+    assert second["devices"]["cpu"]["configurations"]["incipit_1_staff"]["stats"]["count"] == 2
+    assert second["devices"]["cpu"]["protocol"]["power_throttling"] == "forced"
