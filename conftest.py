@@ -19,8 +19,8 @@ def _snapshot(directory: Path) -> dict[str, tuple[int, int]]:
     if not directory.is_dir():
         return {}
     return {
-        path.name: (path.stat().st_mtime_ns, path.stat().st_size)
-        for path in directory.iterdir()
+        path.relative_to(directory).as_posix(): (path.stat().st_mtime_ns, path.stat().st_size)
+        for path in directory.rglob("*")
         if path.is_file()
     }
 
