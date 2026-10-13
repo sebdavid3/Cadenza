@@ -93,7 +93,7 @@ def test_alembic_migrations_offline_sql_generation_for_postgresql() -> None:
     assert "CREATE TABLE effort_metrics" in generated_sql
     assert "CREATE TABLE model_versions" in generated_sql
     assert "0010_model_versions" in generated_sql
-    assert "0011_session_condition_and_test_score" in generated_sql
+    assert "0011_condition_and_test_score" in generated_sql
 
 
 def _get_live_postgres_url() -> str | None:
@@ -105,15 +105,27 @@ def _get_live_postgres_url() -> str | None:
 def postgres_engine() -> Any:
     """Fixture que conecta a PostgreSQL real o salta las pruebas si no hay servidor."""
     url = _get_live_postgres_url()
+    require_postgres = os.getenv("CADENZA_REQUIRE_POSTGRES", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
     if not url or not url.startswith("postgresql"):
-        pytest.skip("Servidor PostgreSQL no configurado (definir CADENZA_TEST_POSTGRES_URL)")
+        msg = "Servidor PostgreSQL no configurado (definir CADENZA_TEST_POSTGRES_URL)"
+        if require_postgres:
+            pytest.fail(msg)
+        pytest.skip(msg)
 
     try:
         engine = create_engine(url, pool_pre_ping=True)
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
     except (OperationalError, Exception) as exc:
-        pytest.skip(f"No se pudo conectar al servidor PostgreSQL en {url}: {exc}")
+        msg = f"No se pudo conectar al servidor PostgreSQL en {url}: {exc}"
+        if require_postgres:
+            pytest.fail(msg)
+        pytest.skip(msg)
 
     return engine
 
@@ -138,10 +150,14 @@ def test_postgres_live_migrations_and_jsonb_types(postgres_engine: Any) -> None:
     assert "users" in table_names
     assert "artifacts" in table_names
     assert "effort_metrics" in table_names
+    assert "model_versions" in table_names
 
-    # Verificar que las columnas JSON son efectivamente JSONB en PostgreSQL
+    # Verificar que las columnas JSON son JSONB en PostgreSQL
+    # y que las migraciones alcanzaron head (0011)
     session_cols = {c["name"]: c for c in inspector.get_columns("sessions")}
     assert isinstance(session_cols["document"]["type"], JSONB)
+    assert "condition" in session_cols
+    assert "test_score_id" in session_cols
 
     finding_cols = {c["name"]: c for c in inspector.get_columns("findings")}
     assert isinstance(finding_cols["anchor"]["type"], JSONB)
@@ -205,9 +221,7 @@ def test_postgres_live_unique_constraint_and_restrict_delete(postgres_engine: An
 
     # 2. Verificar violación de ondelete='RESTRICT' en sessions
     with session_factory() as db:
-        sess_to_delete = db.get(Session, "s-pg-test")
-        assert sess_to_delete is not None
-        db.delete(sess_to_delete)
         with pytest.raises(IntegrityError):
+            db.execute(text("DELETE FROM sessions WHERE id = 's-pg-test'"))
             db.commit()
         db.rollback()

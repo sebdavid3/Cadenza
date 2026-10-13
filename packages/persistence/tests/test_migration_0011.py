@@ -41,7 +41,7 @@ def _load_migration_0011() -> types.ModuleType:
 
 def test_migration_0011_metadata() -> None:
     mod = _load_migration_0011()
-    assert mod.revision == "0011_session_condition_and_test_score"
+    assert mod.revision == "0011_condition_and_test_score"
     assert mod.down_revision == "0010_model_versions"
 
 
