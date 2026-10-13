@@ -208,6 +208,12 @@ uv pip uninstall onnxruntime onnxruntime-gpu
 uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
 ```
 
+> **Cuidado con `uv sync`.** HOMR y oemer son extras opcionales y
+> `onnxruntime-gpu==1.26.0` no coincide con la versión del *lockfile*: un `uv sync`
+> normal no selecciona extras y los desinstala sin avisar (los tests de HOMR pasan
+> entonces a omitirse). Después de instalarlos, sincroniza con `uv sync --inexact`
+> y ejecuta con `uv run --no-sync`.
+
 `HOMREngine` expone automáticamente los `bin` de los wheels NVIDIA al `PATH`
 (`ensure_cuda_dll_dirs`), necesario porque cuDNN carga sus sub-librerías durante
 la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.

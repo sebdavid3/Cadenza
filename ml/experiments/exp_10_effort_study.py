@@ -369,6 +369,7 @@ def run_effort_study_export(
     session_rows: list[EffortSessionRow] = []
     measure_rows: list[MeasureInterventionRow] = []
 
+    synthetic = True
     if smoke or not db_url:
         session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
     else:
@@ -377,8 +378,11 @@ def run_effort_study_export(
         factory = create_session_factory(engine)
         with factory() as db:
             session_rows, measure_rows = extract_study_data_from_db(db)
-        if not session_rows:
-            # Fallback determinista si la BD no tiene sesiones de estudio
+        if session_rows:
+            synthetic = False
+        else:
+            # La base no tiene sesiones de estudio: se generan datos sintéticos y la
+            # salida queda marcada como tal, nunca como resultado real.
             session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
 
     # 1. Exportar esfuerzo a nivel de sesión CSV
@@ -403,6 +407,15 @@ def run_effort_study_export(
 
     # 3. Exportar resumen estadístico JSON
     summary = compute_summary_statistics(session_rows)
+    # Sin base de datos de un estudio real, las sesiones son sintéticas: sirven para
+    # probar la exportación, no como resultado del estudio con participantes (#96).
+    summary["data_source"] = "synthetic" if synthetic else "database"
+    summary["simulated"] = synthetic
+    if synthetic:
+        summary["simulation_warning"] = (
+            "Datos sintéticos: no hay sesiones de un estudio real. "
+            "No citar como resultado del estudio con participantes (#96)."
+        )
     summary_json_path = out_dir / "effort_study_summary.json"
     with summary_json_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)

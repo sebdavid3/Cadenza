@@ -55,7 +55,7 @@ Requiere el extra de métricas (`musicdiff`), ya incluido en el entorno de
 desarrollo:
 
 ```powershell
-uv sync        # instala cadenza-learning[metrics] vía el grupo dev
+uv sync --inexact   # instala cadenza-learning[metrics] vía el grupo dev sin quitar HOMR/oemer
 ```
 
 ### `corpus.py` — registro, descarga y manifiesto
@@ -168,5 +168,6 @@ Los experimentos de Fase 5 usan `SEED = 20260920` y no dependen de red, GPU ni
 base de datos. Los de Fase 6 fijan el corpus por hash en `data/manifest.json`.
 Los jobs offline fijan `dataset_hash`, `config_hash` y semilla en cada artefacto.
 Las salidas en `results/` y el corpus en `data/` están ignorados por git (ver
-`.gitignore`); sus valores se citan en la tesis.
+`.gitignore`). Solo se citan en la tesis las salidas medidas: las que llevan
+`"simulated": true` son simuladas y no son resultados.
 

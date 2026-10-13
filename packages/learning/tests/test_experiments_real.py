@@ -228,7 +228,8 @@ def test_exp_09_multicorpus_smoke() -> None:
 
     muscima_data = res["corpora_evaluated"]["muscima_pp"]
     assert muscima_data["analysis"]["has_sequential_symbolic_ground_truth"] is False
-    assert muscima_data["analysis"]["optical_generalization_evaluation"]["failure_rate"] == 1.0
+    assert muscima_data["analysis"]["optical_generalization_evaluation"]["evaluated"] is False
+    assert res["simulated"] is True
 
 
 def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:
@@ -324,6 +325,22 @@ def test_exp_10_effort_study_smoke(tmp_path: Path) -> None:
     # Reducciones mayores a 0
     assert summary["effort_reduction"]["time_per_measure_reduction_percent"] > 0
     assert summary["effort_reduction"]["cognitive_workload_reduction_percent"] > 0
+    assert summary["simulated"] is True
+    assert summary["data_source"] == "synthetic"
+
+
+def test_exp_10_empty_database_is_marked_as_synthetic(tmp_path: Path) -> None:
+    """Una base sin sesiones de estudio no puede producir un resultado «real» (#96)."""
+    from ml.experiments import exp_10_effort_study
+
+    summary = exp_10_effort_study.run_effort_study_export(
+        db_url=f"sqlite+pysqlite:///{(tmp_path / 'empty.db').as_posix()}",
+        output_dir=tmp_path / "out",
+    )
+
+    assert summary["simulated"] is True
+    assert summary["data_source"] == "synthetic"
+    assert "simulation_warning" in summary
 
 
 def test_ml_cli_export_effort(tmp_path: Path) -> None:

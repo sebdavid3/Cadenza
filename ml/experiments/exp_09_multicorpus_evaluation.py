@@ -107,15 +107,10 @@ def get_muscima_structural_analysis() -> dict[str, Any]:
             "y de la literatura actual."
         ),
         "optical_generalization_evaluation": {
-            "tested_model": "HOMR (CRNN/CTC + Transformer entrenado en PrIMuS impreso)",
-            "handwritten_samples_tested": 10,
-            "failure_rate": 1.0,
-            "failure_rate_percent": 100.0,
-            "dominant_error": "OMRTranscriptionError: No staffs found / line segmentation failure",
-            "explanation": (
-                "Los modelos entrenados exclusivamente sobre tipografía musical impresa sufren "
-                "una degradación catastrófica ante la curvatura, variabilidad de trazo e "
-                "irregularidad de los pentagramas manuscritos modernos de CVC-MUSCIMA / MUSCIMA++."
+            "evaluated": False,
+            "note": (
+                "HOMR no se ha ejecutado sobre MUSCIMA++: el corpus no está descargado y no "
+                "hay ninguna medición de su tasa de fallo en manuscritos (#96, #102)."
             ),
         },
         "formal_scope_decision": (
@@ -315,6 +310,11 @@ def run_multicorpus_experiment(
         summary: dict[str, Any] = {
             "experiment": "exp_09_multicorpus_evaluation",
             "mode": "smoke" if smoke else "multicorpus",
+            "simulated": True,
+            "simulation_warning": (
+                "Resultado simulado: las filas de SMB son sintéticas (smb_smoke_*) y MUSCIMA++ "
+                "no se ha evaluado. No citar como medición (#96, #102)."
+            ),
             "seed": seed,
             "corpora_evaluated": {
                 "primus": {
@@ -344,10 +344,9 @@ def run_multicorpus_experiment(
                     "< MUSCIMA++ (manuscrito no estructurado)"
                 ),
                 "homr_adaptation": (
-                    "HOMR funciona óptimamente en incipits monofónicos impresos (91% éxito). "
-                    "En SMB (piano), procesa pentagramas múltiples pero es vulnerable a la "
-                    "segmentación de página completa multi-sistema. En MUSCIMA++, falla de forma "
-                    "generalizada (100% fallos) debido a la divergencia caligráfica."
+                    "Medido solo sobre PrIMuS: HOMR transcribe 91 de 100 incipits monofónicos "
+                    "impresos. Su comportamiento sobre SMB (piano) y MUSCIMA++ (manuscrito) "
+                    "no está medido."
                 ),
                 "scope_recommendation": (
                     "Mantener PrIMuS y SMB como benchmarks evaluables del prototipo actual, "
