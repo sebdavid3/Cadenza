@@ -403,6 +403,11 @@ def run_effort_study_export(
 
     # 3. Exportar resumen estadístico JSON
     summary = compute_summary_statistics(session_rows)
+    # Sin base de datos de un estudio real, las sesiones son sintéticas: sirven para
+    # probar la exportación, no como resultado del estudio con participantes (#96).
+    synthetic = smoke or not db_url
+    summary["data_source"] = "synthetic" if synthetic else "database"
+    summary["simulated"] = synthetic
     summary_json_path = out_dir / "effort_study_summary.json"
     with summary_json_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)

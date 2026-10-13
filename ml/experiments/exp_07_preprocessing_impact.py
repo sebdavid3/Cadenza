@@ -274,6 +274,12 @@ def run_preprocessing_experiment(
             "max_otsu_threshold": max(thresholds) if thresholds else 0,
             "mean_rescale_factor": round(statistics.mean(factors), 2) if factors else 1.0,
         },
+        "simulated": True,
+        "simulation_warning": (
+            "Resultado simulado: este script no ejecuta HOMR. Marca como recuperadas un "
+            "conjunto fijo de partituras y les asigna un OMR-NED constante. "
+            "No citar como medición (#96, #98)."
+        ),
         "baseline": {
             "successes": len(b_successes),
             "failures": len(b_failures),

@@ -228,7 +228,8 @@ def test_exp_09_multicorpus_smoke() -> None:
 
     muscima_data = res["corpora_evaluated"]["muscima_pp"]
     assert muscima_data["analysis"]["has_sequential_symbolic_ground_truth"] is False
-    assert muscima_data["analysis"]["optical_generalization_evaluation"]["failure_rate"] == 1.0
+    assert muscima_data["analysis"]["optical_generalization_evaluation"]["evaluated"] is False
+    assert res["simulated"] is True
 
 
 def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:

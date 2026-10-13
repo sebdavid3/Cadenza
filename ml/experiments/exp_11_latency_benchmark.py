@@ -135,6 +135,11 @@ def run_benchmark(
         "benchmark_date": "2026-10-08",
         "device_effective": device,
         "smoke_mode": smoke,
+        "simulated": True,
+        "simulation_warning": (
+            "Resultado simulado: las latencias son constantes escritas en el codigo, no mediciones."
+            " No citar como evidencia (#96, #97)."
+        ),
         "runs_per_config": sample_runs,
         "client_timeout_reference_s": 30.0,
         "configurations": {},

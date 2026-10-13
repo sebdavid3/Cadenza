@@ -7,6 +7,16 @@
 
 ---
 
+> **Corrección del 2026-10-12.** La sección «Evidencia empírica» de este ADR no
+> contiene mediciones: `ml/experiments/exp_11_latency_benchmark.py` devolvía listas
+> de constantes escritas en el código, tanto en modo `--smoke` como en modo completo,
+> y no ejecutaba ningún motor. Las latencias de la tabla (incluido el peor caso de
+> 7,35 s) y los márgenes derivados **no deben citarse como resultados**.
+>
+> La decisión de mantener `POST /transcribe` síncrono queda **provisional** hasta
+> medir de verdad con HOMR en [#97](https://github.com/sebdavid3/Cadenza/issues/97). Si la medición contradice la decisión,
+> se sustituirá por un ADR nuevo.
+
 ## Contexto
 
 El issue #37 (deuda técnica D42) planteó el análisis de si la operación de transcripción inicial (`POST /transcribe`) debía evolucionar hacia un modelo asíncrono desacoplado basado en trabajos en segundo plano (*background jobs* con sondeo de estado mediante identificador de tarea o WebSockets, colas de mensajería como Celery/Redis/RabbitMQ, y estados de sesión intermedios como `PENDING`/`PROCESSING`).
