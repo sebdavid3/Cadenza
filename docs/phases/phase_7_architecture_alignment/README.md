@@ -125,7 +125,8 @@ romper el visor.
       arquitectura.
 - [x] Experimentos de esfuerzo y de aprendizaje activo reproducidos sobre datos
       reales de PrIMuS (`exp_01`, `exp_02`, `exp_03`, `exp_05`, `exp_06`). Los
-      experimentos `exp_07` a `exp_11` eran simulados o no tenían datos ([#96](https://github.com/sebdavid3/Cadenza/issues/96)).
+      experimentos `exp_07` a `exp_11` eran simulados o no tenían datos ([#96](https://github.com/sebdavid3/Cadenza/issues/96));
+      `exp_07` y `exp_11` miden ya con el motor real ([#98](https://github.com/sebdavid3/Cadenza/issues/98), [#97](https://github.com/sebdavid3/Cadenza/issues/97)).
 - [x] CI verde: `pytest`, `mypy --strict`, `ruff`, `black`, `vitest`.
 - [x] Contrato OpenAPI v1 publicado y tipos del frontend generados a partir de él.
 - [x] `PROJECT_STATE.md` actualizado (fase, deuda, bitácora).

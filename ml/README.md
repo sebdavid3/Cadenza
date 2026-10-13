@@ -120,6 +120,33 @@ uv run python ml/experiments/exp_04_homr_transcribe.py
 `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`. El `run_info.json` de cada run registra
 versión de ORT, providers y si la sesión CUDA se creó de verdad.
 
+### `exp_07_preprocessing_impact.py` — impacto del preprocesado
+
+Transcribe el corpus con HOMR bajo cada configuración de preprocesado y la compara
+con la línea base de `exp_04`, partitura a partitura. Necesita el extra `homr`.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py                 # transcribe y mide
+uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py --no-transcribe # solo mide
+uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py --retry-failures # reintenta los fallos
+```
+
+La configuración `control` transcribe sin preprocesado en la misma ejecución: su diferencia
+con la línea base mide cuánto varía el resultado entre dos ejecuciones. Solo el error de
+transcripción del motor cuenta como fallo de una partitura; cualquier otro detiene el script.
+
+### `exp_11_latency_benchmark.py` — latencia de transcripción
+
+Cronometra `HOMREngine` sobre incipits y páginas compuestas. Un dispositivo por
+ejecución; las ejecuciones sucesivas acumulan muestras (`--reset` las descarta).
+
+```powershell
+uv run --no-sync python ml/experiments/exp_11_latency_benchmark.py --device gpu --reset
+uv run --no-sync python ml/experiments/exp_11_latency_benchmark.py --device cpu --reset
+```
+
+Ninguno de los dos tiene valores de reserva: sin motor o sin corpus terminan con error.
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
