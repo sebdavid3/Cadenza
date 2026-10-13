@@ -421,7 +421,7 @@ def main() -> None:
             f"OMR-NED éxitos={stats['mean_omr_ned_successes']} "
             f"penalizado={stats['mean_omr_ned_penalized']} "
             f"recuperadas={len(versus['recovered'])} regresiones={len(versus['regressed'])} "
-            f"Δ OMR-NED pareado={versus['paired_mean_omr_ned_delta']}"
+            f"Delta OMR-NED pareado={versus['paired_mean_omr_ned_delta']}"
         )
 
 

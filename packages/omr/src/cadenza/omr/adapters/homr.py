@@ -14,6 +14,7 @@ import os
 import shutil
 import site
 import tempfile
+from concurrent.futures import Future
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -46,13 +47,45 @@ def get_effective_device(use_gpu: bool = False) -> str:
     return "cpu"
 
 
+def _no_title_detection(*_args: Any, **_kwargs: Any) -> Future[str]:
+    """Sustituto de `homr.main.detect_title` que evita lanzar el OCR.
+
+    Cadenza no utiliza el título en el dominio ni en el ScoreIR. La detección
+    de título de HOMR ejecuta RapidOCR en un ejecutor mono-hilo y espera hasta
+    60 s, provocando picos de latencia de decenas de segundos y TimeoutError
+    en rachas (#106). Devolver un Future resuelto con cadena vacía elimina
+    esa cola sin alterar la transcripción musical.
+    """
+    future: Future[str] = Future()
+    future.set_result("")
+    return future
+
+
 def _import_homr() -> Any:
-    """Importa `homr.main` de forma perezosa, con mensaje de error accionable."""
+    """Importa `homr.main` de forma perezosa, con mensaje de error accionable.
+
+    Desactiva la detección de título sustituyendo `homr_main.detect_title` por un
+    `Future` resuelto con `""` para eliminar la cola de latencia de RapidOCR (#106).
+    La sustitución es idempotente y para todo el proceso. Si `homr.main` no expone
+    `detect_title`, se eleva `RuntimeError` para evitar que una versión futura de
+    HOMR reintroduzca el OCR en silencio.
+    """
 
     try:
         from homr import main as homr_main
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise RuntimeError(_HOMR_EXTRA_HINT) from exc
+
+    if not hasattr(homr_main, "detect_title"):
+        raise RuntimeError(
+            "homr.main no contiene el atributo 'detect_title'. "
+            "Verifica la versión instalada de HOMR; omitir esta verificación "
+            "podría reintroducir en silencio la cola de latencia por OCR de título (#106)."
+        )
+
+    if homr_main.detect_title is not _no_title_detection:
+        homr_main.detect_title = _no_title_detection
+
     return homr_main
 
 

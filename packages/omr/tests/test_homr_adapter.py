@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cadenza.omr import HOMREngine
@@ -56,3 +57,74 @@ def test_effective_device_with_mocked_gpu(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert get_effective_device(use_gpu=True) == "cuda"
     assert HOMREngine(use_gpu=True).device == "cuda"
+
+
+def test_import_homr_disables_detect_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    from cadenza.omr.adapters.homr import _import_homr
+
+    fake_homr: Any = types.ModuleType("homr")
+    fake_main: Any = types.ModuleType("homr.main")
+    original_detect_title = MagicMock()
+    fake_main.detect_title = original_detect_title
+    fake_homr.main = fake_main
+
+    monkeypatch.setitem(sys.modules, "homr", fake_homr)
+    monkeypatch.setitem(sys.modules, "homr.main", fake_main)
+
+    imported_main = _import_homr()
+    assert imported_main is fake_main
+    assert fake_main.detect_title is not original_detect_title
+
+    future = fake_main.detect_title("debug_obj", "top_staff_obj")
+    assert future.done()
+    assert future.result() == ""
+    original_detect_title.assert_not_called()
+
+    # Llamarlo dos veces es idempotente y no cambia nada
+    patched_detect_title = fake_main.detect_title
+    imported_again = _import_homr()
+    assert imported_again is fake_main
+    assert fake_main.detect_title is patched_detect_title
+    original_detect_title.assert_not_called()
+
+
+def test_import_homr_raises_if_detect_title_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    from cadenza.omr.adapters.homr import _import_homr
+
+    fake_homr: Any = types.ModuleType("homr")
+    fake_main: Any = types.ModuleType("homr.main")
+    fake_homr.main = fake_main
+
+    monkeypatch.setitem(sys.modules, "homr", fake_homr)
+    monkeypatch.setitem(sys.modules, "homr.main", fake_main)
+
+    with pytest.raises(RuntimeError, match="detect_title"):
+        _import_homr()
+
+
+@pytest.mark.skipif(not HOMR_INSTALLED, reason="requiere el extra opcional 'homr'")
+def test_homr_real_transcription_does_not_initialize_ocr_reader() -> None:
+    import json
+
+    import homr.title_detection
+
+    manifest_path = Path(__file__).resolve().parents[3] / "data" / "manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("no hay data/manifest.json para inferencia real de HOMR")
+    entries = json.loads(manifest_path.read_text(encoding="utf-8"))["entries"]
+    real_image = manifest_path.parent / entries[0]["image"]
+    if not real_image.is_file():
+        pytest.skip(f"no existe la imagen del manifiesto: {real_image}")
+
+    assert homr.title_detection._reader is None
+    engine = HOMREngine(use_gpu=False)
+    doc = engine.transcribe(real_image)
+    assert doc is not None
+    assert homr.title_detection._reader is None
