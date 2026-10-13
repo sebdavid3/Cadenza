@@ -6,7 +6,14 @@ preprocesado y compara, partitura a partitura, con la línea base sin preprocesa
 
 Las configuraciones están fijadas en este archivo antes de medir. No hay valores de
 reserva ni listas de casos escritas a mano: sin el motor, sin el corpus o sin las
-predicciones de la línea base el script termina con un error.
+predicciones de la línea base el script termina con un error. Solo cuenta como fallo
+de una partitura el error de transcripción del motor (`OMRTranscriptionError`);
+cualquier otro error es del entorno y detiene la ejecución.
+
+La configuración `control` transcribe sin preprocesado en la misma ejecución que las
+demás. Su diferencia con la línea base no se debe al preprocesado: mide cuánto varía
+el resultado entre dos ejecuciones (revisión del adaptador, dispositivo, no
+determinismo del motor) y es el umbral por debajo del cual un efecto no es atribuible.
 
 Fases:
 1. `transcribe_config`: una predicción MusicXML por imagen en
@@ -34,6 +41,7 @@ from typing import Any, Protocol
 
 from cadenza.interchange import read_score
 from cadenza.learning import omr_ned_pair, score_ser_pair
+from cadenza.omr import OMRTranscriptionError
 from cadenza.omr.preprocessing import PreprocessingConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,8 +56,10 @@ from ml.experiments.common import (  # noqa: E402
     write_run_info,
 )
 
-# Configuraciones evaluadas, fijadas antes de medir.
+# Configuraciones evaluadas, fijadas antes de medir. `control` no preprocesa.
+CONTROL = "control"
 CONFIGS: dict[str, PreprocessingConfig] = {
+    CONTROL: PreprocessingConfig(enabled=False),
     "binarize": PreprocessingConfig(enabled=True, binarize=True),
     "rescale": PreprocessingConfig(enabled=True, rescale=True),
     "deskew_binarize_rescale": PreprocessingConfig(
@@ -60,6 +70,8 @@ CONFIGS: dict[str, PreprocessingConfig] = {
 CSV_FIELDS = ["id", "config", "status", "omr_ned", "ser", "error"]
 # Diferencias menores que esto se consideran empate (ruido de redondeo).
 TIE_TOLERANCE = 1e-9
+# Valor imputado a OMR-NED y a SER cuando la transcripción falla: el máximo de ambas.
+FAILURE_PENALTY = 1.0
 
 
 class Transcriber(Protocol):
@@ -101,18 +113,30 @@ def transcribe_config(
     *,
     use_gpu: bool = True,
     force: bool = False,
+    retry_failures: bool = False,
     limit: int | None = None,
     engine_factory: EngineFactory | None = None,
 ) -> dict[str, Any]:
     """Transcribe el corpus con una configuración de preprocesado.
 
     Reutiliza las predicciones y los fallos ya registrados salvo que `force` sea cierto,
-    de modo que una ejecución interrumpida se puede reanudar.
+    de modo que una ejecución interrumpida se puede reanudar. Con `retry_failures` se
+    conservan las predicciones y se vuelven a intentar solo los fallos registrados. Se
+    niega a reutilizar las predicciones de otra configuración de preprocesado.
     """
     _, entries = _load_manifest(manifest_path, limit)
     out_dir = predictions_dir(manifest_path, config_name)
     out_dir.mkdir(parents=True, exist_ok=True)
     failures_file = out_dir / "failures.json"
+    info_file = out_dir / "run_info.json"
+
+    if info_file.is_file() and not force:
+        previous = json.loads(info_file.read_text(encoding="utf-8")).get("preprocessing")
+        if previous != config.to_primitive():
+            raise ValueError(
+                f"Las predicciones de {out_dir} se generaron con otra configuración de "
+                f"preprocesado ({previous}); repite la transcripción con --force."
+            )
 
     failures: dict[str, str] = {}
     if failures_file.is_file() and not force:
@@ -120,6 +144,7 @@ def transcribe_config(
             item["id"]: item["error"]
             for item in json.loads(failures_file.read_text(encoding="utf-8"))
         }
+    retry = set(failures) if retry_failures else set()
 
     engine = (engine_factory or _default_engine_factory)(config, use_gpu)
     written = 0
@@ -127,14 +152,16 @@ def transcribe_config(
     for entry in entries:
         entry_id = entry["id"]
         target = out_dir / f"{entry_id}.musicxml"
-        if not force and (target.is_file() or entry_id in failures):
+        if not force and entry_id not in retry and (target.is_file() or entry_id in failures):
             reused += 1
             continue
         try:
             xml_text = engine.transcribe_musicxml(manifest_path.parent / entry["image"])
-        except Exception as exc:
+        except OMRTranscriptionError as exc:
             # Un fallo del motor es un resultado del experimento, no un error del script.
-            failures[entry_id] = f"{type(exc).__name__}: {exc}"
+            # El adaptador envuelve la excepción original: se conserva su tipo.
+            cause = type(exc.__cause__).__name__ if exc.__cause__ is not None else "sin causa"
+            failures[entry_id] = f"{type(exc).__name__} [{cause}]: {exc}"
             target.unlink(missing_ok=True)
         else:
             failures.pop(entry_id, None)
@@ -149,15 +176,21 @@ def transcribe_config(
             encoding="utf-8",
         )
 
-    (out_dir / "run_info.json").write_text(
+    info_file.write_text(
         json.dumps(
-            {"config": config_name, "preprocessing": config.to_primitive(), "use_gpu": use_gpu},
+            {
+                "config": config_name,
+                "preprocessing": config.to_primitive(),
+                "use_gpu_requested": use_gpu,
+                "device": getattr(engine, "device", None),
+            },
             indent=2,
             ensure_ascii=False,
         ),
         encoding="utf-8",
     )
-    return {"written": written, "reused": reused, "failures": len(failures)}
+    in_scope = sum(1 for entry in entries if entry["id"] in failures)
+    return {"written": written, "reused": reused, "failures": in_scope}
 
 
 def measure_predictions(
@@ -188,8 +221,8 @@ def measure_predictions(
         if entry_id in failures:
             measured[entry_id] = {
                 "status": "failure",
-                "omr_ned": 1.0,
-                "ser": 1.0,
+                "omr_ned": FAILURE_PENALTY,
+                "ser": FAILURE_PENALTY,
                 "error": failures[entry_id],
             }
             continue
@@ -271,6 +304,7 @@ def run_preprocessing_experiment(
     transcribe: bool = True,
     use_gpu: bool = True,
     force: bool = False,
+    retry_failures: bool = False,
     limit: int | None = None,
     write_results: bool = True,
     engine_factory: EngineFactory | None = None,
@@ -296,6 +330,7 @@ def run_preprocessing_experiment(
                 config,
                 use_gpu=use_gpu,
                 force=force,
+                retry_failures=retry_failures,
                 limit=limit,
                 engine_factory=engine_factory,
             )
@@ -316,6 +351,10 @@ def run_preprocessing_experiment(
         "simulated": False,
         "manifest": str(manifest),
         "total_samples": len(baseline),
+        "failure_imputation": (
+            f"OMR-NED = {FAILURE_PENALTY} y SER = {FAILURE_PENALTY} por cada transcripción "
+            "fallida, en las métricas penalizadas y en el CSV"
+        ),
         "baseline": summarize(baseline),
         "configurations": per_config,
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
@@ -350,6 +389,11 @@ def main() -> None:
     parser.add_argument("--cpu", action="store_true", help="Forzar inferencia en CPU")
     parser.add_argument("--force", action="store_true", help="Repetir las transcripciones")
     parser.add_argument(
+        "--retry-failures",
+        action="store_true",
+        help="Volver a intentar solo las transcripciones registradas como fallo",
+    )
+    parser.add_argument(
         "--no-transcribe",
         action="store_true",
         help="No transcribir: medir solo las predicciones ya existentes",
@@ -361,6 +405,7 @@ def main() -> None:
         transcribe=not args.no_transcribe,
         use_gpu=not args.cpu,
         force=args.force,
+        retry_failures=args.retry_failures,
         limit=args.limit,
     )
     base = summary["baseline"]

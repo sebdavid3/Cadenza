@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 import pytest
+from cadenza.learning import omr_ned_pair
+from cadenza.omr import OMRTranscriptionError
 
 from ml.experiments import common, exp_01_effort, exp_02_active_learning, exp_03_omr_quality
 
@@ -160,7 +162,11 @@ def _exp07_baseline(manifest: Path, successes: list[str], failures: list[str]) -
 
 
 class _Exp07Engine:
-    """Motor de prueba: devuelve el MusicXML indicado por partitura o falla."""
+    """Motor de prueba: devuelve el MusicXML indicado por partitura o falla.
+
+    `fail` imita al adaptador (envuelve la excepción del motor en
+    `OMRTranscriptionError`); `env` imita un error del entorno.
+    """
 
     def __init__(self, outcomes: dict[str, str]) -> None:
         self._outcomes = outcomes
@@ -173,7 +179,9 @@ class _Exp07Engine:
         self.calls.append(entry_id)
         outcome = self._outcomes[entry_id]
         if outcome == "fail":
-            raise RuntimeError("No staffs found")
+            raise OMRTranscriptionError("No staffs found") from TimeoutError()
+        if outcome == "env":
+            raise RuntimeError("HOMREngine requiere el extra opcional 'homr'")
         if outcome == "worse":
             return self._exact.replace("<step>C</step>", "<step>E</step>")
         return self._exact
@@ -197,16 +205,33 @@ def test_exp_07_measures_recovery_and_regression(tmp_path: Path) -> None:
 
     assert res["simulated"] is False
     assert res["total_samples"] == 3
+    # Línea base: dos aciertos exactos (0) y un fallo (penalizado con 1).
     assert res["baseline"]["failures"] == 1
+    assert res["baseline"]["failure_rate"] == 0.3333
     assert res["baseline"]["mean_omr_ned_successes"] == 0.0
+    assert res["baseline"]["mean_omr_ned_penalized"] == 0.3333
+    assert res["baseline"]["mean_ser_penalized"] == 0.3333
+
+    # Variante: s0 empeora, s1 se recupera (exacta) y s2 falla.
+    predictions = exp_07.predictions_dir(manifest, "probe")
+    ground_truth = manifest.parent / "mini" / "s0" / "s0.musicxml"
+    worse_ned = omr_ned_pair(predictions / "s0.musicxml", ground_truth).omr_ned
+    assert worse_ned > 0
 
     probe = res["configurations"]["probe"]
     assert probe["summary"]["failures"] == 1
-    assert probe["versus_baseline"]["recovered"] == ["s1"]
-    assert probe["versus_baseline"]["regressed"] == ["s2"]
-    assert probe["versus_baseline"]["paired_successes"] == 1
-    assert probe["versus_baseline"]["paired_omr_ned_worsened"] == 1
-    assert probe["versus_baseline"]["paired_mean_omr_ned_delta"] > 0
+    assert probe["summary"]["failure_rate"] == 0.3333
+    assert probe["summary"]["mean_omr_ned_successes"] == round(worse_ned / 2, 4)
+    assert probe["summary"]["mean_omr_ned_penalized"] == round((worse_ned + 1.0) / 3, 4)
+    versus = probe["versus_baseline"]
+    assert versus["recovered"] == ["s1"]
+    assert versus["regressed"] == ["s2"]
+    assert versus["paired_successes"] == 1
+    assert versus["paired_mean_omr_ned_delta"] == round(worse_ned, 4)
+    assert versus["paired_mean_ser_delta"] > 0
+    assert versus["paired_omr_ned_worsened"] == 1
+    assert versus["paired_omr_ned_improved"] == 0
+    assert versus["paired_omr_ned_equal"] == 0
     assert sorted(engine.calls) == ["s0", "s1", "s2"]
 
 
@@ -214,7 +239,7 @@ def test_exp_07_requires_baseline_predictions(tmp_path: Path) -> None:
     from ml.experiments import exp_07_preprocessing_impact as exp_07
 
     manifest = _exp07_corpus(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(FileNotFoundError, match="directorio de predicciones"):
         exp_07.run_preprocessing_experiment(
             manifest,
             engine_factory=lambda _config, _use_gpu: _Exp07Engine({}),
@@ -253,6 +278,149 @@ def test_exp_07_transcription_resumes_without_repeating(tmp_path: Path) -> None:
 
     forced = exp_07.transcribe_config(manifest, "probe", config, engine_factory=factory, force=True)
     assert forced == {"written": 2, "reused": 0, "failures": 1}
+
+    # El registro conserva el tipo de la excepción original del motor.
+    recorded = json.loads(
+        (exp_07.predictions_dir(manifest, "probe") / "failures.json").read_text(encoding="utf-8")
+    )
+    assert recorded == [
+        {"id": "s1", "error": "OMRTranscriptionError [TimeoutError]: No staffs found"}
+    ]
+
+    # Con `limit`, los fallos contados son solo los de las partituras consideradas.
+    limited = exp_07.transcribe_config(manifest, "probe", config, engine_factory=factory, limit=1)
+    assert limited == {"written": 0, "reused": 1, "failures": 0}
+
+
+def test_exp_07_retry_failures_repeats_only_recorded_failures(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    config = PreprocessingConfig(enabled=True, rescale=True)
+    failing = _Exp07Engine({"s0": "exact", "s1": "fail", "s2": "exact"})
+    exp_07.transcribe_config(manifest, "probe", config, engine_factory=lambda _c, _g: failing)
+
+    recovered = _Exp07Engine({"s0": "exact", "s1": "exact", "s2": "exact"})
+    result = exp_07.transcribe_config(
+        manifest, "probe", config, engine_factory=lambda _c, _g: recovered, retry_failures=True
+    )
+
+    assert recovered.calls == ["s1"]
+    assert result == {"written": 1, "reused": 2, "failures": 0}
+    assert (exp_07.predictions_dir(manifest, "probe") / "s1.musicxml").is_file()
+
+
+def test_exp_07_environment_error_is_not_recorded_as_failure(tmp_path: Path) -> None:
+    """Sin el motor, el experimento se detiene: no inventa fallos ni borra predicciones."""
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    config = PreprocessingConfig(enabled=True, rescale=True)
+    working = _Exp07Engine({"s0": "exact", "s1": "exact", "s2": "exact"})
+    exp_07.transcribe_config(manifest, "probe", config, engine_factory=lambda _c, _g: working)
+
+    broken = _Exp07Engine({"s0": "env", "s1": "env", "s2": "env"})
+    with pytest.raises(RuntimeError, match="homr"):
+        exp_07.transcribe_config(
+            manifest, "probe", config, engine_factory=lambda _c, _g: broken, force=True
+        )
+
+    predictions = exp_07.predictions_dir(manifest, "probe")
+    assert sorted(path.name for path in predictions.glob("*.musicxml")) == [
+        "s0.musicxml",
+        "s1.musicxml",
+        "s2.musicxml",
+    ]
+    assert json.loads((predictions / "failures.json").read_text(encoding="utf-8")) == []
+
+
+def test_exp_07_refuses_predictions_of_another_configuration(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    engine = _Exp07Engine({"s0": "exact", "s1": "exact", "s2": "exact"})
+
+    def factory(_config: PreprocessingConfig, _use_gpu: bool) -> _Exp07Engine:
+        return engine
+
+    exp_07.transcribe_config(
+        manifest, "probe", PreprocessingConfig(enabled=True, rescale=True), engine_factory=factory
+    )
+    other = PreprocessingConfig(enabled=True, binarize=True)
+    with pytest.raises(ValueError, match="otra configuración"):
+        exp_07.transcribe_config(manifest, "probe", other, engine_factory=factory)
+    assert len(engine.calls) == 3
+
+    forced = exp_07.transcribe_config(manifest, "probe", other, engine_factory=factory, force=True)
+    assert forced == {"written": 3, "reused": 0, "failures": 0}
+
+
+def test_exp_07_measures_existing_predictions_without_transcribing(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    _exp07_baseline(manifest, successes=["s0", "s1", "s2"], failures=[])
+    config = PreprocessingConfig(enabled=True, binarize=True)
+    engine = _Exp07Engine({"s0": "exact", "s1": "exact", "s2": "exact"})
+    exp_07.transcribe_config(manifest, "probe", config, engine_factory=lambda _c, _g: engine)
+
+    def forbidden(_config: PreprocessingConfig, _use_gpu: bool) -> _Exp07Engine:
+        raise AssertionError("no debe crearse el motor")
+
+    res = exp_07.run_preprocessing_experiment(
+        manifest,
+        configs={"probe": config},
+        transcribe=False,
+        engine_factory=forbidden,
+        write_results=False,
+    )
+
+    probe = res["configurations"]["probe"]
+    assert probe["transcription"] is None
+    assert probe["summary"]["failures"] == 0
+    assert probe["versus_baseline"]["paired_successes"] == 3
+    assert probe["versus_baseline"]["paired_omr_ned_equal"] == 3
+    assert probe["versus_baseline"]["paired_mean_omr_ned_delta"] == 0.0
+
+
+def test_exp_07_compare_without_common_successes() -> None:
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    success = {"status": "success", "omr_ned": 0.2, "ser": 0.1, "error": ""}
+    failure = {"status": "failure", "omr_ned": 1.0, "ser": 1.0, "error": "x"}
+    versus = exp_07.compare({"a": success, "b": failure}, {"a": failure, "b": success})
+
+    assert versus["recovered"] == ["b"]
+    assert versus["regressed"] == ["a"]
+    assert versus["paired_successes"] == 0
+    assert versus["paired_mean_omr_ned_delta"] is None
+    assert versus["paired_mean_ser_delta"] is None
+    assert exp_07.summarize({"a": success, "b": failure}) == {
+        "total": 2,
+        "successes": 1,
+        "failures": 1,
+        "failure_rate": 0.5,
+        "mean_omr_ned_successes": 0.2,
+        "median_omr_ned_successes": 0.2,
+        "mean_ser_successes": 0.1,
+        "mean_omr_ned_penalized": 0.6,
+        "mean_ser_penalized": 0.55,
+    }
+
+
+def test_exp_07_control_configuration_does_not_preprocess() -> None:
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    assert exp_07.CONFIGS[exp_07.CONTROL].enabled is False
+    assert all(config.enabled for name, config in exp_07.CONFIGS.items() if name != exp_07.CONTROL)
 
 
 def test_exp_07_writes_results_only_to_results_dir(tmp_path: Path) -> None:

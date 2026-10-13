@@ -128,7 +128,12 @@ con la línea base de `exp_04`, partitura a partitura. Necesita el extra `homr`.
 ```powershell
 uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py                 # transcribe y mide
 uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py --no-transcribe # solo mide
+uv run --no-sync python ml/experiments/exp_07_preprocessing_impact.py --retry-failures # reintenta los fallos
 ```
+
+La configuración `control` transcribe sin preprocesado en la misma ejecución: su diferencia
+con la línea base mide cuánto varía el resultado entre dos ejecuciones. Solo el error de
+transcripción del motor cuenta como fallo de una partitura; cualquier otro detiene el script.
 
 ### `exp_11_latency_benchmark.py` — latencia de transcripción
 
