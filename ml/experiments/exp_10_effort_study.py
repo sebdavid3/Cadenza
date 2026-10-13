@@ -358,12 +358,12 @@ def compute_summary_statistics(
 def run_effort_study_export(
     *,
     db_url: str | None = None,
-    output_dir: Path | str = RESULTS_DIR,
+    output_dir: Path | str | None = None,
     smoke: bool = False,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
     """Ejecuta la exportación y análisis del estudio de esfuerzo a formato tabular."""
-    out_dir = Path(output_dir)
+    out_dir = Path(output_dir) if output_dir is not None else RESULTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
     session_rows: list[EffortSessionRow] = []
