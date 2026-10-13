@@ -20,6 +20,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     event,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -233,7 +234,7 @@ class ModelVersionRecord(Base):
     ser: Mapped[float] = mapped_column(Float, nullable=False)
     omr_ned: Mapped[float] = mapped_column(Float, nullable=False)
     promoted: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0", nullable=False
+        Boolean, default=False, server_default=false(), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
