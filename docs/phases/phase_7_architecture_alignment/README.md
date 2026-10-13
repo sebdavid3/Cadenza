@@ -112,8 +112,9 @@ romper el visor.
 
 - [x] Todos los issues del milestone cerrados, o reclasificados con justificación
       ([#14](https://github.com/sebdavid3/Cadenza/issues/14) y [#31](https://github.com/sebdavid3/Cadenza/issues/31) cerrados con resultado negativo documentado en INV-0001; [#23](https://github.com/sebdavid3/Cadenza/issues/23) implementado con PyTorch condicional y ONNX; todos los 42 issues cerrados).
-- [x] Flujo de punta a punta sobre el motor real: imagen → HOMR/Oemer → validación →
-      corrección → exportación MusicXML/MIDI.
+- [ ] Flujo de punta a punta sobre el motor real: imagen → HOMR → validación →
+      corrección → exportación MusicXML/MIDI. Automatizado solo con `FakeOMREngine`;
+      con HOMR se corrige en [#97](https://github.com/sebdavid3/Cadenza/issues/97) (auditoría del 2026-10-12).
 - [x] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,
       armadura, métrica, alturas, duraciones ni ligaduras.
 - [x] Ninguna edición inválida puede entrar al log de ediciones.
@@ -123,7 +124,8 @@ romper el visor.
 - [x] `packages/application` y `packages/domain` superan sus tests de
       arquitectura.
 - [x] Experimentos de esfuerzo y de aprendizaje activo reproducidos sobre datos
-      reales (exp_01 a exp_10).
+      reales de PrIMuS (`exp_01`, `exp_02`, `exp_03`, `exp_05`, `exp_06`). Los
+      experimentos `exp_07` a `exp_11` eran simulados o no tenían datos ([#96](https://github.com/sebdavid3/Cadenza/issues/96)).
 - [x] CI verde: `pytest`, `mypy --strict`, `ruff`, `black`, `vitest`.
 - [x] Contrato OpenAPI v1 publicado y tipos del frontend generados a partir de él.
 - [x] `PROJECT_STATE.md` actualizado (fase, deuda, bitácora).

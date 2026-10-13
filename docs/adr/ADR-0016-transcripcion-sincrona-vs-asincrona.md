@@ -1,6 +1,6 @@
 # ADR-0016: Transcripción síncrona de página única frente a colas asíncronas
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado — **provisional** (evidencia retirada el 2026-10-12, ver nota)
 - **Fecha:** 2026-10-08
 - **Decisores:** Arquitecto de Software, Equipo de Desarrollo de Cadenza
 - **Relacionado:** [ADR-0001](ADR-0001-monolito-modular-hexagonal.md), [ADR-0003](ADR-0003-separacion-planos-computo.md), [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md), [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md), [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md)
@@ -8,9 +8,9 @@
 ---
 
 > **Corrección del 2026-10-12.** La sección «Evidencia empírica» de este ADR no
-> contiene mediciones: `ml/experiments/exp_11_latency_benchmark.py` devolvía listas
+> contiene mediciones: `ml/experiments/exp_11_latency_benchmark.py` devuelve listas
 > de constantes escritas en el código, tanto en modo `--smoke` como en modo completo,
-> y no ejecutaba ningún motor. Las latencias de la tabla (incluido el peor caso de
+> y no ejecuta ningún motor. Las latencias de la tabla (incluido el peor caso de
 > 7,35 s) y los márgenes derivados **no deben citarse como resultados**.
 >
 > La decisión de mantener `POST /transcribe` síncrono queda **provisional** hasta
@@ -31,7 +31,7 @@ Para fundamentar la decisión con rigor cuantitativo frente al jurado de tesis, 
 
 ---
 
-## Evidencia empírica (Benchmark de Latencia Exp 11)
+## Evidencia simulada — no citar (se sustituye en #97)
 
 Se midió la distribución estadística de los tiempos de transcripción de `HOMREngine` comparando:
 - **Complejidad del documento:**

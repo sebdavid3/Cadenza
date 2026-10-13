@@ -15,7 +15,7 @@
 El **Objetivo Específico 5** de la tesis establece:
 > *«Evaluar experimentalmente el desempeño del flujo de digitalización asistida frente a una línea base OMR no asistida, utilizando conjuntos de datos de referencia y métricas de fidelidad de transcripción y esfuerzo de corrección humano, particularmente la tasa de error simbólico (SER), el tiempo de edición y las intervenciones manuales por compás.»*
 
-Mientras que los experimentos 01 al 09 evaluaron de forma analítica y offline el rendimiento de los modelos OMR (HOMR, OEMER) y la capacidad de detección del validador de teoría musical, el presente protocolo formaliza el **estudio empírico con usuarios humanos (*Human-in-the-Loop*, HITL)** para validar la interacción real entre transcriptores y la plataforma Cadenza.
+Mientras que los experimentos 01 al 06 evaluaron de forma analítica y offline el rendimiento de HOMR sobre PrIMuS y la capacidad de detección del validador de teoría musical, el presente protocolo formaliza el **estudio empírico con usuarios humanos (*Human-in-the-Loop*, HITL)** para validar la interacción real entre transcriptores y la plataforma Cadenza.
 
 ### 1.2 Pregunta de Investigación e Hipótesis
 * **Pregunta de Investigación:** ¿En qué medida la asistencia interactiva de un motor de validación musical sintáctico reduce el esfuerzo temporal, operativo y la carga cognitiva percibida de los transcriptores humanos durante la corrección de partituras digitalizadas por OMR, en comparación con una línea base no asistida?
