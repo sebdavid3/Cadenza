@@ -3,16 +3,21 @@
 Mide el tiempo de `HOMREngine.transcribe_musicxml` en un dispositivo (CPU o GPU) sobre:
 
 1. Incipits de un pentagrama tomados del manifiesto del corpus (PrIMuS).
-2. Páginas de varios pentagramas compuestas apilando esos incipits. No hay un corpus
-   de página completa descargado: la composición es sintética, la inferencia es real.
+2. Páginas de N pentagramas compuestas apilando las N primeras imágenes del manifiesto.
+   No hay un corpus de página completa descargado: la composición es sintética, la
+   inferencia es real.
+
+Se cronometra solo la llamada al motor. Una petición `POST /transcribe` añade además la
+conversión al modelo interno, la validación y la persistencia, de modo que estas cifras
+son una cota inferior de la latencia que ve el cliente.
 
 Para cada dispositivo registra por separado el arranque en frío (primera llamada del
 proceso) y las repeticiones en caliente. Cada dispositivo se mide en una ejecución
 distinta del script; ejecuciones sucesivas del mismo dispositivo acumulan sus muestras
 (una muestra de arranque en frío por proceso) salvo que se pase `--reset`.
 
-No hay valores de reserva: sin el extra `homr` o sin el corpus el script termina con
-un error en lugar de inventar cifras.
+No hay valores de reserva: sin el extra `homr`, sin el corpus o sin ninguna medición
+válida el script termina con un error en lugar de inventar cifras o emitir un veredicto.
 
 Salidas:
 - `results/latency_benchmark_summary.json`
@@ -22,6 +27,7 @@ Salidas:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import platform
@@ -37,6 +43,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
+from cadenza.omr import OMRTranscriptionError
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -82,7 +89,8 @@ class LatencyStats:
     max_ms: float
     mean_s: float
     max_s: float
-    client_timeout_margin_percent: float
+    # `None` cuando no hay muestras: sin datos no hay margen que afirmar.
+    client_timeout_margin_percent: float | None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -104,7 +112,7 @@ def compute_latency_stats(
             max_ms=0.0,
             mean_s=0.0,
             max_s=0.0,
-            client_timeout_margin_percent=100.0,
+            client_timeout_margin_percent=None,
         )
 
     count = len(durations_ms)
@@ -175,16 +183,24 @@ def compose_page(
     return output
 
 
-def time_call(engine: Transcriber, image: Path) -> float:
+Clock = Callable[[], float]
+
+
+def time_call(engine: Transcriber, image: Path, clock: Clock = time.perf_counter) -> float:
     """Devuelve la duración en milisegundos de una transcripción."""
-    start = time.perf_counter()
+    start = clock()
     engine.transcribe_musicxml(image)
-    return (time.perf_counter() - start) * 1000.0
+    return (clock() - start) * 1000.0
 
 
 def _default_engine_factory(use_gpu: bool) -> Transcriber:
     from cadenza.omr import HOMREngine, get_effective_device
 
+    if importlib.util.find_spec("homr") is None:
+        raise RuntimeError(
+            "El benchmark necesita el motor real: instala el extra `homr` (ver README). "
+            "No hay valores de reserva."
+        )
     if use_gpu and get_effective_device(True) != "cuda":
         raise RuntimeError(
             "Se pidió medir en GPU pero onnxruntime no expone CUDAExecutionProvider. "
@@ -243,14 +259,16 @@ def _load_images(manifest: Path, needed: int) -> list[Path]:
     return images[:needed]
 
 
-def _measure(engine: Transcriber, image: Path, runs: int) -> tuple[list[float], int]:
+def _measure(engine: Transcriber, image: Path, runs: int, clock: Clock) -> tuple[list[float], int]:
     durations: list[float] = []
     failures = 0
     for _ in range(runs):
         try:
-            durations.append(round(time_call(engine, image), 2))
-        except Exception:
-            # Un fallo del motor (p. ej. "No staffs found") no es una latencia válida.
+            durations.append(round(time_call(engine, image, clock), 2))
+        except OMRTranscriptionError:
+            # El motor no pudo transcribir la imagen (p. ej. "No staffs found"): no es
+            # una latencia válida. Cualquier otro error (motor ausente, entorno roto)
+            # se propaga y detiene el benchmark.
             failures += 1
     return durations, failures
 
@@ -265,20 +283,21 @@ def measure_device(
     engine_factory: EngineFactory,
     work_dir: Path,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    clock: Clock = time.perf_counter,
 ) -> dict[str, Any]:
     """Mide un dispositivo: arranque en frío, incipits y páginas compuestas."""
     engine = engine_factory(device == "gpu")
 
     # Arranque en frío: primera llamada del proceso, incluye la carga de los modelos.
-    cold_durations, cold_failures = _measure(engine, images[0], 1)
+    cold_durations, cold_failures = _measure(engine, images[0], 1, clock)
     cold_start_ms = cold_durations[0] if cold_durations else None
 
     configurations: dict[str, Any] = {}
 
     warm: list[float] = []
-    failures = cold_failures
+    failures = 0
     for image in images[:incipits]:
-        durations, failed = _measure(engine, image, runs)
+        durations, failed = _measure(engine, image, runs, clock)
         warm.extend(durations)
         failures += failed
     configurations["incipit_1_staff"] = {
@@ -290,22 +309,29 @@ def measure_device(
 
     for count in staves:
         page = compose_page(images[:count], work_dir / f"page_{count}_staves.png")
-        durations, failed = _measure(engine, page, runs)
+        durations, failed = _measure(engine, page, runs, clock)
         configurations[f"page_{count}_staves"] = {
             "description": (
-                f"página compuesta apilando {count} incipits (composición sintética, "
-                f"inferencia real), {runs} repeticiones"
+                f"página compuesta apilando las {count} primeras imágenes del manifiesto "
+                f"(composición sintética, inferencia real), {runs} repeticiones"
             ),
             "warm_ms": durations,
             "failures": failed,
             "stats": compute_latency_stats(durations, timeout_s).to_dict(),
         }
 
+    if not any(config["warm_ms"] for config in configurations.values()):
+        raise RuntimeError(
+            "El benchmark no obtuvo ninguna medición válida: todas las transcripciones "
+            "fallaron. No se escribe ningún resultado."
+        )
     return _device_record(
         environment=describe_environment(device),
         cold_samples=[] if cold_start_ms is None else [cold_start_ms],
+        cold_failures=cold_failures,
         configurations=configurations,
         invocations=1,
+        protocol={"incipits": incipits, "staves": list(staves), "runs": runs},
     )
 
 
@@ -313,15 +339,19 @@ def _device_record(
     *,
     environment: dict[str, Any],
     cold_samples: list[float],
+    cold_failures: int,
     configurations: dict[str, Any],
     invocations: int,
+    protocol: dict[str, Any],
 ) -> dict[str, Any]:
     all_warm = [value for config in configurations.values() for value in config["warm_ms"]]
     return {
         "environment": environment,
+        "protocol": protocol,
         "measured_at_utc": datetime.now(UTC).isoformat(),
         "invocations": invocations,
         "cold_start_samples_ms": cold_samples,
+        "cold_start_failures": cold_failures,
         "cold_start_ms": max(cold_samples) if cold_samples else None,
         "max_warm_ms": max(all_warm) if all_warm else None,
         "configurations": configurations,
@@ -331,8 +361,12 @@ def _device_record(
 def _accumulate(
     previous: dict[str, Any], current: dict[str, Any], timeout_s: float
 ) -> dict[str, Any]:
-    """Suma las muestras de una ejecución anterior del mismo dispositivo y protocolo."""
-    if set(previous.get("configurations", {})) != set(current["configurations"]):
+    """Suma las muestras de una ejecución anterior del mismo dispositivo y protocolo.
+
+    Si el protocolo cambió (otro número de incipits, repeticiones o pentagramas), las
+    muestras no son comparables y se conserva solo la ejecución actual.
+    """
+    if previous.get("protocol") != current["protocol"]:
         return current
     configurations: dict[str, Any] = {}
     for name, config in current["configurations"].items():
@@ -350,21 +384,28 @@ def _accumulate(
             *previous.get("cold_start_samples_ms", []),
             *current["cold_start_samples_ms"],
         ],
+        cold_failures=int(previous.get("cold_start_failures", 0)) + current["cold_start_failures"],
         configurations=configurations,
         invocations=int(previous.get("invocations", 1)) + 1,
+        protocol=current["protocol"],
     )
 
 
 def _architectural_evaluation(devices: dict[str, Any], timeout_s: float) -> dict[str, Any]:
     warm = [d["max_warm_ms"] for d in devices.values() if d.get("max_warm_ms") is not None]
     cold = [d["cold_start_ms"] for d in devices.values() if d.get("cold_start_ms") is not None]
-    max_warm = max(warm) if warm else 0.0
-    max_cold = max(cold) if cold else 0.0
+    if not warm:
+        raise RuntimeError("No hay mediciones en caliente: no se puede emitir un veredicto.")
+    max_warm = max(warm)
+    # Sin ninguna muestra de arranque en frío, el veredicto se apoya solo en las cálidas.
+    max_cold = max(cold) if cold else None
     return {
         "client_timeout_reference_s": timeout_s,
         "max_warm_ms": max_warm,
         "max_cold_start_ms": max_cold,
-        "recommendation": evaluate_decision(max_warm, max_cold, timeout_s),
+        "recommendation": evaluate_decision(
+            max_warm, max_cold if max_cold is not None else 0.0, timeout_s
+        ),
         "decision_rule": (
             "ASYNCHRONOUS_REQUIRED si alguna petición en caliente alcanza el timeout; "
             "SYNCHRONOUS_WITH_WARMUP si solo lo alcanza el arranque en frío; "
@@ -384,6 +425,7 @@ def run_benchmark(
     timeout_s: float = DEFAULT_TIMEOUT_S,
     engine_factory: EngineFactory | None = None,
     reset: bool = False,
+    clock: Clock = time.perf_counter,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
     """Mide la latencia en un dispositivo y fusiona el resultado en el resumen.
@@ -402,6 +444,16 @@ def run_benchmark(
     images = _load_images(manifest_path, max([incipits, *staves]))
     factory = engine_factory or _default_engine_factory
 
+    # El resumen previo se lee antes de medir: un archivo corrupto no debe costar
+    # una ejecución entera.
+    summary_file = out_dir / SUMMARY_FILENAME
+    devices: dict[str, Any] = {}
+    if summary_file.is_file():
+        previous = json.loads(summary_file.read_text(encoding="utf-8"))
+        # Solo se fusiona con resúmenes medidos; uno simulado anterior se descarta.
+        if previous.get("simulated") is False:
+            devices = dict(previous.get("devices", {}))
+
     with tempfile.TemporaryDirectory(prefix="cadenza-exp11-") as tmp_dir:
         measured = measure_device(
             device=device,
@@ -412,15 +464,9 @@ def run_benchmark(
             engine_factory=factory,
             work_dir=Path(tmp_dir),
             timeout_s=timeout_s,
+            clock=clock,
         )
 
-    summary_file = out_dir / SUMMARY_FILENAME
-    devices: dict[str, Any] = {}
-    if summary_file.is_file():
-        previous = json.loads(summary_file.read_text(encoding="utf-8"))
-        # Solo se fusiona con resúmenes medidos; uno simulado anterior se descarta.
-        if previous.get("simulated") is False:
-            devices = dict(previous.get("devices", {}))
     if device in devices and not reset:
         measured = _accumulate(devices[device], measured, timeout_s)
     devices[device] = measured

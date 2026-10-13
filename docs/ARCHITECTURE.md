@@ -321,7 +321,7 @@ comunicados **únicamente por datos persistidos y artefactos versionados**
   `ArtifactStore`.
 - **Reglas:** ninguna operación de entrenamiento ocurre aquí; el trabajo pesado
   de OMR se ejecuta fuera del bucle de eventos mediante `asyncio.to_thread`
-  (ADR-0016: transcripción síncrona de página única suficiente y sin colas
+  (ADR-0016, en revisión: la latencia medida no respalda la transcripción síncrona sin colas
   distribuidas); el dispositivo efectivo se
   reporta desde `onnxruntime.get_available_providers()`, **nunca** desde
   `torch.cuda`.

@@ -84,7 +84,7 @@ def test_omr_transcription_error_returns_422() -> None:
 def test_homr_engine_transcribe_e2e(tmp_path: Path) -> None:
     # La imagen sale del manifiesto del corpus: un glob sobre `data/primus` devuelve
     # primero archivos AppleDouble (`._*.png`), que no son imágenes válidas (#97).
-    manifest_path = Path("data") / "manifest.json"
+    manifest_path = Path(__file__).resolve().parents[3] / "data" / "manifest.json"
     if not manifest_path.is_file():
         pytest.skip("no hay data/manifest.json para ejecutar inferencia real de HOMR")
     entries = json.loads(manifest_path.read_text(encoding="utf-8"))["entries"]
@@ -114,6 +114,50 @@ def test_homr_engine_transcribe_e2e(tmp_path: Path) -> None:
     assert measures
     assert any(event["kind"] == "note" for measure in measures for event in measure["events"])
     assert detail["anchor_index"]["entries"]
+
+    # Flujo completo sobre la transcripción real: editar, conflicto de secuencia,
+    # revalidar, deshacer, exportar y cerrar.
+    session_id = body["session_id"]
+    anchor = next(
+        entry["anchor"]
+        for entry in detail["anchor_index"]["entries"]
+        if entry["event"]["kind"] == "note"
+        and entry["anchor"]["part"] == 0
+        and entry["anchor"]["staff"] == 0
+    )
+    voice_events = [
+        event
+        for measure in measures
+        if measure["number"] == anchor["measure"]
+        for event in measure["events"]
+        if event["voice"] == anchor["voice"]
+    ]
+    current_pitch = voice_events[anchor["event_index"]]["pitch"]
+    edit_body = {
+        "base_seq": detail["current_seq"],
+        "op": "SetPitch",
+        "anchor": anchor,
+        "before": {"pitch": current_pitch},
+        "after": {"pitch": "D5" if current_pitch == "C5" else "C5"},
+    }
+    edit_res = client.post(f"/sessions/{session_id}/edits", json=edit_body)
+    assert edit_res.status_code == 201
+    assert edit_res.json()["author"] == "tester"
+    # La misma edición sobre un estado ya obsoleto se rechaza (ADR-0011).
+    assert client.post(f"/sessions/{session_id}/edits", json=edit_body).status_code == 409
+
+    assert client.post(f"/sessions/{session_id}/validate").status_code == 200
+    assert client.post(f"/sessions/{session_id}/undo").status_code == 200
+    assert client.get(f"/sessions/{session_id}").json()["current_seq"] == 2
+
+    musicxml = client.get(f"/sessions/{session_id}/export", params={"format": "musicxml"})
+    assert musicxml.status_code == 200
+    assert b"<score-partwise" in musicxml.content
+    midi = client.get(f"/sessions/{session_id}/export", params={"format": "midi"})
+    assert midi.status_code == 200
+    assert midi.content[:4] == b"MThd"
+
+    assert client.post(f"/sessions/{session_id}/finalize").status_code == 200
 
 
 def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPatch) -> None:

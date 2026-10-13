@@ -37,7 +37,7 @@ constantes escritas en el código.
 
 - **Motor:** HOMR 0.7.0 sobre onnxruntime-gpu 1.26.0.
 - **Equipo:** Intel64 Family 6 Model 183 Stepping 1, GenuineIntel (16 hilos); GPU NVIDIA GeForce RTX 5050 Laptop GPU.
-- **Entradas:** 5 incipits de PrIMuS y páginas de 4, 8, 12 pentagramas compuestas apilando esos incipits. No hay un corpus de página completa descargado: la composición es sintética y la inferencia es real.
+- **Entradas:** 5 incipits de PrIMuS y páginas de 4, 8 y 12 pentagramas compuestas apilando las primeras 4, 8 y 12 imágenes del manifiesto. No hay un corpus de página completa descargado: la composición es sintética y la inferencia es real.
 - **Protocolo:** 3 repeticiones por imagen y ejecución; cada dispositivo en procesos separados (CPU: 3, GPU: 3 ejecuciones). La primera llamada de cada proceso se cuenta aparte como arranque en frío.
 - **Referencia:** *timeout* de cliente de 30 s.
 
@@ -62,30 +62,45 @@ constantes escritas en el código.
 ### Lectura de los datos
 
 - Máximo en caliente: 85,5 s. Máximo en frío: 39,8 s.
-- Regla de decisión fijada antes de medir: ASYNCHRONOUS_REQUIRED si alguna petición en caliente alcanza el timeout; SYNCHRONOUS_WITH_WARMUP si solo lo alcanza el arranque en frío; SYNCHRONOUS_SUFFICIENT en otro caso.
+- Regla de decisión, escrita en el script antes de ejecutar las mediciones: ASYNCHRONOUS_REQUIRED si alguna petición en caliente alcanza el timeout; SYNCHRONOUS_WITH_WARMUP si solo lo alcanza el arranque en frío; SYNCHRONOUS_SUFFICIENT en otro caso.
 - Resultado de la regla: **`ASYNCHRONOUS_REQUIRED`**.
 
 ### Límites de esta medición
 
-- El equipo es un portátil en uso, no una máquina aislada: otros procesos pudieron
-  competir por CPU, disco y GPU.
-- La causa de los picos no está identificada. HOMR crea sus sesiones de ONNX dentro
-  de cada llamada, así que cada petición vuelve a cargar los modelos; es la hipótesis
-  principal y se investiga en [#106](https://github.com/sebdavid3/Cadenza/issues/106).
-- Las páginas son composiciones sintéticas de incipits, no páginas reales.
-- Una de las cinco imágenes de incipit falla siempre con «No staffs found»; sus
+- **Se cronometra el motor, no la petición.** Las cifras son de
+  `HOMREngine.transcribe_musicxml`. `POST /transcribe` añade la conversión al modelo
+  interno, la validación y la persistencia, y aquí no hay concurrencia: son una cota
+  inferior de lo que ve el cliente.
+- **El equipo es un portátil en uso, no una máquina aislada.** Los picos llegan en
+  rachas contiguas (en una ejecución de CPU, cinco llamadas seguidas de 27 a 39 s) y la
+  misma imagen varía entre 1,6 y 36,8 s en GPU. Eso apunta más a contención del equipo
+  que al motor, pero no está demostrado.
+- **La causa de los picos no está identificada.** HOMR vuelve a crear el modelo de
+  segmentación en cada llamada, mientras que el codificador y el decodificador quedan
+  cargados en el proceso; esa recarga también la pagan las llamadas rápidas, así que
+  por sí sola no explica los picos. Se investiga en [#106](https://github.com/sebdavid3/Cadenza/issues/106).
+- **Arranque en frío y primeras llamadas.** En la primera ejecución de GPU, las tres
+  llamadas siguientes al arranque en frío tardaron de 30 a 37 s y cuentan como «en
+  caliente».
+- **Muestras pequeñas en las páginas.** Con n = 9, el p95 es casi el máximo.
+- **Páginas sintéticas.** Son composiciones de incipits, no páginas reales.
+- **Una imagen falla siempre.** La tercera del manifiesto da «No staffs found»; sus
   intentos se cuentan como fallos y no como latencias.
+- **Trazabilidad.** Las mediciones se tomaron con la versión del script de este mismo
+  cambio antes de confirmarlo; `results/exp_11_run_info.json` registra el commit
+  anterior. La regla de decisión no tiene un registro previo independiente.
 
 ---
 
 ## Decisión
 
-**Estado tras medir (2026-10-12): en revisión.** La regla de decisión, fijada antes de
-medir, da `ASYNCHRONOUS_REQUIRED` en ambos dispositivos. Hasta que se cierre
+**Estado tras medir (2026-10-12): en revisión.** La regla de decisión, escrita antes de
+ejecutar las mediciones, da `ASYNCHRONOUS_REQUIRED` en ambos dispositivos. Hasta que se cierre
 [#106](https://github.com/sebdavid3/Cadenza/issues/106):
 
 1. El contrato v1 se mantiene: `POST /transcribe` sigue siendo síncrono.
-2. Los clientes deben usar un *timeout* de al menos 120 s y mostrar progreso.
+2. Los clientes deben usar un *timeout* holgado sobre el máximo observado (85,5 s);
+   se recomienda 120 s, y mostrar progreso.
 3. Quedan dos salidas, a elegir con la evidencia de #106: mantener el modelo síncrono
    si cargar los modelos una sola vez elimina los picos, o pasar a un modelo asíncrono
    (petición aceptada y consulta de estado), que cambia el contrato de la API.
@@ -101,7 +116,11 @@ Se adoptó el **modelo de transcripción síncrona en el plano online** para Cad
 
 ---
 
-## Consecuencias
+## Consecuencias de la decisión original
+
+> Las consecuencias siguientes se redactaron con la evidencia simulada. Las mediciones
+> del 2026-10-12 contradicen las que hablan de respuesta predecible: 18 de 126
+> peticiones tardaron 30 s o más, y un cliente con *timeout* de 30 s las habría perdido.
 
 ### Positivas
 - **Simplicidad arquitectónica radical (YAGNI):** Se evita introducir complejidad accidental (múltiples servicios de infraestructura, gestión de reconexiones en brokers, persistencia de estados efímeros de tareas y sincronización distribuida).
