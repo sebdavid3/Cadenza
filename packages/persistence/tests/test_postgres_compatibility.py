@@ -221,9 +221,7 @@ def test_postgres_live_unique_constraint_and_restrict_delete(postgres_engine: An
 
     # 2. Verificar violación de ondelete='RESTRICT' en sessions
     with session_factory() as db:
-        sess_to_delete = db.get(Session, "s-pg-test")
-        assert sess_to_delete is not None
-        db.delete(sess_to_delete)
         with pytest.raises(IntegrityError):
+            db.execute(text("DELETE FROM sessions WHERE id = 's-pg-test'"))
             db.commit()
         db.rollback()
