@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -81,14 +82,15 @@ def test_omr_transcription_error_returns_422() -> None:
 
 @pytest.mark.skipif(not HOMR_AVAILABLE, reason="requiere el extra opcional 'homr'")
 def test_homr_engine_transcribe_e2e(tmp_path: Path) -> None:
-    # Verificamos si existe alguna imagen de primus para prueba E2E real
-    candidate_images = list(Path("data").glob("primus/**/*.png"))
-    if not candidate_images:
-        pytest.skip(
-            "no hay imágenes de partituras en data/primus para ejecutar inferencia real de HOMR"
-        )
-
-    real_image = candidate_images[0]
+    # La imagen sale del manifiesto del corpus: un glob sobre `data/primus` devuelve
+    # primero archivos AppleDouble (`._*.png`), que no son imágenes válidas (#97).
+    manifest_path = Path("data") / "manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("no hay data/manifest.json para ejecutar inferencia real de HOMR")
+    entries = json.loads(manifest_path.read_text(encoding="utf-8"))["entries"]
+    real_image = manifest_path.parent / entries[0]["image"]
+    if not real_image.is_file():
+        pytest.skip(f"no existe la imagen del manifiesto: {real_image}")
     engine = HOMREngine(use_gpu=False)
     client = _client_with_engine(engine)
 
@@ -107,6 +109,11 @@ def test_homr_engine_transcribe_e2e(tmp_path: Path) -> None:
     assert session_res.status_code == 200
     detail = session_res.json()
     assert detail["document"]["provenance"]["device"] in ("cpu", "cuda")
+    # El motor real devuelve música, no un documento vacío.
+    measures = detail["document"]["score"]["parts"][0]["staves"][0]["measures"]
+    assert measures
+    assert any(event["kind"] == "note" for measure in measures for event in measure["events"])
+    assert detail["anchor_index"]["entries"]
 
 
 def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
