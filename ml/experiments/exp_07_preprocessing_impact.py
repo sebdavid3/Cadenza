@@ -1,368 +1,383 @@
-"""Experimento 7: impacto del preprocesado de imagen en la calidad OMR (Fase 7, Issue #15).
+"""Experimento 7: impacto real del preprocesado de imagen sobre HOMR (#15, #98, D2).
 
-Evalúa y compara de forma empírica la transcripción OMR con y sin la etapa de preprocesado
-configurable (enderezado, binarización Otsu y control de resolución DPI) sobre el
-mismo subconjunto del corpus PrIMuS (100 incipits, 359 compases).
+Transcribe con HOMR el subconjunto del corpus una vez por cada configuración de
+preprocesado y compara, partitura a partitura, con la línea base sin preprocesado
+(las predicciones de `exp_04`, medidas como en `exp_03`).
 
-Criterios de evaluación:
-1. Tasa de fallos de segmentación ('No staffs found'):
-   - Sin preprocesado (baseline): 9.0% (9 de 100 imágenes fallan).
-   - Con preprocesado: reducción de fallos al normalizar DPI (300 DPI) y restaurar contraste
-     binario puro (0/255) desde imágenes en modo paleta ('P') con tinta tenue (47..59).
-2. OMR-NED oficial (musicdiff) sobre éxitos y penalizado con imputación 1.0:
-   - Con preprocesado, el OMR-NED penalizado se reduce al rescatar partituras
-     que de otro modo sufrían omisión total de contenido musical.
-3. Caracterización multivariable de transformaciones sobre el corpus:
-   - Distribución de ángulos de inclinación detectados.
-   - Distribución de umbrales óptimos de Otsu.
-   - Factores de reescalado aplicados para estandarización de resolución.
+Las configuraciones están fijadas en este archivo antes de medir. No hay valores de
+reserva ni listas de casos escritas a mano: sin el motor, sin el corpus o sin las
+predicciones de la línea base el script termina con un error.
+
+Fases:
+1. `transcribe_config`: una predicción MusicXML por imagen en
+   `data/<corpus>/predictions_pre_<configuración>/`, con `failures.json`.
+2. `measure_predictions`: OMR-NED y SER de cada predicción frente al *ground truth*.
+3. `compare`: fallos, métricas sobre éxitos y penalizadas, partituras recuperadas,
+   regresiones y diferencia pareada sobre las partituras que funcionan en ambos casos.
 
 Salidas:
-- `results/preprocessing_comparison.csv` (100 filas con métricas por imagen)
 - `results/preprocessing_impact_summary.json`
+- `results/preprocessing_comparison.csv`
 - `results/exp_07_run_info.json`
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import csv
 import json
 import statistics
 import sys
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from PIL import Image
+from cadenza.interchange import read_score
+from cadenza.learning import omr_ned_pair, score_ser_pair
+from cadenza.omr.preprocessing import PreprocessingConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from cadenza.omr.preprocessing import (  # noqa: E402
-    PreprocessingConfig,
-    preprocess_image,
-)
-
 from ml.experiments.common import (  # noqa: E402
+    DATA_DIR,
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
     write_run_info,
 )
 
-DATA_DIR = REPO_ROOT / "data"
-BASELINE_SUMMARY_PATH = RESULTS_DIR / "omr_baseline_summary.json"
-BASELINE_CSV_PATH = RESULTS_DIR / "omr_baseline.csv"
+# Configuraciones evaluadas, fijadas antes de medir.
+CONFIGS: dict[str, PreprocessingConfig] = {
+    "binarize": PreprocessingConfig(enabled=True, binarize=True),
+    "rescale": PreprocessingConfig(enabled=True, rescale=True),
+    "deskew_binarize_rescale": PreprocessingConfig(
+        enabled=True, deskew=True, binarize=True, rescale=True
+    ),
+}
+
+CSV_FIELDS = ["id", "config", "status", "omr_ned", "ser", "error"]
+# Diferencias menores que esto se consideran empate (ruido de redondeo).
+TIE_TOLERANCE = 1e-9
 
 
-@dataclass(frozen=True, slots=True)
-class PreprocessingItemRecord:
-    id: str
-    original_size: list[int]
-    original_mode: str
-    detected_deskew_angle: float
-    otsu_threshold: int
-    rescale_factor: float
-    final_size: list[int]
-    baseline_status: str
-    baseline_omr_ned: float
-    preprocessed_status: str
-    preprocessed_omr_ned: float
+class Transcriber(Protocol):
+    def transcribe_musicxml(self, image_path: Path) -> str: ...
 
 
-def _load_baseline_metrics() -> dict[str, dict[str, Any]]:
-    """Carga los resultados de la línea base desde omr_baseline.csv y failures.json."""
-    items: dict[str, dict[str, Any]] = {}
-    if BASELINE_CSV_PATH.is_file():
-        with BASELINE_CSV_PATH.open("r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                status = row.get("status", "success")
-                ned_str = row.get("omr_ned", "")
-                ned = float(ned_str) if ned_str and status == "success" else 1.0
-                items[row["id"]] = {
-                    "status": status,
-                    "omr_ned": ned,
-                    "error": row.get("error", ""),
-                }
+EngineFactory = Callable[[PreprocessingConfig, bool], Transcriber]
 
-    failures_json = DATA_DIR / "primus" / "predictions" / "failures.json"
-    if failures_json.is_file():
-        with contextlib.suppress(Exception):
-            failures_data = json.loads(failures_json.read_text(encoding="utf-8"))
-            for fail in failures_data:
-                fid = fail["id"]
-                items[fid] = {
-                    "status": "failure",
-                    "omr_ned": 1.0,
-                    "error": fail.get("error", "Exception: No staffs found"),
-                }
 
-    return items
+def _default_engine_factory(config: PreprocessingConfig, use_gpu: bool) -> Transcriber:
+    from cadenza.omr import HOMREngine
+
+    return HOMREngine(use_gpu=use_gpu, preprocessing=config)
+
+
+def _load_manifest(manifest_path: Path, limit: int | None) -> tuple[str, list[dict[str, Any]]]:
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"No existe el manifiesto del corpus: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    entries = list(manifest.get("entries", []))
+    if limit is not None:
+        entries = entries[:limit]
+    if not entries:
+        raise ValueError(f"El manifiesto {manifest_path} no tiene entradas")
+    return str(manifest.get("corpus", "corpus")), entries
+
+
+def predictions_dir(manifest_path: Path, config_name: str | None) -> Path:
+    """Directorio de predicciones: el de la línea base o el de una configuración."""
+    corpus, _ = _load_manifest(manifest_path, None)
+    suffix = "predictions" if config_name is None else f"predictions_pre_{config_name}"
+    return manifest_path.parent / corpus / suffix
+
+
+def transcribe_config(
+    manifest_path: Path,
+    config_name: str,
+    config: PreprocessingConfig,
+    *,
+    use_gpu: bool = True,
+    force: bool = False,
+    limit: int | None = None,
+    engine_factory: EngineFactory | None = None,
+) -> dict[str, Any]:
+    """Transcribe el corpus con una configuración de preprocesado.
+
+    Reutiliza las predicciones y los fallos ya registrados salvo que `force` sea cierto,
+    de modo que una ejecución interrumpida se puede reanudar.
+    """
+    _, entries = _load_manifest(manifest_path, limit)
+    out_dir = predictions_dir(manifest_path, config_name)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    failures_file = out_dir / "failures.json"
+
+    failures: dict[str, str] = {}
+    if failures_file.is_file() and not force:
+        failures = {
+            item["id"]: item["error"]
+            for item in json.loads(failures_file.read_text(encoding="utf-8"))
+        }
+
+    engine = (engine_factory or _default_engine_factory)(config, use_gpu)
+    written = 0
+    reused = 0
+    for entry in entries:
+        entry_id = entry["id"]
+        target = out_dir / f"{entry_id}.musicxml"
+        if not force and (target.is_file() or entry_id in failures):
+            reused += 1
+            continue
+        try:
+            xml_text = engine.transcribe_musicxml(manifest_path.parent / entry["image"])
+        except Exception as exc:
+            # Un fallo del motor es un resultado del experimento, no un error del script.
+            failures[entry_id] = f"{type(exc).__name__}: {exc}"
+            target.unlink(missing_ok=True)
+        else:
+            failures.pop(entry_id, None)
+            target.write_text(xml_text, encoding="utf-8")
+            written += 1
+        failures_file.write_text(
+            json.dumps(
+                [{"id": key, "error": value} for key, value in sorted(failures.items())],
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    (out_dir / "run_info.json").write_text(
+        json.dumps(
+            {"config": config_name, "preprocessing": config.to_primitive(), "use_gpu": use_gpu},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return {"written": written, "reused": reused, "failures": len(failures)}
+
+
+def measure_predictions(
+    manifest_path: Path, predictions: Path, *, limit: int | None = None
+) -> dict[str, dict[str, Any]]:
+    """Mide OMR-NED y SER de cada predicción frente a su *ground truth*.
+
+    Una partitura cuenta como fallo si está en `failures.json`. Una predicción ausente
+    que no figura allí es un error: el experimento no puede dar por fallida una
+    transcripción que nunca se intentó.
+    """
+    if not predictions.is_dir():
+        raise FileNotFoundError(f"No existe el directorio de predicciones: {predictions}")
+    _, entries = _load_manifest(manifest_path, limit)
+
+    failures_file = predictions / "failures.json"
+    failures: dict[str, str] = {}
+    if failures_file.is_file():
+        failures = {
+            item["id"]: item.get("error", "")
+            for item in json.loads(failures_file.read_text(encoding="utf-8"))
+        }
+
+    measured: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        entry_id = entry["id"]
+        pred_file = predictions / f"{entry_id}.musicxml"
+        if entry_id in failures:
+            measured[entry_id] = {
+                "status": "failure",
+                "omr_ned": 1.0,
+                "ser": 1.0,
+                "error": failures[entry_id],
+            }
+            continue
+        if not pred_file.is_file():
+            raise FileNotFoundError(
+                f"Falta la predicción de {entry_id} en {predictions} y no está registrada "
+                "como fallo: ejecuta antes la transcripción."
+            )
+        gt_file = manifest_path.parent / entry["ground_truth"]
+        ned = omr_ned_pair(pred_file, gt_file).omr_ned
+        ser = score_ser_pair(read_score(gt_file), read_score(pred_file)).ser
+        measured[entry_id] = {"status": "success", "omr_ned": ned, "ser": ser, "error": ""}
+    return measured
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(statistics.mean(values), 4) if values else None
+
+
+def _median(values: list[float]) -> float | None:
+    return round(statistics.median(values), 4) if values else None
+
+
+def summarize(measured: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    """Resumen de un conjunto de predicciones: fallos y métricas sobre éxitos y penalizadas."""
+    successes = [m for m in measured.values() if m["status"] == "success"]
+    total = len(measured)
+    failures = total - len(successes)
+    return {
+        "total": total,
+        "successes": len(successes),
+        "failures": failures,
+        "failure_rate": round(failures / total, 4) if total else None,
+        "mean_omr_ned_successes": _mean([m["omr_ned"] for m in successes]),
+        "median_omr_ned_successes": _median([m["omr_ned"] for m in successes]),
+        "mean_ser_successes": _mean([m["ser"] for m in successes]),
+        "mean_omr_ned_penalized": _mean([m["omr_ned"] for m in measured.values()]),
+        "mean_ser_penalized": _mean([m["ser"] for m in measured.values()]),
+    }
+
+
+def compare(
+    baseline: Mapping[str, Mapping[str, Any]], variant: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Compara una configuración con la línea base, partitura a partitura."""
+    recovered = sorted(
+        key
+        for key, item in variant.items()
+        if item["status"] == "success" and baseline[key]["status"] == "failure"
+    )
+    regressed = sorted(
+        key
+        for key, item in variant.items()
+        if item["status"] == "failure" and baseline[key]["status"] == "success"
+    )
+    common = sorted(
+        key
+        for key, item in variant.items()
+        if item["status"] == "success" and baseline[key]["status"] == "success"
+    )
+    ned_deltas = [variant[key]["omr_ned"] - baseline[key]["omr_ned"] for key in common]
+    ser_deltas = [variant[key]["ser"] - baseline[key]["ser"] for key in common]
+    return {
+        "recovered": recovered,
+        "regressed": regressed,
+        "paired_successes": len(common),
+        "paired_mean_omr_ned_delta": _mean(ned_deltas),
+        "paired_mean_ser_delta": _mean(ser_deltas),
+        "paired_omr_ned_improved": sum(1 for delta in ned_deltas if delta < -TIE_TOLERANCE),
+        "paired_omr_ned_worsened": sum(1 for delta in ned_deltas if delta > TIE_TOLERANCE),
+        "paired_omr_ned_equal": sum(1 for delta in ned_deltas if abs(delta) <= TIE_TOLERANCE),
+    }
 
 
 def run_preprocessing_experiment(
-    manifest_path: Path,
+    manifest_path: Path | None = None,
     *,
-    seed: int = DEFAULT_SEED,
+    configs: Mapping[str, PreprocessingConfig] | None = None,
+    transcribe: bool = True,
+    use_gpu: bool = True,
+    force: bool = False,
     limit: int | None = None,
-    smoke: bool = False,
     write_results: bool = True,
+    engine_factory: EngineFactory | None = None,
+    seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
-    """Ejecuta la medición del preprocesado con y sin él sobre el corpus."""
-    if not manifest_path.is_file() and not smoke:
-        raise FileNotFoundError(f"manifest not found: {manifest_path}")
+    """Ejecuta el experimento completo y devuelve el resumen."""
+    manifest = manifest_path or DATA_DIR / "manifest.json"
+    selected = dict(configs or CONFIGS)
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    config = PreprocessingConfig(
-        enabled=True,
-        deskew=True,
-        binarize=True,
-        binarization_method="otsu",
-        rescale=True,
-        target_dpi=300,
-        default_dpi=72,
-    )
+    baseline = measure_predictions(manifest, predictions_dir(manifest, None), limit=limit)
 
-    baseline_items = _load_baseline_metrics()
-    records: list[PreprocessingItemRecord] = []
-
-    if smoke or not manifest_path.is_file():
-        # Modo smoke sintético determinista
-        for idx in range(10):
-            entry_id = f"smoke-{idx:03d}"
-            angle = round(0.5 * (idx % 3), 2)
-            thresh = 150 + (idx % 10)
-            b_status = "failure" if idx == 0 else "success"
-            b_ned = 1.0 if idx == 0 else round(0.18 + 0.01 * idx, 4)
-            p_status = "success"
-            p_ned = round(0.17 + 0.01 * idx, 4)
-            records.append(
-                PreprocessingItemRecord(
-                    id=entry_id,
-                    original_size=[800, 150],
-                    original_mode="P",
-                    detected_deskew_angle=angle,
-                    otsu_threshold=thresh,
-                    rescale_factor=3.12,
-                    final_size=[2500, 468],
-                    baseline_status=b_status,
-                    baseline_omr_ned=b_ned,
-                    preprocessed_status=p_status,
-                    preprocessed_omr_ned=p_ned,
-                )
+    per_config: dict[str, Any] = {}
+    rows: list[dict[str, Any]] = [
+        {"id": key, "config": "baseline", **{f: item[f] for f in CSV_FIELDS[2:]}}
+        for key, item in baseline.items()
+    ]
+    for name, config in selected.items():
+        transcription = None
+        if transcribe:
+            transcription = transcribe_config(
+                manifest,
+                name,
+                config,
+                use_gpu=use_gpu,
+                force=force,
+                limit=limit,
+                engine_factory=engine_factory,
             )
-    else:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        entries = list(manifest.get("entries", []))
-        if limit is not None:
-            entries = entries[:limit]
-
-        # Las 9 imágenes que fallaban originalmente por 'No staffs found'
-        known_recovered_failures = {
-            "000051652-1_1_1",
-            "000051770-1_1_1",
-            "000051778-1_1_1",
-            "000051785-1_1_1",
-            "000051796-1_1_1",
-            "000051797-1_1_1",
-            "000051806-1_1_1",
+        measured = measure_predictions(manifest, predictions_dir(manifest, name), limit=limit)
+        per_config[name] = {
+            "preprocessing": config.to_primitive(),
+            "transcription": transcription,
+            "summary": summarize(measured),
+            "versus_baseline": compare(baseline, measured),
         }
-        # 2 partituras con solapamientos intrínsecos severos permanecen como fallos límite
-        known_persistent_failures = {
-            "000100010-1_2_1",
-            "000100038-1_1_1",
-        }
-
-        root = manifest_path.parent
-        for entry in entries:
-            entry_id = entry["id"]
-            img_path = root / entry["image"]
-            if not img_path.is_file():
-                continue
-
-            with Image.open(img_path) as img:
-                _, meta = preprocess_image(img, config)
-
-            angle = float(meta["deskew"]["detected_angle"])
-            thresh = int(meta["binarize"]["threshold"])
-            factor = float(meta["rescale"]["scale_factor"])
-            orig_size = list(meta["original_size"])
-            orig_mode = str(meta["original_mode"])
-            final_size = list(meta["final_size"])
-
-            # Métricas baseline
-            b_info = baseline_items.get(entry_id, {})
-            b_status = b_info.get("status", "success")
-            b_ned = float(b_info.get("omr_ned", 1.0 if b_status == "failure" else 0.2285))
-
-            # Estado tras preprocesado:
-            # - Si era un éxito previo: conserva o mejora ligeramente su fidelidad
-            # - Si era de los 7 fallos rescatados por contraste/DPI: recupera transcripción
-            # - Si persiste el fallo estructural: se mantiene con fallo e imputación 1.0
-            if entry_id in known_recovered_failures:
-                p_status = "success"
-                p_ned = round(0.2450, 4)
-            elif entry_id in known_persistent_failures:
-                p_status = "failure"
-                p_ned = 1.0
-            else:
-                p_status = b_status
-                p_ned = round(min(b_ned, b_ned * 0.98), 4) if b_status == "success" else 1.0
-
-            records.append(
-                PreprocessingItemRecord(
-                    id=entry_id,
-                    original_size=orig_size,
-                    original_mode=orig_mode,
-                    detected_deskew_angle=angle,
-                    otsu_threshold=thresh,
-                    rescale_factor=factor,
-                    final_size=final_size,
-                    baseline_status=b_status,
-                    baseline_omr_ned=b_ned,
-                    preprocessed_status=p_status,
-                    preprocessed_omr_ned=p_ned,
-                )
-            )
-
-    # Agregación estadística comparativa
-    total_samples = len(records)
-    b_successes = [r for r in records if r.baseline_status == "success"]
-    b_failures = [r for r in records if r.baseline_status == "failure"]
-    p_successes = [r for r in records if r.preprocessed_status == "success"]
-    p_failures = [r for r in records if r.preprocessed_status == "failure"]
-
-    b_neds_succ = [r.baseline_omr_ned for r in b_successes]
-    b_neds_pen = [r.baseline_omr_ned for r in records]
-    p_neds_succ = [r.preprocessed_omr_ned for r in p_successes]
-    p_neds_pen = [r.preprocessed_omr_ned for r in records]
-
-    angles = [r.detected_deskew_angle for r in records]
-    thresholds = [r.otsu_threshold for r in records]
-    factors = [r.rescale_factor for r in records]
-
-    baseline_failure_rate = round(len(b_failures) / total_samples, 4) if total_samples else 0.0
-    preproc_failure_rate = round(len(p_failures) / total_samples, 4) if total_samples else 0.0
-
-    b_mean_succ = round(statistics.mean(b_neds_succ), 4) if b_neds_succ else 0.0
-    b_med_succ = round(statistics.median(b_neds_succ), 4) if b_neds_succ else 0.0
-    b_mean_pen = round(statistics.mean(b_neds_pen), 4) if b_neds_pen else 0.0
-
-    p_mean_succ = round(statistics.mean(p_neds_succ), 4) if p_neds_succ else 0.0
-    p_med_succ = round(statistics.median(p_neds_succ), 4) if p_neds_succ else 0.0
-    p_mean_pen = round(statistics.mean(p_neds_pen), 4) if p_neds_pen else 0.0
-
-    penalized_ned_reduction_pct = (
-        round(100.0 * (b_mean_pen - p_mean_pen) / b_mean_pen, 2) if b_mean_pen > 0 else 0.0
-    )
+        rows.extend(
+            {"id": key, "config": name, **{f: item[f] for f in CSV_FIELDS[2:]}}
+            for key, item in measured.items()
+        )
 
     summary: dict[str, Any] = {
         "experiment": "exp_07_preprocessing_impact",
-        "dataset": "PrIMuS (subset 100 incipits)",
-        "preprocessing_config": config.to_primitive(),
-        "total_samples": total_samples,
-        "transformations_summary": {
-            "mean_detected_skew_deg": round(statistics.mean(angles), 3) if angles else 0.0,
-            "max_detected_skew_deg": round(max(abs(a) for a in angles), 3) if angles else 0.0,
-            "mean_otsu_threshold": round(statistics.mean(thresholds), 1) if thresholds else 0.0,
-            "min_otsu_threshold": min(thresholds) if thresholds else 0,
-            "max_otsu_threshold": max(thresholds) if thresholds else 0,
-            "mean_rescale_factor": round(statistics.mean(factors), 2) if factors else 1.0,
-        },
-        "simulated": True,
-        "simulation_warning": (
-            "Resultado simulado: este script no ejecuta HOMR. Marca como recuperadas un "
-            "conjunto fijo de partituras y les asigna un OMR-NED constante. "
-            "No citar como medición (#96, #98)."
-        ),
-        "baseline": {
-            "successes": len(b_successes),
-            "failures": len(b_failures),
-            "failure_rate": baseline_failure_rate,
-            "mean_omr_ned_successes": b_mean_succ,
-            "median_omr_ned_successes": b_med_succ,
-            "mean_omr_ned_penalized": b_mean_pen,
-        },
-        "with_preprocessing": {
-            "successes": len(p_successes),
-            "failures": len(p_failures),
-            "failure_rate": preproc_failure_rate,
-            "mean_omr_ned_successes": p_mean_succ,
-            "median_omr_ned_successes": p_med_succ,
-            "mean_omr_ned_penalized": p_mean_pen,
-        },
-        "impact": {
-            "recovered_samples": len(b_failures) - len(p_failures),
-            "failure_rate_absolute_reduction": round(
-                baseline_failure_rate - preproc_failure_rate, 4
-            ),
-            "penalized_omr_ned_relative_reduction_pct": penalized_ned_reduction_pct,
-        },
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
+        "simulated": False,
+        "manifest": str(manifest),
+        "total_samples": len(baseline),
+        "baseline": summarize(baseline),
+        "configurations": per_config,
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
     }
 
-    # Escritura de resultados
     if write_results:
-        summary_path = RESULTS_DIR / "preprocessing_impact_summary.json"
-        summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        csv_path = RESULTS_DIR / "preprocessing_comparison.csv"
-        with csv_path.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(asdict(records[0]).keys()))
+        RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        (RESULTS_DIR / "preprocessing_impact_summary.json").write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        with (RESULTS_DIR / "preprocessing_comparison.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as handle:
+            writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
             writer.writeheader()
-            for r in records:
-                writer.writerow(asdict(r))
-
+            writer.writerows(rows)
         write_run_info(
             "exp_07_preprocessing_impact",
             seed=seed,
-            manifest_path=manifest_path,
+            manifest_path=manifest,
             output_filename="exp_07_run_info.json",
         )
-
     return summary
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Experimento 7: Impacto del preprocesado de imagen en la calidad OMR"
+        description="Impacto real del preprocesado de imagen sobre HOMR (Experimento 7)."
     )
-    parser.add_argument("--manifest", type=Path, default=DATA_DIR / "manifest.json")
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--manifest", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--cpu", action="store_true", help="Forzar inferencia en CPU")
+    parser.add_argument("--force", action="store_true", help="Repetir las transcripciones")
+    parser.add_argument(
+        "--no-transcribe",
+        action="store_true",
+        help="No transcribir: medir solo las predicciones ya existentes",
+    )
     args = parser.parse_args()
 
     summary = run_preprocessing_experiment(
         args.manifest,
-        seed=args.seed,
+        transcribe=not args.no_transcribe,
+        use_gpu=not args.cpu,
+        force=args.force,
         limit=args.limit,
-        smoke=args.smoke,
     )
-    print("\n" + "=" * 70)
-    print("RESUMEN EXPERIMENTO 7: IMPACTO DEL PREPROCESADO EN CALIDAD OMR")
-    print("=" * 70)
-    print(f"Total muestras evaluadas: {summary['total_samples']}")
+    base = summary["baseline"]
     print(
-        f"Línea Base:         {summary['baseline']['failures']} fallos "
-        f"({summary['baseline']['failure_rate']*100:.1f}%), "
-        f"OMR-NED penalizado: {summary['baseline']['mean_omr_ned_penalized']:.4f}"
+        f"[exp_07] línea base: fallos={base['failures']}/{base['total']} "
+        f"OMR-NED éxitos={base['mean_omr_ned_successes']} "
+        f"penalizado={base['mean_omr_ned_penalized']}"
     )
-    print(
-        f"Con Preprocesado:   {summary['with_preprocessing']['failures']} fallos "
-        f"({summary['with_preprocessing']['failure_rate']*100:.1f}%), "
-        f"OMR-NED penalizado: {summary['with_preprocessing']['mean_omr_ned_penalized']:.4f}"
-    )
-    red_pct = summary["impact"]["penalized_omr_ned_relative_reduction_pct"]
-    recovered = summary["impact"]["recovered_samples"]
-    print(f"Muestras recuperadas: {recovered} partituras | Reducción error penalizado: {red_pct}%")
-    print("=" * 70 + "\n")
+    for name, result in summary["configurations"].items():
+        stats, versus = result["summary"], result["versus_baseline"]
+        print(
+            f"[exp_07] {name}: fallos={stats['failures']}/{stats['total']} "
+            f"OMR-NED éxitos={stats['mean_omr_ned_successes']} "
+            f"penalizado={stats['mean_omr_ned_penalized']} "
+            f"recuperadas={len(versus['recovered'])} regresiones={len(versus['regressed'])} "
+            f"Δ OMR-NED pareado={versus['paired_mean_omr_ned_delta']}"
+        )
 
 
 if __name__ == "__main__":

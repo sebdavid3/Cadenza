@@ -121,29 +121,161 @@ def test_exp_03_real_baseline_reports_failures_and_penalty() -> None:
         assert pen_ser >= succ_ser
 
 
-def test_exp_07_smoke() -> None:
-    from ml.experiments import exp_07_preprocessing_impact
+def _exp07_corpus(tmp_path: Path, count: int = 3) -> Path:
+    """Corpus mínimo: una imagen ficticia y un *ground truth* MusicXML por partitura."""
+    fixture = Path(__file__).parent / "fixtures" / "simple.musicxml"
+    entries = []
+    for index in range(count):
+        score_dir = tmp_path / "mini" / f"s{index}"
+        score_dir.mkdir(parents=True)
+        (score_dir / f"s{index}.png").write_bytes(b"png")
+        (score_dir / f"s{index}.musicxml").write_text(
+            fixture.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        entries.append(
+            {
+                "id": f"s{index}",
+                "image": f"mini/s{index}/s{index}.png",
+                "ground_truth": f"mini/s{index}/s{index}.musicxml",
+            }
+        )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"corpus": "mini", "entries": entries}), encoding="utf-8")
+    return manifest
 
-    res = exp_07_preprocessing_impact.run_preprocessing_experiment(
-        DATA_MANIFEST, smoke=True, write_results=False
+
+def _exp07_baseline(manifest: Path, successes: list[str], failures: list[str]) -> Path:
+    fixture = Path(__file__).parent / "fixtures" / "simple.musicxml"
+    predictions = manifest.parent / "mini" / "predictions"
+    predictions.mkdir(parents=True)
+    for entry_id in successes:
+        (predictions / f"{entry_id}.musicxml").write_text(
+            fixture.read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    (predictions / "failures.json").write_text(
+        json.dumps([{"id": entry_id, "error": "No staffs found"} for entry_id in failures]),
+        encoding="utf-8",
     )
-    assert res["experiment"] == "exp_07_preprocessing_impact"
-    assert res["total_samples"] == 10
-    assert "transformations_summary" in res
-    assert res["with_preprocessing"]["failure_rate"] <= res["baseline"]["failure_rate"]
+    return predictions
 
 
-@pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
-def test_exp_07_preprocessing_impact_on_primus() -> None:
-    from ml.experiments import exp_07_preprocessing_impact
+class _Exp07Engine:
+    """Motor de prueba: devuelve el MusicXML indicado por partitura o falla."""
 
-    res = exp_07_preprocessing_impact.run_preprocessing_experiment(
-        DATA_MANIFEST, limit=10, write_results=False
+    def __init__(self, outcomes: dict[str, str]) -> None:
+        self._outcomes = outcomes
+        self.calls: list[str] = []
+        fixture = Path(__file__).parent / "fixtures" / "simple.musicxml"
+        self._exact = fixture.read_text(encoding="utf-8")
+
+    def transcribe_musicxml(self, image_path: Path) -> str:
+        entry_id = image_path.stem
+        self.calls.append(entry_id)
+        outcome = self._outcomes[entry_id]
+        if outcome == "fail":
+            raise RuntimeError("No staffs found")
+        if outcome == "worse":
+            return self._exact.replace("<step>C</step>", "<step>E</step>")
+        return self._exact
+
+
+def test_exp_07_measures_recovery_and_regression(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    _exp07_baseline(manifest, successes=["s0", "s2"], failures=["s1"])
+    engine = _Exp07Engine({"s0": "worse", "s1": "exact", "s2": "fail"})
+
+    res = exp_07.run_preprocessing_experiment(
+        manifest,
+        configs={"probe": PreprocessingConfig(enabled=True, binarize=True)},
+        engine_factory=lambda _config, _use_gpu: engine,
+        write_results=False,
     )
-    assert res["experiment"] == "exp_07_preprocessing_impact"
-    assert res["total_samples"] == 10
-    assert res["transformations_summary"]["mean_otsu_threshold"] > 100
-    assert res["transformations_summary"]["mean_rescale_factor"] > 1.0
+
+    assert res["simulated"] is False
+    assert res["total_samples"] == 3
+    assert res["baseline"]["failures"] == 1
+    assert res["baseline"]["mean_omr_ned_successes"] == 0.0
+
+    probe = res["configurations"]["probe"]
+    assert probe["summary"]["failures"] == 1
+    assert probe["versus_baseline"]["recovered"] == ["s1"]
+    assert probe["versus_baseline"]["regressed"] == ["s2"]
+    assert probe["versus_baseline"]["paired_successes"] == 1
+    assert probe["versus_baseline"]["paired_omr_ned_worsened"] == 1
+    assert probe["versus_baseline"]["paired_mean_omr_ned_delta"] > 0
+    assert sorted(engine.calls) == ["s0", "s1", "s2"]
+
+
+def test_exp_07_requires_baseline_predictions(tmp_path: Path) -> None:
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        exp_07.run_preprocessing_experiment(
+            manifest,
+            engine_factory=lambda _config, _use_gpu: _Exp07Engine({}),
+            write_results=False,
+        )
+
+
+def test_exp_07_missing_prediction_is_not_counted_as_failure(tmp_path: Path) -> None:
+    """Una predicción que nunca se intentó no puede contarse como fallo del motor."""
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    predictions = _exp07_baseline(manifest, successes=["s0"], failures=["s1"])
+    with pytest.raises(FileNotFoundError, match="s2"):
+        exp_07.measure_predictions(manifest, predictions)
+
+
+def test_exp_07_transcription_resumes_without_repeating(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path)
+    config = PreprocessingConfig(enabled=True, rescale=True)
+    engine = _Exp07Engine({"s0": "exact", "s1": "fail", "s2": "exact"})
+
+    def factory(_config: PreprocessingConfig, _use_gpu: bool) -> _Exp07Engine:
+        return engine
+
+    first = exp_07.transcribe_config(manifest, "probe", config, engine_factory=factory)
+    assert first == {"written": 2, "reused": 0, "failures": 1}
+
+    second = exp_07.transcribe_config(manifest, "probe", config, engine_factory=factory)
+    assert second == {"written": 0, "reused": 3, "failures": 1}
+    assert len(engine.calls) == 3
+
+    forced = exp_07.transcribe_config(manifest, "probe", config, engine_factory=factory, force=True)
+    assert forced == {"written": 2, "reused": 0, "failures": 1}
+
+
+def test_exp_07_writes_results_only_to_results_dir(tmp_path: Path) -> None:
+    from cadenza.omr.preprocessing import PreprocessingConfig
+
+    from ml.experiments import exp_07_preprocessing_impact as exp_07
+
+    manifest = _exp07_corpus(tmp_path, count=1)
+    _exp07_baseline(manifest, successes=["s0"], failures=[])
+
+    exp_07.run_preprocessing_experiment(
+        manifest,
+        configs={"probe": PreprocessingConfig(enabled=True, binarize=True)},
+        engine_factory=lambda _config, _use_gpu: _Exp07Engine({"s0": "exact"}),
+    )
+
+    # La fixture de `conftest.py` redirige `RESULTS_DIR` de todos los experimentos.
+    results_dir = common.RESULTS_DIR
+    summary_file = results_dir / "preprocessing_impact_summary.json"
+    written = json.loads(summary_file.read_text(encoding="utf-8"))
+    assert written["simulated"] is False
+    assert (results_dir / "preprocessing_comparison.csv").is_file()
+    assert (results_dir / "exp_07_run_info.json").is_file()
 
 
 def test_exp_08_smoke() -> None:
