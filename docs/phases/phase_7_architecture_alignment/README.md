@@ -112,9 +112,9 @@ romper el visor.
 
 - [x] Todos los issues del milestone cerrados, o reclasificados con justificación
       ([#14](https://github.com/sebdavid3/Cadenza/issues/14) y [#31](https://github.com/sebdavid3/Cadenza/issues/31) cerrados con resultado negativo documentado en INV-0001; [#23](https://github.com/sebdavid3/Cadenza/issues/23) implementado con PyTorch condicional y ONNX; todos los 42 issues cerrados).
-- [ ] Flujo de punta a punta sobre el motor real: imagen → HOMR → validación →
-      corrección → exportación MusicXML/MIDI. Automatizado solo con `FakeOMREngine`;
-      con HOMR se corrige en [#97](https://github.com/sebdavid3/Cadenza/issues/97) (auditoría del 2026-10-12).
+- [x] Flujo de punta a punta sobre el motor real: imagen → HOMR → validación →
+      corrección → exportación MusicXML/MIDI. Verificado el 2026-10-12 ([#97](https://github.com/sebdavid3/Cadenza/issues/97));
+      el test original nunca había llegado a ejecutarse con HOMR.
 - [x] Ida y vuelta MusicXML → `ScoreIR` → MusicXML sin pérdida de clave,
       armadura, métrica, alturas, duraciones ni ligaduras.
 - [x] Ninguna edición inválida puede entrar al log de ediciones.

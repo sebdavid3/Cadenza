@@ -1,21 +1,19 @@
 # ADR-0016: Transcripción síncrona de página única frente a colas asíncronas
 
-- **Estado:** Aceptado — **provisional** (evidencia retirada el 2026-10-12, ver nota)
+- **Estado:** En revisión — la evidencia medida el 2026-10-12 contradice la decisión (ver nota)
 - **Fecha:** 2026-10-08
 - **Decisores:** Arquitecto de Software, Equipo de Desarrollo de Cadenza
 - **Relacionado:** [ADR-0001](ADR-0001-monolito-modular-hexagonal.md), [ADR-0003](ADR-0003-separacion-planos-computo.md), [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md), [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md), [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md)
 
 ---
 
-> **Corrección del 2026-10-12.** La sección «Evidencia empírica» de este ADR no
-> contiene mediciones: `ml/experiments/exp_11_latency_benchmark.py` devuelve listas
-> de constantes escritas en el código, tanto en modo `--smoke` como en modo completo,
-> y no ejecuta ningún motor. Las latencias de la tabla (incluido el peor caso de
-> 7,35 s) y los márgenes derivados **no deben citarse como resultados**.
+> **Revisión del 2026-10-12.** La evidencia original de este ADR no eran mediciones,
+> sino constantes escritas en `exp_11_latency_benchmark.py` (peor caso de 7,35 s). Se
+> sustituyó por mediciones reales con HOMR ([#97](https://github.com/sebdavid3/Cadenza/issues/97)), que **no respaldan la decisión
+> tal como estaba redactada**: 18 de 126 peticiones en caliente tardaron 30 s o más.
 >
-> La decisión de mantener `POST /transcribe` síncrono queda **provisional** hasta
-> medir de verdad con HOMR en [#97](https://github.com/sebdavid3/Cadenza/issues/97). Si la medición contradice la decisión,
-> se sustituirá por un ADR nuevo.
+> La decisión definitiva queda pendiente del responsable del proyecto
+> ([#106](https://github.com/sebdavid3/Cadenza/issues/106)). Mientras tanto, el contrato v1 no cambia.
 
 ## Contexto
 
@@ -31,38 +29,85 @@ Para fundamentar la decisión con rigor cuantitativo frente al jurado de tesis, 
 
 ---
 
-## Evidencia simulada — no citar (se sustituye en #97)
+## Evidencia medida (2026-10-12)
 
-Se midió la distribución estadística de los tiempos de transcripción de `HOMREngine` comparando:
-- **Complejidad del documento:**
-  - Incipit monofónico (1 pentagrama, corpus PrIMuS).
-  - Página completa polifónica (2 pentagramas, corpus Sheet Music Benchmark - SMB).
-- **Dispositivo de cómputo:**
-  - CPU de referencia: procesador moderno multi-núcleo (x86_64).
-  - GPU de referencia: NVIDIA CUDA con acelerador `CUDAExecutionProvider` de `onnxruntime`.
-- **Margen de seguridad:**
-  - Calculado frente al umbral crítico más restrictivo de timeout de cliente HTTP estándar ($T_{\text{timeout}} = 30.0$ segundos):
-    $$\text{Margen} = \max\left(0, \left(1 - \frac{\text{latencia}_{\max}}{T_{\text{timeout}}}\right) \times 100\right)\%$$
+Mediciones reales con `ml/experiments/exp_11_latency_benchmark.py` ([#97](https://github.com/sebdavid3/Cadenza/issues/97)), que
+cronometra `HOMREngine.transcribe_musicxml`. Sustituyen a la tabla anterior, que eran
+constantes escritas en el código.
 
-### Resultados empíricos resumidos
+- **Motor:** HOMR 0.7.0 sobre onnxruntime-gpu 1.26.0.
+- **Equipo:** Intel64 Family 6 Model 183 Stepping 1, GenuineIntel (16 hilos); GPU NVIDIA GeForce RTX 5050 Laptop GPU.
+- **Entradas:** 5 incipits de PrIMuS y páginas de 4, 8 y 12 pentagramas compuestas apilando las primeras 4, 8 y 12 imágenes del manifiesto. No hay un corpus de página completa descargado: la composición es sintética y la inferencia es real.
+- **Protocolo:** 3 repeticiones por imagen y ejecución; cada dispositivo en procesos separados (CPU: 3, GPU: 3 ejecuciones). La primera llamada de cada proceso se cuenta aparte como arranque en frío.
+- **Referencia:** *timeout* de cliente de 30 s.
 
-| Configuración | Corpus | Dispositivo | Latencia media ($\mu$) | Latencia máx ($t_{\max}$) | Aceleración GPU | Margen vs 30s |
-|---|---|---|---|---|---|---|
-| **Incipit (1 pentagrama)** | PrIMuS | GPU (CUDA) | 152.0 ms | 160.0 ms | **5.84x** | **99.47%** |
-| **Incipit (1 pentagrama)** | PrIMuS | CPU | 887.0 ms | 940.0 ms | 1.00x | **96.87%** |
-| **Página completa (2 pentagramas)** | SMB (Piano) | GPU (CUDA) | 1,970.0 ms | 2,100.0 ms | **3.51x** | **93.00%** |
-| **Página completa (2 pentagramas)** | SMB (Piano) | CPU | 6,910.0 ms | 7,350.0 ms | 1.00x | **75.50%** |
+### Latencia en caliente (segundos)
 
-### Hallazgos clave
-1. **GPU:** La transcripción de una página completa de piano se completa en menos de 2.1 segundos, proporcionando una respuesta prácticamente instantánea e interactiva.
-2. **CPU (peor caso):** En la configuración más desfavorable (ejecución pura en CPU sobre una página completa densa de piano de SMB), el tiempo total de inferencia alcanzó $7.35$ segundos.
-3. **Margen de tolerancia:** Incluso en el peor caso en CPU, el tiempo observado se sitúa ampliamente por debajo del límite de corte de 30 segundos, manteniendo un margen de holgura superior al **75.5%** (y superior al **87.7%** frente a proxies configurados a 60 segundos). En ningún caso se produce timeout de cliente.
+| Entrada | Dispositivo | n | Mediana | Media | p95 | Máximo | Peticiones ≥ 30 s |
+|---|---|---|---|---|---|---|---|
+| Incipit (1 pentagrama) | GPU | 36 | 1,8 | 7,9 | 34,3 | 36,8 | 4 |
+| Página de 4 pentagramas | GPU | 9 | 3,1 | 6,4 | 20,2 | 28,5 | 0 |
+| Página de 8 pentagramas | GPU | 9 | 5,4 | 13,3 | 33,7 | 39,3 | 1 |
+| Página de 12 pentagramas | GPU | 9 | 13,2 | 31,5 | 71,3 | 71,8 | 4 |
+| Incipit (1 pentagrama) | CPU | 36 | 3,2 | 8,3 | 36,7 | 39,2 | 3 |
+| Página de 4 pentagramas | CPU | 9 | 7,7 | 16,3 | 54,8 | 85,5 | 1 |
+| Página de 8 pentagramas | CPU | 9 | 13,6 | 26,3 | 68,2 | 80,6 | 3 |
+| Página de 12 pentagramas | CPU | 9 | 17,6 | 27,1 | 64,8 | 73,7 | 2 |
+
+### Arranque en frío (primera petición del proceso)
+
+- **GPU:** 39,8 s, 26,5 s, 39,0 s (3 procesos).
+- **CPU:** 27,2 s, 33,7 s, 4,1 s (3 procesos).
+
+### Lectura de los datos
+
+- Máximo en caliente: 85,5 s. Máximo en frío: 39,8 s.
+- Regla de decisión, escrita en el script antes de ejecutar las mediciones: ASYNCHRONOUS_REQUIRED si alguna petición en caliente alcanza el timeout; SYNCHRONOUS_WITH_WARMUP si solo lo alcanza el arranque en frío; SYNCHRONOUS_SUFFICIENT en otro caso.
+- Resultado de la regla: **`ASYNCHRONOUS_REQUIRED`**.
+
+### Límites de esta medición
+
+- **Se cronometra el motor, no la petición.** Las cifras son de
+  `HOMREngine.transcribe_musicxml`. `POST /transcribe` añade la conversión al modelo
+  interno, la validación y la persistencia, y aquí no hay concurrencia: son una cota
+  inferior de lo que ve el cliente.
+- **El equipo es un portátil en uso, no una máquina aislada.** Los picos llegan en
+  rachas contiguas (en una ejecución de CPU, cinco llamadas seguidas de 27 a 39 s) y la
+  misma imagen varía entre 1,6 y 36,8 s en GPU. Eso apunta más a contención del equipo
+  que al motor, pero no está demostrado.
+- **La causa de los picos no está identificada.** HOMR vuelve a crear el modelo de
+  segmentación en cada llamada, mientras que el codificador y el decodificador quedan
+  cargados en el proceso; esa recarga también la pagan las llamadas rápidas, así que
+  por sí sola no explica los picos. Se investiga en [#106](https://github.com/sebdavid3/Cadenza/issues/106).
+- **Arranque en frío y primeras llamadas.** En la primera ejecución de GPU, las tres
+  llamadas siguientes al arranque en frío tardaron de 30 a 37 s y cuentan como «en
+  caliente».
+- **Muestras pequeñas en las páginas.** Con n = 9, el p95 es casi el máximo.
+- **Páginas sintéticas.** Son composiciones de incipits, no páginas reales.
+- **Una imagen falla siempre.** La tercera del manifiesto da «No staffs found»; sus
+  intentos se cuentan como fallos y no como latencias.
+- **Trazabilidad.** Las mediciones se tomaron con la versión del script de este mismo
+  cambio antes de confirmarlo; `results/exp_11_run_info.json` registra el commit
+  anterior. La regla de decisión no tiene un registro previo independiente.
 
 ---
 
 ## Decisión
 
-Se adopta formalmente el **modelo de transcripción síncrona en el plano online** para Cadenza:
+**Estado tras medir (2026-10-12): en revisión.** La regla de decisión, escrita antes de
+ejecutar las mediciones, da `ASYNCHRONOUS_REQUIRED` en ambos dispositivos. Hasta que se cierre
+[#106](https://github.com/sebdavid3/Cadenza/issues/106):
+
+1. El contrato v1 se mantiene: `POST /transcribe` sigue siendo síncrono.
+2. Los clientes deben usar un *timeout* holgado sobre el máximo observado (85,5 s);
+   se recomienda 120 s, y mostrar progreso.
+3. Quedan dos salidas, a elegir con la evidencia de #106: mantener el modelo síncrono
+   si cargar los modelos una sola vez elimina los picos, o pasar a un modelo asíncrono
+   (petición aceptada y consulta de estado), que cambia el contrato de la API.
+
+### Decisión original (2026-10-08)
+
+Se adoptó el **modelo de transcripción síncrona en el plano online** para Cadenza:
 
 1. **Persistencia del endpoint síncrono:** `POST /transcribe` continúa procesando la petición y devolviendo directamente la sesión creada (`SessionResponse`) con su documento de partitura (`ScoreDocumentResponse`) y sus hallazgos iniciales (`findings`).
 2. **Concurrencia mediante pool de hilos:** Toda inferencia OMR se invoca a través de `asyncio.to_thread`, garantizando que las peticiones concurrentes de lectura, edición y exportación no sufran inanición en el servidor FastAPI.
@@ -71,7 +116,11 @@ Se adopta formalmente el **modelo de transcripción síncrona en el plano online
 
 ---
 
-## Consecuencias
+## Consecuencias de la decisión original
+
+> Las consecuencias siguientes se redactaron con la evidencia simulada. Las mediciones
+> del 2026-10-12 contradicen las que hablan de respuesta predecible: 18 de 126
+> peticiones tardaron 30 s o más, y un cliente con *timeout* de 30 s las habría perdido.
 
 ### Positivas
 - **Simplicidad arquitectónica radical (YAGNI):** Se evita introducir complejidad accidental (múltiples servicios de infraestructura, gestión de reconexiones en brokers, persistencia de estados efímeros de tareas y sincronización distribuida).
