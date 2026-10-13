@@ -26,11 +26,12 @@ conecta a través de puertos.
 | **4** | Aprendizaje activo: `DatasetBuilder`, estrategias de adquisición, `ModelRegistry` | ✅ |
 | **5** | Framework de experimentos (esfuerzo y estrategias de AL) | ✅ |
 | **6** | Validación empírica sobre corpus real (PrIMuS) y OMR-NED oficial | ✅ |
-| **7** | Alineación con la arquitectura objetivo (capa de aplicación, datos, API completa, plano offline) | 🔜 |
+| **7** | Alineación con la arquitectura objetivo (capa de aplicación, datos, API completa, plano offline) | ✅ |
+| **8** | Frontend HITL en `apps/web` (visor OSMD, reproducción Tone.js y flujos de edición) | 🔜 |
 
-Las fases 0–6 implementan el **núcleo** de cada módulo. Las brechas frente a la
-arquitectura objetivo se cierran en la Fase 7, cuyo trabajo está en los
-[issues del repositorio](https://github.com/sebdavid3/Cadenza/milestone/1).
+Las fases 0–7 implementan el backend completo, la persistencia, el contrato de la API v1
+congelado y la suite de validación empírica. El trabajo siguiente es la **Fase 8**
+(interfaz de usuario en `apps/web`), guiada por [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
 
 Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md).
 
@@ -59,11 +60,13 @@ Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PRO
 **Regla de dependencias:** los adaptadores dependen del dominio (y de sus
 puertos), nunca al contrario. El dominio no importa Pydantic, SQLAlchemy, FastAPI
 ni music21 (verificado por un test de pureza). Decisiones en
-[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0012).
+[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0016).
 
-El diagrama muestra lo implementado. La arquitectura objetivo añade una capa de
-aplicación (`packages/application`), un `ArtifactStore` y la exportación
-MusicXML/MIDI; ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §10.
+La arquitectura hexagonal organiza el sistema en una capa de dominio puro (`packages/domain`),
+casos de uso en aplicación (`packages/application`), puente notacional (`packages/interchange`),
+adaptadores OMR (`packages/omr`), validación (`packages/validation`), persistencia relacional
+y de eventos (`packages/persistence`), aprendizaje activo (`packages/learning`) y API Gateway (`apps/api`);
+ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
