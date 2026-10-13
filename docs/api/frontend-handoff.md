@@ -22,7 +22,7 @@ La API de Cadenza proporciona el ciclo de vida completo de digitalización y cor
 | Módulo / Capacidad | Endpoints Principales | Descripción |
 | :--- | :--- | :--- |
 | **Autenticación y Cuentas** | `POST /auth/login`<br>`GET /auth/me`<br>`POST /auth/password`<br>`GET/POST/PATCH /users` | Autenticación OAuth2 Bearer JWT. Control de roles (ADR-0012): `transcriptor` (edita sus sesiones) e `investigador` (administra usuarios y audita métricas). |
-| **Transcripción OMR** | `POST /transcribe` | Ingesta asíncrona de imágenes (PNG/JPEG), inferencia simbólica OMR (`HOMR` o `Fake`), validación inicial y creación de sesión en estado `transcribed`. |
+| **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR (`HOMR` o `Fake`), validación inicial y creación de sesión en estado `transcribed`. |
 | **Consultas de Sesión** | `GET /sessions`<br>`GET /sessions/{id}`<br>`GET /sessions/{id}/image`<br>`GET /sessions/{id}/export` | Listado ligero paginado (sin JSONB pesado). Consulta completa con estado materializado (`current_score`, `current_seq`, `anchor_index`). Descarga de imagen de origen. Exportación a MusicXML 4.0 y MIDI 1.0. |
 | **Edición Humana (HITL)** | `POST /sessions/{id}/edits`<br>`POST /sessions/{id}/undo` | Registro append-only inmutable de ediciones con verificación de concurrencia optimista (`base_seq`). Operaciones atómicas tipadas (`EditOp`). Deshacer en el servidor como evento compensatorio inverso (ADR-0007, #35). |
 | **Validación y Hallazgos** | `GET /sessions/{id}/findings`<br>`POST /sessions/{id}/validate`<br>`POST /sessions/{id}/findings/{id}/dismiss`<br>`POST /sessions/{id}/findings/{id}/restore` | Evaluación determinista de reglas sobre `current_score`. Filtro de hallazgos activos vs descartados. Preservación de falsos positivos descartados si su evento no fue modificado (#36). |
@@ -97,6 +97,24 @@ El backend gestiona undo append-only:
 1. **Lienzo de Partitura:** Se recomienda renderizar la partitura materializada usando OSMD (OpenSheetMusicDisplay) o Verovio alimentado desde `GET /sessions/{id}/export?format=musicxml` o procesando el `ScoreIR` tipado.
 2. **Superposición de Imagen:** La imagen se obtiene en `GET /sessions/{id}/image`. Las coordenadas `bbox` de las anclas permiten dibujar overlays de resaltado sincronizados cuando el usuario selecciona un compás o nota.
 3. **Panel de Hallazgos:** La lista de hallazgos devuelta por `GET /sessions/{id}/findings` señala anclas específicas. Al hacer clic en un hallazgo, el frontend puede enfocar la nota tanto en la partitura renderizada como en el recuadro de la imagen de origen.
+
+### 4.4. Tiempos de Transcripción y Timeout Recomendado (#106)
+
+El endpoint `POST /transcribe` es **síncrono**: procesa la imagen y devuelve directamente la sesión inicializada con su partitura y hallazgos. Tras eliminar la cola de latencia por OCR de título en el motor HOMR (issue #106), los tiempos medidos son:
+
+- **Incipits / fragmentos de 1 pentagrama (caso principal del plano online interactivo):**
+  - **GPU:** mediana de 4,1 s (media 3,1 s, máx 5,1 s; 0 peticiones ≥ 30 s).
+  - **CPU:** mediana de 1,2 s (media 3,7 s, máx 14,1 s; 0 peticiones ≥ 30 s).
+- **Páginas densas apiladas (hasta 12 pentagramas):**
+  - **GPU:** mediana de 23,2 s (máx 37,6 s).
+  - **CPU:** mediana de 11,9 s (máx 126,8 s).
+- **Arranque en frío (primera petición tras iniciar el backend):**
+  - GPU: hasta 12,4 s.
+  - CPU: hasta 2,1 s.
+
+**Recomendaciones para el Frontend:**
+1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **120 s** si el despliegue opera en CPU o si se admiten partituras densas. Para entornos con GPU procesando incipits, un valor de 30 a 60 s es suficiente.
+2. **Indicador de progreso:** El frontend debe mostrar un estado visual de carga explícito y no bloqueante (barra de progreso o indicador de actividad) mientras `POST /transcribe` resuelve la inferencia.
 
 ---
 
