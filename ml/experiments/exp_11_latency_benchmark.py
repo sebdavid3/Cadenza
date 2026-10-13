@@ -43,6 +43,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
+from cadenza.api.power import PowerThrottlingMode, set_power_throttling
 from cadenza.omr import OMRTranscriptionError
 from PIL import Image
 
@@ -186,11 +187,21 @@ def compose_page(
 Clock = Callable[[], float]
 
 
-def time_call(engine: Transcriber, image: Path, clock: Clock = time.perf_counter) -> float:
-    """Devuelve la duración en milisegundos de una transcripción."""
-    start = clock()
+def time_call(
+    engine: Transcriber,
+    image: Path,
+    clock: Clock = time.perf_counter,
+    process_clock: Clock = time.process_time,
+) -> tuple[float, float]:
+    """Devuelve (duración en milisegundos, hilos de CPU usados) de una transcripción."""
+    wall_start = clock()
+    cpu_start = process_clock()
     engine.transcribe_musicxml(image)
-    return (clock() - start) * 1000.0
+    wall_elapsed_s = clock() - wall_start
+    cpu_elapsed_s = process_clock() - cpu_start
+    duration_ms = wall_elapsed_s * 1000.0
+    cpu_threads = (cpu_elapsed_s / wall_elapsed_s) if wall_elapsed_s > 0 else 0.0
+    return duration_ms, cpu_threads
 
 
 def _default_engine_factory(use_gpu: bool) -> Transcriber:
@@ -259,18 +270,27 @@ def _load_images(manifest: Path, needed: int) -> list[Path]:
     return images[:needed]
 
 
-def _measure(engine: Transcriber, image: Path, runs: int, clock: Clock) -> tuple[list[float], int]:
+def _measure(
+    engine: Transcriber,
+    image: Path,
+    runs: int,
+    clock: Clock,
+    process_clock: Clock = time.process_time,
+) -> tuple[list[float], list[float], int]:
     durations: list[float] = []
+    threads: list[float] = []
     failures = 0
     for _ in range(runs):
         try:
-            durations.append(round(time_call(engine, image, clock), 2))
+            dur_ms, thr = time_call(engine, image, clock, process_clock)
+            durations.append(round(dur_ms, 2))
+            threads.append(round(thr, 2))
         except OMRTranscriptionError:
             # El motor no pudo transcribir la imagen (p. ej. "No staffs found"): no es
             # una latencia válida. Cualquier otro error (motor ausente, entorno roto)
             # se propaga y detiene el benchmark.
             failures += 1
-    return durations, failures
+    return durations, threads, failures
 
 
 def measure_device(
@@ -284,38 +304,47 @@ def measure_device(
     work_dir: Path,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     clock: Clock = time.perf_counter,
+    process_clock: Clock = time.process_time,
+    power_throttling: PowerThrottlingMode = "disabled",
 ) -> dict[str, Any]:
     """Mide un dispositivo: arranque en frío, incipits y páginas compuestas."""
     engine = engine_factory(device == "gpu")
 
     # Arranque en frío: primera llamada del proceso, incluye la carga de los modelos.
-    cold_durations, cold_failures = _measure(engine, images[0], 1, clock)
+    cold_durations, cold_threads, cold_failures = _measure(
+        engine, images[0], 1, clock, process_clock
+    )
     cold_start_ms = cold_durations[0] if cold_durations else None
+    cold_start_thread = cold_threads[0] if cold_threads else None
 
     configurations: dict[str, Any] = {}
 
     warm: list[float] = []
+    warm_threads: list[float] = []
     failures = 0
     for image in images[:incipits]:
-        durations, failed = _measure(engine, image, runs, clock)
+        durations, thr, failed = _measure(engine, image, runs, clock, process_clock)
         warm.extend(durations)
+        warm_threads.extend(thr)
         failures += failed
     configurations["incipit_1_staff"] = {
         "description": f"{incipits} incipits de un pentagrama, {runs} repeticiones cada uno",
         "warm_ms": warm,
+        "cpu_threads": warm_threads,
         "failures": failures,
         "stats": compute_latency_stats(warm, timeout_s).to_dict(),
     }
 
     for count in staves:
         page = compose_page(images[:count], work_dir / f"page_{count}_staves.png")
-        durations, failed = _measure(engine, page, runs, clock)
+        durations, thr, failed = _measure(engine, page, runs, clock, process_clock)
         configurations[f"page_{count}_staves"] = {
             "description": (
                 f"página compuesta apilando las {count} primeras imágenes del manifiesto "
                 f"(composición sintética, inferencia real), {runs} repeticiones"
             ),
             "warm_ms": durations,
+            "cpu_threads": thr,
             "failures": failed,
             "stats": compute_latency_stats(durations, timeout_s).to_dict(),
         }
@@ -328,10 +357,16 @@ def measure_device(
     return _device_record(
         environment=describe_environment(device),
         cold_samples=[] if cold_start_ms is None else [cold_start_ms],
+        cold_threads=[] if cold_start_thread is None else [cold_start_thread],
         cold_failures=cold_failures,
         configurations=configurations,
         invocations=1,
-        protocol={"incipits": incipits, "staves": list(staves), "runs": runs},
+        protocol={
+            "incipits": incipits,
+            "staves": list(staves),
+            "runs": runs,
+            "power_throttling": power_throttling,
+        },
     )
 
 
@@ -339,6 +374,7 @@ def _device_record(
     *,
     environment: dict[str, Any],
     cold_samples: list[float],
+    cold_threads: list[float] | None = None,
     cold_failures: int,
     configurations: dict[str, Any],
     invocations: int,
@@ -351,6 +387,7 @@ def _device_record(
         "measured_at_utc": datetime.now(UTC).isoformat(),
         "invocations": invocations,
         "cold_start_samples_ms": cold_samples,
+        "cold_start_cpu_threads": cold_threads or [],
         "cold_start_failures": cold_failures,
         "cold_start_ms": max(cold_samples) if cold_samples else None,
         "max_warm_ms": max(all_warm) if all_warm else None,
@@ -372,9 +409,11 @@ def _accumulate(
     for name, config in current["configurations"].items():
         before = previous["configurations"][name]
         warm = [*before["warm_ms"], *config["warm_ms"]]
+        thr = [*before.get("cpu_threads", []), *config.get("cpu_threads", [])]
         configurations[name] = {
             "description": config["description"],
             "warm_ms": warm,
+            "cpu_threads": thr,
             "failures": before["failures"] + config["failures"],
             "stats": compute_latency_stats(warm, timeout_s).to_dict(),
         }
@@ -383,6 +422,10 @@ def _accumulate(
         cold_samples=[
             *previous.get("cold_start_samples_ms", []),
             *current["cold_start_samples_ms"],
+        ],
+        cold_threads=[
+            *previous.get("cold_start_cpu_threads", []),
+            *current.get("cold_start_cpu_threads", []),
         ],
         cold_failures=int(previous.get("cold_start_failures", 0)) + current["cold_start_failures"],
         configurations=configurations,
@@ -422,10 +465,12 @@ def run_benchmark(
     incipits: int = 5,
     staves: Sequence[int] = (4, 8, 12),
     runs: int = 3,
+    power_throttling: PowerThrottlingMode = "disabled",
     timeout_s: float = DEFAULT_TIMEOUT_S,
     engine_factory: EngineFactory | None = None,
     reset: bool = False,
     clock: Clock = time.perf_counter,
+    process_clock: Clock = time.process_time,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
     """Mide la latencia en un dispositivo y fusiona el resultado en el resumen.
@@ -437,6 +482,9 @@ def run_benchmark(
         raise ValueError("device debe ser 'cpu' o 'gpu'")
     if incipits < 1 or runs < 1:
         raise ValueError("incipits y runs deben ser al menos 1")
+
+    # Configura la limitación de energía para el proceso
+    set_power_throttling(power_throttling)
 
     out_dir = output_dir or RESULTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -465,6 +513,8 @@ def run_benchmark(
             work_dir=Path(tmp_dir),
             timeout_s=timeout_s,
             clock=clock,
+            process_clock=process_clock,
+            power_throttling=power_throttling,
         )
 
     if device in devices and not reset:
@@ -479,6 +529,7 @@ def run_benchmark(
             "incipits": incipits,
             "staves_per_page": list(staves),
             "runs_per_image": runs,
+            "power_throttling": power_throttling,
             "note": (
                 "Cada dispositivo se mide en un proceso propio. El arranque en frío es la "
                 "primera llamada del proceso (una muestra por ejecución); el resto son "
@@ -492,6 +543,7 @@ def run_benchmark(
 
     run_info = get_run_info("exp_11_latency_benchmark", seed=seed, manifest_path=manifest_path)
     run_info["device"] = device
+    run_info["power_throttling"] = power_throttling
     run_info["recommendation"] = summary["architectural_evaluation"]["recommendation"]
     (out_dir / "exp_11_run_info.json").write_text(
         json.dumps(run_info, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -506,6 +558,12 @@ def main() -> None:
     parser.add_argument("--incipits", type=int, default=5)
     parser.add_argument("--staves", type=str, default="4,8,12")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument(
+        "--power-throttling",
+        choices=("disabled", "forced", "system"),
+        default="disabled",
+        help="Modo de limitación de energía en Windows (defecto: disabled).",
+    )
     parser.add_argument("--output", type=Path, default=None, help="Directorio de resultados.")
     parser.add_argument(
         "--reset", action="store_true", help="Descarta las muestras previas del dispositivo."
@@ -519,18 +577,26 @@ def main() -> None:
         incipits=args.incipits,
         staves=[int(value) for value in args.staves.split(",") if value],
         runs=args.runs,
+        power_throttling=args.power_throttling,
         reset=args.reset,
     )
     measured = summary["devices"][args.device]
+    cold_thr = ""
+    if measured.get("cold_start_cpu_threads"):
+        cold_thr = f" (hilos={measured['cold_start_cpu_threads']})"
     print(
         f"[exp_11] dispositivo={args.device} ejecuciones={measured['invocations']} "
-        f"arranque en frío={measured['cold_start_samples_ms']} ms"
+        f"arranque en frío={measured['cold_start_samples_ms']} ms{cold_thr}"
     )
     for name, config in measured["configurations"].items():
         stats = config["stats"]
+        threads_info = ""
+        if config.get("cpu_threads"):
+            med_thr = statistics.median(config["cpu_threads"])
+            threads_info = f" hilos={med_thr:.1f}"
         print(
             f"[exp_11] {name}: n={stats['count']} media={stats['mean_ms']} ms "
-            f"máx={stats['max_ms']} ms fallos={config['failures']}"
+            f"máx={stats['max_ms']} ms{threads_info} fallos={config['failures']}"
         )
     print(f"[exp_11] recomendación: {summary['architectural_evaluation']['recommendation']}")
 

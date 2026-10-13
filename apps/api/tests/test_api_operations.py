@@ -143,3 +143,49 @@ def test_login_rate_limiting(ops_test_client: TestClient) -> None:
     assert blocked_resp.status_code == 429
     assert "Retry-After" in blocked_resp.headers
     assert "Demasiados intentos fallidos" in blocked_resp.json()["detail"]
+
+
+def test_startup_disables_power_throttling_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verifica que create_app llama a disable_power_throttling si está configurado."""
+    engine = create_memory_engine()
+    create_schema(engine)
+    session_factory = create_session_factory(engine)
+
+    mock_disable = MagicMock(return_value=True)
+    monkeypatch.setattr("cadenza.api.main.disable_power_throttling", mock_disable)
+
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=tmp_path / "artifacts",
+        disable_power_throttling=True,
+    )
+    with caplog.at_level("INFO", logger="cadenza.api"):
+        create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+
+    assert mock_disable.called
+    assert "power_throttling_disabled requested=True applied=True" in caplog.text
+
+
+def test_startup_skips_power_throttling_when_disabled_by_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verifica que create_app no llama a disable_power_throttling si se desactiva."""
+    engine = create_memory_engine()
+    create_schema(engine)
+    session_factory = create_session_factory(engine)
+
+    mock_disable = MagicMock(return_value=True)
+    monkeypatch.setattr("cadenza.api.main.disable_power_throttling", mock_disable)
+
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=tmp_path / "artifacts",
+        disable_power_throttling=False,
+    )
+    with caplog.at_level("INFO", logger="cadenza.api"):
+        create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+
+    assert not mock_disable.called
+    assert "power_throttling_disabled requested=False applied=False" in caplog.text

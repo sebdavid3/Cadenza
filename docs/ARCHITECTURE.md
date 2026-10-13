@@ -321,9 +321,9 @@ comunicados **únicamente por datos persistidos y artefactos versionados**
   `ArtifactStore`.
 - **Reglas:** ninguna operación de entrenamiento ocurre aquí; el trabajo pesado
   de OMR se ejecuta fuera del bucle de eventos mediante `asyncio.to_thread`
-  (ADR-0016, en revisión: la cola de OCR de título se eliminó en el adaptador [#106],
-  pero páginas densas de 12 pentagramas aún superan los 30 s de inferencia pura manteniendo
-  la recomendación en colas asíncronas); el dispositivo efectivo se
+  (ADR-0016, aceptado tras resolver la cola de OCR de título y desactivar la limitación de energía
+  de Windows 11 en el proceso [#106]: 0 de 126 peticiones superan 30 s, veredicto `SYNCHRONOUS_SUFFICIENT`);
+  el dispositivo efectivo se
   reporta desde `onnxruntime.get_available_providers()`, **nunca** desde
   `torch.cuda`.
 
@@ -849,15 +849,14 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Contrato OpenAPI congelado y tipos generados | Implementado: `docs/api/openapi.json` v1.0.0, tipos generados en `apps/web/src/types.ts` y CI en `test_openapi_contract.py` | [#26](https://github.com/sebdavid3/Cadenza/issues/26) |
 | Dominio | Mapa tiempo→ancla para reproducción sincronizada | Implementado: función pura `compute_timing_map` en `packages/domain`, caso de uso `get_timing`, endpoint `GET /sessions/{id}/timing` y tipos OpenAPI/TypeScript sincronizados | [#42](https://github.com/sebdavid3/Cadenza/issues/42) |
 | Infraestructura | Operación y despliegue del backend | Implementado: sondas de salud `GET /health`, registro estructurado con `X-Request-ID`, CORS configurable, protección contra fuerza bruta con límite de intentos, contenedor CUDA offline y scripts de backup y restauración con verificación SHA-256 (ADR-0015, deuda D44) | [#40](https://github.com/sebdavid3/Cadenza/issues/40) |
-| API | Decisión de transcripción síncrona respaldada por benchmark | **En revisión.** Latencia medida con HOMR real tras eliminar el OCR de título (`exp_11`, [#106](https://github.com/sebdavid3/Cadenza/issues/106)): 0 de 36 peticiones de incipit superan 30 s (GPU máx 5,1 s, CPU máx 14,1 s). Sin embargo, páginas compuestas de 12 pentagramas en GPU (máx 37,6 s) y de 4 a 12 en CPU (máx 126,8 s) mantienen la regla en `ASYNCHRONOUS_REQUIRED`. Pendiente de decisión final del responsable del proyecto | [#37](https://github.com/sebdavid3/Cadenza/issues/37), [#97](https://github.com/sebdavid3/Cadenza/issues/97), [#106](https://github.com/sebdavid3/Cadenza/issues/106) |
+| API | Decisión de transcripción síncrona respaldada por benchmark | **Resuelto y aceptado.** Latencia medida con HOMR real tras eliminar el OCR de título y desactivar la limitación de energía de Windows 11 (`exp_11`, [#106](https://github.com/sebdavid3/Cadenza/issues/106)): 0 de 126 peticiones superan 30 s (peor caso en CPU 12,0 s, en GPU 7,6 s). La regla arroja `SYNCHRONOUS_SUFFICIENT` en ambos dispositivos y ratifica la transcripción síncrona en la API v1 (ADR-0016) | [#37](https://github.com/sebdavid3/Cadenza/issues/37), [#97](https://github.com/sebdavid3/Cadenza/issues/97), [#106](https://github.com/sebdavid3/Cadenza/issues/106) |
 | Repositorio | Plan de migración y paridad para el retiro de legacy | Resuelto: matriz de paridad exhaustiva en `docs/migracion_legacy.md` contrastando `legacy/` frente a la arquitectura hexagonal (superada en backend y Docker; en ML, con las salvedades de la auditoría del 2026-10-12); definición formal del criterio de paridad para el retiro físico (Fase 8 en `apps/web`); preservación inmutable del MVP en etiqueta git `archive/legacy-mvp` y congelamiento/deprecación de `legacy/` (deuda D45) | [#41](https://github.com/sebdavid3/Cadenza/issues/41) |
 
-De las cuatro piezas con alcance por decidir, tres quedaron resueltas: retiro de
+Las cuatro piezas con alcance por decidir quedaron resueltas: retiro de
 `legacy/` ([#41](https://github.com/sebdavid3/Cadenza/issues/41)), operación del
-backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)) y mapa de tiempo
-([#42](https://github.com/sebdavid3/Cadenza/issues/42)). La de transcripción asíncrona
-([#37](https://github.com/sebdavid3/Cadenza/issues/37)) se decidió sin evidencia válida
-y está en revisión: la latencia medida la contradice ([#106](https://github.com/sebdavid3/Cadenza/issues/106)).
+backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)), mapa de tiempo
+([#42](https://github.com/sebdavid3/Cadenza/issues/42)) y transcripción síncrona
+([#37](https://github.com/sebdavid3/Cadenza/issues/37), ratificada con evidencia empírica en [#106](https://github.com/sebdavid3/Cadenza/issues/106) y ADR-0016).
 La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
 La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) fue completada al 100%.
 

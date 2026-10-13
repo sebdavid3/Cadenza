@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import tempfile
 import time
 import uuid
@@ -132,6 +133,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
+from .power import disable_power_throttling
 from .schemas import (
     AnchorIndexPayload,
     AnchorPayload,
@@ -292,6 +294,19 @@ def create_app(
         raise RuntimeError(
             "CADENZA_AUTH_SECRET_KEY no configurada: "
             "la aplicación no puede iniciar sin clave de firma."
+        )
+
+    if app_settings.disable_power_throttling:
+        throttling_applied = disable_power_throttling()
+        logger.info(
+            "power_throttling_disabled requested=True applied=%s platform=%s",
+            throttling_applied,
+            sys.platform,
+        )
+    else:
+        logger.info(
+            "power_throttling_disabled requested=False applied=False platform=%s",
+            sys.platform,
         )
 
     app = FastAPI(
