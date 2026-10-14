@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
+_ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
 
 
 class Settings(BaseSettings):
@@ -54,10 +59,46 @@ class Settings(BaseSettings):
             "En producción permanece en False, dependiendo de migraciones Alembic (#6)."
         ),
     )
-    cors_origins: list[str] = Field(
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["*"],
-        description="Lista de orígenes permitidos para peticiones CORS (CADENZA_CORS_ORIGINS).",
+        description=(
+            "Orígenes permitidos para peticiones CORS (CADENZA_CORS_ORIGINS): `*` o "
+            "`esquema://host[:puerto]`, uno o varios separados por comas o en una lista JSON. "
+            "Una lista vacía desactiva CORS."
+        ),
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: Any) -> Any:
+        """Admite en la variable de entorno texto separado por comas además de JSON (#123)."""
+
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("["):
+            return json.loads(text)
+        return [origin.strip() for origin in text.split(",") if origin.strip()]
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _check_cors_origins(cls, origins: list[str]) -> list[str]:
+        """Rechaza al arrancar los orígenes que el navegador nunca enviaría (#123).
+
+        Un origen es `esquema://host[:puerto]`, sin ruta ni barra final; `*` va solo, porque
+        junto a otros orígenes CORS los ignoraría y permitiría cualquiera.
+        """
+
+        if "*" in origins and len(origins) > 1:
+            raise ValueError("'*' no se combina con otros orígenes en CADENZA_CORS_ORIGINS")
+        for origin in origins:
+            if origin != "*" and not _ORIGIN_RE.fullmatch(origin):
+                raise ValueError(
+                    f"origen CORS no válido: {origin!r} (forma esperada: "
+                    "esquema://host[:puerto], sin ruta ni barra final)"
+                )
+        return origins
+
     login_rate_limit_max_attempts: int = Field(
         default=5,
         description="Máximo de intentos fallidos antes de bloquear temporalmente el login (#40).",

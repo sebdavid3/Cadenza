@@ -124,6 +124,28 @@ def test_cors_middleware_headers(ops_test_client: TestClient) -> None:
     )
     assert opt_resp.status_code == 200
     assert opt_resp.headers.get("access-control-allow-origin") == "https://cadenza.app"
+    assert opt_resp.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_cors_wildcard_does_not_allow_credentials(tmp_path: Path) -> None:
+    """Con `*`, CORS no reenvía el origen ajeno junto con `Allow-Credentials` (#123)."""
+    engine = create_memory_engine()
+    create_schema(engine)
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=tmp_path / "artifacts",
+        cors_origins=["*"],
+    )
+    client = TestClient(
+        create_app(create_session_factory(engine), omr_engine=FakeOMREngine(), settings=settings)
+    )
+    resp = client.options(
+        "/version",
+        headers={"Origin": "http://evil.test", "Access-Control-Request-Method": "GET"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("access-control-allow-origin") == "*"
+    assert "access-control-allow-credentials" not in resp.headers
 
 
 def test_login_rate_limiting(ops_test_client: TestClient) -> None:

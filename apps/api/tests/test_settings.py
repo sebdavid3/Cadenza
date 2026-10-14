@@ -8,6 +8,7 @@ import pytest
 from cadenza.api import Settings, create_app, create_default_app
 from cadenza.omr import FakeOMREngine, HOMREngine, OemerEngine
 from cadenza.persistence import create_memory_engine, create_session_factory
+from pydantic import ValidationError
 
 
 def test_default_settings() -> None:
@@ -80,3 +81,53 @@ def test_create_default_app_with_oemer_engine() -> None:
     app = create_default_app(settings)
     assert isinstance(app.state.omr_engine, OemerEngine)
     assert app.state.settings.omr_engine == "oemer"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("*", ["*"]),
+        ("http://localhost:5174", ["http://localhost:5174"]),
+        ("http://a.test, http://b.test", ["http://a.test", "http://b.test"]),
+        ('["http://a.test", "http://b.test"]', ["http://a.test", "http://b.test"]),
+        ("", []),
+    ],
+)
+def test_cors_origins_from_env_accepts_documented_forms(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    """`*`, un origen, una lista separada por comas o JSON (`.env.example`, #123)."""
+    monkeypatch.setenv("CADENZA_CORS_ORIGINS", raw)
+    assert Settings().cors_origins == expected
+
+
+def test_env_example_builds_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La configuración de ejemplo del despliegue construye `Settings` sin errores (#123)."""
+    env_example = Path(__file__).resolve().parents[3] / ".env.example"
+    for line in env_example.read_text(encoding="utf-8").splitlines():
+        if line.strip() and not line.lstrip().startswith("#"):
+            key, _, value = line.partition("=")
+            monkeypatch.setenv(key.strip(), value.strip())
+    settings = Settings()
+    assert settings.cors_origins == ["*"]
+    assert settings.login_rate_limit_max_attempts == 5
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '"*"',
+        '{"a": 1}',
+        "http://a.test/",
+        "localhost:5174",
+        "*, http://a.test",
+        '["*", "http://a.test"]',
+    ],
+)
+def test_cors_origins_rejects_values_a_browser_never_sends(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    """Un origen mal escrito falla al arrancar en lugar de desactivar CORS en silencio (#123)."""
+    monkeypatch.setenv("CADENZA_CORS_ORIGINS", raw)
+    with pytest.raises(ValidationError):
+        Settings()
