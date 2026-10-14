@@ -368,7 +368,9 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=app_settings.cors_origins,
-            allow_credentials=True,
+            # Con `*` no se envían credenciales: Starlette devolvería como permitido cualquier
+            # origen junto con `Allow-Credentials` (#123). La API usa tokens Bearer, no cookies.
+            allow_credentials="*" not in app_settings.cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
             expose_headers=["X-Request-ID", "X-API-Version"],
