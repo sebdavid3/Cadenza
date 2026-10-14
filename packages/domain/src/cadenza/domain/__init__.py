@@ -10,6 +10,14 @@ from __future__ import annotations
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
 from .edit import EditEvent, EditOp, create_inverse_edit, get_last_active_edit
+from .edit_payload import (
+    InvalidEditPayload,
+    has_complete_before,
+    is_canonical_pitch,
+    normalize_accidental,
+    snapshot_before,
+    validate_after,
+)
 from .finding import Finding, Severity, translate_finding
 from .key_signature import KeySignature
 from .projection import (
@@ -45,6 +53,7 @@ __all__ = [
     "EventRef",
     "EventTiming",
     "Finding",
+    "InvalidEditPayload",
     "KeySignature",
     "Measure",
     "Part",
@@ -62,8 +71,13 @@ __all__ = [
     "compute_timing_map",
     "create_inverse_edit",
     "get_last_active_edit",
+    "has_complete_before",
+    "is_canonical_pitch",
     "materialize",
+    "normalize_accidental",
     "origin_anchor",
+    "snapshot_before",
     "translate_anchor",
     "translate_finding",
+    "validate_after",
 ]

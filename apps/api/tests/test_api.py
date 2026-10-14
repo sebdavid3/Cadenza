@@ -176,8 +176,8 @@ def test_get_session_returns_document_anchors_and_findings() -> None:
 
 def test_get_session_includes_appended_edits(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
-    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR}
-    client.post(f"/sessions/{session_id}/edits", json=payload)
+    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR, "after": {"pitch": "D4"}}
+    assert client.post(f"/sessions/{session_id}/edits", json=payload).status_code == 201
 
     detail = client.get(f"/sessions/{session_id}").json()
     assert len(detail["edits"]) == 1

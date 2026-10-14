@@ -246,6 +246,7 @@ def test_append_edit_ownership_rules(
         res_session.session_id,
         anchor=anchor,
         op=EditOp.SET_PITCH,
+        after={"pitch": "D4"},
         session_repository=session_repo,
         edit_repository=edit_repo,
         current_user=researcher,

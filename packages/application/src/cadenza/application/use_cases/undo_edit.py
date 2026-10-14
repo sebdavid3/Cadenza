@@ -16,6 +16,7 @@ from cadenza.domain import (
     build_anchor_index,
     create_inverse_edit,
     get_last_active_edit,
+    has_complete_before,
     materialize,
 )
 
@@ -63,6 +64,7 @@ def undo_edit(
     - Valida que la sesión no esté finalizada (ADR-0014).
     - Si se provee base_seq, verifica que coincida con el seq del estado actual (ADR-0011).
     - Si no hay ediciones activas por deshacer, lanza NoEditsToUndo.
+    - Si la edición no guardó su estado previo completo, lanza InvalidEdit (ADR-0017).
     - Proyecta y valida el evento inverso sobre el estado materializado actual.
     - Retorna el nuevo current_seq, la partitura materializada actualizada y el índice de anclas.
     """
@@ -95,6 +97,14 @@ def undo_edit(
     target_edit = get_last_active_edit(existing_edits)
     if target_edit is None:
         raise NoEditsToUndo(session_id)
+
+    # Una edición guardada sin estado previo completo (anterior a ADR-0017) no se puede
+    # invertir sin corromper la sesión: se rechaza en lugar de inventar el estado (#117).
+    if not has_complete_before(target_edit):
+        raise InvalidEdit(
+            f"La edición seq={target_edit.seq} ({target_edit.op.value}) no guardó su estado "
+            "previo completo y no se puede deshacer sin alterar la sesión"
+        )
 
     raw_score = ScoreIR.from_primitive(session_data.document["score"])
     current_score = materialize(raw_score, existing_edits)

@@ -13,11 +13,15 @@ from cadenza.domain import (
     Clef,
     EditEvent,
     EditOp,
+    InvalidEditPayload,
     KeySignature,
     ScoreIR,
     UnsupportedEditOpError,
     apply_edit,
     materialize,
+    normalize_accidental,
+    snapshot_before,
+    validate_after,
 )
 
 from ..exceptions import (
@@ -60,7 +64,12 @@ def _extract_clef(payload: Mapping[str, Any] | None) -> Clef | None:
 def _extract_key_signature(payload: Mapping[str, Any] | None) -> KeySignature | None:
     if payload is None:
         return None
-    raw = payload.get("key_signature") or payload.get("key") or payload
+    if "key_signature" in payload:
+        raw = payload["key_signature"]
+    elif "key" in payload:
+        raw = payload["key"]
+    else:
+        raw = payload
     if raw is None:
         return None
     if isinstance(raw, KeySignature):
@@ -72,11 +81,28 @@ def _extract_key_signature(payload: Mapping[str, Any] | None) -> KeySignature | 
     return None
 
 
-def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
-    if not edit.before:
-        return
+def _validate_before(
+    score: ScoreIR,
+    anchor: Anchor,
+    op: EditOp,
+    before: Mapping[str, Any] | None,
+) -> None:
+    """Exige que el `before` que envía el cliente, si lo envía, coincida con el estado."""
 
-    anchor = edit.anchor
+    if not before:
+        return
+    try:
+        _check_before(score, anchor, op, before)
+    except (KeyError, TypeError, ValueError, OverflowError) as exc:
+        raise InvalidEdit(f"Estado previo 'before' no válido para {op.value}: {exc!r}") from exc
+
+
+def _check_before(
+    score: ScoreIR,
+    anchor: Anchor,
+    op: EditOp,
+    before: Mapping[str, Any],
+) -> None:
     if anchor.part >= len(score.parts):
         raise InvalidEdit(f"Parte fuera de rango: {anchor.part}")
     part = score.parts[anchor.part]
@@ -89,8 +115,8 @@ def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
     if measure is None:
         raise InvalidEdit(f"Compás inexistente: {anchor.measure}")
 
-    if edit.op is EditOp.SET_CLEF:
-        expected_clef = _extract_clef(edit.before)
+    if op is EditOp.SET_CLEF:
+        expected_clef = _extract_clef(before)
         if measure.clef != expected_clef:
             raise InvalidEdit(
                 f"Estado previo 'before' de clave no coincide: "
@@ -98,8 +124,8 @@ def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
             )
         return
 
-    if edit.op is EditOp.SET_KEY:
-        expected_key = _extract_key_signature(edit.before)
+    if op is EditOp.SET_KEY:
+        expected_key = _extract_key_signature(before)
         if measure.key_signature != expected_key:
             raise InvalidEdit(
                 f"Estado previo 'before' de armadura no coincide: "
@@ -107,7 +133,7 @@ def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
             )
         return
 
-    if edit.op is EditOp.INSERT_EVENT:
+    if op is EditOp.INSERT_EVENT:
         return
 
     voice_events = [e for e in measure.events if e.voice == anchor.voice]
@@ -117,7 +143,7 @@ def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
             f"índice {anchor.event_index} (total {len(voice_events)})"
         )
     target = voice_events[anchor.event_index]
-    before_map = dict(edit.before)
+    before_map = dict(before)
 
     if "pitch" in before_map and before_map["pitch"] != target.pitch:
         raise InvalidEdit(
@@ -152,6 +178,17 @@ def _validate_before(score: ScoreIR, edit: EditEvent) -> None:
                 f"esperado '{actual_tie}', recibido '{raw_tie}'"
             )
 
+    if "accidental" in before_map:
+        actual_accidental = (snapshot_before(score, anchor, EditOp.SET_ACCIDENTAL) or {}).get(
+            "accidental"
+        )
+        raw_accidental = before_map["accidental"]
+        if normalize_accidental(raw_accidental) != normalize_accidental(actual_accidental):
+            raise InvalidEdit(
+                f"Estado previo 'before' de accidental no coincide: "
+                f"esperado '{actual_accidental}', recibido '{raw_accidental}'"
+            )
+
 
 def append_edit(
     session_id: str,
@@ -173,6 +210,8 @@ def append_edit(
     La autoría la fija el servidor a partir del usuario actual (ADR-0012).
     Verifica que base_seq coincida con el seq del estado actual de la sesión (ADR-0011, #48).
     Aplica y valida la edición sobre el estado materializado actual antes de persistir (#10).
+    Rechaza un `after` incoherente con la operación y guarda como `before` la instantánea
+    del estado que fija el servidor, para que deshacer sea exacto (ADR-0017, #117).
     """
 
     session_data = session_repository.get(session_id)
@@ -206,6 +245,21 @@ def append_edit(
     raw_score = ScoreIR.from_primitive(session_data.document["score"])
     current_score = materialize(raw_score, existing_edits)
 
+    # 4. Validar que 'before', si el cliente lo envía, coincida con el elemento anclado (#10)
+    _validate_before(current_score, anchor, op, before)
+
+    # 5. Validar 'after' y fijar 'before' con la instantánea del servidor (ADR-0017, #117)
+    try:
+        validate_after(current_score, anchor, op, after)
+        server_before = snapshot_before(current_score, anchor, op)
+    except InvalidEditPayload as exc:
+        raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc}") from exc
+    except IndexError as exc:
+        raise InvalidEdit(f"Edición no aplicable sobre el estado actual: {exc}") from exc
+    except (TypeError, ValueError, OverflowError) as exc:
+        # Defensa: un valor JSON inesperado nunca debe producir un 500 ni persistirse.
+        raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc!r}") from exc
+
     seq = edit_repository.next_seq(session_id)
     effective_author = author or current_user.username
 
@@ -217,23 +271,20 @@ def append_edit(
         op=op,
         author=effective_author,
         created_at=created_at or datetime.now(UTC),
-        before=before,
+        before=server_before,
         after=after,
     )
 
-    # 4. Validar que 'before' coincida con el elemento al que apunta el ancla (#10)
-    _validate_before(current_score, edit)
-
-    # 5. Validar que la edición sea aplicable sobre el estado actual (#10)
+    # 6. Validar que la edición sea aplicable sobre el estado actual (#10)
     try:
         apply_edit(current_score, edit)
     except (IndexError, ValueError, UnsupportedEditOpError) as exc:
         raise InvalidEdit(f"Edición no aplicable sobre el estado actual: {exc}") from exc
 
-    # 6. Persistir la edición en el log append-only
+    # 7. Persistir la edición en el log append-only
     appended = edit_repository.append(session_id, edit)
 
-    # 7. Si la sesión estaba en 'transcribed', pasa a 'correcting' (#34, ADR-0014)
+    # 8. Si la sesión estaba en 'transcribed', pasa a 'correcting' (#34, ADR-0014)
     if session_data.status == SessionStatus.TRANSCRIBED:
         session_repository.update_status(session_id, SessionStatus.CORRECTING)
 
