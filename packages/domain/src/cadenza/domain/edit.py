@@ -1,4 +1,8 @@
-"""Eventos de edición inmutables del ciclo Human-in-the-Loop (ADR-0007)."""
+"""Eventos de edición inmutables del ciclo Human-in-the-Loop (ADR-0007).
+
+En el plano online, ``after`` se valida con `validate_after` y ``before`` lo fija el
+servidor con `snapshot_before` (`edit_payload`, ADR-0017).
+"""
 
 from __future__ import annotations
 
