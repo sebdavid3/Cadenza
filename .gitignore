@@ -66,3 +66,8 @@ Thumbs.db
 
 # Corpus descargado (imágenes + ground truth; no se versionan blobs)
 /data/
+
+# AI Agent Harnesses & local skills (binarios como impeccable.exe)
+.agents/
+.gemini/
+.claude/
