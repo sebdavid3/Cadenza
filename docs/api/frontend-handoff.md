@@ -145,7 +145,7 @@ export interface Anchor {
 > **Comportamiento de Coordenadas `bbox` y Confianza (`confidence`):**
 > - **Formato de coordenadas `bbox`:** Cuando está presente, `bbox` especifica `[x0, y0, x1, y1]` en píxeles absolutos de la imagen original (esquina superior izquierda `[x0, y0]` y esquina inferior derecha `[x1, y1]`), **no** valores normalizados `[x, y, ancho, alto]`. Así lo consume directamente `apps/web/src/components/ImageOverlay.tsx`, calculando el ancho como `(x1 - x0)` y el alto como `(y1 - y0)`.
 > - **Motor de prueba `FakeOMREngine`:** Genera cajas sintéticas `bbox` rectangulares deterministas individuales por evento musical con `[x0, y0, x1, y1]`: abscisas `x0 = 20.0 + 30.0 * i`, `x1 = 36.0 + 30.0 * i` (donde `i` es el índice secuencial del evento en toda la partitura de prueba, orden `[0, 1, 2, 3]`), con `y0 = 40.0` e `y1 = 60.0` fijas (ancho de 16 px y alto de 20 px). En la partitura de prueba de 4 eventos devuelve `[20.0, 40.0, 36.0, 60.0]`, `[50.0, 40.0, 66.0, 60.0]`, `[80.0, 40.0, 96.0, 60.0]` y `[110.0, 40.0, 126.0, 60.0]` (ver `packages/omr/src/cadenza/omr/adapters/fake.py`).
-> - **Motor real `HOMREngine`:** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica INV-0001, ADR-0004 / D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
+> - **Motor real `HOMREngine`:** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), deuda D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
 > - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual cuando se opera con el motor real. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
 
 ### 4.3. Operaciones de Edición (`EditOp`) y Validación de Carga Útil (ADR-0017)
@@ -182,8 +182,6 @@ Al enviar una edición (`POST /sessions/{id}/edits`):
    }
    ```
 3. El frontend debe recargar la sesión (`GET /sessions/{id}`) y notificar al usuario para resolver el conflicto sin pérdida silenciosa de datos.
-
-### 5.2. Autoría de la Edición Fijada por el Servidor y Esquema Estricto
 
 ### 5.2. Autoría de la Edición Fijada por el Servidor y Esquema Estricto
 
@@ -374,17 +372,17 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 
 El directorio `apps/web` contiene la base inicial del cliente web, estructurada con:
 - **Tecnologías:** React 18, Vite 5, TypeScript 5, Zustand 4 (`editorStore`), TanStack React Query 5 y Vitest.
-- **Cliente HTTP y Tipos:** `src/api/client.ts` tipado con las interfaces generadas automáticamente desde OpenAPI en `src/types.ts`.
-- **Componentes Construidos:**
-  - `LoginPanel`: Formulario de login Bearer JWT con roles `transcriptor`/`investigador`.
-  - `UploadPanel`: Selector y carga de imagen para `POST /transcribe`.
-  - `HitlWorkspace`: Espacio de trabajo integrado que orquesta la sesión activa.
-  - `FindingsPanel`: Visualización de anomalías reportadas por el validador con botones para descartar (`POST /dismiss`) o restaurar (`POST /restore`).
-  - `HistoryPanel`: Listado cronológico de eventos de edición y disparador de deshacer en servidor (`POST /undo`).
-  - `EventInspector`: Visualización y formulario atómico para emitir operaciones `EditOp` (`SetPitch`, `SetDuration`, etc.).
-  - `EffortMetrics`: Contador de tiempo de edición e intervenciones editoriales para `POST /effort`.
+- **Cliente HTTP y Tipos:** `src/api/client.ts` usa las interfaces generadas desde OpenAPI en `src/types.ts` e implementa solo `login`, `fetchMe`, `transcribe`, `fetchSession` y `appendEdit` (más la gestión del token). El resto de endpoints de la API v1 no tiene todavía función en el cliente.
+- **Componentes Construidos** (comprobado en `apps/web/src`):
+  - `LoginPanel`: inicio de sesión con token Bearer JWT y carga del perfil (`GET /auth/me`).
+  - `UploadPanel`: selección y envío de la imagen a `POST /transcribe`.
+  - `HitlWorkspace`: carga la sesión activa con `GET /sessions/{id}` y orquesta el resto de paneles.
+  - `FindingsPanel`: lista los hallazgos de la sesión; al pulsar uno selecciona su ancla. **No** descarta ni restaura hallazgos: no llama a `/dismiss` ni a `/restore`.
+  - `EventInspector`: muestra el evento seleccionado y emite **solo** `SetPitch` (`POST /sessions/{id}/edits`) con un campo de texto libre para la altura. El resto de operaciones de `EditOp` no tiene interfaz.
+  - `HistoryPanel`: lista las ediciones con botones «Deshacer» y «Rehacer» que **solo mueven un cursor local** del store (`editorStore`); no llaman a `POST /sessions/{id}/undo`, así que el log del servidor no cambia. Es justo el deshacer local que §5.3 desaconseja.
+  - `EffortMetrics`: muestra en pantalla el tiempo de sesión, el tiempo hasta la primera edición y las intervenciones por compás calculadas en el navegador. **No** las envía a `POST /sessions/{id}/effort`.
   - `ImageOverlay`: Dibuja las cajas delimitadoras `bbox` (`[x0, y0, x1, y1]` en píxeles) sobre la imagen de origen como botones interactivos. Es la forma principal de seleccionar un evento musical en el visor actual, junto con hacer clic sobre un hallazgo en `FindingsPanel`. **Consecuencia crítica con el motor real:** dado que `HOMREngine` no genera coordenadas espaciales y devuelve `bbox: null` (INV-0001), en sesiones procesadas con HOMR no se dibuja ninguna caja sobre la imagen; en consecuencia, una nota que no presente hallazgos activos no puede ser seleccionada interactivamente desde `ImageOverlay`.
-- **Próximo Paso (Fase 8):** Incorporar el renderizador de notación musical OpenSheetMusicDisplay (OSMD) para permitir la selección interactiva de cualquier símbolo directamente sobre la partitura vectorial renderizada (independientemente del motor OMR), conectar la reproducción sonora interactiva con Tone.js consumiendo `GET /sessions/{id}/timing`, y pulir la experiencia de usuario interactiva sobre la partitura renderizada.
+- **Próximo Paso (Fase 8):** Incorporar el renderizador de notación musical OpenSheetMusicDisplay (OSMD) para permitir la selección interactiva de cualquier símbolo directamente sobre la partitura renderizada (independientemente del motor OMR), conectar la reproducción con Tone.js consumiendo `GET /sessions/{id}/timing`, y completar en el cliente los flujos que hoy faltan: deshacer en el servidor (`POST /undo`), envío de métricas de esfuerzo (`POST /effort`), descarte y restauración de hallazgos, revalidación, las demás operaciones de edición, finalización y reapertura, exportación y listado de sesiones.
 
 ---
 
