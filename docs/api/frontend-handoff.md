@@ -24,23 +24,29 @@ Esta guía describe los pasos mínimos y reproducibles para levantar el entorno 
 
 ### 1.2. Variables de Entorno Mínimas
 
-Crear un archivo `.env` o exportar las variables mínimas en la terminal:
+> [!IMPORTANT]
+> La API de Cadenza **no** lee automáticamente archivos `.env`; requiere variables de entorno en el proceso. Con solo un archivo `.env`, el servidor no arranca por falta de clave secreta.
 
+Definir las variables mínimas en la sesión de terminal antes del arranque:
+
+**PowerShell (Windows):**
+```powershell
+$env:CADENZA_AUTH_SECRET_KEY = "clave_secreta_local_min_32_caracteres_aleatorios"
+$env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
+$env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
+$env:CADENZA_OMR_ENGINE      = "fake"      # o "homr"
+$env:CADENZA_OMR_USE_GPU     = "false"     # o "true" para HOMR en GPU
+$env:CADENZA_DISABLE_POWER_THROTTLING = "true"
+```
+
+**Bash (Linux / macOS):**
 ```bash
-# Base de datos (SQLite local o PostgreSQL)
-CADENZA_DATABASE_URL="sqlite:///./cadenza.db"
-
-# Clave secreta para firma de tokens JWT (HS256)
-CADENZA_AUTH_SECRET_KEY="tu_clave_secreta_local_min_32_caracteres"
-
-# Almacén de artefactos (imágenes y modelos)
-CADENZA_ARTIFACTS_DIR="data/artifacts"
-
-# Motor OMR: 'fake' para desarrollo rápido de frontend sin dependencias OMR; 'homr' para motor real
-CADENZA_OMR_ENGINE="fake"
-
-# Mitigación de limitación de energía en Windows 11 (EcoQoS) (ADR-0016)
-CADENZA_DISABLE_POWER_THROTTLING="true"
+export CADENZA_AUTH_SECRET_KEY="clave_secreta_local_min_32_caracteres_aleatorios"
+export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
+export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
+export CADENZA_OMR_ENGINE="fake"          # o "homr"
+export CADENZA_OMR_USE_GPU="false"         # o "true" para HOMR en GPU
+export CADENZA_DISABLE_POWER_THROTTLING="true"
 ```
 
 ### 1.3. Creación del Primer Usuario Investigador
@@ -74,7 +80,7 @@ npm run dev
 El servidor Vite arrancará en el puerto **5174** (`http://localhost:5174`).
 
 > [!NOTE]
-> **Entorno verificado:** Configuración probada y validada en Windows 11 (Intel Core i5-13450H, 16 hilos, 32 GB RAM, NVIDIA RTX 3050 6GB Laptop GPU), Python 3.12, Node.js v20.14.0, el 2026-10-13.
+> **Entorno verificado:** Configuración probada y validada en Windows 11 (Intel Core i5-13450HX, 10 núcleos, 16 hilos, 32 GB RAM, NVIDIA GeForce RTX 5050 Laptop GPU 8 GB), Python 3.12, Node.js v24.18.0, el 2026-10-13.
 
 ---
 
@@ -93,13 +99,13 @@ La API de Cadenza proporciona el ciclo de vida completo de digitalización y cor
 | Módulo / Capacidad | Endpoints Principales | Descripción |
 | :--- | :--- | :--- |
 | **Autenticación y Cuentas** | `POST /auth/login`<br>`GET /auth/me`<br>`POST /auth/password`<br>`GET/POST/PATCH /users` | Autenticación OAuth2 Bearer JWT. Control de roles (ADR-0012): `transcriptor` (edita sus sesiones) e `investigador` (administra usuarios y audita métricas). |
-| **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR (`HOMR` o `Fake`), validación inicial y creación de sesión en estado `transcribed`. |
+| **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR (`HOMR` o `Fake`), validación inicial y creación de sesión en estado `transcribed` (ADR-0005, ADR-0016). |
 | **Consultas de Sesión** | `GET /sessions`<br>`GET /sessions/{id}`<br>`GET /sessions/{id}/image`<br>`GET /sessions/{id}/export` | Listado ligero paginado (sin JSONB pesado). Consulta completa con estado materializado (`current_score`, `current_seq`, `anchor_index`). Descarga de imagen de origen. Exportación a MusicXML 4.0 y MIDI 1.0. |
 | **Edición Humana (HITL)** | `POST /sessions/{id}/edits`<br>`POST /sessions/{id}/undo` | Registro append-only inmutable de ediciones con verificación de concurrencia optimista (`base_seq`). Operaciones atómicas tipadas (`EditOp`). Deshacer en el servidor como evento compensatorio inverso (ADR-0007, #35). |
 | **Validación y Hallazgos** | `GET /sessions/{id}/findings`<br>`POST /sessions/{id}/validate`<br>`POST /sessions/{id}/findings/{id}/dismiss`<br>`POST /sessions/{id}/findings/{id}/restore` | Evaluación determinista de reglas sobre `current_score`. Filtro de hallazgos activos vs descartados. Preservación de falsos positivos descartados si su evento no fue modificado (#36). |
-| **Mapa de Tiempo** | `GET /sessions/{id}/timing` | Cálculo determinista de mapa temporal para reproducción sincronizada (tiempo de inicio/fin en segundos por evento, compás, voz y acorde) (ADR-0012, #42). |
+| **Mapa de Tiempo** | `GET /sessions/{id}/timing` | Cálculo determinista de mapa temporal para reproducción sincronizada (tiempo de inicio/fin en segundos por evento, compás, voz y acorde) (ARCHITECTURE.md §6.1, #42). |
 | **Ciclo de Vida** | `POST /sessions/{id}/finalize`<br>`POST /sessions/{id}/reopen` | Cierre formal de sesión tras corrección (rechaza ediciones con `409 SessionClosed`). Reapertura permitida bajo auditoría (ADR-0014, #34). |
-| **Métricas de Esfuerzo** | `POST /sessions/{id}/effort`<br>`GET /sessions/{id}/effort` | Persistencia de telemetría editorial: duración total, latencia hasta la primera corrección e intervenciones distribuidas por compás (ADR-0012, #13). |
+| **Métricas de Esfuerzo** | `POST /sessions/{id}/effort`<br>`GET /sessions/{id}/effort` | Persistencia de telemetría editorial: duración total, latencia hasta la primera corrección e intervenciones distribuidas por compás (ADR-0004, ADR-0009, #13). |
 | **Sistema y Metadatos** | `GET /version`<br>`GET /health` | Metadatos del contrato (`1.0.0`) y estado del sistema. Todas las respuestas inyectan la cabecera HTTP `X-API-Version: 1.0.0`. |
 
 ---
@@ -130,16 +136,17 @@ export interface Anchor {
   voice: number;         // Voz musical dentro del pentagrama (0-indexed)
   event_index: number;   // Posición secuencial del evento en su voz/compás
   staff_id: string;      // Identificador del pentagrama (ej. 'part-0-staff-0')
-  bbox: [number, number, number, number] | null; // [x, y, ancho, alto] normalizado o null
+  bbox: [number, number, number, number] | null; // [x0, y0, x1, y1] en píxeles de la imagen original o null
   confidence: number | null; // Puntuación de certeza OMR [0.0 - 1.0] o null
 }
 ```
 
 > [!IMPORTANT]
 > **Comportamiento de Coordenadas `bbox` y Confianza (`confidence`):**
+> - **Formato de coordenadas `bbox`:** Cuando está presente, `bbox` especifica `[x0, y0, x1, y1]` en píxeles absolutos de la imagen original (esquina superior izquierda `[x0, y0]` y esquina inferior derecha `[x1, y1]`), **no** valores normalizados `[x, y, ancho, alto]`. Así lo consume directamente `apps/web/src/components/ImageOverlay.tsx`, calculando el ancho como `(x1 - x0)` y el alto como `(y1 - y0)`.
+> - **Motor de prueba `FakeOMREngine`:** Genera cajas sintéticas `bbox` delimitadoras individuales por evento musical (`100 + event_index * 50, ...`).
 > - **Motor real `HOMREngine`:** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica INV-0001, ADR-0004 / D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
-> - **Motor de prueba `FakeOMREngine`:** Proporciona coordenadas `bbox` simuladas únicamente a nivel de pentagrama (`staff`), no de nota individual.
-> - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
+> - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual cuando se opera con el motor real. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
 
 ### 4.3. Operaciones de Edición (`EditOp`)
 
@@ -169,11 +176,29 @@ Al enviar una edición (`POST /sessions/{id}/edits`):
    ```
 3. El frontend debe recargar la sesión (`GET /sessions/{id}`) y notificar al usuario para resolver el conflicto sin pérdida silenciosa de datos.
 
-### 5.2. Autoría de la Edición Fijada por el Servidor
+### 5.2. Autoría de la Edición Fijada por el Servidor y Esquema Estricto
 
-De acuerdo con ADR-0012:
+De acuerdo con ADR-0012 y el esquema `EditEventCreate`:
+- El cuerpo de una edición (`POST /sessions/{id}/edits`) está estrictamente compuesto por `{base_seq, op, anchor, before, after}`:
+  ```json
+  {
+    "base_seq": 0,
+    "op": "SetPitch",
+    "anchor": {
+      "part": 0,
+      "staff": 0,
+      "measure": 1,
+      "voice": 0,
+      "event_index": 0
+    },
+    "before": null,
+    "after": {
+      "pitch": "D4"
+    }
+  }
+  ```
 - El autor de toda edición es fijado **exclusivamente por el servidor** a partir del token JWT del usuario autenticado (`current_user.username`).
-- El cuerpo de la petición `POST /sessions/{id}/edits` **no** acepta ni requiere el campo `author` o `user_id`. El payload únicamente contiene `op`, `anchor` y `base_seq`.
+- El modelo Pydantic prohíbe entradas adicionales (`extra="forbid"`). Cualquier otro campo en el cuerpo de la petición (por ejemplo `author` o `user_id`) es rechazado de inmediato con error **HTTP 422 Unprocessable Entity** (`extra_forbidden: Extra inputs are not permitted`).
 
 ### 5.3. Deshacer en el Servidor (`POST /sessions/{id}/undo`)
 
@@ -204,10 +229,10 @@ El cliente web debe consultar `error.response.data.detail` para extraer los mens
 En desarrollo (`npm run dev`), el servidor Vite escucha en el puerto **5174** y redirige mediante proxy las peticiones hacia el backend (`http://localhost:8000`).
 
 Rutas cubiertas por el proxy de Vite:
-- `/transcribe` $\rightarrow$ `http://localhost:8000/transcribe`
-- `/sessions` $\rightarrow$ `http://localhost:8000/sessions`
-- `/auth` $\rightarrow$ `http://localhost:8000/auth`
-- `/health` $\rightarrow$ `http://localhost:8000/health`
+- `/transcribe` → `http://localhost:8000/transcribe`
+- `/sessions` → `http://localhost:8000/sessions`
+- `/auth` → `http://localhost:8000/auth`
+- `/health` → `http://localhost:8000/health`
 
 > [!WARNING]
 > El proxy de Vite **NO** cubre `/users` ni `/version`. Si el frontend necesita consumir `/users` (administración de cuentas) o `/version`, debe añadirlas a `vite.config.ts` o utilizar una URL base explícita.
@@ -220,20 +245,23 @@ Rutas cubiertas por el proxy de Vite:
 
 ### 5.7. Tiempos de Transcripción y Timeout Recomendado (#106)
 
-El endpoint `POST /transcribe` es **síncrono**: procesa la imagen y devuelve directamente la sesión inicializada con su partitura y hallazgos. Con la eliminación de la detección de título por RapidOCR y la desactivación explícita de la limitación de energía de Windows 11 (EcoQoS / Power Throttling, issue #106), los tiempos medidos en banco de pruebas son:
+El endpoint `POST /transcribe` es **síncrono**: procesa la imagen y devuelve directamente la sesión inicializada con su partitura y hallazgos. Con la eliminación de la detección de título por RapidOCR y la desactivación explícita de la limitación de energía de Windows 11 (EcoQoS / Power Throttling, issue #106), los tiempos medidos son:
 
-- **Incipits / fragmentos de 1 pentagrama (caso interactivo estándar):**
+- **Incipits / fragmentos de 1 pentagrama (caso interactivo estándar, motor directo):**
   - **GPU:** mediana de 0,7 s (media 0,7 s, máx 0,9 s; 0 peticiones ≥ 30 s).
   - **CPU:** mediana de 1,2 s (media 1,2 s, máx 1,5 s; 0 peticiones ≥ 30 s).
-- **Páginas densas apiladas (hasta 12 pentagramas):**
+- **Páginas densas apiladas (hasta 12 pentagramas, motor directo):**
   - **GPU:** mediana de 6,4 s (máx 7,6 s).
   - **CPU:** mediana de 11,6 s (máx 12,0 s).
-- **Arranque en frío (primera petición tras iniciar el proceso):**
-  - **GPU:** hasta 4,2 s (mediana 3,6 s).
-  - **CPU:** hasta 2,0 s (mediana 2,0 s).
+- **Arranque en frío (primera llamada tras iniciar el proceso):**
+  - **Motor directo:** en GPU hasta 4,2 s (mediana 3,6 s); en CPU hasta 2,0 s (mediana 2,0 s).
+  - **A través de HTTP (`POST /transcribe`):** la primera petición incorpora la carga de modelos, el grafo ONNX/CUDA, la conversión a `ScoreIR`, la persistencia en base de datos y el guardado en `ArtifactStore`. En ejecuciones reales contra el servidor en vivo con HOMR en GPU, este primer arranque en frío por HTTP se ha medido entre **3,8 s y 7,4 s**.
+- **Latencia de extremo a extremo por HTTP en régimen caliente (HOMR en GPU):**
+  - **Incipits:** entre 0,69 s y 0,76 s (mediana ~0,72 s; sobrecoste HTTP/BD típicamente menor a 40 ms frente al motor).
+  - **Página de 8 pentagramas:** entre 4,16 s y 4,48 s (frente a 4,42 s de inferencia directa del motor).
 
 **Recomendaciones para el Frontend:**
-1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **30 s**. Este valor ofrece más de un 100 % de margen frente al peor caso medido en CPU (12,0 s para páginas de 12 pentagramas) y casi un 300 % frente a GPU (7,6 s). Si el backend opera en un entorno Windows 11 sin la renuncia a EcoQoS (`CADENZA_DISABLE_POWER_THROTTLING=false`), el proceso podría ser confinado a E-cores requiriendo hasta 120 s en páginas densas, pero con la configuración estándar (`true`) 30 s es plenamente suficiente (ADR-0016).
+1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **30 s**. Este valor ofrece más de un 100 % de margen frente al peor caso medido en CPU (12,0 s para páginas de 12 pentagramas) y casi un 300 % frente a GPU (7,6 s en régimen normal; 7,4 s en el peor arranque en frío por HTTP). Si el backend opera en un entorno Windows 11 sin la renuncia a EcoQoS (`CADENZA_DISABLE_POWER_THROTTLING=false`), el proceso podría ser confinado a E-cores requiriendo hasta 120 s en páginas densas, pero con la configuración estándar (`true`) 30 s es plenamente suficiente (ADR-0016).
 2. **Indicador de progreso:** El frontend debe mostrar un estado visual de carga explícito y no bloqueante (barra de progreso o indicador de actividad) mientras `POST /transcribe` resuelve la inferencia.
 
 ---
@@ -251,8 +279,8 @@ El directorio `apps/web` contiene la base inicial del cliente web, estructurada 
   - `HistoryPanel`: Listado cronológico de eventos de edición y disparador de deshacer en servidor (`POST /undo`).
   - `EventInspector`: Visualización y formulario atómico para emitir operaciones `EditOp` (`SetPitch`, `SetDuration`, etc.).
   - `EffortMetrics`: Contador de tiempo de edición e intervenciones editoriales para `POST /effort`.
-  - `ImageOverlay`: Visualizador básico de la imagen de origen descargada de `/sessions/{id}/image`.
-- **Próximo Paso (Fase 8):** Sustituir el visor básico por el renderizador completo de notación musical OpenSheetMusicDisplay (OSMD), conectar la reproducción sonora interactiva con Tone.js consumiendo `GET /sessions/{id}/timing`, y pulir la experiencia de usuario interactiva sobre la partitura renderizada.
+  - `ImageOverlay`: Dibuja las cajas delimitadoras `bbox` (`[x0, y0, x1, y1]` en píxeles) sobre la imagen de origen como botones interactivos. Es la forma principal de seleccionar un evento musical en el visor actual, junto con hacer clic sobre un hallazgo en `FindingsPanel`. **Consecuencia crítica con el motor real:** dado que `HOMREngine` no genera coordenadas espaciales y devuelve `bbox: null` (INV-0001), en sesiones procesadas con HOMR no se dibuja ninguna caja sobre la imagen; en consecuencia, una nota que no presente hallazgos activos no puede ser seleccionada interactivamente desde `ImageOverlay`.
+- **Próximo Paso (Fase 8):** Incorporar el renderizador de notación musical OpenSheetMusicDisplay (OSMD) para permitir la selección interactiva de cualquier símbolo directamente sobre la partitura vectorial renderizada (independientemente del motor OMR), conectar la reproducción sonora interactiva con Tone.js consumiendo `GET /sessions/{id}/timing`, y pulir la experiencia de usuario interactiva sobre la partitura renderizada.
 
 ---
 
@@ -260,19 +288,67 @@ El directorio `apps/web` contiene la base inicial del cliente web, estructurada 
 
 ### 7.1. Flujo Completo Verificado contra Backend Real (2026-10-13)
 
-La siguiente secuencia fue ejecutada de punta a punta contra una instancia en vivo del backend (`CADENZA_OMR_ENGINE=fake`, base de datos SQLite y almacén de artefactos temporales independientes fuera del repositorio):
+La secuencia completa de digitalización, edición, concurrencia, validación, deshacer y exportación fue ejecutada de punta a punta contra el servidor ASGI Uvicorn real (`uv run --no-sync python -m uvicorn cadenza.api.main:create_default_app --factory`), con base de datos SQLite y almacén de artefactos independientes ubicados fuera del repositorio, evaluando sucesivamente tanto el motor sintético (`CADENZA_OMR_ENGINE=fake`) como el motor de inferencia neuronal real (`CADENZA_OMR_ENGINE=homr` con `CADENZA_OMR_USE_GPU=true`):
 
-1. **Creación de Investigador:** `python -m cadenza.api.cli create-investigator` ejecutado con éxito (código de salida 0).
-2. **Monitoreo de Salud:** `GET /health` responde HTTP 200 (`{"status": "ok", "database": "ok", "artifacts": "ok"}`).
-3. **Autenticación:** `POST /auth/login` con credenciales válidas devuelve token Bearer JWT HTTP 200.
-4. **Transcripción Síncrona:** `POST /transcribe` con imagen PNG multipart crea sesión HTTP 201 (`session_id`), calculando árbol `ScoreDocument`, índice de anclas y hallazgos iniciales.
-5. **Consulta de Sesión:** `GET /sessions/{id}` devuelve estado materializado HTTP 200 con `current_seq=0`.
-6. **Edición Atómica:** `POST /sessions/{id}/edits` con `base_seq=0` y operación `SetPitch` (`C4` $\rightarrow$ `D4`) persiste la corrección HTTP 201 avanzando `current_seq=1`.
-7. **Detección de Conflicto de Secuencia:** Segundo `POST /sessions/{id}/edits` enviando `base_seq=0` es rechazado con HTTP 409 (`SequenceConflict`), protegiendo la consistencia de concurrencia optimista.
-8. **Revalidación:** `POST /sessions/{id}/validate` evalúa las reglas sobre el estado actual HTTP 200.
-9. **Deshacer en Servidor:** `POST /sessions/{id}/undo` calcula la compensación inversa (`SetPitch` a `C4`), avanza `current_seq=2` y devuelve la partitura restaurada HTTP 200.
-10. **Exportación MusicXML:** `GET /sessions/{id}/export?format=musicxml` devuelve el archivo MusicXML 4.0 HTTP 200 (`application/vnd.recordare.musicxml+xml`).
-11. **Exportación MIDI:** `GET /sessions/{id}/export?format=midi` devuelve el archivo MIDI 1.0 estándar HTTP 200 (`audio/midi`).
+#### 1. Verificación con motor de prueba (`CADENZA_OMR_ENGINE=fake`, CPU)
+1. **Creación de Investigador:** `python -m cadenza.api.cli create-investigator --username admin --password <secreta>` ejecutado con código de salida 0.
+2. **Sonda de Salud (`GET /health`):** HTTP 200 respondiendo exactamente:
+   ```json
+   {
+     "status": "healthy",
+     "version": "1.0.0",
+     "database": "connected",
+     "artifact_store": "accessible",
+     "omr_engine": "fake",
+     "device": "cpu"
+   }
+   ```
+3. **Autenticación (`POST /auth/login`):** HTTP 200 devuelve token Bearer JWT (`token_type: "bearer"`).
+4. **Transcripción Síncrona (`POST /transcribe`):** Carga multipart de imagen PNG; responde HTTP 201 con `session_id`, árbol `ScoreDocument`, cajas sintéticas `bbox` por evento y estado inicial `transcribed` en 16,8 ms.
+5. **Consulta de Sesión (`GET /sessions/{id}`):** HTTP 200 con `current_seq=0` y partitura materializada.
+6. **Edición Atómica (`POST /sessions/{id}/edits`):** Con `base_seq=0`, `op: "SetPitch"` (`C4` → `D4`), `before: null` y `after: {"pitch": "D4"}` persiste la corrección respondiendo HTTP 201 y avanzando a `seq=1`.
+7. **Detección de Conflicto de Concurrencia Optimista:** Repetición de edición con `base_seq=0` sobre el estado actual (`seq=1`) rechazada con HTTP 409 Conflict:
+   ```json
+   {
+     "detail": "Conflicto de secuencia. base_seq=0, actual=1"
+   }
+   ```
+8. **Rechazo de Campos No Autorizados:** Petición de edición incluyendo el campo `author` rechazada con HTTP 422:
+   ```json
+   {
+     "detail": [
+       {
+         "type": "extra_forbidden",
+         "loc": ["body", "author"],
+         "msg": "Extra inputs are not permitted"
+       }
+     ]
+   }
+   ```
+9. **Revalidación (`POST /sessions/{id}/validate`):** HTTP 200 revalida deterministamente el estado actual.
+10. **Deshacer en Servidor (`POST /sessions/{id}/undo`):** Con `base_seq=1` revierte la edición anterior, avanza a `current_seq=2` y devuelve la partitura restaurada HTTP 200.
+11. **Exportación MusicXML y MIDI:** `GET /sessions/{id}/export?format=musicxml` devuelve HTTP 200 (`Content-Type: application/vnd.recordare.musicxml+xml`) y `GET /sessions/{id}/export?format=midi` devuelve HTTP 200 (`Content-Type: audio/midi`).
+
+#### 2. Verificación con motor neuronal real (`CADENZA_OMR_ENGINE=homr`, GPU NVIDIA CUDA)
+1. **Sonda de Salud (`GET /health`):** HTTP 200 confirmando inicialización y proveedor CUDA:
+   ```json
+   {
+     "status": "healthy",
+     "version": "1.0.0",
+     "database": "connected",
+     "artifact_store": "accessible",
+     "omr_engine": "homr",
+     "device": "cuda"
+   }
+   ```
+2. **Transcripción Síncrona (`POST /transcribe`):**
+   - **Arranque en frío a través de HTTP:** 3,82 s (frente a 3,10 s del motor directo), inicializando grafos ONNX en GPU, persistencia en BD y almacenamiento del artefacto.
+   - **Estructura de anclas:** Genera todas las anclas simbólicas con `bbox: null` y `confidence: null` (INV-0001).
+   - Responde HTTP 201 con sesión `transcribed`.
+3. **Flujo HITL Completo:** `GET /sessions/{id}` (HTTP 200), edición `SetPitch` (HTTP 201, `seq=1`), conflicto por `base_seq=0` (HTTP 409), rechazo de `author` (HTTP 422), revalidación (HTTP 200), deshacer compensatorio en servidor (HTTP 200, `seq=2`), y exportación MusicXML y MIDI (HTTP 200) validados idénticamente.
+4. **Medición de Latencias de Extremo a Extremo por HTTP:**
+   - **Incipits en caliente:** 0,736 s, 0,715 s y 0,685 s (mediana 0,715 s; motor directo 0,70 s).
+   - **Página de 8 pentagramas en caliente:** 4,480 s y 4,155 s (motor directo 4,423 s).
 
 ### 7.2. No Verificado (Alcance de la Fase 8)
 
