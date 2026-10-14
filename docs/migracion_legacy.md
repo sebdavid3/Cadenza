@@ -43,7 +43,7 @@ Este documento establece la **matriz de paridad de capacidades**, formaliza el *
 | **Frontend - Autenticación y Flujo** | Sin soporte de usuarios. | `apps/web`: `LoginPanel.tsx` (JWT en `sessionStorage`), gestión de sesión con React Query y Zustand, manejo de expiración de token y deslogueo reactivo. | **Superada ampliamente** |
 | **Frontend - Carga e Inspección** | Subida básica de imagen (`DropZone.jsx`). | `apps/web`: `UploadPanel.tsx` integrado con la API tipada v1, `ImageOverlay.tsx` con cajas delimitadoras de pentagramas y notas, `FindingsPanel.tsx`, `EventInspector.tsx`, `HistoryPanel.tsx`, `EffortMetrics.tsx`. | **Superada ampliamente** |
 | **Frontend - Renderizado OSMD** | `ScoreViewer.jsx` (renderizado interactivo SVG de MusicXML mediante OpenSheetMusicDisplay 1.8.8). | Pendiente de migración a `apps/web/src/components/ScoreViewer.tsx` (Fase 8, Deuda D11). | **Pendiente en nueva arquitectura** |
-| **Frontend - Reproducción de Audio** | `AudioPlayer.jsx` (síntesis y reproducción interactiva mediante Tone.js y `@tonejs/midi`). | Endpoint backend implementado (`GET /sessions/{id}/timing`, ADR-0012, Issue #42). Pendiente de integración con sintetizador en `apps/web/src/components/AudioPlayer.tsx` (Fase 8, Deuda D11/D12). | **Pendiente en nueva arquitectura** |
+| **Frontend - Reproducción de Audio** | `AudioPlayer.jsx` (síntesis y reproducción interactiva mediante Tone.js y `@tonejs/midi`). | Endpoint backend implementado (`GET /sessions/{id}/timing`, ARCHITECTURE.md §6.1, Issue #42). Pendiente de integración con sintetizador en `apps/web/src/components/AudioPlayer.tsx` (Fase 8, Deuda D11/D12). | **Pendiente en nueva arquitectura** |
 
 ---
 

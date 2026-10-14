@@ -1,272 +1,452 @@
-# Cadenza: Plataforma de Digitalización Asistida de Partituras
+# Cadenza
 
 [![CI](https://github.com/sebdavid3/Cadenza/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/sebdavid3/Cadenza/actions/workflows/ci.yml)
 
-Cadenza convierte imágenes de partituras (impresas o manuscritas modernas) en
-notación editable (**MusicXML 4.0** / **MIDI 1.0**) combinando reconocimiento
-óptico de música (OMR), validación musical automática y **corrección humana**
-(*Human-in-the-Loop*, HITL). Cada corrección se registra como un evento inmutable
-que alimenta el **aprendizaje activo** del sistema.
+**Digitalización asistida de partituras.** Cadenza convierte la imagen de una partitura
+en notación editable (MusicXML y MIDI). Un motor de reconocimiento óptico de música (OMR)
+propone la transcripción, un validador de reglas musicales señala los compases
+sospechosos y una persona la corrige. Cada corrección se guarda como un evento inmutable
+que, más adelante, sirve para entrenar al sistema (aprendizaje activo).
 
-El núcleo sigue una **arquitectura hexagonal** (puertos y adaptadores) dentro de
-un **monolito modular**: el dominio es puro (cero dependencias externas) y toda
-la capacidad externa (OMR, validación, persistencia, API, aprendizaje) se
-conecta a través de puertos.
+Es el proyecto de una tesis: el backend está completo y el siguiente paso es la interfaz
+de corrección en el navegador.
 
 ---
 
-## Estado del proyecto
+## Contenido
 
-| Fase | Contenido | Estado |
-|---|---|---|
-| **0** | Dominio puro: `ScoreDocument`, `AnchorIndex`, `EditEvent`, `TimeSignature` | ✅ |
-| **1** | Adaptador OMR: puerto `OMREngine`, `HOMREngine` (in-process) y `FakeOMREngine` | ✅ |
-| **2** | Motor de validación por reglas (`ValidationEngine` + `Finding` anclados) | ✅ |
-| **3** | API HITL + persistencia (SQLAlchemy/JSONB, Alembic, Event Sourcing) | ✅ |
-| **4** | Aprendizaje activo: `DatasetBuilder`, estrategias de adquisición, `ModelRegistry` | ✅ |
-| **5** | Framework de experimentos (esfuerzo y estrategias de AL) | ✅ |
-| **6** | Validación empírica sobre corpus real (PrIMuS) y OMR-NED oficial | ✅ |
-| **7** | Alineación con la arquitectura objetivo (capa de aplicación, datos, API completa, plano offline) | ✅ |
-| **8** | Frontend HITL en `apps/web` (visor OSMD, reproducción Tone.js y flujos de edición) | 🔜 |
+- [Cómo funciona](#cómo-funciona)
+- [Estado](#estado)
+- [Arquitectura](#arquitectura)
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+- [Arranque local](#arranque-local)
+- [Configuración](#configuración)
+- [API v1](#api-v1)
+- [Interfaz web](#interfaz-web)
+- [Calidad e integración continua](#calidad-e-integración-continua)
+- [Despliegue con Docker Compose](#despliegue-con-docker-compose)
+- [Plano offline y experimentos](#plano-offline-y-experimentos)
+- [Estructura del repositorio](#estructura-del-repositorio)
+- [Documentación](#documentación)
+- [Cómo contribuir](#cómo-contribuir)
 
-Las fases 0–7 implementan el backend completo, la persistencia, el contrato de la API v1
-congelado y la suite de validación empírica. El trabajo siguiente es la **Fase 8**
-(interfaz de usuario en `apps/web`), guiada por [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
+---
 
-Estado detallado, deuda técnica y bitácora: [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md).
+## Cómo funciona
+
+```mermaid
+flowchart LR
+    img[Imagen de la partitura] --> T["POST /transcribe"]
+    T --> OMR["Motor OMR<br/>HOMR · oemer · prueba"]
+    OMR --> IR["ScoreIR + índice de anclas"]
+    IR --> V["Validador de reglas<br/>(hallazgos anclados)"]
+    V --> S[(Sesión)]
+    S --> E["Correcciones humanas<br/>(log append-only)"]
+    E --> S
+    S --> X["Exportación<br/>MusicXML · MIDI"]
+    S -. sesiones finalizadas .-> OFF["Plano offline<br/>dataset · aprendizaje activo"]
+```
+
+1. **Transcripción.** `POST /transcribe` recibe una imagen, ejecuta el motor OMR configurado
+   y obtiene un `ScoreIR`: la partitura en una representación intermedia neutral. Cada
+   evento musical tiene un **ancla** (parte, pentagrama, compás, voz y posición).
+2. **Validación.** Un motor de reglas (compases mal medidos, armaduras incoherentes, etc.)
+   marca **hallazgos** anclados a los eventos sospechosos.
+3. **Corrección.** La persona corrige con ediciones atómicas (`SetPitch`, `SetDuration`,
+   `InsertEvent`…). Cada edición se añade a un log inmutable con control de concurrencia
+   optimista (`base_seq`). El servidor valida el contenido de la edición, fija su autor y
+   guarda el estado previo, de modo que **deshacer** restaura siempre el estado exacto
+   ([ADR-0007](docs/adr/ADR-0007-edit-events-inmutables.md),
+   [ADR-0011](docs/adr/ADR-0011-semantica-de-anclas-ante-ediciones.md),
+   [ADR-0017](docs/adr/ADR-0017-validacion-del-contenido-de-las-ediciones.md)).
+4. **Cierre y exportación.** La sesión se revalida, se finaliza y se exporta a MusicXML o
+   MIDI.
+5. **Aprendizaje.** El plano offline construye datasets con las correcciones de las sesiones
+   finalizadas, elige qué muestras anotar y registra versiones de modelo. Los dos planos solo
+   se comunican a través de datos persistidos
+   ([ADR-0003](docs/adr/ADR-0003-separacion-planos-computo.md)).
+
+---
+
+## Estado
+
+| Área | Estado |
+|---|---|
+| Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
+| Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
+| Interfaz web en `apps/web` (fase 8) | Base inicial; es el trabajo siguiente |
+| Línea base de oemer sobre PrIMuS ([#100](https://github.com/sebdavid3/Cadenza/issues/100)) | Pendiente de ejecutar |
+| Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
+| Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
+
+El entrenamiento del plano offline usa hoy un entrenador de prueba (`FakeTrainer`); el
+ajuste fino real del modelo OMR es [#103](https://github.com/sebdavid3/Cadenza/issues/103).
+
+Las cifras medidas (calidad OMR, precisión del validador, latencia), la deuda técnica y la
+bitácora están en [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md), con el experimento que
+produce cada una.
 
 ---
 
 ## Arquitectura
 
-```
-                     ┌──────────────────────── Dominio puro ────────────────────────┐
-                     │  packages/domain  (ScoreDocument · Anchor · EditEvent)        │
-                     └──────────────────────────────────────────────────────────────┘
-                                    ▲                ▲                 ▲
-             ┌──────────────────────┘                │                 └──────────────────────┐
-             │                                       │                                        │
-   packages/interchange                  packages/validation                        packages/learning
-   (MusicXML/MEI/**kern ↔ ScoreIR)       (reglas puras)                            (AL, OMR-NED, registry)
-             ▲
-             │
-   packages/omr  ─── puerto OMREngine ─── HOMREngine / FakeOMREngine
-             │
-   packages/persistence ─── EditEventRepository (append-only) + SQLAlchemy/JSONB
-             │
-   apps/api ─── FastAPI (transcripción, findings, eventos de edición)
-```
+Monolito modular con arquitectura hexagonal (puertos y adaptadores)
+([ADR-0001](docs/adr/ADR-0001-monolito-modular-hexagonal.md)). El dominio es puro y la
+lógica de cada caso de uso vive en la capa de aplicación; la notación, el OMR, la
+validación, la base de datos y la API son adaptadores intercambiables.
 
-**Regla de dependencias:** los adaptadores dependen del dominio (y de sus
-puertos), nunca al contrario. El dominio no importa Pydantic, SQLAlchemy, FastAPI
-ni music21 (verificado por un test de pureza). Decisiones en
-[`docs/adr/`](docs/adr/) (ADR-0001 … ADR-0016).
+| Paquete | Responsabilidad |
+|---|---|
+| [`packages/domain`](packages/domain) | Núcleo puro, solo biblioteca estándar: `ScoreIR`, anclas, `EditEvent`, hallazgos, proyección del log, mapa de tiempo y reglas de contenido de las ediciones |
+| [`packages/application`](packages/application) | Casos de uso (transcribir, editar, deshacer, revalidar, finalizar, exportar…) y puertos ([ADR-0009](docs/adr/ADR-0009-capa-de-aplicacion.md)) |
+| [`packages/interchange`](packages/interchange) | Frontera de notación: MusicXML ↔ `ScoreIR` y exportación a MusicXML y MIDI con music21 |
+| [`packages/omr`](packages/omr) | Puerto `OMREngine` y adaptadores HOMR, oemer y de prueba; preprocesado de imagen |
+| [`packages/validation`](packages/validation) | Motor de reglas musicales y hallazgos anclados |
+| [`packages/persistence`](packages/persistence) | SQLAlchemy (PostgreSQL con JSONB o SQLite), repositorios, almacén de artefactos y migraciones Alembic |
+| [`packages/learning`](packages/learning) | Dataset desde la base de datos, estrategias de adquisición, métricas OMR-NED y SER, registro de modelos |
+| [`apps/api`](apps/api) | API REST FastAPI del plano online, autenticación JWT y CLI administrativa |
+| [`apps/web`](apps/web) | Interfaz web de corrección (React, Vite, TypeScript) |
+| [`ml/`](ml) | CLI de jobs offline y experimentos de la tesis |
 
-La arquitectura hexagonal organiza el sistema en una capa de dominio puro (`packages/domain`),
-casos de uso en aplicación (`packages/application`), puente notacional (`packages/interchange`),
-adaptadores OMR (`packages/omr`), validación (`packages/validation`), persistencia relacional
-y de eventos (`packages/persistence`), aprendizaje activo (`packages/learning`) y API Gateway (`apps/api`);
-ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
----
-
-## Estructura del repositorio
-
-```
-Cadenza/
-├── packages/                  # Monolito modular (paquetes del workspace uv)
-│   ├── domain/                # Núcleo puro: modelos, anclas, proyección del log
-│   ├── interchange/           # Puente canónico MusicXML/MEI/**kern ↔ ScoreIR (music21)
-│   ├── omr/                   # Puerto OMREngine + HOMREngine / FakeOMREngine
-│   ├── validation/            # Motor de reglas y hallazgos anclados
-│   ├── persistence/           # Modelos SQLAlchemy/JSONB, repositorio append-only, Alembic
-│   └── learning/              # DatasetBuilder, estrategias AL, OMR-NED, Model Registry
-├── apps/
-│   ├── api/                   # API Gateway FastAPI (nueva arquitectura)
-│   └── web/                   # Visor HITL (React + TS + Zustand + TanStack Query)
-├── ml/experiments/            # Experimentos de la tesis (esfuerzo, AL, OMR-NED)
-├── configs/learning/          # Configuraciones de entrenamiento versionadas
-├── docs/                      # Arquitectura, ADRs, estado del proyecto, literatura
-├── latex/                     # Documento maestro de tesis (IEEEtran)
-├── results/                   # Salidas de experimentos (ignoradas por git)
-├── data/                      # Corpus descargado (ignorado por git)
-└── legacy/                    # Prototipo MVP original (backend, frontend, scripts, docker-compose)
-```
+Reglas que no se rompen (verificadas por tests y por revisión): el dominio solo usa la
+biblioteca estándar; la aplicación no importa FastAPI, SQLAlchemy, music21 ni los motores
+OMR; music21 solo se usa en `interchange`; el log de ediciones es *append-only* y nunca
+guarda una edición inválida; el autor de una edición lo fija el servidor
+([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)). La lista completa está en
+[`CLAUDE.md`](CLAUDE.md) §10 y el diseño en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ---
 
 ## Requisitos
 
-- **Python 3.12**
-- **[uv](https://docs.astral.sh/uv/)** (gestor de workspace y entorno)
-- **Node.js 18+** (solo para `apps/web`)
-- **GPU NVIDIA (opcional):** para acelerar la inferencia OMR real
+- **Python 3.12** (el proyecto exige `>=3.12,<3.13`).
+- **[uv](https://docs.astral.sh/uv/)**, que gestiona el workspace y el entorno virtual.
+- **Node.js 20 o posterior** para `apps/web` (la CI usa Node 20).
+- Opcional: **GPU NVIDIA** para acelerar HOMR, con `onnxruntime-gpu` 1.26.0 (CUDA 12).
+- Opcional: **Docker** con Docker Compose para el despliegue con PostgreSQL.
 
 ---
 
-## Instalación y calidad
-
-El repositorio es un workspace de `uv`; un solo comando instala todos los paquetes
-y el grupo de desarrollo (pytest, mypy, ruff, black):
+## Instalación
 
 ```bash
-uv sync
+git clone https://github.com/sebdavid3/Cadenza.git
+cd Cadenza
+uv sync --inexact
 ```
 
-Ejecutar la batería de calidad:
+Esto instala todos los paquetes del workspace y las herramientas de desarrollo (pytest,
+mypy, ruff, black). Con el motor de prueba ya se puede arrancar la API y pasar los tests.
+
+### Motores OMR reales (opcional)
+
+HOMR es el motor principal y oemer la línea base
+([ADR-0005](docs/adr/ADR-0005-motor-omr-homr-baseline-oemer.md)). Se instalan como extras
+del paquete `cadenza-omr`:
 
 ```bash
-uv run pytest                      # suite completa
-uv run mypy packages apps          # tipado estricto
-uv run ruff check .                # linting
-uv run black --check .             # formato
+uv pip install -e "packages/omr[homr]"     # HOMR
+uv pip install -e "packages/omr[oemer]"    # oemer (opcional)
 ```
 
----
-
-## Ejecución
-
-### API en desarrollo local
+Para HOMR en GPU, sustituye `onnxruntime` por la build con CUDA:
 
 ```bash
-uv run uvicorn cadenza.api.main:create_default_app --factory --reload
-```
-
-- Documentación interactiva: <http://127.0.0.1:8000/docs>
-- La base de datos se toma de `CADENZA_DATABASE_URL` (por defecto SQLite `./cadenza.db`; en producción PostgreSQL vía JSONB).
-
-### Plano Online con Docker Compose y PostgreSQL (#6)
-
-Para desplegar el entorno reproducible de producción con PostgreSQL 16 y la API:
-
-```bash
-# 1. Copiar y configurar las variables de entorno
-cp .env.example .env
-
-# 2. Levantar los servicios en Docker
-docker compose up --build
-```
-
-El servicio `api` espera a que `postgres` reporte estado saludable mediante *healthcheck*, ejecuta automáticamente las migraciones pendientes con Alembic (`alembic -c packages/persistence/alembic.ini upgrade head`) y arranca el servidor ASGI Uvicorn en el puerto 8000.
-
-> [!NOTE]
-> **Alembic es exclusivamente para PostgreSQL.** Las migraciones del repositorio definen tipos nativos de PostgreSQL como `JSONB` desde la revisión inicial `0001`, por lo que `alembic upgrade` no corre sobre SQLite (falla con `can't render element of type JSONB`). En desarrollo local con SQLite, el esquema relacional lo crea directamente `create-investigator` (mediante `create_schema`), sin tabla `alembic_version`.
-
-Para gestionar migraciones con Alembic de forma manual sobre PostgreSQL:
-
-```bash
-# Aplicar todas las migraciones (requiere PostgreSQL)
-uv run alembic -c packages/persistence/alembic.ini upgrade head
-
-# Revertir una revisión
-uv run alembic -c packages/persistence/alembic.ini downgrade -1
-
-# Generar el script SQL estático (modo offline) para PostgreSQL
-uv run alembic -c packages/persistence/alembic.ini upgrade head --sql
-```
-
-### Creación del primer usuario investigador
-
-Dado que la plataforma no expone registro público ni recuperación por correo ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)), el primer investigador se crea directamente vía CLI sin pasar por la API:
-
-```bash
-uv run python -m cadenza.api.cli create-investigator --username admin --password "contraseña_segura_min_8"
-```
-
-Una vez creado, el investigador puede iniciar sesión (`POST /auth/login` o en el visor web) y gestionar las cuentas de participantes y transcriptores (`GET /users`, `POST /users`, `PATCH /users/{id}`).
-
-### Interfaz web HITL
-
-```bash
-cd apps/web
-npm install
-npm run dev
-```
-
-### Experimentos (tesis)
-
-```bash
-uv run python ml/experiments/exp_01_effort.py            # reducción de esfuerzo
-uv run python ml/experiments/exp_02_active_learning.py   # estrategias de AL
-```
-
-Validación empírica sobre corpus real (PrIMuS) con la métrica oficial OMR-NED:
-
-```bash
-uv run python ml/experiments/corpus.py info
-uv run python ml/experiments/corpus.py fetch --corpus primus \
-  --url https://grfia.dlsi.ua.es/primus/packages/primusCalvoRizoAppliedSciences2018.tgz
-uv run python ml/experiments/corpus.py manifest --corpus primus --limit 100
-uv run python ml/experiments/exp_04_homr_transcribe.py   # transcripción real
-uv run python ml/experiments/exp_03_omr_quality.py       # OMR-NED vs. ground truth
-```
-
-Detalles en [`ml/README.md`](ml/README.md).
-
-### Aceleración por GPU
-
-El extra `homr` instala HOMR; para GPU se recomienda la build **CUDA 12.8** de
-`onnxruntime` (compatible con Blackwell/sm_120):
-
-```bash
-uv pip install -e "packages/omr[homr]"
 uv pip uninstall onnxruntime onnxruntime-gpu
 uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
 ```
 
-> **Cuidado con `uv sync`.** HOMR y oemer son extras opcionales y
-> `onnxruntime-gpu==1.26.0` no coincide con la versión del *lockfile*: un `uv sync`
-> normal no selecciona extras y los desinstala sin avisar (los tests de HOMR pasan
-> entonces a omitirse). Después de instalarlos, sincroniza con `uv sync --inexact`
-> y ejecuta con `uv run --no-sync`.
-
-`HOMREngine` expone automáticamente los `bin` de los wheels NVIDIA al `PATH`
-(`ensure_cuda_dll_dirs`), necesario porque cuDNN carga sus sub-librerías durante
-la inferencia. Sin GPU, los scripts funcionan en CPU con `--cpu`.
+> [!WARNING]
+> **No ejecutes `uv sync` a secas** después de instalar los extras. HOMR y oemer son
+> extras que un `uv sync` normal no selecciona, y `onnxruntime-gpu` 1.26.0 no es la versión
+> del *lockfile*: `uv sync` los desinstala sin avisar y los tests del motor real pasan a
+> omitirse. Usa siempre `uv sync --inexact` para sincronizar y `uv run --no-sync` para
+> ejecutar.
 
 ---
 
-## API REST
+## Arranque local
 
-| Método | Endpoint | Descripción |
-|---|---|---|
-| `POST` | `/auth/login` | Autentica credenciales y emite token Bearer JWT. |
-| `GET` | `/auth/me` | Devuelve el perfil del usuario actual autenticado. |
-| `POST` | `/auth/password` | Permite al usuario cambiar su propia contraseña. |
-| `GET` | `/users` | Lista las cuentas registradas (solo investigador). |
-| `POST` | `/users` | Da de alta una nueva cuenta con rol y contraseña inicial (investigador). |
-| `PATCH` | `/users/{id}` | Modifica rol, estado activo/inactivo o restablece contraseña (investigador). |
-| `POST` | `/transcribe` | Sube una imagen, ejecuta OMR + validación y crea una sesión privada. |
-| `GET` | `/sessions/{id}` | Documento, hallazgos, eventos de edición y `current_score` materializado. |
-| `GET` | `/sessions/{id}/findings` | Hallazgos de validación de la sesión. |
-| `POST` | `/sessions/{id}/edits` | Añade una corrección humana inmutable (autor fijado por el servidor). |
+La API **no lee archivos `.env`**: toma la configuración de las variables de entorno del
+proceso. Para desarrollo basta con SQLite y el motor de prueba.
 
----
+**PowerShell (Windows):**
 
-## Prototipo legacy (deprecado / referencia)
+```powershell
+$env:CADENZA_AUTH_SECRET_KEY = "<cadena aleatoria de 32 caracteres o más>"
+$env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
+$env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
+$env:CADENZA_OMR_ENGINE      = "fake"     # o "homr"
+$env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
+```
 
-El prototipo MVP original (FastAPI + HOMR + Docker CUDA + visor OSMD + Tone.js)
-se conserva congelado en `legacy/` (`legacy/backend`, `legacy/frontend`, `legacy/scripts` y
-`legacy/docker-compose*.yml`) y preservado permanentemente en la etiqueta git `archive/legacy-mvp`.
-Ha sido ampliamente superado por la nueva arquitectura hexagonal (`packages/`, `apps/api/`, `apps/web/`).
-Para consultar la matriz de paridad y la hoja de ruta de retiro definitivo, véase [`docs/migracion_legacy.md`](docs/migracion_legacy.md).
+**Bash (Linux, macOS):**
 
 ```bash
-# Ejecución histórica (congelada)
-./legacy/scripts/run-docker-gpu.sh     # Docker con GPU NVIDIA
-./legacy/scripts/run-docker-cpu.sh     # Docker en CPU (fallback)
-./legacy/scripts/run-local.sh          # Entorno local (Linux/macOS/WSL)
+export CADENZA_AUTH_SECRET_KEY="<cadena aleatoria de 32 caracteres o más>"
+export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
+export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
+export CADENZA_OMR_ENGINE="fake"          # o "homr"
+export CADENZA_OMR_USE_GPU="false"        # "true" para HOMR en GPU
+```
+
+Crea el primer usuario. No hay registro público
+([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)); con SQLite, este comando crea
+también el esquema de la base de datos:
+
+```bash
+uv run --no-sync python -m cadenza.api.cli create-investigator --username admin --password "<mínimo 8 caracteres>"
+```
+
+Arranca la API:
+
+```bash
+uv run --no-sync uvicorn cadenza.api.main:create_default_app --factory --host 127.0.0.1 --port 8000
+```
+
+- Documentación interactiva: <http://127.0.0.1:8000/docs>
+- Estado del servicio: <http://127.0.0.1:8000/health>
+
+Arranca la interfaz web en otra terminal. Vite sirve en <http://localhost:5174> y redirige
+`/auth`, `/transcribe`, `/sessions` y `/health` a la API:
+
+```bash
+cd apps/web
+npm ci
+npm run dev
+```
+
+La guía de integración para el frontend, con ejemplos reales de cada respuesta, está en
+[`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
+
+---
+
+## Configuración
+
+Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proceso
+(`apps/api/src/cadenza/api/settings.py`).
+
+| Variable | Por defecto | Uso |
+|---|---|---|
+| `CADENZA_AUTH_SECRET_KEY` | *(vacía)* | Clave de firma de los tokens JWT. **Obligatoria**: sin ella la API no arranca. |
+| `CADENZA_DATABASE_URL` | `sqlite+pysqlite:///./cadenza.db` | URL de SQLAlchemy: SQLite en local, PostgreSQL en despliegue. |
+| `CADENZA_ARTIFACTS_DIR` | `./data/artifacts` | Directorio del almacén de artefactos (imágenes y exportaciones). |
+| `CADENZA_OMR_ENGINE` | `fake` | Motor OMR: `fake`, `homr` u `oemer`. |
+| `CADENZA_OMR_USE_GPU` | `false` | Intentar inferencia en GPU. |
+| `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `30` | Validez de los tokens de acceso. |
+| `CADENZA_MAX_UPLOAD_SIZE_BYTES` | `20971520` | Tamaño máximo de imagen (20 MB). |
+| `CADENZA_AUTO_CREATE_SCHEMA` | `false` | Crear el esquema al arrancar (solo desarrollo y tests). |
+| `CADENZA_CORS_ORIGINS` | `*` | Orígenes CORS: `*`, un origen, lista separada por comas o lista JSON. |
+| `CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | `5` | Intentos de login fallidos antes del bloqueo temporal. |
+| `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Ventana del límite de intentos de login. |
+| `CADENZA_OMR_PREPROCESS_ENABLED` | `false` | Activar el preprocesado de imagen antes del OMR. |
+| `CADENZA_OMR_PREPROCESS_DESKEW` / `_BINARIZE` / `_RESCALE` | `false` | Pasos del preprocesado: enderezado, binarización y reescalado. |
+| `CADENZA_OMR_PREPROCESS_TARGET_DPI` | `300` | Resolución objetivo del reescalado. |
+| `CADENZA_DISABLE_POWER_THROTTLING` | `true` | En Windows, pedir al sistema que no limite la energía del proceso ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)). |
+
+Operación, registros, copias de seguridad y GPU:
+[`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md).
+
+---
+
+## API v1
+
+Todas las rutas salvo `/health`, `/version` y `/auth/login` requieren un token Bearer JWT.
+Un transcriptor solo accede a sus sesiones; un investigador ve todas, edita solo las suyas
+y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)).
+
+| Área | Endpoints |
+|---|---|
+| Sistema | `GET /health` · `GET /version` |
+| Autenticación | `POST /auth/login` · `GET /auth/me` · `POST /auth/password` |
+| Usuarios (investigador) | `GET /users` · `POST /users` · `PATCH /users/{user_id}` |
+| Transcripción | `POST /transcribe` |
+| Sesiones | `GET /sessions` · `GET /sessions/{id}` · `GET /sessions/{id}/image` · `GET /sessions/{id}/export?format=musicxml\|midi` · `GET /sessions/{id}/timing` |
+| Edición | `POST /sessions/{id}/edits` · `POST /sessions/{id}/undo` |
+| Hallazgos | `GET /sessions/{id}/findings` · `POST /sessions/{id}/validate` · `POST /sessions/{id}/findings/{finding_id}/dismiss` · `POST /sessions/{id}/findings/{finding_id}/restore` |
+| Ciclo de vida | `POST /sessions/{id}/finalize` · `POST /sessions/{id}/reopen` |
+| Esfuerzo | `POST /sessions/{id}/effort` · `GET /sessions/{id}/effort` |
+
+`POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)).
+El contrato se genera desde el código y no se edita a mano:
+
+```bash
+uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/openapi.json y apps/web/src/types.ts
+```
+
+---
+
+## Interfaz web
+
+`apps/web` es la base de la interfaz de corrección: React 18, Vite 5, TypeScript, Zustand
+y TanStack Query, con tipos generados desde el contrato OpenAPI. Hoy permite iniciar sesión,
+subir una imagen, ver la sesión con sus hallazgos y cambiar la altura de una nota
+(`SetPitch`). Deshacer, rehacer y las métricas de esfuerzo funcionan solo en el navegador:
+todavía no llaman a `/undo` ni a `/effort`, y los hallazgos no se pueden descartar.
+
+La fase 8 completará esos flujos y añadirá el renderizado de la partitura con OSMD y la
+reproducción con Tone.js ([ADR-0006](docs/adr/ADR-0006-render-editor-osmd-verovio-zustand.md)).
+Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
+
+```bash
+cd apps/web
+npm run dev        # servidor de desarrollo (puerto 5174)
+npm run test       # Vitest
+npm run build      # comprobación de tipos y build de producción
+```
+
+---
+
+## Calidad e integración continua
+
+Antes de cada fusión pasan estas puertas:
+
+```bash
+uv run --no-sync pytest
+uv run --no-sync mypy packages apps        # tipado estricto
+uv run --no-sync ruff check .
+uv run --no-sync black --check .
+```
+
+Si se toca `apps/web`, además `npm run test` y `npm run build`.
+
+La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
+mismo en cada PR hacia `dev`. Los tests de compatibilidad con PostgreSQL corren allí contra un
+PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala.
+
+---
+
+## Despliegue con Docker Compose
+
+[`docker-compose.yml`](docker-compose.yml) levanta PostgreSQL 16 y la API. Al arrancar, la
+API aplica las migraciones de Alembic y sirve en el puerto 8000.
+
+```bash
+cp .env.example .env      # cambia la contraseña de PostgreSQL y la clave JWT
+docker compose up --build
+```
+
+Docker Compose sí lee `.env` para sustituir variables en `docker-compose.yml`. El perfil
+`batch` añade un contenedor con GPU que ejecuta la CLI offline
+(`docker compose --profile batch run --rm ml-batch --help`).
+
+> [!NOTE]
+> **Alembic es solo para PostgreSQL.** Las migraciones usan tipos nativos como `JSONB` desde
+> la `0001`, así que no se aplican sobre SQLite. En local con SQLite, el esquema lo crea
+> `create-investigator`.
+
+Migraciones a mano, con `CADENZA_DATABASE_URL` apuntando a PostgreSQL (también para `--sql`,
+que genera el SQL sin conectarse):
+
+```bash
+uv run --no-sync alembic -c packages/persistence/alembic.ini upgrade head
+uv run --no-sync alembic -c packages/persistence/alembic.ini downgrade -1
+uv run --no-sync alembic -c packages/persistence/alembic.ini upgrade head --sql
+```
+
+Copias de seguridad de la base de datos y los artefactos, con verificación SHA-256:
+`uv run --no-sync python scripts/backup_restore.py {backup,verify,restore}`.
+
+---
+
+## Plano offline y experimentos
+
+El plano offline ([ADR-0008](docs/adr/ADR-0008-active-learning-model-registry.md)) se maneja
+con una CLI:
+
+```bash
+uv run --no-sync python -m ml --help
+# build-dataset · select · train · evaluate · promote · run · export-effort
+```
+
+Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments). Escriben en
+`results/` y leen los corpus de `data/`; las dos carpetas no se versionan.
+
+| Script | Qué mide |
+|---|---|
+| `corpus.py` | Registro, descarga y manifiesto con hashes de los corpus (`info`, `fetch`, `manifest`) |
+| `exp_01_effort.py` | Reducción del esfuerzo de inspección gracias al validador |
+| `exp_02_active_learning.py` | Comparación de estrategias de aprendizaje activo |
+| `exp_03_omr_quality.py` | Calidad de HOMR (OMR-NED y SER) frente a la verdad de referencia |
+| `exp_04_homr_transcribe.py` | Transcripción real del corpus con HOMR |
+| `exp_05_edit_derivation.py` | Derivación de ediciones a partir de errores reales del OMR |
+| `exp_06_validation_metrics.py` | Precisión y *recall* del validador |
+| `exp_07_preprocessing_impact.py` | Efecto del preprocesado de imagen sobre HOMR |
+| `exp_08_oemer_baseline.py` | Línea base de oemer (pendiente de ejecutar, [#100](https://github.com/sebdavid3/Cadenza/issues/100)) |
+| `exp_09_multicorpus_evaluation.py` | Evaluación en SMB y MUSCIMA++ (alcance por decidir, [#102](https://github.com/sebdavid3/Cadenza/issues/102)) |
+| `exp_10_effort_study.py` | Exportación del estudio de esfuerzo (hoy con datos sintéticos) |
+| `exp_11_latency_benchmark.py` | Latencia de transcripción con HOMR en CPU y GPU |
+
+```bash
+uv run --no-sync python ml/experiments/corpus.py info
+uv run --no-sync python ml/experiments/exp_11_latency_benchmark.py --help
+```
+
+`results/` es la evidencia de la tesis: una cifra solo cuenta si sale de una ejecución real,
+lo simulado se marca como tal y nada se cita sin regenerarlo (`CLAUDE.md` §8). Más detalle de
+cada experimento en [`ml/README.md`](ml/README.md).
+
+---
+
+## Estructura del repositorio
+
+```text
+Cadenza/
+├── apps/
+│   ├── api/                 API REST (FastAPI) y CLI administrativa
+│   └── web/                 Interfaz web de corrección (React + Vite)
+├── packages/                Monolito modular: un paquete por módulo del workspace uv
+│   ├── domain/              Núcleo puro
+│   ├── application/         Casos de uso y puertos
+│   ├── interchange/         Frontera de notación (music21)
+│   ├── omr/                 Motores OMR y preprocesado
+│   ├── validation/          Motor de reglas
+│   ├── persistence/         Base de datos, artefactos y migraciones Alembic
+│   └── learning/            Dataset, aprendizaje activo y métricas
+├── ml/                      CLI offline y experimentos de la tesis
+├── scripts/                 Contrato OpenAPI y copias de seguridad
+├── configs/                 Configuraciones de entrenamiento
+├── docs/                    Arquitectura, ADR, estado, guía de la API, operación
+├── latex/                   Documento de la tesis
+├── legacy/                  Prototipo original, congelado
+├── data/                    Corpus descargados (no versionado)
+└── results/                 Resultados de experimentos (no versionado)
 ```
 
 ---
 
 ## Documentación
 
-- [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) — estado vivo, deuda técnica y bitácora.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura objetivo, funciones, datos y brechas.
-- [`docs/migracion_legacy.md`](docs/migracion_legacy.md) — plan de migración y matriz de paridad para el retiro de legacy.
-- [`docs/arquitectura-dbb.md`](docs/arquitectura-dbb.md) — diagramas de bloques (DBB).
-- [`docs/adr/`](docs/adr/) — registros de decisiones (ADR-0001 … ADR-0016).
-- [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) — convenciones de Git y calidad.
-- [`docs/literatura/`](docs/literatura/) — estado del arte y corpus de evaluación.
-- [`latex/`](latex/) — documento maestro de la tesis.
+| Documento | Contenido |
+|---|---|
+| [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0017) |
+| [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
+| [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
+| [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR) |
+| [`docs/experimentos/`](docs/experimentos) | Protocolo del estudio de esfuerzo |
+| [`docs/literatura/`](docs/literatura) | Estado del arte y corpus |
+| [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Convenciones de Git y definición de terminado |
+| [`docs/migracion_legacy.md`](docs/migracion_legacy.md) | Paridad con el prototipo y plan de retiro de `legacy/` |
+
+---
+
+## Cómo contribuir
+
+Las reglas de trabajo están en [`CLAUDE.md`](CLAUDE.md) y
+[`docs/CONVENTIONS.md`](docs/CONVENTIONS.md). En resumen:
+
+- Un issue, una rama (`<tipo>/<número>-<descripción>`) y un PR hacia `dev`; `main` no se
+  toca.
+- Commits en español con Conventional Commits (`fix(api): …`), añadiendo archivos con rutas
+  explícitas.
+- Primero el test que expresa el criterio o reproduce el fallo, después el código.
+- Las puertas de calidad en verde, una revisión independiente del diff y la documentación
+  al día antes de fusionar con *squash*.
+
+El prototipo original (FastAPI + HOMR + OSMD + Tone.js) se conserva congelado en `legacy/`
+y en la etiqueta `archive/legacy-mvp`.
+
+El proyecto declara licencia propietaria (`pyproject.toml`).
