@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from cadenza.api.power import (
+from cadenza.omr.power import (
     PROCESS_POWER_THROTTLING,
     PROCESS_POWER_THROTTLING_CURRENT_VERSION,
     PROCESS_POWER_THROTTLING_EXECUTION_SPEED,

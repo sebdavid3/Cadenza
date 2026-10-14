@@ -18,7 +18,7 @@ import sys
 from ctypes import wintypes
 from typing import Literal
 
-logger = logging.getLogger("cadenza.api.power")
+logger = logging.getLogger("cadenza.omr.power")
 
 PROCESS_POWER_THROTTLING: int = 4
 PROCESS_POWER_THROTTLING_CURRENT_VERSION: int = 1

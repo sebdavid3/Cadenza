@@ -112,6 +112,7 @@ from cadenza.omr import (
     OMRTranscriptionError,
     get_effective_device,
 )
+from cadenza.omr.power import disable_power_throttling
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SessionFactory,
@@ -133,7 +134,6 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
-from .power import disable_power_throttling
 from .schemas import (
     AnchorIndexPayload,
     AnchorPayload,
@@ -275,6 +275,30 @@ def get_artifact_store(request: Request, db: DbSession) -> ArtifactStore:
     return FilesystemArtifactStore(settings.artifacts_dir, session=db)
 
 
+def configure_logging() -> None:
+    """Configura el manejador para los registradores 'cadenza.*' si no existe ninguno.
+
+    Garantiza que bajo el arranque documentado (uvicorn cadenza.api.main:create_default_app
+    --factory) los registros de cadenza.* sean visibles en la salida de error estándar (stderr)
+    con formato unificado, sin líneas duplicadas y sin alterar la configuración de quienes ya
+    traigan la suya.
+    """
+    cadenza_logger = logging.getLogger("cadenza")
+    if not cadenza_logger.hasHandlers():
+        handler = logging.StreamHandler(sys.stderr)
+        formatter: logging.Formatter
+        try:
+            from uvicorn.logging import DefaultFormatter
+
+            formatter = DefaultFormatter("%(levelprefix)s %(message)s")
+        except ImportError:
+            formatter = logging.Formatter("%(levelname)s:     %(message)s")
+        handler.setFormatter(formatter)
+        cadenza_logger.addHandler(handler)
+        if cadenza_logger.level == logging.NOTSET:
+            cadenza_logger.setLevel(logging.INFO)
+
+
 def create_app(
     session_factory: SessionFactory,
     *,
@@ -289,6 +313,7 @@ def create_app(
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
+    configure_logging()
     app_settings = settings or Settings()
     if not app_settings.auth_secret_key and token_service is None:
         raise RuntimeError(
