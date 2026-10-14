@@ -12,7 +12,8 @@ from cadenza.persistence.models import Base
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Sin desactivar los registradores ya creados en el proceso (p. ej. `cadenza.api`) (#119).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
