@@ -81,10 +81,21 @@ En caso de fallo en la base de datos o en el almacenamiento de artefactos, el en
 
 ### 3.2 Trazabilidad con `X-Request-ID` y Logs Estructurados
 
-Cada petición procesada por la API incluye la cabecera `X-Request-ID` (generada automáticamente o propagada desde el cliente). Además, la API emite logs estructurados en el formato:
+La API configura sus manejadores de registro durante el ciclo de vida de la aplicación (`configure_logging` en `cadenza.api.main`). Si el registrador raíz `cadenza` no tiene manejadores asignados (como ocurre en el arranque estándar con `uvicorn cadenza.api.main:create_default_app --factory`), se asocia un `StreamHandler(sys.stderr)` con el formateador por defecto de Uvicorn (`DefaultFormatter`), asegurando que todos los registros de `cadenza.*` sean visibles en consola sin duplicar salidas ni pisar configuraciones preexistentes.
 
+Al iniciar, la API emite el estado de la renuncia a la limitación de energía (EcoQoS en Windows, implementada en `cadenza.omr.power`):
+
+```text
+INFO:     power_throttling_disabled requested=True applied=True platform=win32
 ```
-request_completed method=POST path=/transcribe status=201 duration_ms=45.20 request_id=3a1b8e4f2c session_id=ses-9812
+
+Asimismo, el middleware de observabilidad asigna a cada petición la cabecera `X-Request-ID` (generada automáticamente o propagada desde el cliente) y emite un registro estructurado al completar cada solicitud:
+
+```text
+INFO:     request_completed method=GET path=/health status=200 duration_ms=4.23 request_id=74207509005b4c9ba98271fdb99356e4 session_id=-
+INFO:     request_completed method=POST path=/auth/login status=200 duration_ms=56.87 request_id=ba9cdbae5089458788b0b056d900d584 session_id=-
+INFO:     request_completed method=POST path=/transcribe status=201 duration_ms=15.53 request_id=ceb7d7b0daa740d5a1d095a2ab1a1023 session_id=-
+INFO:     request_completed method=GET path=/sessions/e40a68a3-36d3-410b-91af-dc9685f10ac3 status=200 duration_ms=9.19 request_id=67e933c55eb742068c55e4f0b7502c65 session_id=e40a68a3-36d3-410b-91af-dc9685f10ac3
 ```
 
 ---

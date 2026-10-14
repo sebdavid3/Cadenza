@@ -15,13 +15,14 @@
 >    en incipits.
 > 2. **Identificación y corrección de la limitación de energía de Windows 11 (EcoQoS / Power Throttling):**
 >    Las cifras «después» publicadas en el PR #109 reflejaban una contaminación inadvertida: el proceso fue
->    confinado por Windows 11 a los 4 núcleos de eficiencia (E-cores) del procesador Intel Core i5-13450H.
+>    confinado por Windows 11 a los 4 núcleos de eficiencia (E-cores) del procesador Intel Core i5-13450HX.
 >    - *Evidencia 1 (Régimen bimodal):* Al repetir `exp_11`, la CPU alternaba entre régimen normal (incipit 1,3 s;
->      página de 12: 12,1 s) y régimen lento (incipit 10–14 s; página de 12: hasta 127 s), consumiendo el benchmark
+>      página de 12: 11,4 s) y régimen lento (incipit 10–14 s; página de 12: hasta 127 s), consumiendo el benchmark
 >      solo el 22–24 % de CPU (unos 3,6 de 16 hilos).
 >    - *Evidencia 2 (Prueba controlada y control independiente):* Con `SetProcessInformation(ProcessPowerThrottling)`,
->      forzar la limitación reproduce con exactitud milimétrica las muestras lentas del PR #109 (página de 8 en 78 s,
->      página de 12 en 119 s en CPU con ~3,6 hilos; frente a 7,8 s y 11,6 s con limitación desactivada y ~12,7 hilos).
+>      forzar la limitación reproduce el comportamiento lento observado en el PR #109 (el control arrojó 78 s en
+>      página de 8 y 119 s en página de 12 en CPU con ~3,6 hilos, frente a las muestras del PR #109 de 86 s y 127 s;
+>      en claro contraste con 7,8 s y 11,6 s con limitación desactivada y ~12,7 hilos).
 >    - *Mitigación:* Se implementó la renuncia explícita del proceso a la limitación de energía en Windows
 >      (`cadenza.omr.power`, ADR-0015), activada al arrancar la API y en el arnés experimental de `exp_11`.
 > 
@@ -105,7 +106,7 @@ Mediciones reales con `ml/experiments/exp_11_latency_benchmark.py` cronometrando
 - Resultado de la regla: **`SYNCHRONOUS_SUFFICIENT`** en ambos dispositivos con un margen mínimo del 59,9 % frente al *timeout* de 30 s.
 
 ### Límites de esta medición
-- **Se cronometra el motor, no la petición HTTP.** Las cifras corresponden a `HOMREngine.transcribe_musicxml`. La petición `POST /transcribe` añade parsing a `ScoreIR`, validación inicial y persistencia en base de datos (habitualmente menos de 50 ms adicionales).
+- **Se cronometra el motor, no la petición HTTP.** Las cifras de las tablas corresponden a `HOMREngine.transcribe_musicxml`. La petición `POST /transcribe` añade parsing a `ScoreIR`, validación inicial y persistencia en base de datos. Medido contra la API en vivo en GPU: 0,69–0,76 s por incipit (motor: mediana 0,70 s) y 4,16–4,48 s para la página de 8 pentagramas (motor: 4,42 s), arrojando un sobrecoste habitualmente contenido entre 10 y 60 ms en régimen caliente.
 - **Renuncia a Power Throttling requerida en Windows 11.** Se mide con la limitación de energía desactivada para el proceso. En Windows 11, sin esta renuncia explícita (`SetProcessInformation`), el backend en segundo plano puede ser confinado por el sistema operativo a los núcleos de eficiencia, cayendo al régimen lento (~78 s en página de 8 pentagramas, ~119 s en 12 pentagramas en CPU).
 - **El equipo es un portátil en uso.** No fue necesario aislar térmicamente la máquina tras desactivar la limitación de energía.
 - **Páginas sintéticas.** Las páginas de 4, 8 y 12 pentagramas son composiciones sintéticas de incipits apilados verticalmente, no páginas históricas de corpus completo.
@@ -122,7 +123,7 @@ Se ratifica el **modelo de transcripción síncrona en el plano online** para Ca
 2. **Concurrencia mediante pool de hilos:** Toda inferencia OMR se invoca a través de `asyncio.to_thread`, garantizando que las peticiones concurrentes de lectura, edición y exportación no sufran inanición en el servidor FastAPI.
 3. **Rechazo de colas asíncronas distribuidas:** Se desestima la incorporación de brokers de mensajería (RabbitMQ, Redis) y gestores de tareas distribuidas (Celery, Dramatiq) en el plano online.
 4. **Acotamiento del alcance:** Queda ratificado que documentos de volumen masivo o multipágina pertenecen a pipelines de procesamiento batch offline y no al flujo interactivo del editor.
-5. **Configuración de energía en Windows:** La API desactiva por defecto la limitación de energía del proceso al arrancar (`CADENZA_DISABLE_POWER_THROTTLING=true`, ADR-0015), garantizando que el servicio opere siempre en régimen normal.
+5. **Configuración de energía en Windows:** La API solicita desactivar la limitación de energía del proceso al arrancar (`CADENZA_DISABLE_POWER_THROTTLING=true`, ADR-0015). Esta renuncia solo existe en Windows (vía `SetProcessInformation`) y puede fallar o no ser concedida por el sistema operativo, en cuyo caso el servicio continúa su ejecución emitiendo una advertencia en el registro.
 
 ---
 
@@ -131,7 +132,7 @@ Se ratifica el **modelo de transcripción síncrona en el plano online** para Ca
 ### Positivas
 - **Simplicidad arquitectónica radical (YAGNI):** Se evita introducir complejidad accidental (múltiples servicios de infraestructura, gestión de reconexiones en brokers, persistencia de estados efímeros de tareas y sincronización distribuida).
 - **Experiencia de usuario lineal y predecible:** El frontend no requiere orquestar máquinas de estados complejas de sondeo periódico (*polling*) ni reconexiones WebSockets durante la carga de un archivo; la transición de carga a visualización en el lienzo es atómica y determinista (menos de 1 s en GPU y ~1,2 s en CPU para incipits).
-- **Estabilidad del contrato de API y tipos:** Los contratos OpenAPI 3.0 v1.0.0 congelados (`docs/api/openapi.json`) y las interfaces tipadas en TypeScript (`apps/web/src/types.ts`) se preservan sin romper compatibilidad.
+- **Estabilidad del contrato de API y tipos:** Los contratos OpenAPI 3.1.0 v1.0.0 congelados (`docs/api/openapi.json`) y las interfaces tipadas en TypeScript (`apps/web/src/types.ts`) se preservan sin romper compatibilidad.
 - **Cero latencia de encolado:** Al no existir overhead de serialización hacia colas externas, el usuario percibe la respuesta en el menor tiempo físico posible.
 
 ### Negativas / Mitigaciones
