@@ -12,6 +12,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from cadenza.omr import OMRTranscriptionError
@@ -27,6 +28,15 @@ from ml.experiments.exp_11_latency_benchmark import (
     evaluate_decision,
     run_benchmark,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_power_throttling(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    """Aísla la limitación de energía para que ningún test altere el proceso real."""
+    mock_set = MagicMock(return_value=True)
+    monkeypatch.setattr(exp_11, "set_power_throttling", mock_set)
+    monkeypatch.setattr("cadenza.omr.power.set_power_throttling", mock_set)
+    return mock_set
 
 
 class _ManualClock:
@@ -365,7 +375,9 @@ def test_run_benchmark_records_cpu_threads_and_protocol_mode(tmp_path: Path) -> 
     assert len(measured["configurations"]["incipit_1_staff"]["cpu_threads"]) == 2
 
 
-def test_run_benchmark_different_power_throttling_modes_do_not_accumulate(tmp_path: Path) -> None:
+def test_run_benchmark_different_power_throttling_modes_do_not_accumulate(
+    tmp_path: Path, _mock_power_throttling: MagicMock
+) -> None:
     manifest = _manifest(tmp_path)
     out = tmp_path / "out"
 
@@ -396,3 +408,6 @@ def test_run_benchmark_different_power_throttling_modes_do_not_accumulate(tmp_pa
     assert second["devices"]["cpu"]["invocations"] == 1
     assert second["devices"]["cpu"]["configurations"]["incipit_1_staff"]["stats"]["count"] == 2
     assert second["devices"]["cpu"]["protocol"]["power_throttling"] == "forced"
+    assert _mock_power_throttling.call_count == 2
+    assert _mock_power_throttling.call_args_list[0][0] == ("disabled",)
+    assert _mock_power_throttling.call_args_list[1][0] == ("forced",)

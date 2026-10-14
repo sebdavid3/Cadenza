@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from cadenza.omr.power import disable_power_throttling, set_power_throttling
+
 from .main import CurrentUserDep, create_app, create_default_app, get_current_user
-from .power import disable_power_throttling, set_power_throttling
 from .security import Argon2PasswordHasher, JwtTokenService, LoginRateLimiter
 from .settings import Settings
 

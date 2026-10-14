@@ -189,3 +189,73 @@ def test_startup_skips_power_throttling_when_disabled_by_config(
 
     assert not mock_disable.called
     assert "power_throttling_disabled requested=False applied=False" in caplog.text
+
+
+def test_cadenza_logging_configured_when_no_handlers_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica que create_app configura un manejador para cadenza.* si no hay ninguno."""
+    import logging
+
+    cadenza_logger = logging.getLogger("cadenza")
+    root_logger = logging.getLogger()
+    old_cadenza_handlers = list(cadenza_logger.handlers)
+    old_cadenza_level = cadenza_logger.level
+    old_root_handlers = list(root_logger.handlers)
+    old_root_level = root_logger.level
+
+    cadenza_logger.handlers.clear()
+    cadenza_logger.setLevel(logging.NOTSET)
+    root_logger.handlers.clear()
+    root_logger.setLevel(logging.WARNING)
+
+    engine = create_memory_engine()
+    create_schema(engine)
+    session_factory = create_session_factory(engine)
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    try:
+        assert not cadenza_logger.hasHandlers()
+        create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+        assert len(cadenza_logger.handlers) == 1
+        assert cadenza_logger.level == logging.INFO
+
+        # Idempotencia: una segunda llamada no debe duplicar handlers
+        create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+        assert len(cadenza_logger.handlers) == 1
+    finally:
+        cadenza_logger.handlers = old_cadenza_handlers
+        cadenza_logger.setLevel(old_cadenza_level)
+        root_logger.handlers = old_root_handlers
+        root_logger.setLevel(old_root_level)
+
+
+def test_cadenza_logging_preserves_existing_handlers(tmp_path: Path) -> None:
+    """Verifica que create_app no pisa ni duplica si cadenza ya tiene handlers."""
+    import logging
+
+    cadenza_logger = logging.getLogger("cadenza")
+    old_handlers = list(cadenza_logger.handlers)
+    old_level = cadenza_logger.level
+    custom_handler = logging.NullHandler()
+    cadenza_logger.handlers = [custom_handler]
+    cadenza_logger.setLevel(logging.DEBUG)
+
+    engine = create_memory_engine()
+    create_schema(engine)
+    session_factory = create_session_factory(engine)
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=tmp_path / "artifacts",
+    )
+
+    try:
+        create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+        assert cadenza_logger.handlers == [custom_handler]
+        assert cadenza_logger.level == logging.DEBUG
+    finally:
+        cadenza_logger.handlers = old_handlers
+        cadenza_logger.setLevel(old_level)

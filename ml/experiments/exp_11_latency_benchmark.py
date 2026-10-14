@@ -43,8 +43,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
-from cadenza.api.power import PowerThrottlingMode, set_power_throttling
 from cadenza.omr import OMRTranscriptionError
+from cadenza.omr.power import PowerThrottlingMode, set_power_throttling
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

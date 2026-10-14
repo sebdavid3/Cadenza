@@ -23,7 +23,7 @@
 >      forzar la limitación reproduce con exactitud milimétrica las muestras lentas del PR #109 (página de 8 en 78 s,
 >      página de 12 en 119 s en CPU con ~3,6 hilos; frente a 7,8 s y 11,6 s con limitación desactivada y ~12,7 hilos).
 >    - *Mitigación:* Se implementó la renuncia explícita del proceso a la limitación de energía en Windows
->      (`cadenza.api.power`, ADR-0015), activada al arrancar la API y en el arnés experimental de `exp_11`.
+>      (`cadenza.omr.power`, ADR-0015), activada al arrancar la API y en el arnés experimental de `exp_11`.
 > 
 > Con la limitación desactivada, 0 de 126 peticiones alcanzaron los 30 s (máximo absoluto de 7,6 s en GPU y
 > 12,0 s en CPU). La regla arroja **`SYNCHRONOUS_SUFFICIENT`** en ambos dispositivos. Se mantiene la transcripción
@@ -49,7 +49,7 @@ Para fundamentar la decisión con rigor cuantitativo frente al jurado de tesis, 
 El 2026-10-13 se midió de forma aislada la función de detección de título (`detect_title(debug, staffs[0])` en `homr/main.py:275`, que invoca `homr/title_detection.py` con RapidOCR en un `ThreadPoolExecutor(max_workers=1)` y espera el resultado hasta 60 s con `title_future.result(60)`). Sobre 15 imágenes consecutivas del manifiesto con HOMR en GPU, el OCR explicaba entre el 64 % y el 98 % del tiempo en las transcripciones lentas. Cadenza no utiliza el título en el dominio ni en el `ScoreIR`. En el adaptador `packages/omr/src/cadenza/omr/adapters/homr.py` se sustituyó `homr_main.detect_title` de forma idempotente por un `Future` resuelto con cadena vacía.
 
 ### 2. Desactivación de Power Throttling en Windows 11 (EcoQoS)
-En procesadores híbridos Intel de 12.ª generación o posterior, Windows 11 confina de forma predeterminada los procesos en segundo plano a los núcleos de eficiencia (E-cores), reduciendo el uso de hilos a ~3,6 y aumentando la latencia hasta un orden de magnitud. Se incorporó `set_power_throttling` en `cadenza.api.power` para renunciar explícitamente a esta limitación vía `kernel32.SetProcessInformation(ProcessPowerThrottling)`, permitiendo que HOMR utilice el conjunto completo de núcleos de rendimiento (P-cores, ~12,7 a 13,2 hilos de CPU efectivos).
+En procesadores híbridos Intel de 12.ª generación o posterior, Windows 11 confina de forma predeterminada los procesos en segundo plano a los núcleos de eficiencia (E-cores), reduciendo el uso de hilos a ~3,6 y aumentando la latencia hasta un orden de magnitud. Se incorporó `set_power_throttling` en `cadenza.omr.power` (reexportado en `cadenza.api`) para renunciar explícitamente a esta limitación vía `kernel32.SetProcessInformation(ProcessPowerThrottling)`, permitiendo que HOMR utilice el conjunto completo de núcleos de rendimiento (P-cores, ~12,7 a 13,2 hilos de CPU efectivos).
 
 ---
 
