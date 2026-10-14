@@ -149,10 +149,13 @@ docker compose up --build
 
 El servicio `api` espera a que `postgres` reporte estado saludable mediante *healthcheck*, ejecuta automáticamente las migraciones pendientes con Alembic (`alembic -c packages/persistence/alembic.ini upgrade head`) y arranca el servidor ASGI Uvicorn en el puerto 8000.
 
-Para gestionar migraciones con Alembic de forma manual:
+> [!NOTE]
+> **Alembic es exclusivamente para PostgreSQL.** Las migraciones del repositorio definen tipos nativos de PostgreSQL como `JSONB` desde la revisión inicial `0001`, por lo que `alembic upgrade` no corre sobre SQLite (falla con `can't render element of type JSONB`). En desarrollo local con SQLite, el esquema relacional lo crea directamente `create-investigator` (mediante `create_schema`), sin tabla `alembic_version`.
+
+Para gestionar migraciones con Alembic de forma manual sobre PostgreSQL:
 
 ```bash
-# Aplicar todas las migraciones
+# Aplicar todas las migraciones (requiere PostgreSQL)
 uv run alembic -c packages/persistence/alembic.ini upgrade head
 
 # Revertir una revisión
