@@ -9,7 +9,7 @@
 
 ## 1. Guía de Arranque Rápido del Entorno Local
 
-Esta guía describe los pasos mínimos y reproducibles para levantar el entorno de desarrollo local con el backend y el visor web.
+Esta guía describe los pasos mínimos y reproducibles para levantar el backend en el entorno de desarrollo local. El frontend de `apps/web` se rehace desde cero en la Fase 8 (§6).
 
 ### 1.1. Dependencias y Entorno Python
 
@@ -69,18 +69,8 @@ uv run --no-sync uvicorn cadenza.api.main:create_default_app --factory --host 12
 - **Documentación Swagger UI:** `http://127.0.0.1:8000/docs`
 - **Especificación OpenAPI:** `http://127.0.0.1:8000/openapi.json`
 
-### 1.5. Ejecución del Visor Web (`apps/web`)
-
-```bash
-cd apps/web
-npm install
-npm run dev
-```
-
-El servidor Vite arrancará en el puerto **5174** (`http://localhost:5174`).
-
 > [!NOTE]
-> **Entorno verificado:** Configuración probada y validada en Windows 11 (Intel Core i5-13450HX, 10 núcleos, 16 hilos, 32 GB RAM, NVIDIA GeForce RTX 5050 Laptop GPU 8 GB), Python 3.12, Node.js v24.18.0, el 2026-10-13.
+> **Entorno verificado:** Configuración del backend probada y validada en Windows 11 (Intel Core i5-13450HX, 10 núcleos, 16 hilos, 32 GB RAM, NVIDIA GeForce RTX 5050 Laptop GPU 8 GB) y Python 3.12, el 2026-10-13.
 
 ---
 
@@ -143,7 +133,7 @@ export interface Anchor {
 
 > [!IMPORTANT]
 > **Comportamiento de Coordenadas `bbox` y Confianza (`confidence`):**
-> - **Formato de coordenadas `bbox`:** Cuando está presente, `bbox` especifica `[x0, y0, x1, y1]` en píxeles absolutos de la imagen original (esquina superior izquierda `[x0, y0]` y esquina inferior derecha `[x1, y1]`), **no** valores normalizados `[x, y, ancho, alto]`. Así lo consume directamente `apps/web/src/components/ImageOverlay.tsx`, calculando el ancho como `(x1 - x0)` y el alto como `(y1 - y0)`.
+> - **Formato de coordenadas `bbox`:** Cuando está presente, `bbox` especifica `[x0, y0, x1, y1]` en píxeles absolutos de la imagen original (esquina superior izquierda `[x0, y0]` y esquina inferior derecha `[x1, y1]`), **no** valores normalizados `[x, y, ancho, alto]`: el ancho es `(x1 - x0)` y el alto `(y1 - y0)`.
 > - **Motor de prueba `FakeOMREngine`:** Genera cajas sintéticas `bbox` rectangulares deterministas individuales por evento musical con `[x0, y0, x1, y1]`: abscisas `x0 = 20.0 + 30.0 * i`, `x1 = 36.0 + 30.0 * i` (donde `i` es el índice secuencial del evento en toda la partitura de prueba, orden `[0, 1, 2, 3]`), con `y0 = 40.0` e `y1 = 60.0` fijas (ancho de 16 px y alto de 20 px). En la partitura de prueba de 4 eventos devuelve `[20.0, 40.0, 36.0, 60.0]`, `[50.0, 40.0, 66.0, 60.0]`, `[80.0, 40.0, 96.0, 60.0]` y `[110.0, 40.0, 126.0, 60.0]` (ver `packages/omr/src/cadenza/omr/adapters/fake.py`).
 > - **Motor real `HOMREngine`:** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), deuda D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
 > - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual cuando se opera con el motor real. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
@@ -314,25 +304,22 @@ Ejemplo por discrepancia en el `before` suministrado por el cliente:
 ```
 
 > [!TIP]
-> **Integración en el Cliente Web:** El cliente frontend (`apps/web/src/api/client.ts`) debe comprobar si `Array.isArray(error.response.data.detail)`. Si es un array, puede mapear los errores por campo (`loc.join('.')`); si es una cadena de texto (`typeof detail === "string"`), debe presentarlo directamente como mensaje de error al usuario.
+> **Integración en el Cliente Web:** El cliente HTTP del frontend debe comprobar si `Array.isArray(error.response.data.detail)`. Si es un array, puede mapear los errores por campo (`loc.join('.')`); si es una cadena de texto (`typeof detail === "string"`), debe presentarlo directamente como mensaje de error al usuario.
 
-### 5.5. Proxy de Desarrollo de Vite (`apps/web/vite.config.ts`)
+### 5.5. Acceso a la API en Desarrollo (CORS o Proxy)
 
-En desarrollo (`npm run dev`), el servidor Vite escucha en el puerto **5174** y redirige mediante proxy las peticiones hacia el backend (`http://localhost:8000`).
+La API escucha en `http://127.0.0.1:8000` (§1.4) y sus rutas no llevan prefijo (`/auth`, `/users`, `/transcribe`, `/sessions`, `/health`, `/version`). El frontend puede llamarla de dos formas:
 
-Rutas cubiertas por el proxy de Vite:
-- `/transcribe` → `http://localhost:8000/transcribe`
-- `/sessions` → `http://localhost:8000/sessions`
-- `/auth` → `http://localhost:8000/auth`
-- `/health` → `http://localhost:8000/health`
+- **URL base explícita y CORS:** usar una URL base configurable en el cliente. Con el valor por defecto `CADENZA_CORS_ORIGINS=*` no hace falta declarar nada; si se restringe la lista de orígenes (ADR-0015), hay que incluir el del servidor de desarrollo del frontend.
+- **Proxy del servidor de desarrollo:** reenviar al backend las rutas de la API.
 
 > [!WARNING]
-> El proxy de Vite **NO** cubre `/users` ni `/version`. Si el frontend necesita consumir `/users` (administración de cuentas) o `/version`, debe añadirlas a `vite.config.ts` o utilizar una URL base explícita.
+> Con un proxy, ninguna ruta de la propia aplicación web puede coincidir con un prefijo reenviado: si el proxy reenvía `/sessions` y la interfaz usa una ruta `/sessions/:id`, al recargar la página o abrir un enlace directo la petición del documento llega al backend en lugar de devolver la aplicación (comprobado el 2026-10-20 con el servidor de desarrollo de Vite en una rama de prueba sin fusionar). Conviene agrupar la API bajo un prefijo del proxy (por ejemplo `/api`, reescrito al reenviar) o usar rutas de interfaz distintas.
 
 ### 5.6. Renderizado de Notación y Navegación
 
 1. **Lienzo de Partitura:** Se recomienda renderizar la partitura materializada usando OSMD (OpenSheetMusicDisplay) o Verovio alimentado desde `GET /sessions/{id}/export?format=musicxml` o procesando el `ScoreIR` tipado.
-2. **Imagen de Referencia:** La imagen se obtiene en `GET /sessions/{id}/image` y se expone como un panel lateral o pestaña de referencia comparativa global.
+2. **Imagen de Referencia:** La imagen se obtiene en `GET /sessions/{id}/image` y se expone como un panel lateral o pestaña de referencia comparativa global. El endpoint exige `Authorization: Bearer` y un `<img src>` no envía esa cabecera: la imagen debe descargarse con el cliente HTTP autenticado y mostrarse a partir de un `Blob` (`URL.createObjectURL`).
 3. **Panel de Hallazgos:** La lista de hallazgos devuelta por `GET /sessions/{id}/findings` señala anclas específicas (compás, pentagrama, evento). Al seleccionar un hallazgo, el frontend debe enfocar y resaltar el evento correspondiente en la partitura renderizada (OSMD/SVG).
 
 ### 5.7. Tiempos de Transcripción y Timeout Recomendado (#106, #118)
@@ -370,19 +357,14 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 
 ## 6. Estado Actual de `apps/web` (Punto de Partida para Fase 8)
 
-El directorio `apps/web` contiene la base inicial del cliente web, estructurada con:
-- **Tecnologías:** React 18, Vite 5, TypeScript 5, Zustand 4 (`editorStore`), TanStack React Query 5 y Vitest.
-- **Cliente HTTP y Tipos:** `src/api/client.ts` usa las interfaces generadas desde OpenAPI en `src/types.ts` e implementa solo `login`, `fetchMe`, `transcribe`, `fetchSession` y `appendEdit` (más la gestión del token). El resto de endpoints de la API v1 no tiene todavía función en el cliente.
-- **Componentes Construidos** (comprobado en `apps/web/src`):
-  - `LoginPanel`: inicio de sesión con token Bearer JWT y carga del perfil (`GET /auth/me`).
-  - `UploadPanel`: selección y envío de la imagen a `POST /transcribe`.
-  - `HitlWorkspace`: carga la sesión activa con `GET /sessions/{id}` y orquesta el resto de paneles.
-  - `FindingsPanel`: lista los hallazgos de la sesión; al pulsar uno selecciona su ancla. **No** descarta ni restaura hallazgos: no llama a `/dismiss` ni a `/restore`.
-  - `EventInspector`: muestra el evento seleccionado y emite **solo** `SetPitch` (`POST /sessions/{id}/edits`) con un campo de texto libre para la altura. El resto de operaciones de `EditOp` no tiene interfaz.
-  - `HistoryPanel`: lista las ediciones con botones «Deshacer» y «Rehacer» que **solo mueven un cursor local** del store (`editorStore`); no llaman a `POST /sessions/{id}/undo`, así que el log del servidor no cambia. Es justo el deshacer local que §5.3 desaconseja.
-  - `EffortMetrics`: muestra en pantalla el tiempo de sesión, el tiempo hasta la primera edición y las intervenciones por compás calculadas en el navegador. **No** las envía a `POST /sessions/{id}/effort`.
-  - `ImageOverlay`: Dibuja las cajas delimitadoras `bbox` (`[x0, y0, x1, y1]` en píxeles) sobre la imagen de origen como botones interactivos. Es la forma principal de seleccionar un evento musical en el visor actual, junto con hacer clic sobre un hallazgo en `FindingsPanel`. **Consecuencia crítica con el motor real:** dado que `HOMREngine` no genera coordenadas espaciales y devuelve `bbox: null` (INV-0001), en sesiones procesadas con HOMR no se dibuja ninguna caja sobre la imagen; en consecuencia, una nota que no presente hallazgos activos no puede ser seleccionada interactivamente desde `ImageOverlay`.
-- **Próximo Paso (Fase 8):** Incorporar el renderizador de notación musical OpenSheetMusicDisplay (OSMD) para permitir la selección interactiva de cualquier símbolo directamente sobre la partitura renderizada (independientemente del motor OMR), conectar la reproducción con Tone.js consumiendo `GET /sessions/{id}/timing`, y completar en el cliente los flujos que hoy faltan: deshacer en el servidor (`POST /undo`), envío de métricas de esfuerzo (`POST /effort`), descarte y restauración de hallazgos, revalidación, las demás operaciones de edición, finalización y reapertura, exportación y listado de sesiones.
+`apps/web` está vacío a propósito ([#129](https://github.com/sebdavid3/Cadenza/issues/129)): la base inicial del cliente web y el sistema de diseño anterior se retiraron para rehacer el frontend desde cero. Solo contiene `apps/web/src/types.ts`, las interfaces TypeScript generadas desde `docs/api/openapi.json` (§8), que no se editan a mano.
+
+La Fase 8 debe cubrir sobre la API v1:
+- **Acceso:** inicio de sesión con token Bearer JWT, perfil (`GET /auth/me`), cambio de contraseña y gestión de cuentas para el rol investigador (`/users`).
+- **Ingesta:** envío de la imagen a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones (`GET /sessions`).
+- **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
+- **Reproducción:** Tone.js con el cursor sincronizado a partir de `GET /sessions/{id}/timing`.
+- **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y exportación MusicXML y MIDI.
 
 ---
 
@@ -539,8 +521,6 @@ Si se realizan cambios en los modelos Pydantic o endpoints del backend:
 # Regenerar openapi.json y apps/web/src/types.ts
 uv run --no-sync python scripts/generate_openapi_and_types.py
 
-# Verificar que los tests del contrato y frontend pasen al 100%
+# Verificar que los tests del contrato pasen al 100%
 uv run --no-sync pytest apps/api/tests/test_openapi_contract.py
-npm --prefix apps/web test
-npm --prefix apps/web run build
 ```

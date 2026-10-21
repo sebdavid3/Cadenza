@@ -71,3 +71,6 @@ Thumbs.db
 .agents/
 .gemini/
 .claude/
+
+# Estado de ejecución local de Impeccable (servidor live, inyecciones)
+**/.impeccable/live/
