@@ -22,6 +22,13 @@ Esta guía describe los pasos mínimos y reproducibles para levantar el backend 
 > uv run --no-sync <comando>
 > ```
 
+> [!IMPORTANT]
+> **HOMR es imprescindible para transcribir.** Es el único motor OMR (ADR-0018). Se instala como extra:
+> ```bash
+> uv pip install -e "packages/omr[homr]"
+> ```
+> Sin él la API arranca y `GET /health` responde, pero `POST /transcribe` devuelve **500**. La primera transcripción descarga los pesos del modelo.
+
 ### 1.2. Variables de Entorno Mínimas
 
 > [!IMPORTANT]

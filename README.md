@@ -142,7 +142,7 @@ HOMR.
 
 HOMR es el único motor OMR de Cadenza
 ([ADR-0018](docs/adr/ADR-0018-homr-como-unico-motor-omr.md)). Sin él la API arranca, pero
-`POST /transcribe` falla. Se instala como extra del paquete `cadenza-omr`:
+`POST /transcribe` responde 500. Se instala como extra del paquete `cadenza-omr`:
 
 ```bash
 uv pip install -e "packages/omr[homr]"
@@ -157,8 +157,8 @@ uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
 
 > [!WARNING]
 > **No ejecutes `uv sync` a secas** después de instalar los extras. HOMR es un
-> extra que un `uv sync` normal no selecciona, y `onnxruntime-gpu` 1.26.0 no es la versión
-> del *lockfile*: `uv sync` los desinstala sin avisar y los tests del motor real pasan a
+> extra que un `uv sync` normal no selecciona, y `onnxruntime-gpu` 1.26.0 no figura
+> en el *lockfile*: `uv sync` los desinstala sin avisar y los tests del motor real pasan a
 > omitirse. Usa siempre `uv sync --inexact` para sincronizar y `uv run --no-sync` para
 > ejecutar.
 
@@ -311,6 +311,11 @@ Docker Compose sí lee `.env` para sustituir variables en `docker-compose.yml`. 
 `batch` añade un contenedor con GPU que ejecuta la CLI offline
 (`docker compose --profile batch run --rm ml-batch --help`).
 
+> [!WARNING]
+> La imagen de la API no instala HOMR, el único motor OMR: el contenedor arranca y
+> `GET /health` responde, pero `POST /transcribe` devuelve 500 hasta que se resuelva la
+> deuda D50.
+
 > [!NOTE]
 > **Alembic es solo para PostgreSQL.** Las migraciones usan tipos nativos como `JSONB` desde
 > la `0001`, así que no se aplican sobre SQLite. En local con SQLite, el esquema lo crea
@@ -379,7 +384,7 @@ Cadenza/
 │   ├── domain/              Núcleo puro
 │   ├── application/         Casos de uso y puertos
 │   ├── interchange/         Frontera de notación (music21)
-│   ├── omr/                 Motores OMR y preprocesado
+│   ├── omr/                 Motor OMR (HOMR) y preprocesado
 │   ├── validation/          Motor de reglas
 │   ├── persistence/         Base de datos, artefactos y migraciones Alembic
 │   └── learning/            Dataset, aprendizaje activo y métricas

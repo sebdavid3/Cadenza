@@ -31,7 +31,7 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0002](ADR-0002-score-document-anchor-index.md) | `ScoreDocument` con `AnchorIndex` como fuente de verdad | Aceptado | Transversal |
 | [ADR-0003](ADR-0003-separacion-planos-computo.md) | Separación estricta de planos de cómputo Online / Offline | Aceptado | M1, M4 |
 | [ADR-0004](ADR-0004-persistencia-postgresql-jsonb.md) | Persistencia con PostgreSQL + JSONB y Storage de artefactos | Aceptado | M2, M3, M4 |
-| [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) | HOMR/ONNX como motor OMR base, oemer como línea base | Aceptado; puntos 3 y 4 reemplazados por ADR-0018 | M1 |
+| [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) | HOMR/ONNX como motor OMR base, oemer como línea base | Aceptado; punto 3 reemplazado y punto 4 precisado por ADR-0018 | M1 |
 | [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md) | Renderizado reactivo (OSMD/Verovio) y estado editorial (Zustand) | Aceptado | M3 |
 | [ADR-0007](ADR-0007-edit-events-inmutables.md) | Correcciones HITL como eventos inmutables sobre anclas | Aceptado | M3, M4 |
 | [ADR-0008](ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry | Aceptado | M4 |

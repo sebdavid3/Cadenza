@@ -44,7 +44,7 @@ docker compose ps
 El servicio `api` cuenta con un `healthcheck` automatizado que invoca periódicamente `GET /health`.
 
 > [!WARNING]
-> HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)) y la imagen de la API (`Dockerfile`, `uv sync --no-dev`) **no instala el extra `homr`**. El contenedor arranca y `GET /health` responde, pero `POST /transcribe` falla hasta que la imagen incluya HOMR (deuda D50).
+> HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)) y la imagen de la API (`Dockerfile`, `uv sync --no-dev`) **no instala el extra `homr`**. El contenedor arranca y `GET /health` responde, pero `POST /transcribe` devuelve 500 hasta que la imagen incluya HOMR (deuda D50).
 
 ### 2.2 Ejecución del plano offline con GPU (perfil batch)
 

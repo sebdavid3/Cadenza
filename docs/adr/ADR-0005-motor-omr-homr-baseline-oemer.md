@@ -1,6 +1,6 @@
 # ADR-0005: HOMR/ONNX como motor OMR base y oemer como línea base
 
-- **Estado:** Aceptado; puntos 3 (oemer) y 4 (motor de prueba) reemplazados por [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md)
+- **Estado:** Aceptado; punto 3 (oemer) reemplazado y punto 4 (motor de prueba) precisado por [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md)
 - **Fecha:** 2026-09-20
 - **Decisores:** Arquitecto de Software, Dirección del proyecto Cadenza
 - **Relacionado:** [ADR-0001](ADR-0001-monolito-modular-hexagonal.md), [ADR-0003](ADR-0003-separacion-planos-computo.md), [ADR-0008](ADR-0008-active-learning-model-registry.md)

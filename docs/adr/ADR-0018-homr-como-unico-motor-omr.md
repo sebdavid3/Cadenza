@@ -3,7 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-20
 - **Decisores:** Dirección del proyecto Cadenza
-- **Relacionado:** [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) (reemplaza sus puntos 3 y 4), [ADR-0001](ADR-0001-monolito-modular-hexagonal.md), [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md)
+- **Relacionado:** [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) (reemplaza su punto 3 y precisa el 4), [ADR-0001](ADR-0001-monolito-modular-hexagonal.md), [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md)
 - **Issue:** [#130](https://github.com/sebdavid3/Cadenza/issues/130)
 
 ---
@@ -69,8 +69,9 @@ flowchart LR
   las dependencias transitivas que arrastraba al `uv.lock`.
 - **Pruebas intactas:** la suite y la CI siguen ejercitando validación,
   persistencia, API y plano offline con el doble determinista.
-- **El contrato v1 no cambia:** `omr_engine` sigue en `HealthStatusResponse` y
-  `TranscribeResponse`; solo cambian sus descripciones.
+- **El contrato v1 no cambia:** `omr_engine` sigue en todas las respuestas que lo
+  tenían; solo cambian las descripciones del campo en `HealthStatusResponse` y
+  `ProvenancePayload`.
 
 ### Riesgos / costos
 - **La tesis pierde la comparación entre motores OMR:** la referencia no asistida
@@ -78,8 +79,9 @@ flowchart LR
   verdad de referencia en `exp_03`. La comparación HOMR frente a oemer prevista en
   ADR-0005 no se hará.
 - **Todo despliegue necesita HOMR instalado:** sin el extra `homr`, la API arranca
-  y responde a `/health`, pero `POST /transcribe` falla. La imagen Docker de la
-  API (`Dockerfile`) no instala HOMR (deuda D50).
+  y `/health` responde 200, pero `POST /transcribe` responde 500 porque el error
+  de importación de HOMR no está mapeado. La imagen Docker de la API
+  (`Dockerfile`) no instala HOMR (deuda D50).
 - **El doble de pruebas sigue en el paquete instalado** (`cadenza.omr.testing`),
   aunque fuera de la API pública del paquete y de la configuración.
 
