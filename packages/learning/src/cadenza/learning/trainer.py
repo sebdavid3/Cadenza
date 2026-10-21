@@ -79,7 +79,7 @@ class FakeTrainer(Trainer):
     """Entrenador determinista para tests/CI: hashes derivados, sin cómputo pesado.
 
     Sustituye al `Trainer` PyTorch mientras no haya GPU ni pesos pesados en CI,
-    igual que `FakeOMREngine` en el plano online.
+    igual que el doble de pruebas `cadenza.omr.testing.FakeOMREngine` sustituye a HOMR.
     """
 
     def __init__(self, metrics: EvaluationMetrics | None = None) -> None:
