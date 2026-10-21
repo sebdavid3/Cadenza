@@ -902,7 +902,7 @@ def create_app(
             effective_engine = type(effective_engine).from_active_model(
                 model_registry,
                 artifact_store,
-                use_gpu=request.app.state.settings.omr_use_gpu,
+                use_gpu=app_settings.omr_use_gpu,
                 preprocessing=preproc_config,
             )
 

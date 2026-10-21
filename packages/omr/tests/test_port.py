@@ -45,6 +45,6 @@ def test_test_double_implements_port_without_being_a_production_adapter() -> Non
 
 def test_test_double_mirrors_homr_from_active_model_signature() -> None:
     """La API reconstruye el motor con `type(engine).from_active_model(...)` (#133)."""
-    homr = inspect.signature(HOMREngine.from_active_model).parameters
-    double = inspect.signature(FakeOMREngine.from_active_model).parameters
-    assert list(double) == list(homr)
+    homr = inspect.signature(HOMREngine.from_active_model).parameters.values()
+    double = inspect.signature(FakeOMREngine.from_active_model).parameters.values()
+    assert [(p.name, p.kind) for p in double] == [(p.name, p.kind) for p in homr]
