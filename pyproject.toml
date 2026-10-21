@@ -10,6 +10,10 @@ dependencies = []
 # La raíz es un proyecto virtual: gobierna el workspace y la configuración global.
 [tool.uv]
 package = false
+# rapidocr (dependencia de HOMR) pide `opencv-python` y HOMR `opencv-python-headless`: las
+# dos distribuciones escriben el mismo paquete `cv2/` y el resultado dependía del orden de
+# instalación. Solo se conserva la versión headless, que no necesita bibliotecas gráficas (#135).
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
 [tool.uv.workspace]
 members = [

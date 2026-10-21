@@ -58,3 +58,14 @@ jobs:
 
       - name: Ejecutar pruebas con Pytest
         run: uv run pytest -vv
+
+  docker:
+    name: Imagen Docker de la API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      # El Dockerfile falla si la API, HOMR u OpenCV no se pueden importar (#135)
+      - name: Construir la imagen de la API
+        run: docker build -t cadenza-api:ci .

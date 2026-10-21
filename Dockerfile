@@ -1,5 +1,9 @@
 # Dockerfile de producción para el plano online de Cadenza (#6, ADR-0015, ADR-0018)
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+# Las dos etapas usan la misma imagen base fijada: el entorno virtual del builder enlaza al
+# intérprete de /usr/local/bin y debe encontrar el mismo en la etapa final (#135).
+FROM python:3.12.15-slim-bookworm AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -17,24 +21,25 @@ COPY packages/ packages/
 # el único motor OMR (#135).
 RUN uv sync --frozen --no-dev --package cadenza-api --extra homr
 
-# Descarga los pesos de HOMR en la imagen para no depender de la red al transcribir
+# Descarga los pesos de HOMR en la imagen para no depender de la red al transcribir.
+# También descarga los de RapidOCR, aunque el adaptador desactiva el OCR de título.
 RUN /app/.venv/bin/homr --init
 
 # Etapa final ligera para ejecución
-FROM python:3.12-slim-bookworm AS runner
+FROM python:3.12.15-slim-bookworm AS runner
 
 WORKDIR /app
 
-# libgl1 y libglib2.0-0: OpenCV (dependencia de HOMR) los necesita para importarse
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    libgl1 \
-    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
+
+# Falla al construir si la API o HOMR no se pueden importar en la imagen final (#135)
+RUN python -c "import cadenza.api.main, homr.main, cv2, onnxruntime"
 
 EXPOSE 8000
 
