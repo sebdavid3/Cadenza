@@ -43,8 +43,13 @@ docker compose ps
 
 El servicio `api` cuenta con un `healthcheck` automatizado que invoca periódicamente `GET /health`.
 
-> [!WARNING]
-> HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)) y la imagen de la API (`Dockerfile`, `uv sync --no-dev`) **no instala el extra `homr`**. El contenedor arranca y `GET /health` responde, pero `POST /transcribe` devuelve 500 hasta que la imagen incluya HOMR (deuda D50).
+La imagen de la API (`Dockerfile`) instala el paquete `cadenza-api` con el extra `homr` desde `uv.lock` y descarga los pesos de HOMR al construirse (`homr --init`): transcribe en CPU sin acceso a la red. El build falla si la API, HOMR u OpenCV no se pueden importar, y el job `docker` de la CI lo construye en cada PR. HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)); la imagen no incluye `onnxruntime-gpu`. El primer usuario se crea dentro del contenedor:
+
+```bash
+docker exec cadenza-api python -m cadenza.api.cli create-investigator --username <usuario> --password <contraseña>
+```
+
+Verificado el 2026-10-20 con `docker compose up --build`: migraciones 0001–0011 aplicadas sobre PostgreSQL 16, `GET /health` con `"omr_engine": "homr"` y `POST /transcribe` = 201 con una imagen de PrIMuS ([#135](https://github.com/sebdavid3/Cadenza/issues/135)).
 
 ### 2.2 Ejecución del plano offline con GPU (perfil batch)
 
@@ -54,6 +59,9 @@ Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos
 docker compose --profile batch run --rm ml-batch --help
 docker compose --profile batch run --rm ml-batch run --config configs/learning/default.json
 ```
+
+> [!WARNING]
+> Hoy la imagen `Dockerfile.ml-cuda` no se construye (deuda D53): pide `--extra torch --extra metrics` a la raíz del workspace, que no define extras (también en su alternativa `|| uv sync ...`), fija uv 0.5.21, anterior al formato del lockfile, y copia el `pyproject.toml` de `apps/api`, miembro del workspace, pero no su código. Su arreglo depende del alcance del ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)).
 
 ---
 
