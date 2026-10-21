@@ -1,0 +1,18 @@
+# Contexto mínimo para las imágenes de Cadenza (#135): sin entornos, datos ni resultados.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/node_modules
+data/
+results/
+legacy/
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example

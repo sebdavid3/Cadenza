@@ -1,48 +1,40 @@
-# Dockerfile de producción para el plano online de Cadenza (#6)
+# Dockerfile de producción para el plano online de Cadenza (#6, ADR-0015, ADR-0018)
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
+ENV UV_PYTHON_DOWNLOADS=never
 
-# Copiar configuración del workspace y dependencias
-COPY pyproject.toml uv.lock* ./
-COPY apps/api/pyproject.toml apps/api/
-COPY packages/application/pyproject.toml packages/application/
-COPY packages/domain/pyproject.toml packages/domain/
-COPY packages/interchange/pyproject.toml packages/interchange/
-COPY packages/learning/pyproject.toml packages/learning/
-COPY packages/omr/pyproject.toml packages/omr/
-COPY packages/persistence/pyproject.toml packages/persistence/
-COPY packages/validation/pyproject.toml packages/validation/
-
-# Copiar el código fuente de paquetes y aplicaciones
-COPY apps/ apps/
+# `uv sync --frozen` necesita todos los miembros del workspace
+COPY pyproject.toml uv.lock ./
+COPY apps/api/ apps/api/
 COPY packages/ packages/
 
-# Instalar dependencias en el entorno virtual
-RUN uv sync --frozen --no-dev || uv sync --no-dev
+# La raíz del workspace es un proyecto virtual sin dependencias propias (los paquetes
+# solo figuran en el grupo dev): se instala el paquete de la API con el extra de HOMR,
+# el único motor OMR (#135).
+RUN uv sync --frozen --no-dev --package cadenza-api --extra homr
+
+# Descarga los pesos de HOMR en la imagen para no depender de la red al transcribir
+RUN /app/.venv/bin/homr --init
 
 # Etapa final ligera para ejecución
 FROM python:3.12-slim-bookworm AS runner
 
 WORKDIR /app
 
+# libgl1 y libglib2.0-0: OpenCV (dependencia de HOMR) los necesita para importarse
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
     curl \
+    libgl1 \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app/apps/api/src:/app/packages/application/src:/app/packages/domain/src:/app/packages/interchange/src:/app/packages/learning/src:/app/packages/omr/src:/app/packages/persistence/src:/app/packages/validation/src"
 
 EXPOSE 8000
 

@@ -226,12 +226,18 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+homr = [
+    { name = "cadenza-omr", extra = ["homr"] },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "cadenza-omr", editable = "packages/omr" },
+    { name = "cadenza-omr", extras = ["homr"], marker = "extra == 'homr'", editable = "packages/omr" },
     { name = "cadenza-persistence", editable = "packages/persistence" },
     { name = "cadenza-validation", editable = "packages/validation" },
     { name = "fastapi", specifier = ">=0.111" },
@@ -241,6 +247,7 @@ requires-dist = [
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
+provides-extras = ["homr"]
 
 [[package]]
 name = "cadenza-application"
