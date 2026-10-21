@@ -2,7 +2,7 @@
 
 Fase 7, Issue #24, D18, D21.
 Evalúa las estrategias de adquisición de Cadenza sobre el pool de muestras `TrainingSample`
-derivadas de errores reales de HOMR frente al Ground Truth de PrIMuS (544 ediciones):
+derivadas de errores reales de HOMR frente al Ground Truth de PrIMuS:
 
 Estrategias evaluadas:
 1. `UncertaintyAcquisition` (priorización por densidad de errores del validador neuro-simbólico)
@@ -35,6 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cadenza.domain import EditOp
 from cadenza.learning import (
     AcquisitionStrategy,
     DiversityAcquisition,
@@ -189,7 +190,7 @@ def evaluate_strategy(
     mean_mag = total_mag / n
     spread = _pairwise_spread(selected)
     op_counts, entropy = _operation_metrics(selected)
-    coverage = len(op_counts) / 7.0  # 7 operaciones de EditOp
+    coverage = len(op_counts) / len(EditOp)
 
     eval_result = StrategyBatchEvaluation(
         strategy_id=strategy.strategy_id,
@@ -216,12 +217,19 @@ def _measured_interpretation(
     """Resume los criterios a priori con los valores medidos en esta ejecución."""
 
     def best(metric: str) -> str:
-        strategy = max(canonical_evals, key=lambda s: canonical_evals[s][metric])
-        return f"'{strategy}' ({canonical_evals[strategy][metric]:.3f})"
+        top = max(e[metric] for e in canonical_evals.values())
+        tied = [s for s, e in canonical_evals.items() if e[metric] == top]
+        return f"{', '.join(repr(s) for s in tied)} ({top:.3f})"
 
     hybrid = jaccard_matrix.get("hybrid", {})
+    caveat = (
+        f" El pool no supera el presupuesto: todas las estrategias seleccionan las "
+        f"{pool_size} muestras y empatan, así que la comparación no discrimina."
+        if pool_size <= CANONICAL_BUDGET
+        else ""
+    )
     return (
-        f"Presupuesto B={CANONICAL_BUDGET} sobre {pool_size} muestras. "
+        f"Presupuesto B={CANONICAL_BUDGET} sobre {pool_size} muestras.{caveat} "
         f"Mayor densidad media de error: {best('mean_error_density')}. "
         f"Mayor magnitud de corrección total: {best('total_correction_magnitude')}. "
         f"Mayor dispersión media entre pares: {best('mean_pairwise_spread')}. "
@@ -250,8 +258,14 @@ def run(
             f"exp_02 no obtuvo ninguna muestra real a partir de {manifest}: faltan las "
             "predicciones de HOMR (`exp_04`) o ningún par predicción-verdad es legible."
         )
+    corpus_name = str(json.loads(manifest.read_text(encoding="utf-8")).get("corpus", "corpus"))
     summary = _evaluate_pool(pool, seed=seed, manifest_path=manifest)
-    return {"experiment": "exp_02_active_learning", "mode": "real_data_primus", **summary}
+    return {
+        "experiment": "exp_02_active_learning",
+        "mode": f"real_data_{corpus_name}",
+        "simulated": False,
+        **summary,
+    }
 
 
 def _evaluate_pool(
@@ -260,7 +274,7 @@ def _evaluate_pool(
     seed: int,
     manifest_path: Path | None,
 ) -> dict[str, Any]:
-    """Compara las estrategias sobre un pool dado y escribe el CSV de selecciones."""
+    """Compara las estrategias sobre un pool dado y escribe el CSV de selecciones y el run_info."""
     strategies: tuple[AcquisitionStrategy, ...] = (
         UncertaintyAcquisition(),
         DiversityAcquisition(),

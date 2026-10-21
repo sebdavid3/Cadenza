@@ -112,6 +112,15 @@ def test_exp_02_interpretation_comes_from_measured_values() -> None:
     assert "46.50" not in text
 
 
+def test_exp_02_interpretation_reports_ties_when_pool_fits_budget() -> None:
+    """Con un pool que no supera el presupuesto todas empatan y se advierte (#134)."""
+    pool = _test_pool(size=exp_02_active_learning.CANONICAL_BUDGET)
+    res = exp_02_active_learning._evaluate_pool(pool, seed=42, manifest_path=None)
+    text = res["scientific_interpretation"]
+    assert "no discrimina" in text
+    assert "'uncertainty', 'diversity', 'hybrid', 'random'" in text
+
+
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
 def test_exp_02_real_data_criteria_and_jaccard() -> None:
     # Usar el pool generado sobre datos reales

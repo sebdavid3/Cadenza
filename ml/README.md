@@ -21,8 +21,8 @@ data/                              # Corpus descargado (ignorado por git)
 ## Ejecución
 
 ```powershell
-uv run python ml/experiments/exp_01_effort.py
-uv run python ml/experiments/exp_02_active_learning.py
+uv run --no-sync python ml/experiments/exp_01_effort.py
+uv run --no-sync python ml/experiments/exp_02_active_learning.py
 ```
 
 ## Experimentos
@@ -51,8 +51,9 @@ verdad de referencia de PrIMuS (`build_real_training_pool`) y compara
 `RandomAcquisition` con los cinco criterios definidos a priori, para presupuestos de
 10, 20 y 50 muestras.
 
-Necesita `data/manifest.json` y las predicciones de HOMR (`exp_04`). **Sin manifiesto o
-sin ninguna muestra real, el experimento falla**: no tiene modo sintético y la
+Necesita `data/manifest.json` (ver `corpus.py`) y las predicciones de HOMR en
+`data/<corpus>/predictions/` (`exp_04`), o `--predictions`; admite `--limit` y `--seed`.
+**Sin manifiesto o sin ninguna muestra real, el experimento falla**: no tiene modo sintético y la
 interpretación del resumen se calcula a partir de los valores medidos (CLAUDE.md §8.1,
 #134).
 
