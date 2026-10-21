@@ -1,11 +1,13 @@
-"""Contrato del puerto `OMREngine` y de sus adaptadores."""
+"""Contrato del puerto `OMREngine` y de sus adaptadores (ADR-0018)."""
 
 from __future__ import annotations
 
 import inspect
 
+import cadenza.omr
 import pytest
-from cadenza.omr import FakeOMREngine, HOMREngine, OemerEngine, OMREngine
+from cadenza.omr import HOMREngine, OMREngine
+from cadenza.omr.testing import FakeOMREngine
 
 
 def test_omr_engine_is_abstract() -> None:
@@ -14,12 +16,28 @@ def test_omr_engine_is_abstract() -> None:
         OMREngine()  # type: ignore[abstract]
 
 
-@pytest.mark.parametrize("engine", [FakeOMREngine(), HOMREngine(), OemerEngine()])
-def test_adapters_implement_port(engine: OMREngine) -> None:
-    assert isinstance(engine, OMREngine)
-    assert engine.engine_id
+def test_homr_is_the_only_production_adapter() -> None:
+    assert isinstance(HOMREngine(), OMREngine)
+    assert HOMREngine().engine_id == "homr"
 
 
-def test_engines_are_interchangeable() -> None:
-    engines: list[OMREngine] = [FakeOMREngine(), HOMREngine(), OemerEngine()]
-    assert {engine.engine_id for engine in engines} == {"fake", "homr", "oemer"}
+@pytest.mark.parametrize(
+    "name",
+    ["FakeOMREngine", "OemerEngine", "OEMER_ENGINE_ID", "ensure_oemer_checkpoints"],
+)
+def test_package_does_not_export_other_engines(name: str) -> None:
+    assert not hasattr(cadenza.omr, name)
+    assert name not in cadenza.omr.__all__
+
+
+def test_oemer_adapter_no_longer_exists() -> None:
+    with pytest.raises(ModuleNotFoundError):
+        __import__("cadenza.omr.adapters.oemer")
+
+
+def test_test_double_implements_port_without_being_a_production_adapter() -> None:
+    double = FakeOMREngine()
+    assert isinstance(double, OMREngine)
+    assert double.engine_id == "fake"
+    with pytest.raises(ModuleNotFoundError):
+        __import__("cadenza.omr.adapters.fake")

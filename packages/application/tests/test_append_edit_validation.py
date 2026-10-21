@@ -21,7 +21,7 @@ from cadenza.application.ports import (
     EditEventRepository,
 )
 from cadenza.domain import Anchor, EditEvent, EditOp
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import ValidationEngine
 
 

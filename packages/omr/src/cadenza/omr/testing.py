@@ -1,4 +1,11 @@
-"""Adaptador OMR determinista para tests, CI y fases de UI/validación."""
+"""Doble de pruebas del puerto `OMREngine` (ADR-0018).
+
+HOMR es el único motor OMR de Cadenza. `FakeOMREngine` no es un motor de
+producción: no se exporta desde `cadenza.omr` ni se puede seleccionar por
+configuración. Existe para que las pruebas y la CI, que no instalan HOMR,
+ejerciten la validación, la persistencia, la API y el plano offline con una
+partitura determinista, inyectándolo explícitamente en `create_app`.
+"""
 
 from __future__ import annotations
 
@@ -21,8 +28,8 @@ from cadenza.domain import (
 )
 from PIL import Image
 
-from ..engine import OMREngine
-from ..preprocessing import PreprocessingConfig, preprocess_image
+from .engine import OMREngine
+from .preprocessing import PreprocessingConfig, preprocess_image
 
 FAKE_ENGINE_ID = "fake"
 FAKE_MODEL_VERSION = "fake-1"
@@ -37,7 +44,7 @@ _BBOX_STEP = 30.0
 
 
 def _bbox(index: int) -> BBox:
-    """Rectángulo sintético determinista (x0, y0, x1, y1) para overlays de la UI."""
+    """Rectángulo sintético determinista (x0, y0, x1, y1) para las pruebas de anclas."""
 
     x0 = _BBOX_START_X + index * _BBOX_STEP
     return (x0, _BBOX_Y, x0 + _BBOX_WIDTH, _BBOX_Y + _BBOX_HEIGHT)
@@ -46,8 +53,8 @@ def _bbox(index: int) -> BBox:
 def _sample_ir() -> ScoreIR:
     """`ScoreIR` hardcodeado y neutral: monofónico, dos compases, notas y silencio.
 
-    Cada evento lleva un `bbox` sintético para que la UI (Fase 3B) pueda probar el
-    renderizado de overlays sin depender de coordenadas reales del OMR.
+    Cada evento lleva un `bbox` sintético para probar las anclas con coordenadas sin
+    depender de un OMR real (HOMR devuelve `bbox` nulo, INV-0001).
     """
 
     first_measure = Measure(
@@ -94,11 +101,10 @@ def _sample_ir() -> ScoreIR:
 
 
 class FakeOMREngine(OMREngine):
-    """Devuelve siempre el mismo `ScoreDocument` hardcodeado.
+    """Doble de pruebas: devuelve siempre el mismo `ScoreDocument` hardcodeado.
 
-    No lee la imagen ni toca red, modelos o GPU. Su propósito es ejercitar la
-    UI (Fase 3) y el motor de validación (Fase 2) de forma instantánea y en
-    CI/CD, sin descargar pesos ni depender de hardware.
+    No lee la imagen ni toca red, modelos o GPU, de modo que las pruebas corren
+    al instante y en la CI sin descargar pesos ni depender de hardware.
     """
 
     def __init__(

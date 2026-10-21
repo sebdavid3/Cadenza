@@ -1,10 +1,12 @@
-"""Adaptador OMR de Cadenza: puerto `OMREngine` y adaptadores concretos."""
+"""Adaptador OMR de Cadenza: puerto `OMREngine` y su único adaptador, HOMR (ADR-0018).
+
+El doble de pruebas `FakeOMREngine` vive en `cadenza.omr.testing` y no se exporta aquí.
+"""
 
 from __future__ import annotations
 
-from .adapters import OEMER_ENGINE_ID, FakeOMREngine, HOMREngine, OemerEngine
+from .adapters import HOMREngine
 from .adapters.homr import ensure_cuda_dll_dirs, get_effective_device
-from .adapters.oemer import ensure_oemer_checkpoints
 from .engine import OMREngine
 from .errors import OMRError, OMRTranscriptionError
 from .power import PowerThrottlingMode, disable_power_throttling, set_power_throttling
@@ -20,13 +22,10 @@ from .preprocessing import (
 )
 
 __all__ = [
-    "OEMER_ENGINE_ID",
-    "FakeOMREngine",
     "HOMREngine",
     "OMREngine",
     "OMRError",
     "OMRTranscriptionError",
-    "OemerEngine",
     "PowerThrottlingMode",
     "PreprocessingConfig",
     "binarize_image",
@@ -35,7 +34,6 @@ __all__ = [
     "deskew_image",
     "disable_power_throttling",
     "ensure_cuda_dll_dirs",
-    "ensure_oemer_checkpoints",
     "get_effective_device",
     "preprocess_image",
     "preprocess_image_file",

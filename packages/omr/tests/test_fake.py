@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.domain import EventKind, ScoreDocument, TimeSignature
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 
 
 def _fake_document(tmp_path: Path) -> ScoreDocument:

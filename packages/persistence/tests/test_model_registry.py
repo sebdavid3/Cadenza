@@ -14,7 +14,8 @@ from cadenza.application import (
     User,
     transcribe_score,
 )
-from cadenza.omr import FakeOMREngine, HOMREngine
+from cadenza.omr import HOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     ArtifactRecord,
     FilesystemArtifactStore,

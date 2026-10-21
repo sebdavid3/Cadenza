@@ -81,8 +81,6 @@ exclude = '/(legacy|\.opencode|packages/persistence/migrations)/'
 module = [
     "homr",
     "homr.*",
-    "oemer",
-    "oemer.*",
     "onnx",
     "onnx.*",
     "onnxruntime.*",
