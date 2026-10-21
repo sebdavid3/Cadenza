@@ -55,7 +55,7 @@ Requiere el extra de métricas (`musicdiff`), ya incluido en el entorno de
 desarrollo:
 
 ```powershell
-uv sync --inexact   # instala cadenza-learning[metrics] vía el grupo dev sin quitar HOMR/oemer
+uv sync --inexact   # instala cadenza-learning[metrics] vía el grupo dev sin quitar HOMR
 ```
 
 ### `corpus.py` — registro, descarga y manifiesto

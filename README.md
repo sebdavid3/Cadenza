@@ -38,7 +38,7 @@ de corrección en el navegador.
 ```mermaid
 flowchart LR
     img[Imagen de la partitura] --> T["POST /transcribe"]
-    T --> OMR["Motor OMR<br/>HOMR · oemer · prueba"]
+    T --> OMR["Motor OMR<br/>HOMR"]
     OMR --> IR["ScoreIR + índice de anclas"]
     IR --> V["Validador de reglas<br/>(hallazgos anclados)"]
     V --> S[(Sesión)]
@@ -76,7 +76,6 @@ flowchart LR
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
 | Interfaz web en `apps/web` (fase 8) | Vaciada en [#129](https://github.com/sebdavid3/Cadenza/issues/129) (solo quedan los tipos generados del contrato); se construye desde cero en la fase 8 |
-| Línea base de oemer sobre PrIMuS ([#100](https://github.com/sebdavid3/Cadenza/issues/100)) | Pendiente de ejecutar |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
 
@@ -101,7 +100,7 @@ validación, la base de datos y la API son adaptadores intercambiables.
 | [`packages/domain`](packages/domain) | Núcleo puro, solo biblioteca estándar: `ScoreIR`, anclas, `EditEvent`, hallazgos, proyección del log, mapa de tiempo y reglas de contenido de las ediciones |
 | [`packages/application`](packages/application) | Casos de uso (transcribir, editar, deshacer, revalidar, finalizar, exportar…) y puertos ([ADR-0009](docs/adr/ADR-0009-capa-de-aplicacion.md)) |
 | [`packages/interchange`](packages/interchange) | Frontera de notación: MusicXML ↔ `ScoreIR` y exportación a MusicXML y MIDI con music21 |
-| [`packages/omr`](packages/omr) | Puerto `OMREngine` y adaptadores HOMR, oemer y de prueba; preprocesado de imagen |
+| [`packages/omr`](packages/omr) | Puerto `OMREngine` y adaptador HOMR (único motor, [ADR-0018](docs/adr/ADR-0018-homr-como-unico-motor-omr.md)); doble de pruebas en `cadenza.omr.testing`; preprocesado de imagen |
 | [`packages/validation`](packages/validation) | Motor de reglas musicales y hallazgos anclados |
 | [`packages/persistence`](packages/persistence) | SQLAlchemy (PostgreSQL con JSONB o SQLite), repositorios, almacén de artefactos y migraciones Alembic |
 | [`packages/learning`](packages/learning) | Dataset desde la base de datos, estrategias de adquisición, métricas OMR-NED y SER, registro de modelos |
@@ -136,17 +135,17 @@ uv sync --inexact
 ```
 
 Esto instala todos los paquetes del workspace y las herramientas de desarrollo (pytest,
-mypy, ruff, black). Con el motor de prueba ya se puede arrancar la API y pasar los tests.
+mypy, ruff, black). Los tests ya pasan: usan un doble de pruebas del motor OMR y no necesitan
+HOMR.
 
-### Motores OMR reales (opcional)
+### Motor OMR: HOMR
 
-HOMR es el motor principal y oemer la línea base
-([ADR-0005](docs/adr/ADR-0005-motor-omr-homr-baseline-oemer.md)). Se instalan como extras
-del paquete `cadenza-omr`:
+HOMR es el único motor OMR de Cadenza
+([ADR-0018](docs/adr/ADR-0018-homr-como-unico-motor-omr.md)). Sin él la API arranca, pero
+`POST /transcribe` falla. Se instala como extra del paquete `cadenza-omr`:
 
 ```bash
-uv pip install -e "packages/omr[homr]"     # HOMR
-uv pip install -e "packages/omr[oemer]"    # oemer (opcional)
+uv pip install -e "packages/omr[homr]"
 ```
 
 Para HOMR en GPU, sustituye `onnxruntime` por la build con CUDA:
@@ -157,8 +156,8 @@ uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
 ```
 
 > [!WARNING]
-> **No ejecutes `uv sync` a secas** después de instalar los extras. HOMR y oemer son
-> extras que un `uv sync` normal no selecciona, y `onnxruntime-gpu` 1.26.0 no es la versión
+> **No ejecutes `uv sync` a secas** después de instalar los extras. HOMR es un
+> extra que un `uv sync` normal no selecciona, y `onnxruntime-gpu` 1.26.0 no es la versión
 > del *lockfile*: `uv sync` los desinstala sin avisar y los tests del motor real pasan a
 > omitirse. Usa siempre `uv sync --inexact` para sincronizar y `uv run --no-sync` para
 > ejecutar.
@@ -168,7 +167,7 @@ uv pip install "onnxruntime-gpu[cuda,cudnn]==1.26.0"
 ## Arranque local
 
 La API **no lee archivos `.env`**: toma la configuración de las variables de entorno del
-proceso. Para desarrollo basta con SQLite y el motor de prueba.
+proceso. Para desarrollo basta con SQLite y HOMR instalado.
 
 **PowerShell (Windows):**
 
@@ -176,7 +175,6 @@ proceso. Para desarrollo basta con SQLite y el motor de prueba.
 $env:CADENZA_AUTH_SECRET_KEY = "<cadena aleatoria de 32 caracteres o más>"
 $env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
 $env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
-$env:CADENZA_OMR_ENGINE      = "fake"     # o "homr"
 $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
 ```
 
@@ -186,7 +184,6 @@ $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
 export CADENZA_AUTH_SECRET_KEY="<cadena aleatoria de 32 caracteres o más>"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
-export CADENZA_OMR_ENGINE="fake"          # o "homr"
 export CADENZA_OMR_USE_GPU="false"        # "true" para HOMR en GPU
 ```
 
@@ -222,8 +219,7 @@ Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proce
 | `CADENZA_AUTH_SECRET_KEY` | *(vacía)* | Clave de firma de los tokens JWT. **Obligatoria**: sin ella la API no arranca. |
 | `CADENZA_DATABASE_URL` | `sqlite+pysqlite:///./cadenza.db` | URL de SQLAlchemy: SQLite en local, PostgreSQL en despliegue. |
 | `CADENZA_ARTIFACTS_DIR` | `./data/artifacts` | Directorio del almacén de artefactos (imágenes y exportaciones). |
-| `CADENZA_OMR_ENGINE` | `fake` | Motor OMR: `fake`, `homr` u `oemer`. |
-| `CADENZA_OMR_USE_GPU` | `false` | Intentar inferencia en GPU. |
+| `CADENZA_OMR_USE_GPU` | `false` | Intentar la inferencia de HOMR en GPU. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `30` | Validez de los tokens de acceso. |
 | `CADENZA_MAX_UPLOAD_SIZE_BYTES` | `20971520` | Tamaño máximo de imagen (20 MB). |
 | `CADENZA_AUTO_CREATE_SCHEMA` | `false` | Crear el esquema al arrancar (solo desarrollo y tests). |
@@ -357,7 +353,6 @@ Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments). Escr
 | `exp_05_edit_derivation.py` | Derivación de ediciones a partir de errores reales del OMR |
 | `exp_06_validation_metrics.py` | Precisión y *recall* del validador |
 | `exp_07_preprocessing_impact.py` | Efecto del preprocesado de imagen sobre HOMR |
-| `exp_08_oemer_baseline.py` | Línea base de oemer (pendiente de ejecutar, [#100](https://github.com/sebdavid3/Cadenza/issues/100)) |
 | `exp_09_multicorpus_evaluation.py` | Evaluación en SMB y MUSCIMA++ (alcance por decidir, [#102](https://github.com/sebdavid3/Cadenza/issues/102)) |
 | `exp_10_effort_study.py` | Exportación del estudio de esfuerzo (hoy con datos sintéticos) |
 | `exp_11_latency_benchmark.py` | Latencia de transcripción con HOMR en CPU y GPU |

@@ -14,7 +14,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
   - §6: Casos de uso, puertos y endpoints.
   - §7: Modelo de datos y esquemas relacionales.
   - §10: Estado real frente al objetivo.
-- **`docs/adr/ADR-0001` a `ADR-0017`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
+- **`docs/adr/ADR-0001` a `ADR-0018`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
 - **`docs/api/frontend-handoff.md` y `docs/api/openapi.json`:** Contrato congelado de la API v1 y guía de integración para el frontend.
 - **`docs/infra/operacion_backend.md`:** Procedimientos de despliegue, monitoreo (`/health`), logs estructurados, copias de seguridad y ejecución en GPU.
 - **`docs/CONVENTIONS.md`:** Convenciones de Git, calidad y Definition of Done.
@@ -25,8 +25,8 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 ## 2. Estado y trabajo siguiente
 
 - **Fase 7 (backend):** cerrada. El backend está completo y el contrato de la API v1, congelado.
-- **Verificación de evidencia (milestone 2):** corrigió los resultados experimentales que figuraban como medidos sin serlo (#106 cerrado con transcripción síncrona ratificada; #99 cerrado con PostgreSQL en CI). Lo que queda abierto de ese milestone está documentado en `docs/PROJECT_STATE.md` (línea base de oemer en #100).
-- **Fase 8 (frontend), trabajo siguiente:** interfaz de corrección en `apps/web` sobre la API v1. Punto de partida: `docs/api/frontend-handoff.md`. Deuda asociada: D11 (render de notación con OSMD y reproducción con Tone.js).
+- **Verificación de evidencia (milestone 2):** corrigió los resultados experimentales que figuraban como medidos sin serlo (#106 cerrado con transcripción síncrona ratificada; #99 cerrado con PostgreSQL en CI). #100 (línea base de oemer) se cerró como «no se hará»: HOMR es el único motor OMR (ADR-0018, #130).
+- **Fase 8 (frontend), trabajo siguiente:** interfaz de corrección en `apps/web` sobre la API v1, construida desde cero (`apps/web` solo conserva los tipos generados, #129). Punto de partida: `docs/api/frontend-handoff.md`. Deuda asociada: D11 (render de notación con OSMD y reproducción con Tone.js).
 - **Alcance por decidir (no implementar sin consultar):** #102 (evaluación real sobre SMB y MUSCIMA++) y #103 (ajuste fino real del modelo OMR), que no forman parte de la Fase 8.
 
 Al empezar una fase nueva, lo primero es planificarla: milestone e issues con contexto, objetivo, criterios de aceptación y dependencias. Después se trabaja issue por issue con el flujo de la sección 4.
@@ -102,7 +102,7 @@ Un issue está terminado únicamente cuando:
 
 ## 7. Entorno
 
-- **Nunca ejecutar `uv sync` a secas.** HOMR, oemer y `onnxruntime-gpu==1.26.0` se instalan como extras a mano (ver README) y un `uv sync` normal los desinstala sin avisar; los tests del motor real pasan entonces a omitirse y nadie lo nota. Usar `uv sync --inexact` y `uv run --no-sync`.
+- **Nunca ejecutar `uv sync` a secas.** HOMR y `onnxruntime-gpu==1.26.0` se instalan como extras a mano (ver README) y un `uv sync` normal los desinstala sin avisar; los tests del motor real pasan entonces a omitirse y nadie lo nota. Usar `uv sync --inexact` y `uv run --no-sync`.
 - Si un test del motor real aparece como omitido, comprobar primero que HOMR sigue instalado (`uv pip list`).
 - Los tests no escriben en `results/`: una guarda de sesión falla si lo hacen.
 

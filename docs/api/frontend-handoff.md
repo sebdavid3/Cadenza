@@ -15,7 +15,7 @@ Esta guía describe los pasos mínimos y reproducibles para levantar el backend 
 
 > [!WARNING]
 > **Nunca ejecutar `uv sync` a secas.**  
-> Los motores OMR reales (`homr`, `oemer`) y la aceleración GPU (`onnxruntime-gpu==1.26.0`) son dependencias y extras opcionales. Un comando `uv sync` normal no conserva estos paquetes y los desinstalará silenciosamente.  
+> El motor OMR (`homr`, único motor según ADR-0018) y la aceleración GPU (`onnxruntime-gpu==1.26.0`) son dependencias y extras opcionales. Un comando `uv sync` normal no conserva estos paquetes y los desinstalará silenciosamente.  
 > Utilizar siempre:
 > ```bash
 > uv sync --inexact
@@ -34,7 +34,6 @@ Definir las variables mínimas en la sesión de terminal antes del arranque:
 $env:CADENZA_AUTH_SECRET_KEY = "clave_secreta_local_min_32_caracteres_aleatorios"
 $env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
 $env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
-$env:CADENZA_OMR_ENGINE      = "fake"      # o "homr"
 $env:CADENZA_OMR_USE_GPU     = "false"     # o "true" para HOMR en GPU
 $env:CADENZA_DISABLE_POWER_THROTTLING = "true"
 ```
@@ -44,7 +43,6 @@ $env:CADENZA_DISABLE_POWER_THROTTLING = "true"
 export CADENZA_AUTH_SECRET_KEY="clave_secreta_local_min_32_caracteres_aleatorios"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
-export CADENZA_OMR_ENGINE="fake"          # o "homr"
 export CADENZA_OMR_USE_GPU="false"         # o "true" para HOMR en GPU
 export CADENZA_DISABLE_POWER_THROTTLING="true"
 ```
@@ -89,7 +87,7 @@ La API de Cadenza proporciona el ciclo de vida completo de digitalización y cor
 | Módulo / Capacidad | Endpoints Principales | Descripción |
 | :--- | :--- | :--- |
 | **Autenticación y Cuentas** | `POST /auth/login`<br>`GET /auth/me`<br>`POST /auth/password`<br>`GET/POST/PATCH /users` | Autenticación OAuth2 Bearer JWT. Control de roles (ADR-0012): `transcriptor` (edita sus sesiones) e `investigador` (administra usuarios y audita métricas). |
-| **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR (`HOMR` o `Fake`), validación inicial y creación de sesión en estado `transcribed` (ADR-0005, ADR-0016). |
+| **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR con HOMR (ADR-0018), validación inicial y creación de sesión en estado `transcribed` (ADR-0005, ADR-0016). |
 | **Consultas de Sesión** | `GET /sessions`<br>`GET /sessions/{id}`<br>`GET /sessions/{id}/image`<br>`GET /sessions/{id}/export` | Listado ligero paginado (sin JSONB pesado). Consulta completa con estado materializado (`current_score`, `current_seq`, `anchor_index`). Descarga de imagen de origen. Exportación a MusicXML 4.0 y MIDI 1.0. |
 | **Edición Humana (HITL)** | `POST /sessions/{id}/edits`<br>`POST /sessions/{id}/undo` | Registro append-only inmutable de ediciones con verificación de concurrencia optimista (`base_seq`). Operaciones atómicas tipadas (`EditOp`). Deshacer en el servidor como evento compensatorio inverso (ADR-0007, #35). |
 | **Validación y Hallazgos** | `GET /sessions/{id}/findings`<br>`POST /sessions/{id}/validate`<br>`POST /sessions/{id}/findings/{id}/dismiss`<br>`POST /sessions/{id}/findings/{id}/restore` | Evaluación determinista de reglas sobre `current_score`. Filtro de hallazgos activos vs descartados. Preservación de falsos positivos descartados si su evento no fue modificado (#36). |
@@ -134,9 +132,8 @@ export interface Anchor {
 > [!IMPORTANT]
 > **Comportamiento de Coordenadas `bbox` y Confianza (`confidence`):**
 > - **Formato de coordenadas `bbox`:** Cuando está presente, `bbox` especifica `[x0, y0, x1, y1]` en píxeles absolutos de la imagen original (esquina superior izquierda `[x0, y0]` y esquina inferior derecha `[x1, y1]`), **no** valores normalizados `[x, y, ancho, alto]`: el ancho es `(x1 - x0)` y el alto `(y1 - y0)`.
-> - **Motor de prueba `FakeOMREngine`:** Genera cajas sintéticas `bbox` rectangulares deterministas individuales por evento musical con `[x0, y0, x1, y1]`: abscisas `x0 = 20.0 + 30.0 * i`, `x1 = 36.0 + 30.0 * i` (donde `i` es el índice secuencial del evento en toda la partitura de prueba, orden `[0, 1, 2, 3]`), con `y0 = 40.0` e `y1 = 60.0` fijas (ancho de 16 px y alto de 20 px). En la partitura de prueba de 4 eventos devuelve `[20.0, 40.0, 36.0, 60.0]`, `[50.0, 40.0, 66.0, 60.0]`, `[80.0, 40.0, 96.0, 60.0]` y `[110.0, 40.0, 126.0, 60.0]` (ver `packages/omr/src/cadenza/omr/adapters/fake.py`).
-> - **Motor real `HOMREngine`:** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), deuda D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
-> - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual cuando se opera con el motor real. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
+> - **Motor `HOMREngine` (único motor, ADR-0018):** Los campos `bbox` y `confidence` son siempre **`null`** (investigación técnica [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), deuda D4). HOMR procesa la partitura mediante atención secuencial y no produce cajas delimitadoras confiables a nivel de símbolo individual ni emite probabilidades calibradas en su salida ONNX.
+> - **Implicación para el Frontend:** La interfaz de usuario **NO** debe prometer ni depender de recuadros o resaltados sobre la imagen original de la partitura a nivel de nota o compás individual. El diseño de la interfaz HITL debe fundamentarse en la **notación musical renderizada** (mediante OSMD o Verovio), manteniendo la imagen de origen cargada desde `GET /sessions/{id}/image` como una referencia visual estática y global de consulta para el transcriptor.
 
 ### 4.3. Operaciones de Edición (`EditOp`) y Validación de Carga Útil (ADR-0017)
 
@@ -188,7 +185,7 @@ De acuerdo con ADR-0012, ADR-0017 y el esquema `EditEventCreate`:
       "voice": 0,
       "event_index": 0,
       "staff_id": "part-0-staff-0",
-      "bbox": [20.0, 40.0, 36.0, 60.0],
+      "bbox": null,
       "confidence": null
     },
     "before": null,
@@ -198,11 +195,11 @@ De acuerdo con ADR-0012, ADR-0017 y el esquema `EditEventCreate`:
   }
   ```
 - Si se omite `staff_id` en el ancla, la API rechaza la petición con error de validación de esquema **HTTP 422** (`type: "missing"`, `loc: ["body", "anchor", "staff_id"]`).
-- Una edición enviada con `before: null` es aceptada con **HTTP 201 Created**, el servidor fija en `before` la instantánea del estado previo (`snapshot_before`) y devuelve el evento de edición persistido:
+- Una edición enviada con `before: null` es aceptada con **HTTP 201 Created**, el servidor fija en `before` la instantánea del estado previo (`snapshot_before`) y devuelve el evento de edición persistido (respuesta real con HOMR sobre el primer incipit del manifiesto de PrIMuS, 2026-10-20):
   ```json
   {
-    "id": "97ee35f2-807f-474e-aa6a-23f3a4dfdb57",
-    "session_id": "8fa662dc-6c60-4ff7-b516-d07fb666a387",
+    "id": "dd39d405-2383-4908-909a-77f212a51540",
+    "session_id": "90ee3d01-ae10-4ed5-b580-b39e90f3d92d",
     "seq": 1,
     "op": "SetPitch",
     "author": "admin",
@@ -213,17 +210,17 @@ De acuerdo con ADR-0012, ADR-0017 y el esquema `EditEventCreate`:
       "voice": 0,
       "event_index": 0,
       "staff_id": "part-0-staff-0",
-      "bbox": [20.0, 40.0, 36.0, 60.0],
+      "bbox": null,
       "confidence": null
     },
     "before": {
-      "pitch": "C4"
+      "pitch": "Bb5"
     },
     "after": {
       "pitch": "D4"
     },
     "reverts_edit_id": null,
-    "created_at": "2026-10-14T12:30:33.897236Z"
+    "created_at": "2026-10-21T02:51:31.681403Z"
   }
   ```
 - El autor de toda edición es fijado **exclusivamente por el servidor** a partir del token JWT del usuario autenticado (`current_user.username`).
@@ -299,7 +296,7 @@ Ejemplo por altura no válida para `SetPitch` (`InvalidEdit`):
 Ejemplo por discrepancia en el `before` suministrado por el cliente:
 ```json
 {
-  "detail": "Estado previo 'before' de pitch no coincide: esperado 'C4', recibido 'A0'"
+  "detail": "Estado previo 'before' de pitch no coincide: esperado 'Bb5', recibido 'A0'"
 }
 ```
 
@@ -372,119 +369,12 @@ La Fase 8 debe cubrir sobre la API v1:
 
 ### 7.1. Flujo Completo Verificado contra Backend Real (2026-10-13 / 2026-10-14)
 
-La secuencia completa de digitalización, edición, concurrencia, validación, deshacer y exportación fue ejecutada de punta a punta contra el servidor ASGI Uvicorn real (`uv run --no-sync python -m uvicorn cadenza.api.main:create_default_app --factory`), con base de datos SQLite y almacén de artefactos independientes ubicados fuera del repositorio, evaluando sucesivamente tanto el motor sintético (`CADENZA_OMR_ENGINE=fake`) como el motor de inferencia neuronal real (`CADENZA_OMR_ENGINE=homr` con `CADENZA_OMR_USE_GPU=true`):
+La secuencia completa de digitalización, edición, concurrencia, validación, deshacer y exportación fue ejecutada de punta a punta contra el servidor ASGI Uvicorn real (`uv run --no-sync python -m uvicorn cadenza.api.main:create_default_app --factory`), con base de datos SQLite y almacén de artefactos independientes ubicados fuera del repositorio, con HOMR en GPU (`CADENZA_OMR_USE_GPU=true`).
 
-#### 1. Verificación con motor de prueba (`CADENZA_OMR_ENGINE=fake`, CPU)
-1. **Creación de Investigador:** `python -m cadenza.api.cli create-investigator --username admin --password <secreta>` ejecutado con código de salida 0.
-2. **Sonda de Salud (`GET /health`):** HTTP 200 respondiendo exactamente:
-   ```json
-   {
-     "status": "healthy",
-     "version": "1.0.0",
-     "database": "connected",
-     "artifact_store": "accessible",
-     "omr_engine": "fake",
-     "device": "cpu"
-   }
-   ```
-3. **Autenticación (`POST /auth/login`):** HTTP 200 devuelve token Bearer JWT (`token_type: "bearer"`, `access_token`).
-4. **Transcripción Síncrona (`POST /transcribe`):** Carga multipart de imagen PNG; responde HTTP 201 en 39 ms devolviendo los identificadores principales y el conteo de hallazgos (sin partitura ni cajas):
-   ```json
-   {
-     "session_id": "8fa662dc-6c60-4ff7-b516-d07fb666a387",
-     "document_id": "fake-doc-0001",
-     "omr_engine": "fake",
-     "findings_count": 0,
-     "condition": "assisted",
-     "test_score_id": null
-   }
-   ```
-5. **Consulta de Sesión (`GET /sessions/{id}`):** HTTP 200 con `status: "transcribed"`, `current_seq=0`, partitura materializada (`current_score`) y 4 anclas con cajas sintéticas deterministas `bbox`: `[20.0, 40.0, 36.0, 60.0]`, `[50.0, 40.0, 66.0, 60.0]`, `[80.0, 40.0, 96.0, 60.0]` y `[110.0, 40.0, 126.0, 60.0]`.
-6. **Rechazo de Ancla sin `staff_id`:** Petición de edición omitiendo `staff_id` rechazada con HTTP 422:
-   ```json
-   {
-     "detail": [
-       {
-         "type": "missing",
-         "loc": ["body", "anchor", "staff_id"],
-         "msg": "Field required",
-         "input": {
-           "part": 0,
-           "staff": 0,
-           "measure": 1,
-           "voice": 0,
-           "event_index": 0
-         }
-       }
-     ]
-   }
-   ```
-7. **Rechazo de Carga Útil No Válida (`InvalidEdit`):** Petición `SetPitch` con `after: {"pitch": "H9"}` rechazada con HTTP 422:
-   ```json
-   {
-     "detail": "Contenido de 'after' no válido para SetPitch: altura no válida: 'H9' (forma esperada: letra mayúscula de la A a la G, alteración opcional #, ##, b o bb y octava de 0 a 9 dentro del rango MIDI, p. ej. 'C#4' o 'Bb3')"
-   }
-   ```
-8. **Rechazo de `before` No Coincidente:** Petición `SetPitch` con `before: {"pitch": "A0"}` sobre la nota `C4` rechazada con HTTP 422:
-   ```json
-   {
-     "detail": "Estado previo 'before' de pitch no coincide: esperado 'C4', recibido 'A0'"
-   }
-   ```
-9. **Edición Atómica Aceptada (`POST /sessions/{id}/edits`):** Con `base_seq=0`, `op: "SetPitch"` (`C4` → `D4`), `before: null` y `after: {"pitch": "D4"}` persiste la corrección respondiendo HTTP 201, avanzando a `seq=1`, autor `"admin"` y `before: {"pitch": "C4"}` fijado por el servidor:
-   ```json
-   {
-     "id": "97ee35f2-807f-474e-aa6a-23f3a4dfdb57",
-     "session_id": "8fa662dc-6c60-4ff7-b516-d07fb666a387",
-     "seq": 1,
-     "op": "SetPitch",
-     "author": "admin",
-     "anchor": {
-       "part": 0,
-       "staff": 0,
-       "measure": 1,
-       "voice": 0,
-       "event_index": 0,
-       "staff_id": "part-0-staff-0",
-       "bbox": [20.0, 40.0, 36.0, 60.0],
-       "confidence": null
-     },
-     "before": {
-       "pitch": "C4"
-     },
-     "after": {
-       "pitch": "D4"
-     },
-     "reverts_edit_id": null,
-     "created_at": "2026-10-14T12:30:33.897236Z"
-   }
-   ```
-10. **Detección de Conflicto de Concurrencia Optimista:** Repetición de edición con `base_seq=0` sobre el estado actual (`seq=1`) rechazada con HTTP 409 Conflict:
-    ```json
-    {
-      "detail": "Conflicto de secuencia: base_seq=0 no coincide con el estado actual de la sesión (seq=1)"
-    }
-    ```
-11. **Rechazo de Campos No Autorizados:** Petición de edición incluyendo el campo `author` rechazada con HTTP 422:
-    ```json
-    {
-      "detail": [
-        {
-          "type": "extra_forbidden",
-          "loc": ["body", "author"],
-          "msg": "Extra inputs are not permitted",
-          "input": "admin"
-        }
-      ]
-    }
-    ```
-12. **Revalidación (`POST /sessions/{id}/validate`):** HTTP 200 devuelve `{current_seq: 1, findings: [], session_id: "8fa662dc-6c60-4ff7-b516-d07fb666a387"}`.
-13. **Deshacer en Servidor (`POST /sessions/{id}/undo`):** Con `base_seq=1` revierte la edición anterior, avanza a `current_seq=2`, responde HTTP 200 con `{anchor_index, compensatory_edit, compensatory_edit_id, current_score, current_seq, session_id, undone_edit_id}` y restaura exactamente el `current_score` previo (`restored: true`).
-14. **Exportación MusicXML y MIDI:** `GET /sessions/{id}/export?format=musicxml` devuelve HTTP 200 (`Content-Type: application/vnd.recordare.musicxml+xml`, 2177 bytes) y `GET /sessions/{id}/export?format=midi` devuelve HTTP 200 (`Content-Type: audio/midi`, 103 bytes).
-15. **Mapa de Tiempo (`GET /sessions/{id}/timing`):** HTTP 200 devuelve `total_beats: "8"`, `measure_offsets: {"1": "0", "2": "4"}` y eventos con pulsos como fracciones en texto (`offset_beats: "0"`, `duration_beats: "1"`, `measure_offset_beats: "0"`).
-16. **Imagen de Origen (`GET /sessions/{id}/image`):** HTTP 200 (`Content-Type: image/png`).
+> [!NOTE]
+> El mismo flujo se verificó también, el 2026-10-13, con el antiguo motor de prueba `fake`, retirado en [#130](https://github.com/sebdavid3/Cadenza/issues/130) ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)). Ese registro queda en el historial de git de este archivo.
 
-#### 2. Verificación con motor neuronal real (`CADENZA_OMR_ENGINE=homr`, GPU NVIDIA CUDA)
+#### Verificación con HOMR (GPU NVIDIA CUDA)
 1. **Sonda de Salud (`GET /health`):** HTTP 200 confirmando inicialización y proveedor CUDA:
    ```json
    {
