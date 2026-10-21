@@ -207,39 +207,28 @@ def evaluate_strategy(
     return selected, eval_result
 
 
-def _build_synthetic_pool(
-    pool_size: int = 80, seed: int = DEFAULT_SEED
-) -> tuple[TrainingSample, ...]:
-    """Genera un pool sintético con señales fundamentadas como fallback."""
-    import random
+def _measured_interpretation(
+    canonical_evals: dict[str, dict[str, Any]],
+    jaccard_matrix: dict[str, dict[str, float]],
+    *,
+    pool_size: int,
+) -> str:
+    """Resume los criterios a priori con los valores medidos en esta ejecución."""
 
-    from cadenza.domain import Anchor, EditOp
+    def best(metric: str) -> str:
+        strategy = max(canonical_evals, key=lambda s: canonical_evals[s][metric])
+        return f"'{strategy}' ({canonical_evals[strategy][metric]:.3f})"
 
-    rng = random.Random(seed)
-    samples: list[TrainingSample] = []
-    ops = list(EditOp)
-
-    for i in range(1, pool_size + 1):
-        op = ops[i % len(ops)]
-        mag = round(rng.uniform(1.0, 12.0), 2)
-        err = round(rng.betavariate(2.0, 5.0), 4)
-        feats = tuple(round(rng.uniform(0.0, 1.0), 4) for _ in range(8))
-        samples.append(
-            TrainingSample(
-                document_id="synth-doc",
-                anchor=Anchor(
-                    part=0, staff=0, measure=i, voice=0, event_index=0, staff_id="part-0-staff-0"
-                ),
-                before_pitch="C4",
-                after_pitch="D4",
-                seq=i,
-                op=op,
-                correction_magnitude=mag,
-                error_density=err,
-                features=feats,
-            )
-        )
-    return tuple(samples)
+    hybrid = jaccard_matrix.get("hybrid", {})
+    return (
+        f"Presupuesto B={CANONICAL_BUDGET} sobre {pool_size} muestras. "
+        f"Mayor densidad media de error: {best('mean_error_density')}. "
+        f"Mayor magnitud de corrección total: {best('total_correction_magnitude')}. "
+        f"Mayor dispersión media entre pares: {best('mean_pairwise_spread')}. "
+        f"Mayor entropía de operaciones: {best('op_entropy')}. "
+        f"Jaccard híbrida-incertidumbre: {hybrid.get('uncertainty', 0.0):.3f}; "
+        f"híbrida-diversidad: {hybrid.get('diversity', 0.0):.3f}."
+    )
 
 
 def run(
@@ -248,19 +237,30 @@ def run(
     limit: int | None = None,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
-    """Punto de entrada de exp_02."""
+    """Punto de entrada de exp_02: solo datos reales, sin valores de reserva (CLAUDE.md §8.1)."""
     manifest = manifest_path or (DATA_DIR / "manifest.json")
-    mode = "real_data_primus"
-    if manifest.is_file():
-        pool = build_real_training_pool(manifest, predictions_dir=predictions_dir, limit=limit)
-    else:
-        mode = "synthetic_fallback"
-        pool = _build_synthetic_pool(seed=seed)
-
+    if not manifest.is_file():
+        raise FileNotFoundError(
+            f"exp_02 requiere el corpus PrIMuS descargado y su manifiesto ({manifest}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
+    pool = build_real_training_pool(manifest, predictions_dir=predictions_dir, limit=limit)
     if not pool:
-        pool = _build_synthetic_pool(seed=seed)
-        mode = "synthetic_fallback"
+        raise ValueError(
+            f"exp_02 no obtuvo ninguna muestra real a partir de {manifest}: faltan las "
+            "predicciones de HOMR (`exp_04`) o ningún par predicción-verdad es legible."
+        )
+    summary = _evaluate_pool(pool, seed=seed, manifest_path=manifest)
+    return {"experiment": "exp_02_active_learning", "mode": "real_data_primus", **summary}
 
+
+def _evaluate_pool(
+    pool: Sequence[TrainingSample],
+    *,
+    seed: int,
+    manifest_path: Path | None,
+) -> dict[str, Any]:
+    """Compara las estrategias sobre un pool dado y escribe el CSV de selecciones."""
     strategies: tuple[AcquisitionStrategy, ...] = (
         UncertaintyAcquisition(),
         DiversityAcquisition(),
@@ -328,13 +328,9 @@ def run(
         writer.writeheader()
         writer.writerows(csv_rows)
 
-    run_info = write_run_info(
-        "exp_02", seed=seed, manifest_path=manifest if manifest.is_file() else None
-    )
+    run_info = write_run_info("exp_02", seed=seed, manifest_path=manifest_path)
 
     summary_payload: dict[str, Any] = {
-        "experiment": "exp_02_active_learning",
-        "mode": mode,
         "seed": seed,
         "pool_size": len(pool),
         "prior_comparison_criteria": PRIOR_COMPARISON_CRITERIA,
@@ -342,17 +338,8 @@ def run(
         "canonical_evaluations": canonical_evals,
         "jaccard_similarity_matrix": jaccard_matrix,
         "parametric_evaluations_by_budget": budget_comparison,
-        "scientific_interpretation": (
-            "Sobre datos reales del corpus PrIMuS con correcciones derivadas (544 muestras), "
-            "la estrategia 'uncertainty' maximiza la densidad de errores (priorizando compases con "
-            "fallos graves del validador), pero presenta menor dispersión en el espacio de "
-            "características. 'diversity' maximiza la separación de features a costa de menor "
-            "densidad de error. 'hybrid' logra un balance superior, capturando 46.50 de magnitud "
-            "de corrección (+37.8% frente a incertidumbre 33.75) con alta densidad de error "
-            "(0.802) y dispersión competitiva. Crucialmente, la similitud de Jaccard entre "
-            "'hybrid' e 'uncertainty' es de ~0.739, confirmando que sobre datos reales la "
-            "estrategia híbrida incorpora diversidad sin degenerar en pura incertidumbre ni "
-            "colapsar trivialmente."
+        "scientific_interpretation": _measured_interpretation(
+            canonical_evals, jaccard_matrix, pool_size=len(pool)
         ),
         "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
