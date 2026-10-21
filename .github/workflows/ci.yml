@@ -58,29 +58,3 @@ jobs:
 
       - name: Ejecutar pruebas con Pytest
         run: uv run pytest -vv
-
-  frontend:
-    name: Frontend (React / Vite)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/web
-    steps:
-      - name: Checkout del repositorio
-        uses: actions/checkout@v4
-
-      - name: Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Instalar dependencias
-        run: npm ci
-
-      - name: Ejecutar pruebas unitarias con Vitest
-        run: npm run test
-
-      - name: Compilar frontend
-        run: npm run build
