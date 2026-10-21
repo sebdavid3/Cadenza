@@ -900,7 +900,10 @@ def create_app(
         if active_version is not None and hasattr(type(effective_engine), "from_active_model"):
             preproc_config = getattr(effective_engine, "_preprocessing", None)
             effective_engine = type(effective_engine).from_active_model(
-                model_registry, artifact_store, preprocessing=preproc_config
+                model_registry,
+                artifact_store,
+                use_gpu=request.app.state.settings.omr_use_gpu,
+                preprocessing=preproc_config,
             )
 
         with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
