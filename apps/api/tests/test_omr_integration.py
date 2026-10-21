@@ -163,7 +163,7 @@ def test_homr_engine_transcribe_e2e(tmp_path: Path) -> None:
 def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
     from cadenza.api import Settings, create_default_app
     from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
-    from cadenza.omr.adapters.fake import _sample_ir
+    from cadenza.omr.testing import _sample_ir
 
     sample_score = _sample_ir()
     fake_doc = ScoreDocument(
@@ -181,7 +181,6 @@ def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPat
 
     settings = Settings(
         database_url="sqlite+pysqlite:///:memory:",
-        omr_engine="homr",
         omr_use_gpu=True,
         auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long",
     )

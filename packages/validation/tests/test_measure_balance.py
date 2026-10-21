@@ -6,7 +6,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from cadenza.domain import Measure, ScoreDocument, Severity, build_anchor_index
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import MeasureBalanceRule, ValidationEngine
 
 

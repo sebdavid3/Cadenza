@@ -12,7 +12,8 @@ from pathlib import Path
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
 from cadenza.domain import ScoreDocument, build_anchor_index
-from cadenza.omr import FakeOMREngine, OMREngine
+from cadenza.omr import OMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,

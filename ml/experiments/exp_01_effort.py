@@ -29,25 +29,15 @@ import csv
 import json
 import sys
 from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from cadenza.domain import (
-    Measure,
-    Part,
-    Provenance,
-    ScoreDocument,
-    ScoreIR,
-    Staff,
-    build_anchor_index,
-)
 from cadenza.interchange import read_score
 from cadenza.learning import (
     MeasureEvaluationRecord,
     evaluate_pair,
 )
-from cadenza.validation import MeasureBalanceRule, ValidationEngine
+from cadenza.validation import ValidationEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -273,100 +263,6 @@ def _run_real_primus(
     return result_payload
 
 
-def _run_synthetic_fallback(
-    measures: int = 40,
-    broken_ratio: float = 0.25,
-    seed: int = DEFAULT_SEED,
-) -> dict[str, Any]:
-    """Modo fallback determinista si no está descargado el corpus PrIMuS."""
-    from cadenza.omr import FakeOMREngine
-
-    omr = FakeOMREngine()
-    doc_raw = omr.transcribe(Path("synthetic.png"))
-    motif = doc_raw.score.parts[0].staves[0].measures
-
-    import random
-    from dataclasses import replace
-
-    rng = random.Random(seed)
-    generated: list[Measure] = []
-    error_measures: set[int] = set()
-
-    for num in range(1, measures + 1):
-        tpl = motif[(num - 1) % len(motif)]
-        if rng.random() < broken_ratio:
-            events = list(tpl.events)
-            last = events[-1]
-            dur = last.duration_beats or Fraction(1)
-            wrong = dur - 1 if dur > 1 else dur + 1
-            events[-1] = replace(last, duration_beats=wrong)
-            generated.append(replace(tpl, number=num, events=tuple(events)))
-            error_measures.add(num)
-        else:
-            generated.append(replace(tpl, number=num))
-
-    staff = Staff(id="part-0-staff-0", measures=tuple(generated))
-    score = ScoreIR(parts=(Part(id="part-0", staves=(staff,)),))
-    doc = ScoreDocument(
-        id="exp-01-doc-synth",
-        score=score,
-        anchors=build_anchor_index(score),
-        provenance=Provenance(omr_engine="fake", rules_version="measure.balance"),
-    )
-
-    validator = ValidationEngine([MeasureBalanceRule()])
-    findings = validator.validate(doc)
-    flagged = {f.anchor.measure for f in findings}
-
-    tp = len(error_measures & flagged)
-    fp = len(flagged - error_measures)
-    fn = len(error_measures - flagged)
-    tn = measures - len(error_measures | flagged)
-
-    baseline = measures
-    assisted = len(flagged)
-    reduction = 0.0 if baseline == 0 else 1.0 - (assisted / baseline)
-
-    run_info = write_run_info("exp_01", seed=seed)
-
-    return {
-        "experiment": "exp_01_effort",
-        "mode": "synthetic_fallback",
-        "seed": seed,
-        "omr_engine": "fake",
-        "inspection_effort": {
-            "total_measures": measures,
-            "baseline_inspections_manual": baseline,
-            "assisted_inspections_validator": assisted,
-            "effort_reduction_ratio": round(reduction, 4),
-            "effort_reduction_percent": round(reduction * 100, 2),
-            "measures_saved": baseline - assisted,
-        },
-        "error_detection_and_tradeoff": {
-            "measures_with_real_errors": len(error_measures),
-            "clean_measures": measures - len(error_measures),
-            "true_positives_detected": tp,
-            "false_positives_alarms": fp,
-            "false_negatives_missed": fn,
-            "true_negatives_passed": tn,
-            "precision": round(tp / assisted if assisted else 0.0, 4),
-            "recall_coverage": round(tp / len(error_measures) if error_measures else 0.0, 4),
-            "missed_errors_rate": round(fn / len(error_measures) if error_measures else 0.0, 4),
-            "missed_errors_percent": round(
-                (fn / len(error_measures) * 100) if error_measures else 0.0, 2
-            ),
-        },
-        "missed_errors_breakdown": {
-            "by_operation": {"SetDuration": fn},
-            "by_category": {"duration": fn},
-            "scientific_interpretation": "Modo sintético ejecutado como fallback.",
-        },
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
-        "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
-        "run_info": run_info,
-    }
-
-
 def run(
     manifest_path: Path | None = None,
     predictions_dir: Path | None = None,
@@ -375,9 +271,13 @@ def run(
 ) -> dict[str, Any]:
     """Punto de entrada de exp_01."""
     manifest = manifest_path or (DATA_DIR / "manifest.json")
-    if manifest.is_file():
-        return _run_real_primus(manifest, predictions_dir=predictions_dir, limit=limit, seed=seed)
-    return _run_synthetic_fallback(seed=seed)
+    if not manifest.is_file():
+        # Sin corpus no hay resultado: nada de valores de reserva (CLAUDE.md §8.1).
+        raise FileNotFoundError(
+            f"exp_01 requiere el corpus PrIMuS descargado y su manifiesto ({manifest}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
+    return _run_real_primus(manifest, predictions_dir=predictions_dir, limit=limit, seed=seed)
 
 
 def main() -> None:

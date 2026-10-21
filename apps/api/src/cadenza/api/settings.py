@@ -1,11 +1,11 @@
-"""Configuración tipada del plano online de Cadenza (ADR-0005, #8, #44)."""
+"""Configuración tipada del plano online de Cadenza (ADR-0005, ADR-0018, #8, #44)."""
 
 from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -26,13 +26,9 @@ class Settings(BaseSettings):
         default="sqlite+pysqlite:///./cadenza.db",
         description="URL de conexión SQLAlchemy para la base de datos.",
     )
-    omr_engine: Literal["fake", "homr", "oemer"] = Field(
-        default="fake",
-        description="Motor OMR seleccionado para inferencia ('fake', 'homr' o 'oemer').",
-    )
     omr_use_gpu: bool = Field(
         default=False,
-        description="Indica si el motor OMR debe intentar usar GPU (CUDA/ROCm).",
+        description="Indica si HOMR debe intentar usar GPU (CUDA/ROCm).",
     )
     artifacts_dir: Path = Field(
         default=Path("./data/artifacts"),

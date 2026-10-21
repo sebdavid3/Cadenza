@@ -17,7 +17,7 @@ from cadenza.application import (
     is_image_content,
     transcribe_score,
 )
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import ValidationEngine
 
 PNG_SAMPLE = (

@@ -14,7 +14,7 @@ from cadenza.application import (
     transcribe_score,
 )
 from cadenza.domain import Anchor, EditOp
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyModelRegistry,

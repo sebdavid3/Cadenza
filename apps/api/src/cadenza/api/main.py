@@ -105,9 +105,7 @@ from cadenza.application import (
 )
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
-    FakeOMREngine,
     HOMREngine,
-    OemerEngine,
     OMREngine,
     OMRTranscriptionError,
     get_effective_device,
@@ -457,18 +455,7 @@ def create_app(
             store_status = "error"
 
         engine = request.app.state.omr_engine
-        if isinstance(engine, FakeOMREngine):
-            engine_name = "fake"
-        elif isinstance(engine, HOMREngine):
-            engine_name = "homr"
-        elif isinstance(engine, OemerEngine):
-            engine_name = "oemer"
-        else:
-            engine_name = getattr(
-                engine,
-                "name",
-                getattr(request.app.state.settings, "omr_engine", "unknown"),
-            )
+        engine_name = engine.engine_id
         try:
             device = getattr(engine, "device", None) or get_effective_device()
         except Exception:
@@ -495,20 +482,15 @@ def create_app(
         window_seconds=app_settings.login_rate_limit_window_seconds,
     )
 
-    if omr_engine is not None:
-        resolved_engine = omr_engine
-    elif app_settings.omr_engine == "homr":
-        resolved_engine = HOMREngine(
+    # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
+    resolved_engine = (
+        omr_engine
+        if omr_engine is not None
+        else HOMREngine(
             use_gpu=app_settings.omr_use_gpu,
             preprocessing=app_settings.build_preprocessing_config(),
         )
-    elif app_settings.omr_engine == "oemer":
-        resolved_engine = OemerEngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=app_settings.build_preprocessing_config(),
-        )
-    else:
-        resolved_engine = FakeOMREngine(preprocessing=app_settings.build_preprocessing_config())
+    )
     app.state.omr_engine = resolved_engine
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else get_default_rules()
@@ -1538,7 +1520,7 @@ def create_default_app(
     *,
     model_registry: Any | None = None,
 ) -> FastAPI:
-    """Factory para uvicorn: carga Settings tipada de entorno y conecta el motor OMR."""
+    """Factory para uvicorn: carga Settings tipada de entorno y conecta HOMR (ADR-0018)."""
 
     app_settings = settings or Settings()
     engine = create_engine_for_url(app_settings.database_url)
@@ -1548,24 +1530,8 @@ def create_default_app(
     ):
         create_schema(engine)
 
-    preproc_config = app_settings.build_preprocessing_config()
-    omr_engine: OMREngine
-    if app_settings.omr_engine == "homr":
-        omr_engine = HOMREngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=preproc_config,
-        )
-    elif app_settings.omr_engine == "oemer":
-        omr_engine = OemerEngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=preproc_config,
-        )
-    else:
-        omr_engine = FakeOMREngine(preprocessing=preproc_config)
-
     return create_app(
         create_session_factory(engine),
-        omr_engine=omr_engine,
         settings=app_settings,
         model_registry=model_registry,
     )

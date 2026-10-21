@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from cadenza.api.main import API_VERSION, create_app, create_default_app
 from cadenza.api.settings import Settings
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     create_memory_engine,
     create_schema,

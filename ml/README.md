@@ -9,7 +9,7 @@ ejecutan con `uv run` y consumen los paquetes `cadenza-*` del workspace.
 ```text
 ml/
 └── experiments/
-    ├── exp_01_effort.py           # Fase 5: reducción de esfuerzo (sintético)
+    ├── exp_01_effort.py           # Fase 5: reducción de esfuerzo sobre PrIMuS
     ├── exp_02_active_learning.py  # Fase 5: comparación de estrategias de AL
     ├── corpus.py                  # Fase 6: registro, descarga y manifiesto de corpus
     ├── exp_03_omr_quality.py      # Fase 6: calidad OMR (OMR-NED oficial)
@@ -29,14 +29,19 @@ uv run python ml/experiments/exp_02_active_learning.py
 
 ### `exp_01_effort.py` — Reducción de esfuerzo
 
-Genera un `ScoreDocument` sintético (40 compases, ~25% desbalanceados), lo pasa
-por `ValidationEngine` + `MeasureBalanceRule` y compara:
+Compara las transcripciones de HOMR de PrIMuS con su verdad de referencia, compás a
+compás, pasando cada predicción por `ValidationEngine`:
 
 - **Línea base:** inspeccionar los N compases a mano → `N` inspecciones.
 - **Línea asistida:** inspeccionar solo los compases con `Finding` → `X`.
 
-Salida (→ `results/effort_comparison.json`): `total_measures`, `total_findings`,
-`baseline_inspections`, `assisted_inspections` y `effort_reduction_percent`.
+Necesita `data/manifest.json` (ver `corpus.py`) y las predicciones de HOMR en
+`data/<corpus>/predictions/` (`exp_04`), o `--predictions`. **Sin manifiesto el
+experimento falla**: no tiene modo sintético (CLAUDE.md §8.1, #130).
+
+Salida (→ `results/effort_comparison.json`, `results/effort_comparison_by_score.csv`
+y `results/exp_01_run_info.json`): esfuerzo de inspección con y sin validador,
+errores reales que quedan sin revisar y su desglose por tipo de operación.
 
 ### `exp_02_active_learning.py` — Estrategias de adquisición
 
@@ -55,7 +60,7 @@ Requiere el extra de métricas (`musicdiff`), ya incluido en el entorno de
 desarrollo:
 
 ```powershell
-uv sync --inexact   # instala cadenza-learning[metrics] vía el grupo dev sin quitar HOMR/oemer
+uv sync --inexact   # instala cadenza-learning[metrics] vía el grupo dev sin quitar HOMR
 ```
 
 ### `corpus.py` — registro, descarga y manifiesto

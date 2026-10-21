@@ -31,7 +31,7 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0002](ADR-0002-score-document-anchor-index.md) | `ScoreDocument` con `AnchorIndex` como fuente de verdad | Aceptado | Transversal |
 | [ADR-0003](ADR-0003-separacion-planos-computo.md) | Separación estricta de planos de cómputo Online / Offline | Aceptado | M1, M4 |
 | [ADR-0004](ADR-0004-persistencia-postgresql-jsonb.md) | Persistencia con PostgreSQL + JSONB y Storage de artefactos | Aceptado | M2, M3, M4 |
-| [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) | HOMR/ONNX como motor OMR base, oemer como línea base | Aceptado | M1 |
+| [ADR-0005](ADR-0005-motor-omr-homr-baseline-oemer.md) | HOMR/ONNX como motor OMR base, oemer como línea base | Aceptado; punto 3 reemplazado y punto 4 precisado por ADR-0018 | M1 |
 | [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md) | Renderizado reactivo (OSMD/Verovio) y estado editorial (Zustand) | Aceptado | M3 |
 | [ADR-0007](ADR-0007-edit-events-inmutables.md) | Correcciones HITL como eventos inmutables sobre anclas | Aceptado | M3, M4 |
 | [ADR-0008](ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry | Aceptado | M4 |
@@ -44,5 +44,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend | Aceptado | API, Infra |
 | [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas | Aceptado | API, Plano Online |
 | [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md) | Validación del contenido de las ediciones y estado previo fijado por el servidor | Aceptado | Dominio, API, M3, M4 |
+| [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md) | HOMR como único motor OMR | Aceptado | M1, API |
 
 

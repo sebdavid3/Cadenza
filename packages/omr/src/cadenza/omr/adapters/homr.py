@@ -3,7 +3,8 @@
 Cumple ADR-0005: nada de `subprocess` ni *scraping* de la terminal. El stack
 pesado (`homr`, `onnxruntime`, `opencv`) está declarado como extra opcional y se
 importa de forma perezosa dentro de `transcribe`, de modo que `cadenza.omr`
-importa sin tenerlo instalado (test/CI usan `FakeOMREngine`).
+importa sin tenerlo instalado (las pruebas y la CI usan el doble
+`cadenza.omr.testing.FakeOMREngine`).
 """
 
 from __future__ import annotations
@@ -308,7 +309,7 @@ class HOMREngine(OMREngine):
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
-        # se usa el motor real (FakeOMREngine no lo necesita).
+        # se transcribe de verdad (el doble de pruebas no lo necesita).
         from cadenza.interchange import musicxml_to_score_ir
 
         if not image_path.is_file():

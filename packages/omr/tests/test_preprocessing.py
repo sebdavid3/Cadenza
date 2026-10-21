@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 import pytest
 from cadenza.omr import (
-    FakeOMREngine,
     HOMREngine,
     PreprocessingConfig,
     binarize_image,
@@ -19,6 +18,7 @@ from cadenza.omr import (
     preprocess_image_file,
     rescale_image,
 )
+from cadenza.omr.testing import FakeOMREngine
 from PIL import Image
 
 

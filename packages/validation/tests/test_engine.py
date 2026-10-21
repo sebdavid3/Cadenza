@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.domain import Finding, ScoreDocument, Severity
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import (
     DEFAULT_RULES_CATALOG,
     ValidationEngine,

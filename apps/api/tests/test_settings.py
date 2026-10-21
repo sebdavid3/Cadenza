@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app, create_default_app
-from cadenza.omr import FakeOMREngine, HOMREngine, OemerEngine
+from cadenza.omr import HOMREngine
 from cadenza.persistence import create_memory_engine, create_session_factory
 from pydantic import ValidationError
 
@@ -14,7 +14,6 @@ from pydantic import ValidationError
 def test_default_settings() -> None:
     settings = Settings()
     assert settings.database_url == "sqlite+pysqlite:///./cadenza.db"
-    assert settings.omr_engine == "fake"
     assert settings.omr_use_gpu is False
     assert settings.artifacts_dir == Path("./data/artifacts")
     assert settings.auth_secret_key == ""
@@ -24,7 +23,6 @@ def test_default_settings() -> None:
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CADENZA_DATABASE_URL", "sqlite+pysqlite:///:memory:")
-    monkeypatch.setenv("CADENZA_OMR_ENGINE", "homr")
     monkeypatch.setenv("CADENZA_OMR_USE_GPU", "true")
     monkeypatch.setenv("CADENZA_ARTIFACTS_DIR", "/custom/artifacts")
     monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", "super-secret-from-env")
@@ -33,7 +31,6 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings()
     assert settings.database_url == "sqlite+pysqlite:///:memory:"
-    assert settings.omr_engine == "homr"
     assert settings.omr_use_gpu is True
     assert settings.artifacts_dir == Path("/custom/artifacts")
     assert settings.auth_secret_key == "super-secret-from-env"
@@ -47,40 +44,36 @@ def test_create_app_fails_without_auth_secret_key() -> None:
         create_app(create_session_factory(engine), settings=Settings(auth_secret_key=""))
 
 
-def test_create_default_app_with_fake_engine() -> None:
-    settings = Settings(
-        database_url="sqlite+pysqlite:///:memory:",
-        omr_engine="fake",
-        auth_secret_key="test-key-fake",
+def test_settings_have_no_engine_selector() -> None:
+    """HOMR es el único motor (ADR-0018): no hay selector de motor en la configuración."""
+    assert "omr_engine" not in Settings.model_fields
+
+
+def test_obsolete_engine_variable_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CADENZA_OMR_ENGINE", "fake")
+    app = create_default_app(
+        Settings(database_url="sqlite+pysqlite:///:memory:", auth_secret_key="test-key-legacy")
     )
-    app = create_default_app(settings)
-    assert isinstance(app.state.omr_engine, FakeOMREngine)
-    assert app.state.settings.omr_engine == "fake"
+    assert isinstance(app.state.omr_engine, HOMREngine)
 
 
-def test_create_default_app_with_homr_engine() -> None:
+def test_create_default_app_uses_homr() -> None:
     settings = Settings(
         database_url="sqlite+pysqlite:///:memory:",
-        omr_engine="homr",
         omr_use_gpu=False,
         auth_secret_key="test-key-homr",
     )
     app = create_default_app(settings)
     assert isinstance(app.state.omr_engine, HOMREngine)
-    assert app.state.settings.omr_engine == "homr"
     assert app.state.settings.omr_use_gpu is False
 
 
-def test_create_default_app_with_oemer_engine() -> None:
-    settings = Settings(
-        database_url="sqlite+pysqlite:///:memory:",
-        omr_engine="oemer",
-        omr_use_gpu=False,
-        auth_secret_key="test-key-oemer",
+def test_create_app_without_injected_engine_uses_homr() -> None:
+    app = create_app(
+        create_session_factory(create_memory_engine()),
+        settings=Settings(auth_secret_key="test-key-homr"),
     )
-    app = create_default_app(settings)
-    assert isinstance(app.state.omr_engine, OemerEngine)
-    assert app.state.settings.omr_engine == "oemer"
+    assert isinstance(app.state.omr_engine, HOMREngine)
 
 
 @pytest.mark.parametrize(

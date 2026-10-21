@@ -13,8 +13,7 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_DATABASE_URL` | `str` | `sqlite+pysqlite:///./cadenza.db` | URL de conexión SQLAlchemy (SQLite o PostgreSQL). |
 | `CADENZA_AUTH_SECRET_KEY` | `str` | *(vacío)* | Clave secreta criptográfica (mínimo 32 bytes) para firma de tokens JWT. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `int` | `30` | Minutos de expiración para tokens de acceso. |
-| `CADENZA_OMR_ENGINE` | `enum` | `fake` | Motor OMR (`fake`, `homr`, `oemer`). |
-| `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para inferencia OMR en el plano online. |
+| `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para la inferencia de HOMR, único motor OMR (ADR-0018), en el plano online. |
 | `CADENZA_ARTIFACTS_DIR` | `path` | `./data/artifacts` | Ruta raíz para el almacenamiento de archivos del `ArtifactStore`. |
 | `CADENZA_AUTO_CREATE_SCHEMA` | `bool` | `false` | Si es `true`, crea DDL al arrancar (solo tests/dev). En producción usar Alembic. |
 | `CADENZA_CORS_ORIGINS` | `list[str]` | `*` | Orígenes permitidos para peticiones cruzadas: `*` o `esquema://host[:puerto]` (sin ruta ni barra final), uno o varios separados por comas o en una lista JSON. `*` va solo y no envía credenciales; `[]` desactiva CORS (con Docker Compose, un valor vacío se convierte en `*`). Un valor mal escrito impide arrancar la API. |
@@ -44,6 +43,9 @@ docker compose ps
 
 El servicio `api` cuenta con un `healthcheck` automatizado que invoca periódicamente `GET /health`.
 
+> [!WARNING]
+> HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)) y la imagen de la API (`Dockerfile`, `uv sync --no-dev`) **no instala el extra `homr`**. El contenedor arranca y `GET /health` responde, pero `POST /transcribe` devuelve 500 hasta que la imagen incluya HOMR (deuda D50).
+
 ### 2.2 Ejecución del plano offline con GPU (perfil batch)
 
 Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos con aceleración NVIDIA CUDA:
@@ -72,7 +74,7 @@ curl -i http://localhost:8000/health
   "version": "1.0.0",
   "database": "connected",
   "artifact_store": "accessible",
-  "omr_engine": "fake",
+  "omr_engine": "homr",
   "device": "cpu"
 }
 ```

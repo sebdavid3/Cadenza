@@ -27,19 +27,11 @@ def test_run_info_generation(tmp_path: Path) -> None:
     assert info["manifest_sha256"] != ""
 
 
-def test_exp_01_synthetic_fallback() -> None:
-    res = exp_01_effort._run_synthetic_fallback(measures=20, broken_ratio=0.3, seed=42)
-    assert res["experiment"] == "exp_01_effort"
-    assert res["mode"] == "synthetic_fallback"
-    effort = res["inspection_effort"]
-    assert effort["total_measures"] == 20
-    assert effort["baseline_inspections_manual"] == 20
-    assert effort["effort_reduction_percent"] > 0.0
-
-    tradeoff = res["error_detection_and_tradeoff"]
-    assert "missed_errors_percent" in tradeoff
-    assert "sample_size_justification" in res
-    assert "methodological_limitations" in res
+def test_exp_01_fails_without_corpus(tmp_path: Path) -> None:
+    """Sin corpus no hay resultado de reserva: el experimento falla (CLAUDE.md §8.1)."""
+    missing = tmp_path / "manifest.json"
+    with pytest.raises(FileNotFoundError, match="corpus PrIMuS"):
+        exp_01_effort.run(manifest_path=missing)
 
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
@@ -444,31 +436,6 @@ def test_exp_07_writes_results_only_to_results_dir(tmp_path: Path) -> None:
     assert written["simulated"] is False
     assert (results_dir / "preprocessing_comparison.csv").is_file()
     assert (results_dir / "exp_07_run_info.json").is_file()
-
-
-def test_exp_08_smoke() -> None:
-    from ml.experiments import exp_08_oemer_baseline
-
-    res = exp_08_oemer_baseline.run_experiment(smoke=True)
-    assert res["experiment"] == "exp_08_oemer_baseline"
-    assert res["mode"] == "smoke"
-    assert res["total_evaluated"] == 1
-    assert "metrics_on_successes" in res
-    assert "comparison_vs_homr" in res
-    assert "delta_omr_ned" in res["comparison_vs_homr"]
-    assert "delta_ser" in res["comparison_vs_homr"]
-
-
-@pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
-def test_exp_08_corpus_evaluation() -> None:
-    from ml.experiments import exp_08_oemer_baseline
-
-    res = exp_08_oemer_baseline.run_experiment(manifest=DATA_MANIFEST, limit=5, write_results=False)
-    assert res["experiment"] == "exp_08_oemer_baseline"
-    assert res["total_evaluated"] == 5
-    assert "metrics_on_successes" in res
-    assert "metrics_penalized_with_failures" in res
-    assert "comparison_vs_homr" in res
 
 
 def test_corpus_smb_and_muscima_spec() -> None:

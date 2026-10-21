@@ -253,7 +253,7 @@ export interface HealthStatusResponse {
   database: string;
   /** Accesibilidad del almacenamiento de artefactos ('accessible' o 'error') */
   artifact_store: string;
-  /** Nombre del motor OMR configurado ('fake', 'homr', 'oemer') */
+  /** Nombre del motor OMR configurado ('homr') */
   omr_engine: string;
   /** Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.) */
   device: string;
@@ -299,7 +299,7 @@ export interface PartPayload {
  * Trazabilidad y procedencia de la inferencia OMR y validación.
  */
 export interface ProvenancePayload {
-  /** Nombre del motor OMR utilizado ('fake', 'homr') */
+  /** Nombre del motor OMR utilizado ('homr') */
   omr_engine: string;
   /** Versión del modelo OMR */
   model_version?: string | null;

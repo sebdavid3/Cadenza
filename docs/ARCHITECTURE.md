@@ -90,7 +90,7 @@ Dos propiedades guían toda la estructura:
 - **Bajo acoplamiento.** La interfaz, el modelo OMR y el validador evolucionan de
   forma independiente. El fallo o el reemplazo de uno no arrastra a los demás.
 - **Comparabilidad experimental.** La tesis debe medir el pipeline asistido frente
-  a una línea base OMR no asistida y comparar estrategias de aprendizaje activo
+  a la salida OMR no asistida (HOMR sin corrección humana, ADR-0018) y comparar estrategias de aprendizaje activo
   entre sí. Esto solo es posible si cada componente de investigación es
   **intercambiable** sin reescribir el sistema.
 
@@ -105,7 +105,7 @@ adentro; los adaptadores dependen del dominio, nunca al contrario.
 
 Cada capacidad externa se declara como un **puerto** (interfaz) y se implementa
 mediante uno o varios **adaptadores**. Los puertos que sostienen la
-investigación son `OMREngine` (línea base vs. motor principal), `ValidationRule`
+investigación son `OMREngine` (HOMR, único motor desde ADR-0018), `ValidationRule`
 (catálogo de reglas) y `AcquisitionStrategy` (estrategias de aprendizaje activo
 comparables).
 
@@ -125,7 +125,7 @@ flowchart LR
     end
 
     subgraph Driven["Lado conducido (driven)"]
-        OMRA["OMREngine<br/>homr · oemer · fake"]
+        OMRA["OMREngine<br/>homr"]
         VAL["ValidationEngine<br/>reglas puras"]
         REPO["SessionRepository<br/>EditEventRepository"]
         STORE["ArtifactStore"]
@@ -380,7 +380,6 @@ modelo es, por diseño, un ciclo **por lotes** y no un efecto inmediato del uso.
 | **Artefactos** | `ArtifactStore` sobre filesystem *content-addressed* | Imágenes, MusicXML y ONNX fuera de la base de datos; direccionados por `sha256` → idempotencia y deduplicación. Migrable a S3/MinIO. |
 | **Simbólico** | `music21 >= 10` + `musicdiff` | `music21` se usa **solo** en `packages/interchange` como frontera de lectura y exportación (MusicXML/MEI/`**kern`/MIDI); el `ScoreIR` y las reglas son código propio sin dependencias. `musicdiff` aporta el cálculo de diferencias simbólicas para OMR-NED. `>=10` por compatibilidad con `numpy >= 2.4` de HOMR. |
 | **OMR (inferencia)** | HOMR sobre `onnxruntime` (`homr[cpu]` / `homr[cuda]`) | Motor de dos etapas (segmentación UNet + transformer). GPU real vía `onnxruntime-gpu`; **no** vía `torch` ([ADR-0005](adr/ADR-0005-motor-omr-homr-baseline-oemer.md)). |
-| **OMR (línea base)** | oemer (adaptador) | Permite el contraste experimental del sistema asistido frente a un OMR no asistido. |
 | **Entrenamiento** | PyTorch (pipeline de HOMR) → export ONNX | Separación runtime/entrenamiento; reproducibilidad con semillas y config versionada. |
 | **Renderizado musical** | OpenSheetMusicDisplay (OSMD) con mapa de anclas; Verovio como evolución | Render SVG fiable; **instrumentado** para exponer `Anchor → elemento`. La edición ocurre sobre el `ScoreIR`, no sobre el SVG ([ADR-0006](adr/ADR-0006-render-editor-osmd-verovio-zustand.md)). |
 | **Estado frontend** | Zustand (editor) + TanStack Query (servidor) | Separa el estado editorial complejo (con undo/redo) de la caché remota; evita efectos colaterales del estado disperso del MVP. |
@@ -411,28 +410,24 @@ explícitamente como parte del pipeline de promoción.
 **Diseño.**
 
 - Se declara el puerto `OMREngine.transcribe(image) -> ScoreDocument`.
-- Adaptadores: `HOMREngine` (principal), `OemerEngine` (línea base),
-  `FakeOMREngine` (pruebas y CI).
-- El adaptador activo se elige por configuración (`CADENZA_OMR_ENGINE`), y el
-  modelo que carga es la versión promovida en el *Model Registry*.
+- Adaptador único: `HOMREngine` ([ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md)).
+  Las pruebas y la CI inyectan el doble determinista
+  `cadenza.omr.testing.FakeOMREngine`, que no es seleccionable por configuración.
+- El modelo que carga HOMR es la versión promovida en el *Model Registry*.
 - Integración **in-process**, nunca por subprocess ni scraping de salida.
 - El preprocesado (deskew, binarización, DPI) es una etapa configurable y
   medible dentro del adaptador.
 - El dispositivo efectivo se reporta desde `onnxruntime` (`CUDAExecutionProvider`
   vs. `CPUExecutionProvider`).
 
-**Aporte.** No es un modelo propio, sino una **capa de abstracción** que hace
-experimentalmente comparable el motor y habilita la línea base.
+**Aporte.** No es un modelo propio, sino una **capa de abstracción** que aísla al
+resto del sistema del motor y permite probarlo sin modelos ni GPU.
 
 ```mermaid
 flowchart LR
     UC["Transcribe (caso de uso)"] -->|puerto| P{{OMREngine}}
     P --> H["HOMREngine"]
-    P --> O["OemerEngine"]
-    P --> F["FakeOMREngine"]
     H --> OUT["ScoreDocument crudo"]
-    O --> OUT
-    F --> OUT
 ```
 
 ---
@@ -614,7 +609,7 @@ Reglas de la capa:
 
 | Puerto | Operaciones | Adaptadores |
 |---|---|---|
-| `OMREngine` | `transcribe(image_path) -> ScoreDocument` | `HOMREngine`, `OemerEngine`, `FakeOMREngine` |
+| `OMREngine` | `transcribe(image_path) -> ScoreDocument` | `HOMREngine` (doble de pruebas: `cadenza.omr.testing.FakeOMREngine`) |
 | `ValidationRule` | `evaluate(document) -> list[Finding]` | Balance de compás, armadura y alteraciones, colisión de voces, rango, cierres |
 | `SessionRepository` | `add`, `get`, `list`, `update_status`, `list_findings`, `replace_findings` | SQLAlchemy |
 | `EditEventRepository` | `next_seq`, `append`, `list_events` | SQLAlchemy |
@@ -758,7 +753,7 @@ cadenza/
 │   ├── domain/              # ScoreDocument, Anchor, Finding, EditEvent, proyección (puro)
 │   ├── application/         # casos de uso y puertos de aplicación
 │   ├── interchange/         # MusicXML/MEI/**kern ↔ ScoreIR y exportación MusicXML/MIDI
-│   ├── omr/                 # puerto OMREngine + adaptadores homr/oemer/fake
+│   ├── omr/                 # puerto OMREngine + adaptador homr (doble de pruebas en testing)
 │   ├── validation/          # motor de reglas + catálogo + tests
 │   ├── persistence/         # repositorios SQLAlchemy, ArtifactStore, migraciones Alembic
 │   └── learning/            # dataset, adquisición, entrenamiento, métricas, registry
@@ -780,7 +775,7 @@ adaptadores concretos; `packages/domain` no depende de ningún otro paquete.
 | Atributo | Estrategia arquitectónica |
 |---|---|
 | **Bajo acoplamiento** | Puertos y adaptadores; dominio puro; dirección de dependencias hacia el centro ([ADR-0001](adr/ADR-0001-monolito-modular-hexagonal.md)). |
-| **Testeabilidad** | `FakeOMREngine` y reglas puras permiten probar sin GPU ni modelos; *property-based testing* para las reglas. |
+| **Testeabilidad** | El doble `cadenza.omr.testing.FakeOMREngine` y reglas puras permiten probar sin GPU ni modelos; *property-based testing* para las reglas. |
 | **Reproducibilidad** | `Provenance`, versión de modelo, dataset/fixtures direccionados por hash, configs y semillas ([ADR-0004](adr/ADR-0004-persistencia-postgresql-jsonb.md), [ADR-0008](adr/ADR-0008-active-learning-model-registry.md)). |
 | **Comparabilidad experimental** | Puertos `OMREngine` y `AcquisitionStrategy` intercambiables. |
 | **Mantenibilidad** | Monolito modular; fronteras verificadas por *tests* de arquitectura; tipado extremo a extremo. |
@@ -822,7 +817,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Autenticación, sesiones privadas y autoría fijada por el servidor (ADR-0012) | Implementado: persistencia (#43), login JWT/Argon2id (#44), sesiones privadas por propietario con autor fijado por el servidor (#45), visor web con login (#47; retirado con la base de `apps/web` en [#129](https://github.com/sebdavid3/Cadenza/issues/129), pendiente de la Fase 8) y gestión de cuentas (#46: `create_user`, `update_user`, `change_password`, `list_users`, CLI `create-investigator`) | [#39](https://github.com/sebdavid3/Cadenza/issues/39) ([#43](https://github.com/sebdavid3/Cadenza/issues/43), [#44](https://github.com/sebdavid3/Cadenza/issues/44), [#45](https://github.com/sebdavid3/Cadenza/issues/45), [#46](https://github.com/sebdavid3/Cadenza/issues/46), [#47](https://github.com/sebdavid3/Cadenza/issues/47)) |
 | API | El cliente conoce el estado sobre el que trabaja y las ediciones declaran su `base_seq` (ADR-0011) | Implementado: `get_session` expone `current_seq`, `ScoreIR` materializado y `anchor_index` enriquecido; `POST /sessions/{id}/edits` exige `base_seq` y responde HTTP 409 ante desajustes | [#48](https://github.com/sebdavid3/Cadenza/issues/48) |
 | API | Listado de sesiones | Implementado: endpoint `GET /sessions` con resúmenes ligeros (`SessionSummary` sin `document` JSONB), paginación (`limit`, `offset`), orden descendente por fecha/id, filtro por `status`, `condition` y `test_score_id`, y control de acceso ADR-0012 (transcriptor ve solo las suyas, investigador ve todas) | [#27](https://github.com/sebdavid3/Cadenza/issues/27), [#33](https://github.com/sebdavid3/Cadenza/issues/33) |
-| API | Motor OMR elegido por configuración | Implementado: configuración tipada con `pydantic-settings` (`Settings`), motor seleccionable (`fake` o `homr`), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
+| API | Motor OMR conectado por configuración | Implementado: configuración tipada con `pydantic-settings` (`Settings`), HOMR como único motor (el selector `CADENZA_OMR_ENGINE` se retiró en [#130](https://github.com/sebdavid3/Cadenza/issues/130), ADR-0018), inferencia asíncrona (`asyncio.to_thread`), dispositivo efectivo en `Provenance` y errores controlados (422) | [#8](https://github.com/sebdavid3/Cadenza/issues/8) |
 | API | Ninguna edición inválida entra al log | Implementado: validación previa contra el estado materializado actual (`before` verificado, 422), validación del contenido de `after` por operación en el vocabulario canónico del dominio (422), `before` fijado por el servidor para que deshacer sea exacto (ADR-0017), captura de colisiones de secuencia (409) y proyección limpia sin enmascarar errores | [#10](https://github.com/sebdavid3/Cadenza/issues/10), [#117](https://github.com/sebdavid3/Cadenza/issues/117) |
 | API | Revalidación tras las correcciones | Implementado: `POST /sessions/{id}/validate` revalida sobre el estado materializado actual, actualiza hallazgos vigentes (`validated_at_seq`) y preserva hallazgos históricos para análisis de esfuerzo (ADR-0013) | [#11](https://github.com/sebdavid3/Cadenza/issues/11) |
 | API | Exportación MusicXML y MIDI | Implementado: puerto `ScoreExporter`, adaptador `Music21ScoreExporter` en `packages/interchange` (`score_ir_to_musicxml` y `score_ir_to_midi`), caso de uso `export_score` sobre el `ScoreIR` materializado con control de acceso ADR-0012 y endpoint `GET /sessions/{id}/export?format=musicxml\|midi` (HTTP 422 para formatos no soportados) | [#12](https://github.com/sebdavid3/Cadenza/issues/12) |
@@ -831,14 +826,14 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | API | Hallazgos descartables como falsos positivos | Implementado: columnas `status`, `dismissed_at`, `dismissed_by`, `dismissal_reason` en `findings` (migración `0009`), casos de uso `dismiss_finding` y `restore_finding` con control de acceso ADR-0012 y estado ADR-0014, endpoints `POST /sessions/{id}/findings/{id}/dismiss` y `POST /sessions/{id}/findings/{id}/restore`, filtrado por defecto en listado y preservación de falsos positivos en revalidación si el evento no fue modificado | [#36](https://github.com/sebdavid3/Cadenza/issues/36) |
 | API | Métricas de esfuerzo persistidas | Implementado: tabla `effort_metrics` (migración `0007`), puerto `EffortRepository`, adaptador `SqlAlchemyEffortRepository`, caso de uso `record_effort` con autorización ADR-0012, análisis y contraste de intervenciones frente a `edit_events`, y endpoints `POST /sessions/{id}/effort` y `GET /sessions/{id}/effort` | [#13](https://github.com/sebdavid3/Cadenza/issues/13) |
 | M1 | Anclas con `bbox` real | Investigado en INV-0001 (resultado negativo para eventos; disponible a nivel de pentagrama; visor vectorial) | [#14](https://github.com/sebdavid3/Cadenza/issues/14) |
-| M1 | Preprocesado configurable de imagen | Implementado el módulo `packages/omr/src/cadenza/omr/preprocessing.py` (enderezado, binarización y control de resolución), integrado en `HOMREngine`/`FakeOMREngine`, `Provenance` y `Settings`. Impacto medido con HOMR real (`exp_07` tras eliminar el OCR de título en [#106](https://github.com/sebdavid3/Cadenza/issues/106)): la binarización deja 7 fallos de 100 (recupera 5 partituras y rompe 3, OMR-NED penalizado 0,2757); el reescalado empeora a 11 fallos (0,3062) y el enderezado combinado deja 9 (0,2922). La configuración `control` replica exactamente la línea base (9 fallos, ruido 0,0). Desactivado por defecto | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#98](https://github.com/sebdavid3/Cadenza/issues/98), [#106](https://github.com/sebdavid3/Cadenza/issues/106) |
-| M1 | Línea base `OemerEngine` | Implementado el adaptador `OemerEngine` con extra opcional `oemer`, seleccionable con `CADENZA_OMR_ENGINE=oemer` y probado con dobles. **Comparación con HOMR sin hacer:** oemer no se ha ejecutado sobre el corpus | [#16](https://github.com/sebdavid3/Cadenza/issues/16), pendiente [#100](https://github.com/sebdavid3/Cadenza/issues/100) |
+| M1 | Preprocesado configurable de imagen | Implementado el módulo `packages/omr/src/cadenza/omr/preprocessing.py` (enderezado, binarización y control de resolución), integrado en `HOMREngine`, `Provenance` y `Settings`. Impacto medido con HOMR real (`exp_07` tras eliminar el OCR de título en [#106](https://github.com/sebdavid3/Cadenza/issues/106)): la binarización deja 7 fallos de 100 (recupera 5 partituras y rompe 3, OMR-NED penalizado 0,2757); el reescalado empeora a 11 fallos (0,3062) y el enderezado combinado deja 9 (0,2922). La configuración `control` replica exactamente la línea base (9 fallos, ruido 0,0). Desactivado por defecto | [#15](https://github.com/sebdavid3/Cadenza/issues/15), [#98](https://github.com/sebdavid3/Cadenza/issues/98), [#106](https://github.com/sebdavid3/Cadenza/issues/106) |
+| M1 | Línea base `OemerEngine` | **Retirada** ([ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md)): el adaptador existió con extra opcional `oemer` y solo se probó con dobles, sin ejecutarse sobre el corpus. Se eliminó en #130; HOMR es el único motor | [#16](https://github.com/sebdavid3/Cadenza/issues/16), [#100](https://github.com/sebdavid3/Cadenza/issues/100) (no se hará), [#130](https://github.com/sebdavid3/Cadenza/issues/130) |
 | M1 | Confianza del modelo en las anclas | Investigado en INV-0001 (resultado negativo para probabilidades directas; incertidumbre neuro-simbólica guiada por densidad de errores) | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
 | Dominio | Piano simple (dos pentagramas) verificado | Implementado: fixtures de piano, ScoreIR con pentagramas/voces/acordes (`is_chord`), round-trip exacto en `interchange`, anclas ortogonales y balance por voz | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
 | M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Implementado: catálogo completo de cinco familias de reglas en `packages/validation` ([#17](https://github.com/sebdavid3/Cadenza/issues/17)) y evaluación compás a compás sobre 359 compases de PrIMuS con métricas globales P=64.52%, R=39.80%, F1=0.4923 y desglose por familias y categorías ([#18](https://github.com/sebdavid3/Cadenza/issues/18)) | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Implementado: lector desacoplado `RepositoryDatasetReader` vía puertos `SessionRepository` y `EditEventRepository` (sin ORM directo), cobertura de todas las operaciones de `EditOp` con magnitudes fundamentadas, referencia de imagen por `image_sha256` y `dataset_hash` determinista | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
 | M4 | Correcciones derivadas de errores reales de OMR | Implementado: derivación determinista en `packages/learning/src/cadenza/learning/alignment.py` (`align_voice_events`, `derive_edit_events`) con Needleman-Wunsch por compás y voz, verificación formal `materialize(predicted, edits) == ground_truth` sobre 91 incipits de PrIMuS (544 ediciones) y distribución clasificada | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
-| M4 | *Model Registry* persistente y carga del modelo activo | Implementado: tabla `model_versions` con migración Alembic `0010_model_versions`, pesos ONNX en `ArtifactStore` con FK restringida, adaptador `SqlAlchemyModelRegistry`, promoción gobernada por `PromotionThreshold`, y carga dinámica del modelo activo en OMR (`FakeOMREngine`, `HOMREngine`) y plano online (`/transcribe`) | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
+| M4 | *Model Registry* persistente y carga del modelo activo | Implementado: tabla `model_versions` con migración Alembic `0010_model_versions`, pesos ONNX en `ArtifactStore` con FK restringida, adaptador `SqlAlchemyModelRegistry`, promoción gobernada por `PromotionThreshold`, y carga dinámica del modelo activo en OMR (`HOMREngine`) y plano online (`/transcribe`) | [#21](https://github.com/sebdavid3/Cadenza/issues/21) |
 | M4 | Jobs offline orquestados por CLI | Implementado: herramienta de línea de comandos en `ml/cli.py` (`python -m ml`) con subcomandos `build-dataset`, `select`, `train`, `evaluate`, `promote` y `run`, encadenamiento reproducible mediante artefactos serializados con constancia de `dataset_hash`, `config_hash` y semilla, sin estado en memoria entre comandos | [#22](https://github.com/sebdavid3/Cadenza/issues/22) |
 | M4 | Entrenador real (PyTorch → ONNX) | **Pendiente.** `PyTorchTrainer` entrena una red auxiliar de dos capas sobre características de las correcciones y la exporta a ONNX; no ajusta el modelo de reconocimiento ni produce pesos que `HOMREngine` pueda cargar | [#23](https://github.com/sebdavid3/Cadenza/issues/23), alcance por decidir [#103](https://github.com/sebdavid3/Cadenza/issues/103) |
 | Experimentos | Resultados sobre datos reales | Implementado: `exp_01` (reducción de esfuerzo del 65.46% en compases, errores omitidos y tasa de fuga del 60.20%), `exp_02` (AL sobre 544 muestras reales de PrIMuS con 5 criterios a priori, Jaccard hybrid↔uncertainty ~0.74 y magnitud superior), `exp_03` (OMR-NED con tasa de fallos del 9.0% y media penalizada de 0.2979 vs 0.2285), justificación muestral, limitaciones y `run_info` determinista | [#24](https://github.com/sebdavid3/Cadenza/issues/24) |
@@ -870,8 +865,8 @@ La Fase 7 cerró formalmente sus 42 issues en seis bloques. La auditoría del 20
 |---|---|---|---|
 | **A** | Análisis de brechas. | Matriz de brechas revisada, trazada al código y enlazada a cada issue ([#1](https://github.com/sebdavid3/Cadenza/issues/1)). | **Completado** |
 | **B** | Dominio y datos: `ScoreIR` extendido, proyección completa, `ArtifactStore`, esquema y PostgreSQL. | Ida y vuelta MusicXML sin pérdida; proyección determinista de las 7 operaciones de `EditOp`; anclas estables (ADR-0011); soporte de piano; migraciones 0001–0011 aplicadas en SQLite y PostgreSQL ([#2](https://github.com/sebdavid3/Cadenza/issues/2)–[#6](https://github.com/sebdavid3/Cadenza/issues/6), [#28](https://github.com/sebdavid3/Cadenza/issues/28), [#32](https://github.com/sebdavid3/Cadenza/issues/32)). | **Completado** |
-| **C** | Aplicación y API: casos de uso, motor configurable, edición validada, revalidación, exportación y esfuerzo. | Flujo imagen → motor OMR → validación → corrección → exportación de punta a punta, automatizado con `FakeOMREngine` y verificado con HOMR real ([#97](https://github.com/sebdavid3/Cadenza/issues/97)); oemer no se ha ejecutado ([#100](https://github.com/sebdavid3/Cadenza/issues/100)); autenticación JWT/Argon2id con sesiones privadas (ADR-0012); ciclo de vida (ADR-0014); deshacer en servidor (ADR-0007); descarte de falsos positivos ([#7](https://github.com/sebdavid3/Cadenza/issues/7)–[#13](https://github.com/sebdavid3/Cadenza/issues/13), [#27](https://github.com/sebdavid3/Cadenza/issues/27), [#34](https://github.com/sebdavid3/Cadenza/issues/34)–[#36](https://github.com/sebdavid3/Cadenza/issues/36), [#39](https://github.com/sebdavid3/Cadenza/issues/39), [#48](https://github.com/sebdavid3/Cadenza/issues/48)). | **Completado** |
-| **D** | OMR y validación: `bbox`, preprocesado, línea base y catálogo de reglas medido. | Catálogo de 5 familias de reglas con precisión y *recall* medidos sobre PrIMuS en `exp_06` (P=64.52%, R=39.80%); límites de confianza y `bbox` analizados en INV-0001; impacto del preprocesado medido con HOMR real en `exp_07` ([#98](https://github.com/sebdavid3/Cadenza/issues/98)). Adaptador `OemerEngine` implementado, **sin ejecución real** ([#100](https://github.com/sebdavid3/Cadenza/issues/100)). | **Parcial** |
+| **C** | Aplicación y API: casos de uso, motor HOMR conectado, edición validada, revalidación, exportación y esfuerzo. | Flujo imagen → motor OMR → validación → corrección → exportación de punta a punta, automatizado con el doble de pruebas `cadenza.omr.testing.FakeOMREngine` y verificado con HOMR real ([#97](https://github.com/sebdavid3/Cadenza/issues/97)); oemer se retiró sin ejecutarse (ADR-0018, [#130](https://github.com/sebdavid3/Cadenza/issues/130)); autenticación JWT/Argon2id con sesiones privadas (ADR-0012); ciclo de vida (ADR-0014); deshacer en servidor (ADR-0007); descarte de falsos positivos ([#7](https://github.com/sebdavid3/Cadenza/issues/7)–[#13](https://github.com/sebdavid3/Cadenza/issues/13), [#27](https://github.com/sebdavid3/Cadenza/issues/27), [#34](https://github.com/sebdavid3/Cadenza/issues/34)–[#36](https://github.com/sebdavid3/Cadenza/issues/36), [#39](https://github.com/sebdavid3/Cadenza/issues/39), [#48](https://github.com/sebdavid3/Cadenza/issues/48)). | **Completado** |
+| **D** | OMR y validación: `bbox`, preprocesado y catálogo de reglas medido. | Catálogo de 5 familias de reglas con precisión y *recall* medidos sobre PrIMuS en `exp_06` (P=64.52%, R=39.80%); límites de confianza y `bbox` analizados en INV-0001; impacto del preprocesado medido con HOMR real en `exp_07` ([#98](https://github.com/sebdavid3/Cadenza/issues/98)). La línea base de oemer se retiró sin ejecutarse (ADR-0018, [#130](https://github.com/sebdavid3/Cadenza/issues/130)). | **Completado** (la imagen Docker de la API aún no instala HOMR, D50) |
 | **E** | Plano offline: dataset desde la base de datos, registro persistente, CLI, entrenador y experimentos reales. | `DatasetBuilder` conectado a BD; derivación de `EditEvent`s del diff OMR-GT (`exp_05`); `ModelRegistry` persistente; CLI `ml/cli.py`; experimentos reales sobre PrIMuS (`exp_01`, `exp_02`, `exp_03`, `exp_06`) con SER y OMR-NED. **Pendiente:** ajuste fino del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)), SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y estudio con participantes. | **Parcial** |
 | **F** | Integración continua y contrato de API congelado. | CI verde en GitHub Actions (`ci.yml`: Python 3.12; el job de Node.js/Vite se retiró al vaciar `apps/web`, [#129](https://github.com/sebdavid3/Cadenza/issues/129)); OpenAPI 3.1.0 v1.0.0 congelado en `docs/api/openapi.json` con tipos generados en `apps/web/src/types.ts` ([#25](https://github.com/sebdavid3/Cadenza/issues/25), [#26](https://github.com/sebdavid3/Cadenza/issues/26)). | **Completado** |
 
@@ -901,6 +896,8 @@ queda fuera de esta fase.
 | [ADR-0014](adr/ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) |
 | [ADR-0015](adr/ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend (salud, registro, CORS, CUDA, copias) |
 | [ADR-0016](adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas |
+| [ADR-0017](adr/ADR-0017-validacion-del-contenido-de-las-ediciones.md) | Validación del contenido de las ediciones y estado previo fijado por el servidor |
+| [ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md) | HOMR como único motor OMR (reemplaza el punto 3 de ADR-0005 y precisa el 4) |
 
 
 ---

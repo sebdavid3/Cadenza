@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,

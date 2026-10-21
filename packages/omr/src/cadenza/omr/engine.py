@@ -1,8 +1,9 @@
 """Puerto `OMREngine`: contrato de transcripción OMR de Cadenza.
 
-Toda la capacidad de OMR del sistema se declara aquí. Los adaptadores
-(`FakeOMREngine`, `HOMREngine`, y en el futuro `OemerEngine`) dependen del
-dominio, nunca al contrario (ADR-0001, ADR-0005).
+Toda la capacidad de OMR del sistema se declara aquí. El único adaptador de
+producción es `HOMREngine`; el doble de pruebas `FakeOMREngine` vive en
+`cadenza.omr.testing`. Ambos dependen del dominio, nunca al contrario
+(ADR-0001, ADR-0005, ADR-0018).
 """
 
 from __future__ import annotations
