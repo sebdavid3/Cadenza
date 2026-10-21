@@ -308,21 +308,18 @@ Ejemplo por discrepancia en el `before` suministrado por el cliente:
 
 ### 5.5. Acceso a la API en Desarrollo (CORS o Proxy)
 
-La API escucha en `http://localhost:8000` y sus rutas no llevan prefijo (`/auth`, `/users`, `/transcribe`, `/sessions`, `/health`, `/version`). El frontend puede llamarla de dos formas:
+La API escucha en `http://127.0.0.1:8000` (§1.4) y sus rutas no llevan prefijo (`/auth`, `/users`, `/transcribe`, `/sessions`, `/health`, `/version`). El frontend puede llamarla de dos formas:
 
-- **URL base explícita y CORS:** declarar el origen del servidor de desarrollo del frontend en `CADENZA_CORS_ORIGINS` (ADR-0015) y usar una URL base configurable en el cliente.
+- **URL base explícita y CORS:** usar una URL base configurable en el cliente. Con el valor por defecto `CADENZA_CORS_ORIGINS=*` no hace falta declarar nada; si se restringe la lista de orígenes (ADR-0015), hay que incluir el del servidor de desarrollo del frontend.
 - **Proxy del servidor de desarrollo:** reenviar al backend las rutas de la API.
 
 > [!WARNING]
-> Con un proxy, ninguna ruta de la propia aplicación web puede coincidir con un prefijo reenviado. La base anterior de `apps/web` reenviaba `/sessions` y `/transcribe` y además los usaba como rutas de la interfaz: al recargar la página o abrir un enlace directo, la petición del documento llegaba al backend en lugar de devolver la aplicación (comprobado el 2026-10-20 con el servidor de desarrollo de Vite). Conviene agrupar la API bajo un prefijo del proxy (por ejemplo `/api`, reescrito al reenviar) o usar rutas de interfaz distintas.
-
-> [!WARNING]
-> `GET /sessions/{id}/image` exige `Authorization: Bearer`, y un `<img src>` no envía esa cabecera: la imagen debe descargarse con el cliente HTTP autenticado y mostrarse a partir de un `Blob` (`URL.createObjectURL`).
+> Con un proxy, ninguna ruta de la propia aplicación web puede coincidir con un prefijo reenviado: si el proxy reenvía `/sessions` y la interfaz usa una ruta `/sessions/:id`, al recargar la página o abrir un enlace directo la petición del documento llega al backend en lugar de devolver la aplicación (comprobado el 2026-10-20 con el servidor de desarrollo de Vite en una rama de prueba sin fusionar). Conviene agrupar la API bajo un prefijo del proxy (por ejemplo `/api`, reescrito al reenviar) o usar rutas de interfaz distintas.
 
 ### 5.6. Renderizado de Notación y Navegación
 
 1. **Lienzo de Partitura:** Se recomienda renderizar la partitura materializada usando OSMD (OpenSheetMusicDisplay) o Verovio alimentado desde `GET /sessions/{id}/export?format=musicxml` o procesando el `ScoreIR` tipado.
-2. **Imagen de Referencia:** La imagen se obtiene en `GET /sessions/{id}/image` y se expone como un panel lateral o pestaña de referencia comparativa global.
+2. **Imagen de Referencia:** La imagen se obtiene en `GET /sessions/{id}/image` y se expone como un panel lateral o pestaña de referencia comparativa global. El endpoint exige `Authorization: Bearer` y un `<img src>` no envía esa cabecera: la imagen debe descargarse con el cliente HTTP autenticado y mostrarse a partir de un `Blob` (`URL.createObjectURL`).
 3. **Panel de Hallazgos:** La lista de hallazgos devuelta por `GET /sessions/{id}/findings` señala anclas específicas (compás, pentagrama, evento). Al seleccionar un hallazgo, el frontend debe enfocar y resaltar el evento correspondiente en la partitura renderizada (OSMD/SVG).
 
 ### 5.7. Tiempos de Transcripción y Timeout Recomendado (#106, #118)

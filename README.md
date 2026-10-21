@@ -75,7 +75,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | Vacía, salvo los tipos generados del contrato; se rehace desde cero ([#129](https://github.com/sebdavid3/Cadenza/issues/129)) |
+| Interfaz web en `apps/web` (fase 8) | Vaciada en [#129](https://github.com/sebdavid3/Cadenza/issues/129) (solo quedan los tipos generados del contrato); se construye desde cero en la fase 8 |
 | Línea base de oemer sobre PrIMuS ([#100](https://github.com/sebdavid3/Cadenza/issues/100)) | Pendiente de ejecutar |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
@@ -269,8 +269,8 @@ uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/opena
 
 ## Interfaz web
 
-`apps/web` está vacía a propósito: la interfaz de corrección se rehace desde cero en la
-fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129)). Solo contiene
+`apps/web` está vacía a propósito desde [#129](https://github.com/sebdavid3/Cadenza/issues/129):
+la interfaz de corrección se construye desde cero en la fase 8. Solo contiene
 `apps/web/src/types.ts`, los tipos TypeScript generados desde el contrato OpenAPI, que no se
 editan a mano.
 
@@ -379,7 +379,7 @@ cada experimento en [`ml/README.md`](ml/README.md).
 Cadenza/
 ├── apps/
 │   ├── api/                 API REST (FastAPI) y CLI administrativa
-│   └── web/                 Interfaz web de corrección (React + Vite)
+│   └── web/                 Tipos generados del contrato; la interfaz web es la fase 8
 ├── packages/                Monolito modular: un paquete por módulo del workspace uv
 │   ├── domain/              Núcleo puro
 │   ├── application/         Casos de uso y puertos
