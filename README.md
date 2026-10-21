@@ -75,7 +75,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | Base inicial; es el trabajo siguiente |
+| Interfaz web en `apps/web` (fase 8) | Vacía, salvo los tipos generados del contrato; se rehace desde cero ([#129](https://github.com/sebdavid3/Cadenza/issues/129)) |
 | Línea base de oemer sobre PrIMuS ([#100](https://github.com/sebdavid3/Cadenza/issues/100)) | Pendiente de ejecutar |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
@@ -106,7 +106,7 @@ validación, la base de datos y la API son adaptadores intercambiables.
 | [`packages/persistence`](packages/persistence) | SQLAlchemy (PostgreSQL con JSONB o SQLite), repositorios, almacén de artefactos y migraciones Alembic |
 | [`packages/learning`](packages/learning) | Dataset desde la base de datos, estrategias de adquisición, métricas OMR-NED y SER, registro de modelos |
 | [`apps/api`](apps/api) | API REST FastAPI del plano online, autenticación JWT y CLI administrativa |
-| [`apps/web`](apps/web) | Interfaz web de corrección (React, Vite, TypeScript) |
+| [`apps/web`](apps/web) | Interfaz web de corrección (fase 8); hoy solo contiene los tipos TypeScript generados del contrato |
 | [`ml/`](ml) | CLI de jobs offline y experimentos de la tesis |
 
 Reglas que no se rompen (verificadas por tests y por revisión): el dominio solo usa la
@@ -122,7 +122,6 @@ guarda una edición inválida; el autor de una edición lo fija el servidor
 
 - **Python 3.12** (el proyecto exige `>=3.12,<3.13`).
 - **[uv](https://docs.astral.sh/uv/)**, que gestiona el workspace y el entorno virtual.
-- **Node.js 20 o posterior** para `apps/web` (la CI usa Node 20).
 - Opcional: **GPU NVIDIA** para acelerar HOMR, con `onnxruntime-gpu` 1.26.0 (CUDA 12).
 - Opcional: **Docker** con Docker Compose para el despliegue con PostgreSQL.
 
@@ -208,15 +207,6 @@ uv run --no-sync uvicorn cadenza.api.main:create_default_app --factory --host 12
 - Documentación interactiva: <http://127.0.0.1:8000/docs>
 - Estado del servicio: <http://127.0.0.1:8000/health>
 
-Arranca la interfaz web en otra terminal. Vite sirve en <http://localhost:5174> y redirige
-`/auth`, `/transcribe`, `/sessions` y `/health` a la API:
-
-```bash
-cd apps/web
-npm ci
-npm run dev
-```
-
 La guía de integración para el frontend, con ejemplos reales de cada respuesta, está en
 [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
 
@@ -279,22 +269,15 @@ uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/opena
 
 ## Interfaz web
 
-`apps/web` es la base de la interfaz de corrección: React 18, Vite 5, TypeScript, Zustand
-y TanStack Query, con tipos generados desde el contrato OpenAPI. Hoy permite iniciar sesión,
-subir una imagen, ver la sesión con sus hallazgos y cambiar la altura de una nota
-(`SetPitch`). Deshacer, rehacer y las métricas de esfuerzo funcionan solo en el navegador:
-todavía no llaman a `/undo` ni a `/effort`, y los hallazgos no se pueden descartar.
+`apps/web` está vacía a propósito: la interfaz de corrección se rehace desde cero en la
+fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129)). Solo contiene
+`apps/web/src/types.ts`, los tipos TypeScript generados desde el contrato OpenAPI, que no se
+editan a mano.
 
-La fase 8 completará esos flujos y añadirá el renderizado de la partitura con OSMD y la
-reproducción con Tone.js ([ADR-0006](docs/adr/ADR-0006-render-editor-osmd-verovio-zustand.md)).
+La fase 8 implementará el inicio de sesión, la ingesta, la corrección con el renderizado de la
+partitura con OSMD y la reproducción con Tone.js
+([ADR-0006](docs/adr/ADR-0006-render-editor-osmd-verovio-zustand.md)) sobre la API v1.
 Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
-
-```bash
-cd apps/web
-npm run dev        # servidor de desarrollo (puerto 5174)
-npm run test       # Vitest
-npm run build      # comprobación de tipos y build de producción
-```
 
 ---
 
@@ -309,7 +292,8 @@ uv run --no-sync ruff check .
 uv run --no-sync black --check .
 ```
 
-Si se toca `apps/web`, además `npm run test` y `npm run build`.
+Cuando exista de nuevo una aplicación en `apps/web`, sus propias puertas (pruebas y build) se
+añadirán a esta lista y a la CI.
 
 La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
 mismo en cada PR hacia `dev`. Los tests de compatibilidad con PostgreSQL corren allí contra un
