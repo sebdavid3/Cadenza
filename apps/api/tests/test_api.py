@@ -10,7 +10,8 @@ import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
 from cadenza.domain import ScoreDocument, build_anchor_index
-from cadenza.omr import FakeOMREngine, OMREngine
+from cadenza.omr import OMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,
@@ -73,7 +74,7 @@ def _client(omr_engine: OMREngine | None = None) -> TestClient:
     settings = Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long")
     app = create_app(
         session_factory,
-        omr_engine=omr_engine,
+        omr_engine=omr_engine if omr_engine is not None else FakeOMREngine(),
         settings=settings,
     )
     token = app.state.token_service.create_access_token(
@@ -257,7 +258,7 @@ def test_ownership_authorization_rules_in_api() -> None:
         db.commit()
 
     settings = Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long")
-    app = create_app(session_factory, settings=settings)
+    app = create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
     token_serv = app.state.token_service
 
     t1_token = token_serv.create_access_token(user_id=u1.id, role=u1.role)

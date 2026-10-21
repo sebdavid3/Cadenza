@@ -2697,7 +2697,7 @@
           "omr_engine": {
             "type": "string",
             "title": "Omr Engine",
-            "description": "Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
+            "description": "Nombre del motor OMR configurado ('homr')"
           },
           "device": {
             "type": "string",
@@ -2834,7 +2834,7 @@
           "omr_engine": {
             "type": "string",
             "title": "Omr Engine",
-            "description": "Nombre del motor OMR utilizado ('fake', 'homr')"
+            "description": "Nombre del motor OMR utilizado ('homr')"
           },
           "model_version": {
             "anyOf": [

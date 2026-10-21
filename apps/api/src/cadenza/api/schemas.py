@@ -149,7 +149,7 @@ class ScoreIRPayload(BaseModel):
 class ProvenancePayload(BaseModel):
     """Trazabilidad y procedencia de la inferencia OMR y validación."""
 
-    omr_engine: str = Field(description="Nombre del motor OMR utilizado ('fake', 'homr')")
+    omr_engine: str = Field(description="Nombre del motor OMR utilizado ('homr')")
     model_version: str | None = Field(default=None, description="Versión del modelo OMR")
     rules_version: str | None = Field(default=None, description="Versión del catálogo de reglas")
     source_image_hash: str | None = Field(
@@ -544,9 +544,7 @@ class HealthStatusResponse(BaseModel):
         ...,
         description="Accesibilidad del almacenamiento de artefactos ('accessible' o 'error')",
     )
-    omr_engine: str = Field(
-        ..., description="Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
-    )
+    omr_engine: str = Field(..., description="Nombre del motor OMR configurado ('homr')")
     device: str = Field(
         ..., description="Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.)"
     )

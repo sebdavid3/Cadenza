@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SqlAlchemyUserRepository,
@@ -66,6 +66,26 @@ def test_health_check_healthy(ops_test_client: TestClient) -> None:
     assert data["omr_engine"] == "fake"
     assert "device" in data
     assert data["version"] == "1.0.0"
+
+
+def test_health_reports_homr_with_default_engine(tmp_path: Path) -> None:
+    """Sin motor inyectado la API usa HOMR, el único motor de producción (ADR-0018)."""
+    engine = create_memory_engine()
+    create_schema(engine)
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    settings = Settings(
+        auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
+        artifacts_dir=artifacts_dir,
+    )
+    app = create_app(
+        create_session_factory(engine),
+        artifact_store=FilesystemArtifactStore(artifacts_dir),
+        settings=settings,
+    )
+    resp = TestClient(app).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["omr_engine"] == "homr"
 
 
 def test_health_check_unhealthy_when_database_fails(tmp_path: Path) -> None:
