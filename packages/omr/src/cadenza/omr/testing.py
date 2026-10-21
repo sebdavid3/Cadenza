@@ -124,10 +124,15 @@ class FakeOMREngine(OMREngine):
         model_registry: Any | None,
         artifact_store: Any | None = None,
         *,
+        use_gpu: bool = False,
         document_id: str = FAKE_DOCUMENT_ID,
         preprocessing: PreprocessingConfig | None = None,
     ) -> FakeOMREngine:
-        """Instancia FakeOMREngine con la versión de modelo activa si existe (#21)."""
+        """Instancia FakeOMREngine con la versión de modelo activa si existe (#21).
+
+        Acepta los mismos argumentos que `HOMREngine.from_active_model`; `use_gpu`
+        se ignora porque el doble no ejecuta inferencia.
+        """
         if model_registry is None:
             return cls(document_id=document_id, preprocessing=preprocessing)
         active = model_registry.active()
