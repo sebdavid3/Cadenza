@@ -162,7 +162,7 @@ Ninguno de los dos tiene valores de reserva: sin motor o sin corpus terminan con
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
-([ADR-0008](docs/adr/ADR-0008-active-learning-model-registry.md), `ARCHITECTURE.md` §3.2 y §6.5).
+([ADR-0008](../docs/adr/ADR-0008-active-learning-model-registry.md), `ARCHITECTURE.md` §3.2 y §6.5).
 Los comandos se encadenan mediante artefactos serializados en disco, sin estado en memoria entre ellos.
 
 ### Comandos disponibles

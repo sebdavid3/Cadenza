@@ -8,12 +8,15 @@ Verifica:
 4. El esquema BearerAuth y OAuth2PasswordBearer están presentes en components.securitySchemes.
 5. Los modelos centrales del dominio (ScoreDocument, ScoreIR, Anchor, Finding, EditEvent)
    están fuertemente tipados y sin dicts opacos.
+6. apps/web/src/types.ts coincide con los tipos generados desde app.openapi() (#136).
 """
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -29,6 +32,7 @@ from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 OPENAPI_JSON_PATH = REPO_ROOT / "docs" / "api" / "openapi.json"
+TYPES_TS_PATH = REPO_ROOT / "apps" / "web" / "src" / "types.ts"
 
 
 @pytest.fixture
@@ -63,6 +67,35 @@ def test_openapi_file_matches_live_app_schema() -> None:
     assert versioned_spec == live_spec, (
         "El esquema OpenAPI en docs/api/openapi.json no coincide con app.openapi(). "
         "Ejecuta: uv run python scripts/generate_openapi_and_types.py"
+    )
+
+
+def _load_types_generator() -> ModuleType:
+    """Carga `scripts/generate_openapi_and_types.py`, que no es un paquete importable."""
+    spec = importlib.util.spec_from_file_location(
+        "generate_openapi_and_types", REPO_ROOT / "scripts" / "generate_openapi_and_types.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_types_ts_matches_live_app_schema() -> None:
+    """Valida que apps/web/src/types.ts coincide con los tipos generados del contrato (#136).
+
+    Sin aplicación en apps/web, la CI ya no compila el frontend: esta prueba es la que
+    detecta un `types.ts` desfasado. Si falla, regenera con:
+    uv run --no-sync python scripts/generate_openapi_and_types.py
+    """
+    assert TYPES_TS_PATH.exists(), f"El archivo {TYPES_TS_PATH} no existe."
+
+    app = create_default_app(Settings(auth_secret_key="test-secret-at-least-32-chars-long!"))
+    expected = _load_types_generator().generate_typescript_definitions(app.openapi())
+
+    assert TYPES_TS_PATH.read_text(encoding="utf-8") == expected, (
+        "apps/web/src/types.ts no coincide con app.openapi(). "
+        "Ejecuta: uv run --no-sync python scripts/generate_openapi_and_types.py"
     )
 
 
