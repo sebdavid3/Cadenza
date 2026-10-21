@@ -311,10 +311,15 @@ Docker Compose sí lee `.env` para sustituir variables en `docker-compose.yml`. 
 `batch` añade un contenedor con GPU que ejecuta la CLI offline
 (`docker compose --profile batch run --rm ml-batch --help`).
 
+La imagen de la API incluye HOMR en CPU con sus pesos ya descargados, así que transcribe sin
+acceso a la red. Crea el primer usuario dentro del contenedor:
+
+```bash
+docker exec cadenza-api python -m cadenza.api.cli create-investigator --username <usuario> --password <contraseña>
+```
+
 > [!WARNING]
-> La imagen de la API no instala HOMR, el único motor OMR: el contenedor arranca y
-> `GET /health` responde, pero `POST /transcribe` devuelve 500 hasta que se resuelva la
-> deuda D50.
+> La imagen del perfil `batch` (`Dockerfile.ml-cuda`) no se construye hoy (deuda D53).
 
 > [!NOTE]
 > **Alembic es solo para PostgreSQL.** Las migraciones usan tipos nativos como `JSONB` desde
