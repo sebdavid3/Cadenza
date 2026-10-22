@@ -94,7 +94,7 @@ Un issue está terminado únicamente cuando:
    - `uv run --no-sync mypy packages apps`
    - `uv run --no-sync ruff check .`
    - `uv run --no-sync black --check .`
-   - Si se modificó `apps/web`: `npm run test` y `npm run build` en `apps/web`.
+   - Si existe la aplicación de `apps/web` (`apps/web/package.json`) y se modificó `apps/web`, incluido `apps/web/src/types.ts` al regenerar el contrato: `npm run test` y `npm run build` en `apps/web`. Mientras no exista, regenerar `types.ts` con `scripts/generate_openapi_and_types.py` no exige estas puertas: su sincronía con el contrato la comprueba `pytest`.
 3. Documentación actualizada e issue cerrado a mano en GitHub.
 4. **Regla de integridad:** prohibido rebajar puertas, silenciar tests, debilitar el tipado estricto o insertar `# type: ignore` sin justificación explícita.
 
