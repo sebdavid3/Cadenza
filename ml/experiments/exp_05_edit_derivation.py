@@ -29,7 +29,6 @@ from cadenza.learning import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
-SMOKE_FIXTURE = REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "simple.musicxml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +83,11 @@ def run_derivation_experiment(
     predictions_dir: Path | None = None,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"exp_05 requiere el corpus descargado y su manifiesto ({manifest_path}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     root = manifest_path.parent
     corpus_name = str(manifest.get("corpus", "corpus"))
@@ -100,6 +103,9 @@ def run_derivation_experiment(
     entries = list(manifest.get("entries", []))
     if limit is not None:
         entries = entries[:limit]
+    # Solo cuentan los fallos de las entradas de esta ejecución (#139).
+    considered = {entry["id"] for entry in entries}
+    failures = [item for item in failures if item.get("id") in considered]
 
     results: list[IncipitResult] = []
     skipped_no_pred: list[str] = []
@@ -115,6 +121,15 @@ def run_derivation_experiment(
 
         res = process_pair(eid, pred_file, gt_file)
         results.append(res)
+
+    if not results:
+        # Sin predicciones no hay medición: nada de resultados con ceros (CLAUDE.md §8.1, #139).
+        raise ValueError(
+            f"exp_05 no encontró ninguna predicción en {predictions_dir} para las "
+            f"{len(entries)} entradas de {manifest_path}: ejecuta antes `exp_04` "
+            "(transcripción con HOMR) o indica `--predictions`."
+        )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     # Agregados y distribución global
     total_ops: dict[str, int] = {
@@ -173,20 +188,20 @@ def run_derivation_experiment(
         "transcribed_predictions": len(results),
         "homr_detection_failures": len(failures),
         "homr_detection_failures_treatment": (
-            "9 imágenes no pudieron transcribirse por fallo en la etapa de segmentación "
-            "de pentagramas de HOMR ('Exception: No staffs found'). Se registran en "
-            "data/primus/predictions/failures.json y se excluyen de la derivación simbólica, "
-            "requiriendo intervención en el preprocesamiento de imagen o modelo alternativo."
+            f"{len(skipped_no_pred)} entradas no tienen predicción ({len(failures)} registradas "
+            f"como fallo de HOMR en {failures_file.name}); se excluyen de la derivación simbólica."
         ),
         "structurally_verified_materialization": {
             "verified_count": structurally_equal_count,
             "total_tested": len(results),
             "ratio": round(structurally_equal_count / len(results), 4) if results else 0.0,
-            "unverified_reason": (
-                "2 incipits ('000051794-1_1_1' y '000051800-1_1_1') presentaron fusión de "
-                "compases contiguos por falta de detección de barras de compás en HOMR, "
-                "provocando un número disonante de compases frente al ground truth."
-            ),
+            # Los incipits cuya materialización no reproduce la verdad, de esta ejecución.
+            "unverified_ids": [r.identifier for r in results if not r.structurally_equal],
+            "unverified_measure_mismatch_ids": [
+                r.identifier
+                for r in results
+                if not r.structurally_equal and r.predicted_measures != r.ground_truth_measures
+            ],
         },
         "edit_distribution": total_ops,
         "operation_proportions": proportions,
@@ -208,10 +223,6 @@ def main() -> None:
     parser.add_argument("--predictions", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
-
-    if not args.manifest.is_file():
-        print(f"[exp_05] falta el manifiesto: {args.manifest}")
-        return
 
     summary = run_derivation_experiment(args.manifest, args.predictions, args.limit)
     print(f"[exp_05] analizados {summary['transcribed_predictions']} pares de incipits.")

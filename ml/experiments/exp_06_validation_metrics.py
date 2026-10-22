@@ -46,7 +46,11 @@ def run_validation_experiment(
     predictions_dir: Path | None = None,
     limit: int | None = None,
 ) -> ValidationEvaluationReport:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"exp_06 requiere el corpus descargado y su manifiesto ({manifest_path}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     root = manifest_path.parent
     corpus_name = str(manifest.get("corpus", "corpus"))
@@ -75,6 +79,14 @@ def run_validation_experiment(
         records = evaluate_pair(eid, score_pred, score_gt, validator)
         all_records.extend(records)
 
+    if not all_records:
+        # Sin predicciones no hay medición: nada de resultados con ceros (CLAUDE.md §8.1, #139).
+        raise ValueError(
+            f"exp_06 no encontró ninguna predicción con su verdad de referencia en "
+            f"{predictions_dir} para las {len(entries)} entradas de {manifest_path}: ejecuta "
+            "antes `exp_04` (transcripción con HOMR) o indica `--predictions`."
+        )
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     report = aggregate_validation_metrics(
         all_records, known_rules=validator.rules_version.split(",")
     )
@@ -153,10 +165,6 @@ def main() -> None:
     parser.add_argument("--predictions", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args()
-
-    if not args.manifest.is_file():
-        print(f"[exp_06] falta el manifiesto: {args.manifest}")
-        return
 
     report = run_validation_experiment(args.manifest, args.predictions, args.limit)
     print(

@@ -338,6 +338,9 @@ def test_cli_pipeline_run_end_to_end(tmp_path: Path, populated_db_url: str) -> N
         assert "dataset_hash" in content
         assert "config_hash" in content
         assert "seed" in content
+        if filename != "dataset.json" and filename != "selected.json":
+            # Las métricas de `train` no son mediciones (D14): la marca llega a los tres (#139).
+            assert content["simulated"] is True, filename
 
     # Verificar que el modelo quedó activo en la BD
     engine = create_engine_for_url(populated_db_url)
@@ -492,3 +495,284 @@ def test_cli_train_with_trainer_options(tmp_path: Path, populated_db_url: str) -
     assert rc_auto == 0
     auto_data = json.loads(trained_auto.read_text(encoding="utf-8"))
     assert auto_data["trainer"] in ("FakeTrainer", "PyTorchTrainer")
+
+
+CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "learning" / "default.json"
+
+
+def _artifact(tmp_path: Path, metrics: dict[str, float] | None) -> Path:
+    data: dict[str, object] = {"artifact_hash": "abc", "dataset_hash": "def"}
+    if metrics is not None:
+        data["metrics"] = metrics
+    path = tmp_path / "trained.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_cli_evaluate_fails_without_measured_metrics(tmp_path: Path) -> None:
+    """Sin métricas en el artefacto, manifiesto ni argumentos no hay SER/OMR-NED (#139)."""
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, None)),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def test_cli_evaluate_fails_when_manifest_is_missing(tmp_path: Path) -> None:
+    """Un `--manifest` inexistente es un error, no se ignora en silencio (#139)."""
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(tmp_path / "missing.json"),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def test_cli_evaluate_uses_artifact_metrics(tmp_path: Path) -> None:
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+        ]
+    )
+    assert rc == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["metrics"] == {"ser": 0.05, "omr_ned": 0.04}
+    # Un artefacto sin la marca (anterior a #139) cuenta como no medido.
+    assert data["simulated"] is True
+    assert data["metrics_source"] == {"ser": "artifact", "omr_ned": "artifact"}
+
+
+def test_cli_promote_fails_without_metrics(tmp_path: Path) -> None:
+    """Sin métricas, promote no imputa 0.0 (que superaría cualquier umbral) (#139)."""
+    output = tmp_path / "promoted.json"
+    rc = main(
+        [
+            "promote",
+            "--input",
+            str(_artifact(tmp_path, None)),
+            "--config",
+            str(CONFIG_PATH),
+            "--db-url",
+            f"sqlite:///{(tmp_path / 'registry.db').as_posix()}",
+            "--output",
+            str(output),
+        ]
+    )
+    assert rc == 1
+    assert not output.exists()
+
+
+def test_cli_evaluate_fails_when_manifest_measures_no_success(tmp_path: Path) -> None:
+    """Si el corpus no da ningún éxito, no se usan en su lugar las métricas del artefacto (#139)."""
+    fixture = Path(__file__).parent / "fixtures" / "simple.musicxml"
+    (tmp_path / "mini" / "gt").mkdir(parents=True)
+    (tmp_path / "mini" / "gt" / "s1.musicxml").write_text(
+        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    predictions = tmp_path / "mini" / "predictions"
+    predictions.mkdir()
+    (predictions / "failures.json").write_text(
+        json.dumps([{"id": "s1", "error": "Exception: No staffs found"}]), encoding="utf-8"
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {"corpus": "mini", "entries": [{"id": "s1", "ground_truth": "mini/gt/s1.musicxml"}]}
+        ),
+        encoding="utf-8",
+    )
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(manifest),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def _identity_corpus(tmp_path: Path) -> tuple[Path, Path]:
+    """Corpus de una partitura cuya predicción es idéntica a la verdad: SER y OMR-NED = 0."""
+    fixture = (Path(__file__).parent / "fixtures" / "simple.musicxml").read_text(encoding="utf-8")
+    (tmp_path / "mini" / "gt").mkdir(parents=True)
+    (tmp_path / "mini" / "gt" / "s1.musicxml").write_text(fixture, encoding="utf-8")
+    predictions = tmp_path / "mini" / "predictions"
+    predictions.mkdir()
+    (predictions / "s1.musicxml").write_text(fixture, encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    entries = [{"id": "s1", "ground_truth": "mini/gt/s1.musicxml"}]
+    manifest.write_text(json.dumps({"corpus": "mini", "entries": entries}), encoding="utf-8")
+    return manifest, predictions
+
+
+def test_cli_evaluate_prefers_arguments_then_manifest_over_artifact(tmp_path: Path) -> None:
+    """Prioridad de las métricas: argumentos, medición con --manifest y artefacto (#139)."""
+    manifest, predictions = _identity_corpus(tmp_path)
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(manifest),
+            "--predictions-dir",
+            str(predictions),
+            "--ser",
+            "0.07",
+        ]
+    )
+    assert rc == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["metrics"] == {"ser": 0.07, "omr_ned": 0.0}
+    assert data["metrics_source"] == {"ser": "arguments", "omr_ned": "manifest"}
+    assert data["simulated"] is False
+
+
+def test_cli_trainer_default_metrics_are_marked_simulated_downstream(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    """Las métricas fijas del entrenador salen marcadas en train, evaluate y promote (#139, D14)."""
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    report = tmp_path / "eval.json"
+    promoted = tmp_path / "promoted.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+    rc = main(
+        [
+            "train",
+            "--input",
+            str(dataset),
+            "--output",
+            str(trained),
+            "--artifacts-dir",
+            str(tmp_path / "artifacts"),
+            "--db-url",
+            populated_db_url,
+            "--trainer",
+            "fake",
+        ]
+    )
+    assert rc == 0
+    trained_data = json.loads(trained.read_text(encoding="utf-8"))
+    assert trained_data["simulated"] is True
+    assert trained_data["metrics_source"] == "trainer_default"
+    assert "simulation_warning" in trained_data
+
+    assert main(["evaluate", "--input", str(trained), "--output", str(report)]) == 0
+    report_data = json.loads(report.read_text(encoding="utf-8"))
+    assert report_data["simulated"] is True
+    assert report_data["metrics_source"] == {"ser": "artifact", "omr_ned": "artifact"}
+
+    main(
+        [
+            "promote",
+            "--input",
+            str(trained),
+            "--version",
+            "v-simulada",
+            "--db-url",
+            populated_db_url,
+            "--output",
+            str(promoted),
+            "--allow-rejected",
+        ]
+    )
+    assert json.loads(promoted.read_text(encoding="utf-8"))["simulated"] is True
+
+
+def test_cli_train_metrics_are_never_measurements(tmp_path: Path, populated_db_url: str) -> None:
+    """Con --ser/--omr-ned las métricas del artefacto siguen sin medirse (D14, #139)."""
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+    common_args = [
+        "train",
+        "--input",
+        str(dataset),
+        "--output",
+        str(trained),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db-url",
+        populated_db_url,
+        "--trainer",
+        "fake",
+    ]
+    assert main([*common_args, "--ser", "0.05"]) == 1
+    assert not trained.exists()
+
+    assert main([*common_args, "--ser", "0.05", "--omr-ned", "0.04"]) == 0
+    data = json.loads(trained.read_text(encoding="utf-8"))
+    assert data["simulated"] is True
+    assert data["metrics_source"] == "arguments"
+
+    report = tmp_path / "eval.json"
+    assert (
+        main(["evaluate", "--input", str(trained), "--output", str(report), "--ser", "0.01"]) == 0
+    )
+    mixed = json.loads(report.read_text(encoding="utf-8"))
+    assert mixed["metrics_source"] == {"ser": "arguments", "omr_ned": "artifact"}
+    assert mixed["simulated"] is True
+
+
+def test_cli_promote_marks_artifact_without_flag_as_simulated(tmp_path: Path) -> None:
+    """`promote` no da por medidas las métricas de un artefacto sin la marca (#139)."""
+    output = tmp_path / "promoted.json"
+    rc = main(
+        [
+            "promote",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--version",
+            "v-sin-marca",
+            "--config",
+            str(CONFIG_PATH),
+            "--db-url",
+            f"sqlite:///{(tmp_path / 'registry.db').as_posix()}",
+            "--output",
+            str(output),
+        ]
+    )
+    assert rc == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["simulated"] is True
+    assert "simulation_warning" in result

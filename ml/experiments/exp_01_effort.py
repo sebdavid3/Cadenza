@@ -47,7 +47,7 @@ from ml.experiments.common import (  # noqa: E402
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
+    sample_size_justification,
     write_run_info,
 )
 
@@ -82,6 +82,46 @@ class ScoreEffortSummary:
             "effort_reduction_percent": round(self.effort_reduction_ratio * 100, 2),
             "missed_errors_count": self.missed_errors_count,
         }
+
+
+def _missed_errors_interpretation(
+    *,
+    missed_operations: dict[str, int],
+    fn_missed: int,
+    measures_with_real_errors: int,
+    baseline_inspections: int,
+    assisted_inspections: int,
+) -> str:
+    """Resume los errores que escapan al validador solo con lo medido (CLAUDE.md §8.1, #139)."""
+    if baseline_inspections == 0:
+        return "No se evaluó ningún compás: no hay esfuerzo ni errores que resumir."
+    reduction = 1.0 - assisted_inspections / baseline_inspections
+    if measures_with_real_errors == 0:
+        return (
+            f"Ningún compás tiene error real en esta muestra, así que la tasa de errores sin "
+            f"revisar no está definida. El validador ahorra el {reduction * 100:.2f}% de las "
+            f"inspecciones ({baseline_inspections} manuales frente a {assisted_inspections} "
+            "asistidas)."
+        )
+    missed_rate = fn_missed / measures_with_real_errors
+    text = (
+        f"El {missed_rate * 100:.2f}% de los compases con error real escapan al validador "
+        f"({fn_missed} de {measures_with_real_errors})."
+    )
+    total_ops = sum(missed_operations.values())
+    if total_ops:
+        ranked = sorted(missed_operations.items(), key=lambda item: (-item[1], item[0]))
+        shares = ", ".join(f"{op} {count} ({count / total_ops * 100:.2f}%)" for op, count in ranked)
+        text += f" Operaciones de corrección en esos compases: {shares}."
+    text += (
+        f" El validador ahorra el {reduction * 100:.2f}% de las inspecciones "
+        f"({baseline_inspections} manuales frente a {assisted_inspections} asistidas)."
+    )
+    if fn_missed:
+        text += " Los compases que no señala solo se corrigen con inspección humana (HITL)."
+    else:
+        text += " En esta muestra señala todos los compases con error real."
+    return text
 
 
 def _run_real_primus(
@@ -151,6 +191,14 @@ def _run_real_primus(
                 effort_reduction_ratio=s_reduction,
                 missed_errors_count=s_fn,
             )
+        )
+
+    if not score_summaries:
+        # Sin predicciones no hay medición: nada de resultados con ceros (CLAUDE.md §8.1).
+        raise ValueError(
+            f"exp_01 no encontró ninguna predicción utilizable en {predictions_dir} para las "
+            f"{len(entries)} entradas de {manifest_path}: ejecuta antes `exp_04` "
+            "(transcripción con HOMR) o indica `--predictions`."
         )
 
     # Agregados globales
@@ -241,20 +289,29 @@ def _run_real_primus(
         "missed_errors_breakdown": {
             "by_operation": missed_operations,
             "by_category": missed_categories,
-            "scientific_interpretation": (
-                f"El {missed_error_rate * 100:.2f}% de los compases con error real escapan al "
-                f"validador ({fn_missed} de {measures_with_real_errors}). "
-                "La inmensa mayoría corresponden a errores de altura (SetPitch) y "
-                "alteración (SetAccidental) que se encuentran dentro de tesitura y "
-                "tonalidad sin violar ninguna regla gramatical. Esto demuestra que el "
-                "validador es un filtro de esfuerzo eficiente "
-                f"(ahorra {effort_reduction_ratio * 100:.2f}% de inspecciones: "
-                f"{baseline_inspections} manuales vs {assisted_inspections} asistidos), "
-                "pero requiere necesariamente la inspección humana (HITL) asistida por "
-                "aprendizaje activo para alcanzar fidelidad perfecta."
+            "scientific_interpretation": _missed_errors_interpretation(
+                missed_operations=missed_operations,
+                fn_missed=fn_missed,
+                measures_with_real_errors=measures_with_real_errors,
+                baseline_inspections=baseline_inspections,
+                assisted_inspections=assisted_inspections,
             ),
         },
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
+        "sample_size_justification": sample_size_justification(
+            corpus_name,
+            counts={
+                "entries_considered": len(entries),
+                "transcribed_scores": len(score_summaries),
+                "skipped_scores": len(skipped_no_pred),
+                "total_measures": total_measures,
+                "measures_with_errors": measures_with_real_errors,
+            },
+            proportions={
+                "measures_with_real_errors": (measures_with_real_errors, total_measures),
+                "assisted_inspections": (assisted_inspections, total_measures),
+                "missed_errors": (fn_missed, measures_with_real_errors),
+            },
+        ),
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
         "run_info": run_info,
         "csv_by_score": str(csv_path),

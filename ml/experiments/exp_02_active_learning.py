@@ -55,8 +55,8 @@ from ml.experiments.common import (  # noqa: E402
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
     build_real_training_pool,
+    sample_size_justification,
     write_run_info,
 )
 
@@ -258,13 +258,24 @@ def run(
             f"exp_02 no obtuvo ninguna muestra real a partir de {manifest}: faltan las "
             "predicciones de HOMR (`exp_04`) o ningún par predicción-verdad es legible."
         )
-    corpus_name = str(json.loads(manifest.read_text(encoding="utf-8")).get("corpus", "corpus"))
+    manifest_data = json.loads(manifest.read_text(encoding="utf-8"))
+    corpus_name = str(manifest_data.get("corpus", "corpus"))
+    entries = list(manifest_data.get("entries", []))
     summary = _evaluate_pool(pool, seed=seed, manifest_path=manifest)
     return {
         "experiment": "exp_02_active_learning",
         "mode": f"real_data_{corpus_name}",
         "simulated": False,
         **summary,
+        "sample_size_justification": sample_size_justification(
+            corpus_name,
+            counts={
+                "entries_considered": len(entries if limit is None else entries[:limit]),
+                "scores_with_edits": len({sample.document_id for sample in pool}),
+                "derived_edits_count": len(pool),
+            },
+            worst_case={"derived_edits": len(pool)},
+        ),
     }
 
 
@@ -355,7 +366,6 @@ def _evaluate_pool(
         "scientific_interpretation": _measured_interpretation(
             canonical_evals, jaccard_matrix, pool_size=len(pool)
         ),
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
         "run_info": run_info,
         "csv_output": str(csv_path),

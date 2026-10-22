@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import math
 import random
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,11 +31,132 @@ def test_run_info_generation(tmp_path: Path) -> None:
     assert info["manifest_sha256"] != ""
 
 
+def _piano_corpus(tmp_path: Path, *, with_predictions: bool = True) -> tuple[Path, Path]:
+    """Corpus de una partitura cuya predicción cambia una altura de la verdad de referencia."""
+    piano = REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "piano.musicxml"
+    piano_xml = piano.read_text(encoding="utf-8")
+    gt_dir = tmp_path / "mini" / "gt"
+    preds_dir = tmp_path / "mini" / "predictions"
+    gt_dir.mkdir(parents=True)
+    preds_dir.mkdir(parents=True)
+    (gt_dir / "p1.musicxml").write_text(piano_xml, encoding="utf-8")
+    if with_predictions:
+        (preds_dir / "p1.musicxml").write_text(
+            piano_xml.replace("<step>G</step>", "<step>A</step>"), encoding="utf-8"
+        )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {"corpus": "mini", "entries": [{"id": "p1", "ground_truth": "mini/gt/p1.musicxml"}]}
+        ),
+        encoding="utf-8",
+    )
+    return manifest, preds_dir
+
+
+def test_sample_size_justification_derives_standard_errors_from_counts() -> None:
+    """El error estándar se calcula con los N de la ejecución, no se escribe a mano (#139)."""
+    justification = common.sample_size_justification(
+        "mini",
+        counts={"total_measures": 50},
+        proportions={"measures_with_real_errors": (20, 50)},
+        worst_case={"derived_edits": 25},
+    )
+    assert justification["corpus"] == "mini"
+    assert justification["total_measures"] == 50
+
+    observed = justification["standard_errors"]["measures_with_real_errors"]
+    assert observed["proportion"] == 0.4
+    assert observed["standard_error"] == round(math.sqrt(0.4 * 0.6 / 50), 4)
+    assert justification["standard_errors"]["derived_edits"]["worst_case_standard_error"] == 0.1
+
+    text = justification["statistical_power"]
+    assert "N = 50" in text and "N = 25" in text
+    assert "independencia" in justification["assumptions"]
+    assert "544" not in text and "359" not in text
+
+
+def test_sample_size_justification_without_observations_estimates_nothing() -> None:
+    justification = common.sample_size_justification(
+        "mini", counts={"total_measures": 0}, proportions={"x": (0, 0)}
+    )
+    assert justification["standard_errors"]["x"] is None
+    assert "Sin observaciones" in justification["statistical_power"]
+
+
+def test_methodological_limitations_contain_no_figures() -> None:
+    """Las limitaciones comunes no llevan recuentos fijos de una ejecución concreta (#139)."""
+    for key, text in common.METHODOLOGICAL_LIMITATIONS.items():
+        assert not any(ch.isdigit() for ch in text), key
+
+
 def test_exp_01_fails_without_corpus(tmp_path: Path) -> None:
     """Sin corpus no hay resultado de reserva: el experimento falla (CLAUDE.md §8.1)."""
     missing = tmp_path / "manifest.json"
     with pytest.raises(FileNotFoundError, match="corpus PrIMuS"):
         exp_01_effort.run(manifest_path=missing)
+
+
+def test_exp_01_fails_without_usable_predictions(tmp_path: Path) -> None:
+    """Un manifiesto sin predicciones no produce un resultado con ceros (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path, with_predictions=False)
+    with pytest.raises(ValueError, match="ninguna predicción"):
+        exp_01_effort.run(manifest_path=manifest, predictions_dir=preds_dir)
+    assert not (common.RESULTS_DIR / "effort_comparison_by_score.csv").exists()
+
+
+def test_exp_01_reports_counts_and_interpretation_of_this_run(tmp_path: Path) -> None:
+    """Justificación muestral e interpretación salen de lo medido en la ejecución (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    res = exp_01_effort.run(manifest_path=manifest, predictions_dir=preds_dir)
+
+    justification = res["sample_size_justification"]
+    effort = res["inspection_effort"]
+    tradeoff = res["error_detection_and_tradeoff"]
+    assert justification["corpus"] == "mini"
+    assert justification["entries_considered"] == 1
+    assert justification["transcribed_scores"] == 1
+    assert justification["total_measures"] == effort["total_measures"]
+    assert justification["measures_with_errors"] == tradeoff["measures_with_real_errors"]
+
+    text = res["missed_errors_breakdown"]["scientific_interpretation"]
+    assert "inmensa mayoría" not in text
+    assert f"{effort['baseline_inspections_manual']} manuales" in text
+    assert f"{effort['assisted_inspections_validator']} asistidas" in text
+
+
+def test_exp_01_interpretation_lists_missed_operations_by_count() -> None:
+    """El desglose de la interpretación es el de `missed_operations`, ordenado (#139)."""
+    text = exp_01_effort._missed_errors_interpretation(
+        missed_operations={"SetPitch": 2, "SetAccidental": 6},
+        fn_missed=5,
+        measures_with_real_errors=10,
+        baseline_inspections=40,
+        assisted_inspections=12,
+    )
+    assert "5 de 10" in text
+    assert text.index("SetAccidental 6") < text.index("SetPitch 2")
+    assert "75.00%" in text and "25.00%" in text
+    assert "inspección humana" in text
+
+    clean = exp_01_effort._missed_errors_interpretation(
+        missed_operations={},
+        fn_missed=0,
+        measures_with_real_errors=3,
+        baseline_inspections=10,
+        assisted_inspections=3,
+    )
+    assert "todos los compases con error real" in clean
+
+    undefined = exp_01_effort._missed_errors_interpretation(
+        missed_operations={},
+        fn_missed=0,
+        measures_with_real_errors=0,
+        baseline_inspections=10,
+        assisted_inspections=4,
+    )
+    assert "no está definida" in undefined
+    assert "0 de 0" not in undefined and "todos los compases" not in undefined
 
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
@@ -121,6 +244,30 @@ def test_exp_02_interpretation_reports_ties_when_pool_fits_budget() -> None:
     assert "'uncertainty', 'diversity', 'hybrid', 'random'" in text
 
 
+def test_exp_02_sample_size_comes_from_the_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La justificación muestral de exp_02 cuenta el pool de la ejecución (#139)."""
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps({"corpus": "mini", "entries": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}),
+        encoding="utf-8",
+    )
+    pool = _test_pool(size=30)
+    monkeypatch.setattr(
+        exp_02_active_learning, "build_real_training_pool", lambda *args, **kwargs: pool
+    )
+
+    res = exp_02_active_learning.run(manifest_path=manifest, limit=2)
+    justification = res["sample_size_justification"]
+    assert justification["corpus"] == "mini"
+    assert justification["entries_considered"] == 2
+    assert justification["scores_with_edits"] == 1
+    assert justification["derived_edits_count"] == res["pool_size"] == 30
+    assert justification["standard_errors"]["derived_edits"]["n"] == 30
+    assert "544" not in json.dumps(justification)
+
+
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
 def test_exp_02_real_data_criteria_and_jaccard() -> None:
     # Usar el pool generado sobre datos reales
@@ -142,15 +289,127 @@ def test_exp_02_real_data_criteria_and_jaccard() -> None:
     assert jaccard_hyb_unc < 1.0
 
 
-def test_exp_03_smoke_and_penalization(tmp_path: Path) -> None:
-    res = exp_03_omr_quality._measure_smoke(tmp_path)
-    assert res["experiment"] == "exp_03_omr_quality"
-    assert res["mode"] == "smoke"
-    assert res["total_evaluated"] == 1
-    assert res["failures_count"] == 0
-    assert res["failure_rate"] == 0.0
-    assert "mean_ser" in res["metrics_on_successes"]
-    assert "mean_ser_penalized" in res["metrics_penalized_with_failures"]
+def test_exp_03_fails_without_manifest_and_keeps_run_info(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sin corpus no hay modo de prueba ni se sobrescribe el run_info real (#139)."""
+    missing = tmp_path / "manifest.json"
+    with pytest.raises(FileNotFoundError, match="corpus"):
+        exp_03_omr_quality.run(missing, None, None)
+
+    monkeypatch.setattr(sys, "argv", ["exp_03_omr_quality.py", "--manifest", str(missing)])
+    with pytest.raises(FileNotFoundError, match="corpus"):
+        exp_03_omr_quality.main()
+    assert not (common.RESULTS_DIR / "exp_03_run_info.json").exists()
+
+
+def test_exp_03_fails_without_any_transcription_evidence(tmp_path: Path) -> None:
+    """Sin predicciones ni fallos registrados por exp_04 no se imputa un 100 % de fallos (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path, with_predictions=False)
+    with pytest.raises(ValueError, match="exp_04"):
+        exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+
+
+def test_exp_03_sample_size_comes_from_this_run(tmp_path: Path) -> None:
+    """La justificación muestral usa los recuentos de la ejecución (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    res = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    justification = res["sample_size_justification"]
+    assert justification["corpus"] == "mini"
+    assert justification["entries_considered"] == res["total_evaluated"] == 1
+    assert justification["successful_transcriptions"] == res["successes_count"] == 1
+    assert justification["failed_transcriptions"] == res["failures_count"] == 0
+    assert justification["standard_errors"]["failure_rate"]["n"] == 1
+
+
+def _write_omr_cache(predicted: Path, ground_truth: Path) -> Path:
+    """CSV de caché de exp_03 con una fila de éxito de valores imposibles de medir aquí."""
+    cache = common.RESULTS_DIR / "omr_baseline.csv"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    row = dict.fromkeys(exp_03_omr_quality.CSV_FIELDS, "")
+    row.update(
+        id="p1",
+        status="success",
+        predicted=str(predicted),
+        ground_truth=str(ground_truth),
+        predicted_symbols="10",
+        ground_truth_symbols="10",
+        edit_distance="9",
+        omr_ned="0.9999",
+        pred_ser_symbols="10",
+        gt_ser_symbols="10",
+        ser_edit_distance="9",
+        ser="0.9999",
+        predicted_sha256=common.sha256_of_file(predicted),
+        ground_truth_sha256=common.sha256_of_file(ground_truth),
+    )
+    lines = [",".join(exp_03_omr_quality.CSV_FIELDS), ",".join(row.values())]
+    cache.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return cache
+
+
+def test_exp_03_reuses_cache_only_for_the_same_prediction_content(tmp_path: Path) -> None:
+    """La caché vale si la predicción y la verdad no cambiaron de contenido (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    prediction = preds_dir / "p1.musicxml"
+    ground_truth = tmp_path / "mini" / "gt" / "p1.musicxml"
+
+    _write_omr_cache(prediction, ground_truth)
+    cached = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    assert cached["metrics_on_successes"]["mean_omr_ned"] == 0.9999
+
+    # Otra predicción en la misma ruta y con la misma fecha (p. ej. copiada con `copy2`).
+    import os
+
+    original = prediction.read_text(encoding="utf-8")
+    stamp = prediction.stat().st_mtime
+    prediction.write_text(original.replace("<step>A</step>", "<step>B</step>"), encoding="utf-8")
+    os.utime(prediction, (stamp, stamp))
+    other = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    assert other["metrics_on_successes"]["mean_omr_ned"] != 0.9999
+
+    # Otra verdad de referencia con la misma predicción.
+    prediction.write_text(original, encoding="utf-8")
+    _write_omr_cache(prediction, ground_truth)
+    ground_truth.write_text(ground_truth.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    regenerated_gt = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    assert regenerated_gt["metrics_on_successes"]["mean_omr_ned"] != 0.9999
+
+
+def test_exp_03_does_not_reuse_a_cache_without_content_hashes(tmp_path: Path) -> None:
+    """Un CSV anterior a #139 (sin sha256) no se reutiliza: se mide de nuevo."""
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    prediction = preds_dir / "p1.musicxml"
+    cache = _write_omr_cache(prediction, tmp_path / "mini" / "gt" / "p1.musicxml")
+    old_fields = [f for f in exp_03_omr_quality.CSV_FIELDS if not f.endswith("_sha256")]
+    header, row = cache.read_text(encoding="utf-8").splitlines()
+    values = dict(zip(header.split(","), row.split(","), strict=True))
+    cache.write_text(
+        ",".join(old_fields) + "\n" + ",".join(values[f] for f in old_fields) + "\n",
+        encoding="utf-8",
+    )
+    res = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    assert res["metrics_on_successes"]["mean_omr_ned"] != 0.9999
+
+
+def test_exp_03_fails_when_some_entries_were_never_transcribed(tmp_path: Path) -> None:
+    """Una entrada sin predicción ni fallo registrado no se cuenta como fallo de HOMR (#139)."""
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["entries"].append({"id": "p2", "ground_truth": "mini/gt/p1.musicxml"})
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"1 de 2 entradas"):
+        exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+
+    (preds_dir / "failures.json").write_text(
+        json.dumps([{"id": "p2", "error": "Exception: No staffs found"}]), encoding="utf-8"
+    )
+    res = exp_03_omr_quality.run(manifest, preds_dir, None, write_results=False)
+    assert res["failures_count"] == 1
+    assert res["failures_detail"] == [{"id": "p2", "error": "Exception: No staffs found"}]
+    ned = res["metrics_on_successes"]["mean_omr_ned"]
+    penalized = res["metrics_penalized_with_failures"]["mean_omr_ned_penalized"]
+    assert penalized == round((ned + 1.0) / 2, 4)
 
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
@@ -556,6 +815,38 @@ def test_exp_09_multicorpus_smoke() -> None:
     assert res["simulated"] is True
 
 
+def test_exp_09_has_no_primus_fallback_figures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sin resumen de exp_03, exp_09 no rellena PrIMuS con cifras fijas (#139)."""
+    from ml.experiments import exp_09_multicorpus_evaluation
+
+    monkeypatch.setattr(
+        exp_09_multicorpus_evaluation, "PRIMUS_SUMMARY_FILE", tmp_path / "missing.json"
+    )
+    res = exp_09_multicorpus_evaluation.run_multicorpus_experiment(smoke=True, write_results=False)
+    assert res["simulated"] is True
+    assert res["corpora_evaluated"]["primus"]["summary"] is None
+    assert "91 de 100" not in res["comparative_analysis"]["homr_adaptation"]
+
+    other_corpus = tmp_path / "otro.json"
+    other_corpus.write_text(
+        json.dumps({"corpus": "smb", "successes_count": 1, "total_evaluated": 2}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(exp_09_multicorpus_evaluation, "PRIMUS_SUMMARY_FILE", other_corpus)
+    other = exp_09_multicorpus_evaluation.run_multicorpus_experiment(
+        smoke=True, write_results=False
+    )
+    assert other["corpora_evaluated"]["primus"]["summary"] is None
+    assert "1 de 2" not in other["comparative_analysis"]["homr_adaptation"]
+
+    smb = res["corpora_evaluated"]["smb"]["omr_quality"]
+    justification = res["sample_size_justification"]
+    assert justification["smb_pairs_evaluated"] == smb["total_evaluated"]
+    assert justification["smb_failures"] == smb["failures_count"]
+
+
 def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:
     # Preparar predicción y GT de SMB usando piano.musicxml
     piano_xml = (
@@ -588,6 +879,56 @@ def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:
     assert res["mode"] == "real_data_smb"
     assert res["corpus"] == "smb"
     assert res["inspection_effort"]["total_measures"] == 4  # 2 staves * 2 measures
+
+
+def test_exp_05_and_exp_06_fail_without_corpus_or_predictions(tmp_path: Path) -> None:
+    """Sin manifiesto o sin predicciones no escriben resultados con ceros (#139)."""
+    from ml.experiments import exp_05_edit_derivation, exp_06_validation_metrics
+
+    missing = tmp_path / "missing.json"
+    with pytest.raises(FileNotFoundError, match="manifiesto"):
+        exp_05_edit_derivation.run_derivation_experiment(missing)
+    with pytest.raises(FileNotFoundError, match="manifiesto"):
+        exp_06_validation_metrics.run_validation_experiment(missing)
+
+    manifest, preds_dir = _piano_corpus(tmp_path, with_predictions=False)
+    with pytest.raises(ValueError, match="ninguna predicción"):
+        exp_05_edit_derivation.run_derivation_experiment(manifest, preds_dir)
+    with pytest.raises(ValueError, match="ninguna predicción"):
+        exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir)
+    assert not (common.RESULTS_DIR / "primus_edit_distribution.json").exists()
+    assert not (common.RESULTS_DIR / "validation_metrics_summary.json").exists()
+
+
+def test_exp_05_reports_failures_and_unverified_ids_of_this_run(tmp_path: Path) -> None:
+    """Fallos e incipits sin verificar salen de la ejecución, no de una lista fija (#139)."""
+    from ml.experiments import exp_05_edit_derivation
+
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    summary = exp_05_edit_derivation.run_derivation_experiment(manifest, preds_dir)
+    verification = summary["structurally_verified_materialization"]
+    assert verification["total_tested"] == 1
+    assert len(verification["unverified_ids"]) == 1 - verification["verified_count"]
+    text = json.dumps(summary, ensure_ascii=False)
+    assert "000051794" not in text and "9 imágenes" not in text
+    assert summary["homr_detection_failures"] == 0
+
+
+def test_exp_05_counts_only_failures_of_the_entries_considered(tmp_path: Path) -> None:
+    """Los fallos de `failures.json` ajenos a las entradas de la ejecución no cuentan (#139)."""
+    from ml.experiments import exp_05_edit_derivation
+
+    manifest, preds_dir = _piano_corpus(tmp_path)
+    data = json.loads(manifest.read_text(encoding="utf-8"))
+    data["entries"].append({"id": "p2", "ground_truth": "mini/gt/p1.musicxml"})
+    manifest.write_text(json.dumps(data), encoding="utf-8")
+    (preds_dir / "failures.json").write_text(
+        json.dumps([{"id": "p2", "error": "x"}, {"id": "ajena", "error": "y"}]), encoding="utf-8"
+    )
+    summary = exp_05_edit_derivation.run_derivation_experiment(manifest, preds_dir)
+    assert summary["homr_detection_failures"] == 1
+    assert summary["homr_detection_failures_treatment"].startswith("1 entradas no tienen")
+    assert "(1 registradas" in summary["homr_detection_failures_treatment"]
 
 
 def test_exp_06_validation_smb_custom_manifest(tmp_path: Path) -> None:
