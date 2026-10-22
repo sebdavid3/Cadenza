@@ -42,8 +42,8 @@ from ml.experiments.common import (  # noqa: E402
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
     get_run_info,
+    sample_size_justification,
     write_run_info,
 )
 
@@ -87,6 +87,17 @@ def _load_primus_summary() -> dict[str, Any] | None:
         except Exception:
             return None
     return None
+
+
+def _homr_adaptation(primus_data: dict[str, Any] | None) -> str:
+    """Describe lo medido de HOMR a partir del resumen de exp_03, sin cifras propias (#139)."""
+    unmeasured = "Su comportamiento sobre SMB (piano) y MUSCIMA++ (manuscrito) no está medido."
+    if primus_data and "successes_count" in primus_data and "total_evaluated" in primus_data:
+        return (
+            f"Medido solo sobre PrIMuS (exp_03): HOMR transcribe {primus_data['successes_count']} "
+            f"de {primus_data['total_evaluated']} incipits monofónicos impresos. {unmeasured}"
+        )
+    return f"Medido solo sobre PrIMuS (ver exp_03; su resumen no está disponible). {unmeasured}"
 
 
 def get_muscima_structural_analysis() -> dict[str, Any]:
@@ -288,7 +299,9 @@ def run_multicorpus_experiment(
 ) -> dict[str, Any]:
     """Ejecuta el protocolo de evaluación multi-corpus sobre SMB y MUSCIMA++."""
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    primus_data = _load_primus_summary()
+    loaded = _load_primus_summary()
+    # Solo un resumen de exp_03 sobre PrIMuS describe la línea base de PrIMuS (#139).
+    primus_data = loaded if loaded and loaded.get("corpus") == "primus" else None
 
     with tempfile.TemporaryDirectory(prefix="cadenza-exp09-") as tmp_dir:
         tmp_path = Path(tmp_dir)
@@ -319,13 +332,8 @@ def run_multicorpus_experiment(
             "corpora_evaluated": {
                 "primus": {
                     "role": "Línea base monofónica impresa de referencia (87.678 incipits)",
-                    "summary": primus_data
-                    or {
-                        "total_evaluated": 100,
-                        "failure_rate": 0.09,
-                        "mean_omr_ned_penalized": 0.2979,
-                        "mean_ser_penalized": 0.1923,
-                    },
+                    # Medido por exp_03; sin su resumen no se rellena con cifras fijas (#139).
+                    "summary": primus_data,
                 },
                 "smb": {
                     "role": "Partituras de piano de página completa / 2 pentagramas (685 páginas)",
@@ -343,11 +351,7 @@ def run_multicorpus_experiment(
                     "PrIMuS (monofónico impreso) < SMB (piano 2 pentagramas impreso) "
                     "< MUSCIMA++ (manuscrito no estructurado)"
                 ),
-                "homr_adaptation": (
-                    "Medido solo sobre PrIMuS: HOMR transcribe 91 de 100 incipits monofónicos "
-                    "impresos. Su comportamiento sobre SMB (piano) y MUSCIMA++ (manuscrito) "
-                    "no está medido."
-                ),
+                "homr_adaptation": _homr_adaptation(primus_data),
                 "scope_recommendation": (
                     "Mantener PrIMuS y SMB como benchmarks evaluables del prototipo actual, "
                     "restringiendo la arquitectura a una imagen por sesión sin paginación "
@@ -355,7 +359,16 @@ def run_multicorpus_experiment(
                     "posteriores de investigación."
                 ),
             },
-            "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
+            "sample_size_justification": sample_size_justification(
+                "smb_simulado",
+                counts={
+                    "smb_pairs_evaluated": smb_omr["total_evaluated"],
+                    "smb_failures": smb_omr["failures_count"],
+                },
+                proportions={
+                    "smb_failure_rate": (smb_omr["failures_count"], smb_omr["total_evaluated"])
+                },
+            ),
             "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
             "run_info": (
                 write_run_info("exp_09", seed=seed)

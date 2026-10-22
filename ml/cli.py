@@ -190,6 +190,12 @@ def select_command(args: argparse.Namespace) -> int:
 # COMANDO 3: train
 # =============================================================================
 
+SIMULATED_METRICS_WARNING = (
+    "Métricas no medidas sobre el modelo entrenado: el entrenador no evalúa el modelo, porque "
+    "el ajuste fino real no existe (D14, #103). Son sus valores fijos o los de --ser/--omr-ned. "
+    "No citar como resultado (CLAUDE.md §8.2)."
+)
+
 
 def train_command(args: argparse.Namespace) -> int:
     input_path = Path(args.input)
@@ -211,6 +217,9 @@ def train_command(args: argparse.Namespace) -> int:
     ser_override = float(args.ser) if args.ser is not None else None
     omr_ned_override = float(args.omr_ned) if args.omr_ned is not None else None
 
+    if (ser_override is None) != (omr_ned_override is None):
+        print("Error: --ser y --omr-ned se indican juntos o ninguno de los dos.", file=sys.stderr)
+        return 1
     trainer_metrics = None
     if ser_override is not None and omr_ned_override is not None:
         trainer_metrics = EvaluationMetrics(ser=ser_override, omr_ned=omr_ned_override)
@@ -258,6 +267,10 @@ def train_command(args: argparse.Namespace) -> int:
             "omr_ned": trained_artifact.metrics.omr_ned,
         },
         "samples_count": len(samples),
+        "metrics_source": "arguments" if trainer_metrics is not None else "trainer_default",
+        # Ningún entrenador evalúa el modelo que produce (D14): sus métricas nunca son medidas.
+        "simulated": True,
+        "simulation_warning": SIMULATED_METRICS_WARNING,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
 
@@ -292,35 +305,70 @@ def evaluate_command(args: argparse.Namespace) -> int:
     config = load_job_config(config_path)
     artifact_data = json.loads(input_path.read_text(encoding="utf-8"))
 
-    raw_metrics = artifact_data.get("metrics", {})
-    ser = float(args.ser if args.ser is not None else raw_metrics.get("ser", 0.1))
-    omr_ned = float(args.omr_ned if args.omr_ned is not None else raw_metrics.get("omr_ned", 0.08))
+    # Prioridad: argumentos, métricas medidas con --manifest y métricas del artefacto.
+    # Sin ninguna de ellas no hay evaluación: nada de valores de reserva (CLAUDE.md §8.1, #139).
+    metrics: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    for name, value in (("ser", args.ser), ("omr_ned", args.omr_ned)):
+        if value is not None:
+            metrics[name], sources[name] = float(value), "arguments"
 
-    # Si se especifica un manifest de evaluación, computar métricas empíricas reales
-    if getattr(args, "manifest", None) and Path(args.manifest).is_file():
+    if getattr(args, "manifest", None) and len(metrics) < 2:
         from ml.experiments.exp_03_omr_quality import run as run_exp_03
 
         manifest_path = Path(args.manifest)
+        if not manifest_path.is_file():
+            print(
+                f"Error: No se encontró el manifest de evaluación en '{manifest_path}'",
+                file=sys.stderr,
+            )
+            return 1
         preds_dir = Path(args.predictions_dir) if getattr(args, "predictions_dir", None) else None
-        exp_summary = run_exp_03(
-            manifest_path,
-            predictions=preds_dir,
-            limit=None,
-            write_results=False,
-        )
+        try:
+            exp_summary = run_exp_03(
+                manifest_path,
+                predictions=preds_dir,
+                limit=None,
+                write_results=False,
+            )
+        except (FileNotFoundError, ValueError, KeyError, RuntimeError) as exc:
+            print(f"Error: no se pudieron medir las métricas con exp_03: {exc}", file=sys.stderr)
+            return 1
         if getattr(args, "penalized", False):
-            m_block = exp_summary.get("metrics_penalized_with_failures", {})
-            m_ser = m_block.get("mean_ser_penalized")
-            m_ned = m_block.get("mean_omr_ned_penalized")
+            m_block = exp_summary["metrics_penalized_with_failures"]
+            measured = {
+                "ser": m_block["mean_ser_penalized"],
+                "omr_ned": m_block["mean_omr_ned_penalized"],
+            }
         else:
-            m_block = exp_summary.get("metrics_on_successes", {})
-            m_ser = m_block.get("mean_ser")
-            m_ned = m_block.get("mean_omr_ned")
+            m_block = exp_summary["metrics_on_successes"]
+            measured = {"ser": m_block["mean_ser"], "omr_ned": m_block["mean_omr_ned"]}
+        for name, value in measured.items():
+            if name not in metrics and value is not None:
+                metrics[name], sources[name] = float(value), "manifest"
+        if len(metrics) < 2:
+            print(
+                f"Error: '{manifest_path}' no produjo SER y OMR-NED (ninguna transcripción "
+                "con éxito); no se sustituyen por las métricas del artefacto.",
+                file=sys.stderr,
+            )
+            return 1
 
-        if m_ser is not None and args.ser is None:
-            ser = float(m_ser)
-        if m_ned is not None and args.omr_ned is None:
-            omr_ned = float(m_ned)
+    raw_metrics = artifact_data.get("metrics") or {}
+    for name in ("ser", "omr_ned"):
+        if name not in metrics and raw_metrics.get(name) is not None:
+            metrics[name], sources[name] = float(raw_metrics[name]), "artifact"
+    if len(metrics) < 2:
+        print(
+            "Error: Faltan SER u OMR-NED: no vienen en --ser/--omr-ned, no se indicó --manifest "
+            "y el artefacto no las trae.",
+            file=sys.stderr,
+        )
+        return 1
+    ser, omr_ned = metrics["ser"], metrics["omr_ned"]
+    # Las métricas de `train` no son mediciones (D14): la marca se propaga, y un artefacto
+    # sin ella (anterior a #139) también cuenta como no medido.
+    simulated = "artifact" in sources.values() and bool(artifact_data.get("simulated", True))
 
     threshold = config.promotion_threshold
     meets_threshold = bool(ser <= threshold.max_ser and omr_ned <= threshold.max_omr_ned)
@@ -339,8 +387,12 @@ def evaluate_command(args: argparse.Namespace) -> int:
             "max_omr_ned": threshold.max_omr_ned,
         },
         "meets_threshold": meets_threshold,
+        "metrics_source": sources,
+        "simulated": simulated,
         "evaluated_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
+    if simulated:
+        report["simulation_warning"] = SIMULATED_METRICS_WARNING
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -374,9 +426,16 @@ def promote_command(args: argparse.Namespace) -> int:
         config = load_job_config(config_path)
 
     data = json.loads(input_path.read_text(encoding="utf-8"))
-    raw_metrics = data.get("metrics", {})
-    ser = float(raw_metrics.get("ser", 0.0))
-    omr_ned = float(raw_metrics.get("omr_ned", 0.0))
+    raw_metrics = data.get("metrics") or {}
+    if raw_metrics.get("ser") is None or raw_metrics.get("omr_ned") is None:
+        # Imputar 0.0 superaría cualquier umbral: sin métricas no se promueve (#139).
+        print(
+            f"Error: '{input_path}' no trae las métricas SER y OMR-NED que exige la promoción.",
+            file=sys.stderr,
+        )
+        return 1
+    ser = float(raw_metrics["ser"])
+    omr_ned = float(raw_metrics["omr_ned"])
 
     artifact_hash = str(data.get("artifact_hash", ""))
     dataset_h = str(data.get("dataset_hash", ""))
@@ -459,8 +518,11 @@ def promote_command(args: argparse.Namespace) -> int:
         "metrics": {"ser": ser, "omr_ned": omr_ned},
         "threshold": {"max_ser": max_ser, "max_omr_ned": max_omr_ned},
         "active_model_version": active_ver.version if active_ver else None,
+        "simulated": bool(data.get("simulated", True)),
         "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
     }
+    if result["simulated"]:
+        result["simulation_warning"] = SIMULATED_METRICS_WARNING
     output_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     if not promoted_ok:
@@ -540,12 +602,14 @@ def run_command(args: argparse.Namespace) -> int:
 
     # 4. evaluate
     print("\n--- PASO 4: evaluate ---")
+    # Las métricas de --ser/--omr-ned ya van en el artefacto de `train`, con su marca de
+    # simuladas; evaluarlas desde él propaga esa marca al informe (#139).
     e_args = argparse.Namespace(
         input=str(trained_path),
         config=args.config,
         output=str(eval_path),
-        ser=args.ser,
-        omr_ned=args.omr_ned,
+        ser=None,
+        omr_ned=None,
     )
     rc = evaluate_command(e_args)
     if rc != 0:
