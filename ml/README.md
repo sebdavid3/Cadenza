@@ -21,8 +21,8 @@ data/                              # Corpus descargado (ignorado por git)
 ## Ejecución
 
 ```powershell
-uv run python ml/experiments/exp_01_effort.py
-uv run python ml/experiments/exp_02_active_learning.py
+uv run --no-sync python ml/experiments/exp_01_effort.py
+uv run --no-sync python ml/experiments/exp_02_active_learning.py
 ```
 
 ## Experimentos
@@ -45,14 +45,21 @@ errores reales que quedan sin revisar y su desglose por tipo de operación.
 
 ### `exp_02_active_learning.py` — Estrategias de adquisición
 
-Construye un pool de 80 muestras con `DatasetBuilder`, les asigna señales
-simuladas de `error_density` y `correction_magnitude`, y muestrea un lote de 5 con
-`UncertaintyAcquisition`, `DiversityAcquisition` y `HybridAcquisition`.
+Construye el pool de muestras a partir de los errores reales de HOMR frente a la
+verdad de referencia de PrIMuS (`build_real_training_pool`) y compara
+`UncertaintyAcquisition`, `DiversityAcquisition`, `HybridAcquisition` y
+`RandomAcquisition` con los cinco criterios definidos a priori, para presupuestos de
+10, 20 y 50 muestras.
 
-Salida (→ `results/al_strategies_comparison.csv`): por cada estrategia, las
-muestras elegidas (compás, densidad de error, magnitud de corrección). El resumen
-impreso en consola reporta la media de error, magnitud y **diversidad media por
-par**, evidencia de que la híbrida balancea criticidad y cobertura.
+Necesita `data/manifest.json` (ver `corpus.py`) y las predicciones de HOMR en
+`data/<corpus>/predictions/` (`exp_04`), o `--predictions`; admite `--limit` y `--seed`.
+**Sin manifiesto o sin ninguna muestra real, el experimento falla**: no tiene modo sintético y la
+interpretación del resumen se calcula a partir de los valores medidos (CLAUDE.md §8.1,
+#134).
+
+Salida (→ `results/al_strategies_comparison.csv`, `results/al_strategies_summary.json` y
+`results/exp_02_run_info.json`): por cada estrategia, las muestras elegidas y las
+métricas de los criterios, más la matriz de similitud de Jaccard entre estrategias.
 
 ## Fase 6 — Validación empírica sobre corpus real
 

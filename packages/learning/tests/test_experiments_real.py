@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import random
 from pathlib import Path
 
 import pytest
-from cadenza.learning import omr_ned_pair
+from cadenza.domain import Anchor, EditOp
+from cadenza.learning import TrainingSample, omr_ned_pair
 from cadenza.omr import OMRTranscriptionError
 
 from ml.experiments import common, exp_01_effort, exp_02_active_learning, exp_03_omr_quality
@@ -50,18 +52,73 @@ def test_exp_01_real_primus_data() -> None:
     assert "by_operation" in res["missed_errors_breakdown"]
 
 
-def test_exp_02_synthetic_fallback() -> None:
-    res = exp_02_active_learning.run(manifest_path=Path("non_existent.json"), seed=42)
-    assert res["experiment"] == "exp_02_active_learning"
-    assert res["mode"] == "synthetic_fallback"
-    assert res["canonical_budget"] == 20
-    assert "uncertainty" in res["canonical_evaluations"]
-    assert "diversity" in res["canonical_evaluations"]
-    assert "hybrid" in res["canonical_evaluations"]
-    assert "random" in res["canonical_evaluations"]
+def _test_pool(size: int = 60, seed: int = 7) -> tuple[TrainingSample, ...]:
+    """Pool determinista solo para probar el cálculo de exp_02, nunca como resultado."""
+    rng = random.Random(seed)
+    ops = list(EditOp)
+    return tuple(
+        TrainingSample(
+            document_id="doc-prueba",
+            anchor=Anchor(
+                part=0, staff=0, measure=i, voice=0, event_index=0, staff_id="part-0-staff-0"
+            ),
+            before_pitch="C4",
+            after_pitch="D4",
+            seq=i,
+            op=ops[i % len(ops)],
+            correction_magnitude=round(rng.uniform(1.0, 12.0), 2),
+            error_density=round(rng.betavariate(2.0, 5.0), 4),
+            features=tuple(round(rng.uniform(0.0, 1.0), 4) for _ in range(8)),
+        )
+        for i in range(1, size + 1)
+    )
 
-    jaccard = res["jaccard_similarity_matrix"]
-    assert jaccard["uncertainty"]["uncertainty"] == 1.0
+
+def test_exp_02_fails_without_corpus(tmp_path: Path) -> None:
+    """Sin corpus no hay resultado de reserva (CLAUDE.md §8.1, #134)."""
+    with pytest.raises(FileNotFoundError, match="corpus PrIMuS"):
+        exp_02_active_learning.run(manifest_path=tmp_path / "manifest.json")
+
+
+def test_exp_02_fails_when_no_real_samples(tmp_path: Path) -> None:
+    """Un manifiesto sin predicciones no se sustituye por datos sintéticos (#134)."""
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "corpus": "primus",
+                "entries": [{"id": "x", "image": "x.png", "ground_truth": "x.mei"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="ninguna muestra real"):
+        exp_02_active_learning.run(manifest_path=manifest)
+
+
+def test_exp_02_interpretation_comes_from_measured_values() -> None:
+    """La interpretación cita los valores medidos, no cifras escritas a mano (#134)."""
+    res = exp_02_active_learning._evaluate_pool(_test_pool(), seed=42, manifest_path=None)
+    evals = res["canonical_evaluations"]
+    assert set(evals) == {"uncertainty", "diversity", "hybrid", "random"}
+    assert res["jaccard_similarity_matrix"]["uncertainty"]["uncertainty"] == 1.0
+
+    text = res["scientific_interpretation"]
+    best_error = max(e["mean_error_density"] for e in evals.values())
+    best_magnitude = max(e["total_correction_magnitude"] for e in evals.values())
+    assert f"{best_error:.3f}" in text
+    assert f"{best_magnitude:.3f}" in text
+    assert f"{res['jaccard_similarity_matrix']['hybrid']['uncertainty']:.3f}" in text
+    assert "46.50" not in text
+
+
+def test_exp_02_interpretation_reports_ties_when_pool_fits_budget() -> None:
+    """Con un pool que no supera el presupuesto todas empatan y se advierte (#134)."""
+    pool = _test_pool(size=exp_02_active_learning.CANONICAL_BUDGET)
+    res = exp_02_active_learning._evaluate_pool(pool, seed=42, manifest_path=None)
+    text = res["scientific_interpretation"]
+    assert "no discrimina" in text
+    assert "'uncertainty', 'diversity', 'hybrid', 'random'" in text
 
 
 @pytest.mark.skipif(not DATA_MANIFEST.is_file(), reason="Requiere data/manifest.json")
