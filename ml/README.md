@@ -36,12 +36,16 @@ compás, pasando cada predicción por `ValidationEngine`:
 - **Línea asistida:** inspeccionar solo los compases con `Finding` → `X`.
 
 Necesita `data/manifest.json` (ver `corpus.py`) y las predicciones de HOMR en
-`data/<corpus>/predictions/` (`exp_04`), o `--predictions`. **Sin manifiesto el
-experimento falla**: no tiene modo sintético (CLAUDE.md §8.1, #130).
+`data/<corpus>/predictions/` (`exp_04`), o `--predictions`. **Sin manifiesto, o sin
+ninguna predicción utilizable, el experimento falla**: no tiene modo sintético ni escribe
+resultados con ceros (CLAUDE.md §8.1, #130, #139).
 
 Salida (→ `results/effort_comparison.json`, `results/effort_comparison_by_score.csv`
 y `results/exp_01_run_info.json`): esfuerzo de inspección con y sin validador,
-errores reales que quedan sin revisar y su desglose por tipo de operación.
+errores reales que quedan sin revisar y su desglose por tipo de operación. La
+interpretación y la justificación del tamaño de muestra (N y errores estándar) se
+calculan con los recuentos de la ejecución: ningún experimento escribe cifras a mano en
+sus resultados (#139).
 
 ### `exp_02_active_learning.py` — Estrategias de adquisición
 
@@ -94,13 +98,17 @@ oficiales están en el registro (`info`).
 uv run python ml/experiments/exp_03_omr_quality.py
 ```
 
-Sin corpus corre en modo *smoke* con un fixture; con `data/manifest.json` y
-predicciones en `data/<corpus>/predictions/<id>.musicxml`, mide:
+Necesita `data/manifest.json` y las predicciones de `exp_04` en
+`data/<corpus>/predictions/<id>.musicxml` (con `failures.json` para las imágenes que HOMR
+no pudo transcribir). **Sin manifiesto, o con alguna entrada sin predicción ni fallo registrado, el
+experimento falla**: no tiene modo de prueba (CLAUDE.md §8.1, #139). Mide:
 1. **OMR-NED** (normalizada a nivel gráfico con `musicdiff`).
 2. **SER** (tasa de error simbólico a nivel de secuencia canónica de símbolos con `score_ser_pair`).
-Reporta métricas sobre éxitos (91 incipits: OMR-NED 0.2285, SER 0.1124) y métricas penalizadas
-con fallos de segmentación (100 incipits imputando 1.0: OMR-NED 0.2979, SER 0.1923).
-Escribe `results/omr_baseline.csv` + `results/omr_baseline_summary.json`.
+Reporta métricas sobre éxitos y métricas penalizadas que imputan 1.0 a cada fallo de
+segmentación, con la tasa de fallos y su error estándar. Escribe `results/omr_baseline.csv` +
+`results/omr_baseline_summary.json`. Reutiliza como caché los valores de OMR-NED y SER del
+CSV anterior solo si el sha256 de la predicción y el de la verdad de referencia coinciden con
+los guardados; `--force` los recalcula todos.
 
 ### `exp_04_homr_transcribe.py` — transcripción real (CPU/GPU)
 
@@ -200,6 +208,20 @@ uv run python -m ml run --config configs/learning/default.json --work-dir result
 | `train` | `selected.json` | `trained_artifact.json` + `data/artifacts/sha256/...` | `artifact_hash` (pesos), `dataset_hash`, `config_hash`, métricas |
 | `evaluate` | `trained_artifact.json` | `evaluation_report.json` | `metrics` (SER, OMR-NED), `threshold`, `meets_threshold` |
 | `promote` | `trained_artifact.json` | `promotion_result.json` + `model_versions` (BD) | `version`, `promoted`, `active_model_version`, umbral |
+
+`evaluate` toma la SER y el OMR-NED, por este orden, de `--ser`/`--omr-ned`, de `--manifest`
+(medidas con `exp_03`) o del artefacto, y guarda la fuente de cada una en `metrics_source`.
+Sin ninguna de esas fuentes falla, igual que `promote` con un artefacto sin métricas: ninguno
+usa métricas de reserva (#139). Las métricas que escribe `train` **no son mediciones**: sin
+`--ser` y `--omr-ned`, `FakeTrainer` y `PyTorchTrainer` devuelven valores fijos, porque el
+ajuste fino real del modelo no existe (D14, [#103](https://github.com/sebdavid3/Cadenza/issues/103)).
+`train` marca **siempre** sus métricas con `"simulated": true`, también con `--ser` y
+`--omr-ned` (que se indican juntos o ninguno), porque ningún entrenador evalúa el modelo que
+produce; `evaluate` y `promote` propagan la marca a sus informes, y la tabla `model_versions` no
+la guarda. `promote` registra siempre las métricas del artefacto que recibe, no las de
+`evaluate`. `evaluate --manifest` mide las predicciones de `--predictions-dir` (sin comprobar que
+procedan del artefacto) y, como `exp_03`, exige que cada entrada sin predicción figure en
+`failures.json`.
 
 ## Reproducibilidad
 
