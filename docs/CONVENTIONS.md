@@ -140,11 +140,11 @@ Un issue o tarea se considera **terminada** únicamente cuando:
 
 1. Cumple **todos los criterios de aceptación** del issue, demostrados con evidencia.
 2. Pasan sin errores ni omisiones:
-   - `uv run pytest`
-   - `uv run mypy packages apps`
-   - `uv run ruff check .`
-   - `uv run black --check .`
-   - Si se modificó la aplicación de `apps/web` (existe `apps/web/package.json`): `npm run test` y `npm run build` en `apps/web`. Regenerar `apps/web/src/types.ts` con `scripts/generate_openapi_and_types.py` no lo exige: su sincronía con el contrato la comprueba `pytest`.
+   - `uv run --no-sync pytest`
+   - `uv run --no-sync mypy packages apps`
+   - `uv run --no-sync ruff check .`
+   - `uv run --no-sync black --check .`
+   - Si existe la aplicación de `apps/web` (`apps/web/package.json`) y se modificó `apps/web`, incluido `apps/web/src/types.ts` al regenerar el contrato: `npm run test` y `npm run build` en `apps/web`. Mientras no exista, regenerar `types.ts` con `scripts/generate_openapi_and_types.py` no exige estas puertas: su sincronía con el contrato la comprueba `pytest`.
 3. Sigue estrictamente la política de ramas, commits y PRs.
 4. Actualiza la documentación correspondiente:
    - **`docs/PROJECT_STATE.md`** (deuda técnica y bitácora de hitos).

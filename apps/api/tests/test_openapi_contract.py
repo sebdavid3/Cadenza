@@ -54,7 +54,7 @@ def test_openapi_file_matches_live_app_schema() -> None:
     """Valida que docs/api/openapi.json versionado coincide exactamente con app.openapi().
 
     Si esta prueba falla, regenera la especificación con:
-    uv run python scripts/generate_openapi_and_types.py
+    uv run --no-sync python scripts/generate_openapi_and_types.py
     """
     assert OPENAPI_JSON_PATH.exists(), f"El archivo {OPENAPI_JSON_PATH} no existe."
 
@@ -66,7 +66,7 @@ def test_openapi_file_matches_live_app_schema() -> None:
 
     assert versioned_spec == live_spec, (
         "El esquema OpenAPI en docs/api/openapi.json no coincide con app.openapi(). "
-        "Ejecuta: uv run python scripts/generate_openapi_and_types.py"
+        "Ejecuta: uv run --no-sync python scripts/generate_openapi_and_types.py"
     )
 
 
@@ -81,7 +81,7 @@ def _load_types_generator() -> ModuleType:
     return module
 
 
-def test_types_ts_matches_live_app_schema() -> None:
+def test_types_ts_matches_live_app_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     """Valida que apps/web/src/types.ts coincide con los tipos generados del contrato (#136).
 
     Sin aplicación en apps/web, la CI ya no compila el frontend: esta prueba es la que
@@ -90,7 +90,11 @@ def test_types_ts_matches_live_app_schema() -> None:
     """
     assert TYPES_TS_PATH.exists(), f"El archivo {TYPES_TS_PATH} no existe."
 
-    app = create_default_app(Settings(auth_secret_key="test-secret-at-least-32-chars-long!"))
+    # El script fija CADENZA_AUTH_SECRET_KEY en os.environ al importarse si no existe;
+    # definirla aquí evita que esa variable se filtre a las pruebas siguientes.
+    secret = "test-secret-at-least-32-chars-long!"
+    monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", secret)
+    app = create_default_app(Settings(auth_secret_key=secret))
     expected = _load_types_generator().generate_typescript_definitions(app.openapi())
 
     assert TYPES_TS_PATH.read_text(encoding="utf-8") == expected, (
