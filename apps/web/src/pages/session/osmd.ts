@@ -1,6 +1,7 @@
+import type { GraphicalMeasure, GraphicalNote } from "opensheetmusicdisplay";
 import type { MeasureSlot } from "./findings";
 
-/** Caja de un compás en píxeles, relativa a la esquina superior izquierda de la partitura. */
+/** Caja en píxeles, relativa a la esquina superior izquierda de la partitura. */
 export interface Box {
   left: number;
   top: number;
@@ -8,11 +9,34 @@ export interface Box {
   height: number;
 }
 
+/** Nota o silencio dibujado: su altura, si es nota, y la caja de su cabeza o de su glifo. */
+export interface DrawnNote {
+  /** Altura como número MIDI; null en un silencio. */
+  midi: number | null;
+  /** Nombre de la nota sin alteración («C»…«B»), para distinguir enarmonías. */
+  step: string | null;
+  box: Box | null;
+}
+
+/** Figura de una voz: una nota, un acorde o un silencio, con su duración en negras. */
+export interface DrawnFigure {
+  rest: boolean;
+  grace: boolean;
+  /** Duración en negras como fracción exacta: numerador y denominador. */
+  beats: readonly [number, number];
+  notes: readonly DrawnNote[];
+}
+
+/** Figuras de una voz de un compás, en orden. */
+export type DrawnVoice = readonly DrawnFigure[];
+
 /** Partitura dibujada por OSMD, reducida a lo que la vista necesita (ADR-0006, ADR-0021). */
 export interface RenderedScore {
   /** Compases dibujados de cada pentagrama, en el orden global de OSMD. */
   measuresPerStaff(): number[];
   measureBox(slot: MeasureSlot): Box | null;
+  /** Figuras dibujadas en un compás, por voces en el orden de su número (ADR-0027). */
+  measureFigures(slot: MeasureSlot): DrawnVoice[] | null;
   /** Vuelve a maquetar al ancho actual del contenedor. */
   relayout(width: number): void;
   dispose(): void;
@@ -32,6 +56,89 @@ const PAGE_BOTTOM_MARGIN_UNITS = 2;
 /** Por debajo de este ancho la notación se dibuja más pequeña para que quepan más compases. */
 const NARROW_WIDTH = 640;
 const zoomFor = (width: number) => (width < NARROW_WIDTH ? 0.75 : 1);
+
+/** Nombre de cada nota natural según el semitono de `NoteEnum` de OSMD. */
+const STEP_NAMES: Record<number, string> = {
+  0: "C",
+  2: "D",
+  4: "E",
+  5: "F",
+  7: "G",
+  9: "A",
+  11: "B",
+};
+/** OSMD cuenta la octava del do central como la 1: su semitono 48 es el MIDI 60. */
+const OSMD_HALF_TONE_TO_MIDI = 12;
+
+function relativeBox(element: Element, origin: DOMRect): Box {
+  const rect = element.getBoundingClientRect();
+  return {
+    left: rect.left - origin.left,
+    top: rect.top - origin.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+/** Elemento SVG que dibuja una nota: lo da la nota de VexFlow, con el backend SVG. */
+function noteElement(note: GraphicalNote): SVGGElement | null {
+  const drawn = note as GraphicalNote & { getSVGGElement?: () => SVGGElement | undefined };
+  return drawn.getSVGGElement?.() ?? null;
+}
+
+/**
+ * Altura y caja de una nota dibujada. La caja es la de su cabeza en el SVG: en un acorde, la
+ * cabeza más cercana a la altura en que OSMD sitúa la nota, que es el centro de su cabeza. En un
+ * silencio, la del glifo entero, porque OSMD no da su extensión.
+ */
+function drawnNote(note: GraphicalNote, origin: DOMRect, unit: number): DrawnNote {
+  const source = note.sourceNote;
+  const element = noteElement(note);
+  if (source.isRest()) {
+    return { midi: null, step: null, box: element ? relativeBox(element, origin) : null };
+  }
+  const centre = note.PositionAndShape.AbsolutePosition.y * unit;
+  let box: Box | null = null;
+  let distance = Infinity;
+  for (const head of element?.querySelectorAll(".vf-notehead") ?? []) {
+    const candidate = relativeBox(head, origin);
+    const offset = Math.abs(candidate.top + candidate.height / 2 - centre);
+    if (offset < distance) {
+      distance = offset;
+      box = candidate;
+    }
+  }
+  const pitch = source.Pitch;
+  return {
+    midi: pitch.getHalfTone() + OSMD_HALF_TONE_TO_MIDI,
+    step: STEP_NAMES[pitch.FundamentalNote] ?? null,
+    box,
+  };
+}
+
+/** Figuras de un compás dibujado, agrupadas por voz y en el orden del número de voz. */
+function measureFigures(measure: GraphicalMeasure, origin: DOMRect, unit: number): DrawnVoice[] {
+  const voices = new Map<number, DrawnFigure[]>();
+  for (const entry of measure.staffEntries) {
+    for (const voiceEntry of entry.graphicalVoiceEntries) {
+      const first = voiceEntry.notes[0];
+      if (!first) continue;
+      // OSMD mide en redondas y guarda aparte la parte entera: 11/8 es 1 + 3/8.
+      const length = first.sourceNote.Length;
+      const figure: DrawnFigure = {
+        rest: first.sourceNote.isRest(),
+        grace: voiceEntry.parentVoiceEntry.IsGrace,
+        beats: [length.GetExpandedNumerator() * 4, length.Denominator],
+        notes: voiceEntry.notes.map((note) => drawnNote(note, origin, unit)),
+      };
+      const id = voiceEntry.parentVoiceEntry.ParentVoice.VoiceId;
+      const figures = voices.get(id);
+      if (figures) figures.push(figure);
+      else voices.set(id, [figure]);
+    }
+  }
+  return [...voices.entries()].sort(([a], [b]) => a - b).map(([, figures]) => figures);
+}
 
 function cssColor(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -119,6 +226,11 @@ export async function renderScore(
         width: (shape.BorderRight - shape.BorderLeft) * unit,
         height: (bottom - top) * unit,
       };
+    },
+    measureFigures(slot) {
+      const measure = osmd.GraphicSheet.MeasureList[slot.measure]?.[slot.staff];
+      if (!measure) return null;
+      return measureFigures(measure, host.getBoundingClientRect(), UNIT_PX * osmd.zoom);
     },
     relayout(width) {
       osmd.zoom = zoomFor(width);
