@@ -104,6 +104,55 @@ La primera cuenta de investigador se crea dentro del contenedor; sin `--password
 docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli create-investigator --username <usuario>
 ```
 
+#### Despliegue en el homelab ([#157](https://github.com/sebdavid3/Cadenza/issues/157), 2026-10-23)
+
+Cadenza está publicada en **https://r2d2.tailcacb19.ts.net**, desde `/opt/docker/cadenza` en el servidor `r2d2`, un clon de la rama `dev`:
+- `.env` generado en el servidor con secretos aleatorios de 64 caracteres y permisos 600. Los secretos no han salido de allí.
+- Copias en `/opt/docker/cadenza/backups`, con permisos 700.
+- Funnel en modo proxy HTTP (`sudo tailscale funnel --bg 8380`), activado por el responsable.
+
+Procedimientos, en el servidor y dentro de `/opt/docker/cadenza`:
+
+```bash
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+
+# Actualizar: copia antes, código nuevo y reconstrucción. La API aplica las migraciones al arrancar.
+$DC --profile backup run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
+git pull --ff-only
+$DC up -d --build
+
+# Parar y volver a arrancar: los volúmenes, y con ellos los datos, se conservan
+$DC down
+$DC up -d
+
+# Retirar de internet sin parar los servicios, y volver a publicar
+sudo tailscale funnel --https=443 off
+sudo tailscale funnel --bg 8380
+```
+
+- Para restaurar una copia, ver la §4.2.
+- `down -v` borra los volúmenes con la base de datos y los artefactos: no se usa.
+- Una prueba desechable de esta configuración en el mismo servidor necesita otra subred, porque dos redes con `10.77.0.0/24` no pueden coexistir.
+
+Comprobado al publicar, desde fuera del tailnet. Se usó otra IP pública, conectando a la IP de Funnel que devuelve un DNS público:
+
+| Comprobación | Resultado |
+|---|---|
+| Certificado | Let's Encrypt para `r2d2.tailcacb19.ts.net`, válido hasta el 2 de enero de 2027 |
+| `/`, `/entrar`, `/registro`, `/sesiones/abc`, `/api/health`, `/api/version` | 200, de 0,86 a 2,61 s; `/api/health` con la base de datos conectada y `device: cpu` |
+| `/api/docs`, `/api/openapi.json` | 404 |
+| `/api/auth/login%0A` | 400 |
+| Cabeceras | CSP, `X-Frame-Options`, `nosniff` y `Referrer-Policy` presentes |
+| `X-Forwarded-For` inventada a través de Funnel | Nginx y uvicorn registran la IP pública real del cliente: Funnel añade la cabecera como se esperaba ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)) |
+| Flujo por la API | registro 201 (1,52 s), entrada 200, transcripción de un incipit de PrIMuS 201 (3,44 s); sesión, hallazgos, MusicXML e imagen 200 |
+| Chrome sin interfaz por la URL pública (1440 y 390 px) | landing, registro, entrada, transcripción (2,27 s) y vista de la sesión, sin violaciones de la política de seguridad de contenido |
+| Puertos | desde la IP de Tailscale, 5432, 8000 y 8380 no responden; en el host solo escucha `127.0.0.1:8380` |
+| Otros servicios | Immich y los puertos 2283, 7103, 7104 y 8090 siguen igual |
+| Memoria en reposo | API 724 MiB, PostgreSQL 62 MiB, web 9 MiB |
+| Copias | la primera copia (1 s, `verify` válida) se restauró en una base aparte con los mismos recuentos que producción; la base de prueba se borró después |
+
+El primer acceso público, mientras Funnel obtenía el certificado, cortó el handshake TLS. Unos minutos después ya respondía.
+
 ### 2.3 Ejecución del plano offline con GPU (perfil batch)
 
 Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos con aceleración NVIDIA CUDA:

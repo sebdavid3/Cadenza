@@ -347,7 +347,9 @@ puertos publicados, CORS cerrado y registro abierto) está
 [`docker-compose.prod.yml`](docker-compose.prod.yml), con sus variables en
 [`deploy/.env.example`](deploy/.env.example):
 [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) §2.2 y
-[ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md).
+[ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md). Está publicado en
+**https://r2d2.tailcacb19.ts.net** desde el 2026-10-23
+([#157](https://github.com/sebdavid3/Cadenza/issues/157)).
 
 > [!WARNING]
 > La imagen del perfil `batch` (`Dockerfile.ml-cuda`) no se construye hoy (deuda D53).
