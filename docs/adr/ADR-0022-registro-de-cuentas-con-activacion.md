@@ -46,7 +46,8 @@ Se **enmienda ADR-0012 §1**: además de las cuentas que crea un investigador, c
 ### Negativas / Riesgos
 - Un investigador debe revisar y activar cada cuenta; sin notificaciones, la persona no sabe cuándo ocurre.
 - El límite por IP vive en memoria y por réplica (como el del login, ADR-0015) y se pierde al reiniciar; las claves sin intentos en la ventana se purgan cuando hay muchas.
-- El tope de pendientes también lo puede alcanzar alguien que quiera cerrar el registro a los demás; se reabre en cuanto un investigador activa o revisa cuentas.
+- El tope de pendientes también lo puede alcanzar alguien que quiera cerrar el registro a los demás; se reabre en cuanto un investigador activa cuentas.
+- No hay estado «rechazada» ni borrado de cuentas: una cuenta autorregistrada que un investigador desactiva vuelve a contar como sin activar, también para el tope (D56). La interfaz las llama «sin activar», no «pendientes».
 - Las filas de cuentas inactivas pueden acumularse; un investigador puede dejarlas inactivas (no hay borrado de cuentas).
 - El `DatasetBuilder` del plano offline todavía no excluye las sesiones de cuentas autorregistradas; queda como deuda (D55).
 - Un cuerpo que no supera la validación del esquema (422) no llega al límite por IP: no toca la base de datos.

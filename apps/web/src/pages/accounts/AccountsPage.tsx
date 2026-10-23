@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { NotFoundPage } from "../not-found/NotFoundPage";
 import type { UserRead } from "../../types";
+import { NotFoundPage } from "../not-found/NotFoundPage";
 import { formatDay, listUsers } from "../transcription/sessions";
 import "./accounts.css";
 
@@ -23,13 +24,47 @@ function setActive(userId: string, active: boolean) {
   });
 }
 
-/** Pendientes de activar primero; después, por fecha de alta, la más reciente arriba. */
-function sortAccounts(users: readonly UserRead[]) {
-  const pending = (user: UserRead) => !user.active && user.self_registered === true;
-  return [...users].sort((a, b) => {
-    if (pending(a) !== pending(b)) return pending(a) ? -1 : 1;
-    return (b.created_at ?? "").localeCompare(a.created_at ?? "");
-  });
+/**
+ * Del registro y sin activar: espera una decisión del investigador. Desactivar una cuenta
+ * autorregistrada la deja igual (la API no distingue «rechazada»), y por eso no se llama
+ * «pendiente».
+ */
+const awaitsDecision = (user: UserRead) => !user.active && user.self_registered === true;
+
+/** Sin activar primero; después, por fecha de alta, la más reciente arriba. */
+function sortedIds(users: readonly UserRead[]): string[] {
+  return [...users]
+    .sort((a, b) => {
+      if (awaitsDecision(a) !== awaitsDecision(b)) return awaitsDecision(a) ? -1 : 1;
+      return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+    })
+    .map((user) => user.id);
+}
+
+/**
+ * El orden se fija al cargar (o al actualizar a mano) y no cambia al activar una cuenta: la fila
+ * que tiene el foco no salta de sitio. Las cuentas que no estaban se añaden al final.
+ */
+function useStableOrder(users: readonly UserRead[] | undefined) {
+  const [order, setOrder] = useState<string[]>([]);
+  const [source, setSource] = useState<readonly UserRead[] | undefined>(undefined);
+  if (users !== source) {
+    setSource(users);
+    const known = new Set(order);
+    const ids = users ? sortedIds(users) : [];
+    setOrder(
+      order.length === 0
+        ? ids
+        : [...order.filter((id) => ids.includes(id)), ...ids.filter((id) => !known.has(id))],
+    );
+  }
+  const byId = new Map((users ?? []).map((user) => [user.id, user]));
+  return {
+    rows: order.flatMap((id) => byId.get(id) ?? []),
+    resort: () => {
+      setOrder(users ? sortedIds(users) : []);
+    },
+  };
 }
 
 /**
@@ -51,25 +86,33 @@ function AccountsView() {
     queryKey: USERS_QUERY_KEY,
     queryFn: ({ signal }) => listUsers(api, signal),
   });
+  const [announcement, setAnnouncement] = useState("");
   const toggle = useMutation({
-    mutationFn: ({ id, active }: { id: string; active: boolean }) => setActive(id, active),
+    mutationFn: ({ user, active }: { user: UserRead; active: boolean }) =>
+      setActive(user.id, active),
+    // Una recarga en curso no debe pisar el resultado del cambio.
+    onMutate: () => queryClient.cancelQueries({ queryKey: USERS_QUERY_KEY }),
     onSuccess: (updated) => {
       queryClient.setQueryData<UserRead[]>(USERS_QUERY_KEY, (previous) =>
         previous?.map((user) => (user.id === updated.id ? updated : user)),
       );
+      setAnnouncement(`Cuenta ${updated.username} ${updated.active ? "activada" : "desactivada"}.`);
     },
   });
-
-  const rows = sortAccounts(users.data ?? []);
-  const pendingCount = rows.filter((user) => !user.active && user.self_registered).length;
+  const { rows, resort } = useStableOrder(users.data);
+  const waiting = rows.filter(awaitsDecision).length;
+  // Un cambio cada vez: el resultado de cada uno se ve y se anuncia.
+  const busy = toggle.isPending;
 
   return (
     <main className="accounts">
       <header className="accounts__head">
         <h1 className="accounts__title">Cuentas</h1>
         <p className="accounts__lead">
-          Las cuentas creadas desde el registro nacen inactivas: actívalas para que puedan entrar y
-          transcribir. No forman parte del estudio; las del estudio las crea un investigador.
+          Las cuentas creadas desde el registro nacen sin activar: actívalas para que puedan entrar
+          y transcribir. No forman parte del estudio; las del estudio las crea un investigador. Una
+          cuenta del registro que desactives vuelve a contar como sin activar, también para el
+          límite de cuentas en espera del registro.
         </p>
       </header>
 
@@ -80,12 +123,29 @@ function AccountsView() {
           </h2>
           {users.isSuccess && (
             <p className="label accounts__count">
-              {pendingCount === 0
-                ? "Ninguna pendiente"
-                : `${String(pendingCount)} pendiente${pendingCount === 1 ? "" : "s"} de activar`}
+              {waiting === 0
+                ? "Ninguna del registro sin activar"
+                : `${String(waiting)} del registro sin activar`}
             </p>
           )}
+          <button
+            type="button"
+            className="link-button"
+            aria-disabled={users.isFetching}
+            onClick={() => {
+              if (users.isFetching) return;
+              void users.refetch().then(() => {
+                resort();
+              });
+            }}
+          >
+            {users.isFetching && users.isSuccess ? "Actualizando…" : "Actualizar"}
+          </button>
         </div>
+
+        <p className="visually-hidden" role="status">
+          {announcement}
+        </p>
 
         {users.isPending && (
           <p className="accounts__empty" role="status">
@@ -102,7 +162,8 @@ function AccountsView() {
         )}
         {toggle.isError && (
           <p className="accounts__error" role="alert">
-            No se pudo cambiar la cuenta. {errorMessage(toggle.error)}
+            No se pudo cambiar la cuenta {toggle.variables.user.username}.{" "}
+            {errorMessage(toggle.error)}
           </p>
         )}
 
@@ -110,8 +171,8 @@ function AccountsView() {
           <ul className="accounts__list" role="list">
             {rows.map((user) => {
               const own = user.id === me?.id;
-              const busy = toggle.isPending && toggle.variables.id === user.id;
-              const state = user.active ? "active" : user.self_registered ? "pending" : "inactive";
+              const saving = busy && toggle.variables.user.id === user.id;
+              const state = user.active ? "active" : awaitsDecision(user) ? "waiting" : "inactive";
               return (
                 <li key={user.id} className="accounts__item" data-state={state}>
                   <div className="accounts__who">
@@ -123,7 +184,7 @@ function AccountsView() {
                     </span>
                   </div>
                   <span className="label accounts__state">
-                    {state === "active" ? "Activa" : state === "pending" ? "Pendiente" : "Inactiva"}
+                    {state === "active" ? "Activa" : "Sin activar"}
                   </span>
                   {own ? (
                     <span className="label accounts__own">Tu cuenta</span>
@@ -132,13 +193,18 @@ function AccountsView() {
                       type="button"
                       className="button"
                       aria-disabled={busy}
-                      aria-label={`${user.active ? "Desactivar" : "Activar"} la cuenta ${user.username}`}
+                      aria-label={
+                        saving
+                          ? undefined
+                          : `${user.active ? "Desactivar" : "Activar"} la cuenta ${user.username}`
+                      }
                       onClick={() => {
                         if (busy) return;
-                        toggle.mutate({ id: user.id, active: !user.active });
+                        setAnnouncement("");
+                        toggle.mutate({ user, active: !user.active });
                       }}
                     >
-                      {busy ? "Guardando…" : user.active ? "Desactivar" : "Activar"}
+                      {saving ? "Guardando…" : user.active ? "Desactivar" : "Activar"}
                     </button>
                   )}
                 </li>

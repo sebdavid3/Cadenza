@@ -6,7 +6,7 @@ import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
-import { PRIVATE_HOME } from "../../config";
+import { PRIVATE_HOME, registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import "./login.css";
 
@@ -147,9 +147,16 @@ export function LoginPage() {
             {!submitting && !checking && <PixelIcon name="arrow-right" />}
           </button>
           <p className="login__help">
-            ¿No tienes cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que un
-            investigador del proyecto la active. No hay recuperación de contraseña por correo: si la
-            olvidas, pide una nueva a un investigador.
+            {registrationEnabled() ? (
+              <>
+                ¿No tienes cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que un
+                investigador del proyecto decida activarla.{" "}
+              </>
+            ) : (
+              "Las cuentas las crea un investigador del proyecto. "
+            )}
+            No hay recuperación de contraseña por correo: una cuenta que te dio el equipo puede
+            recibir una contraseña nueva de un investigador; una creada en el registro, no.
           </p>
         </form>
       </main>

@@ -11,6 +11,12 @@ export const MIN_PASSWORD = 8;
 export const USERNAME_RULE =
   "De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion o guion bajo; empieza por letra o cifra.";
 
+/** Longitud en caracteres, como la cuenta la API (no en unidades UTF-16). */
+export function passwordLength(password: string): number {
+  // Puntos de código, como `len()` de Python en la API (no unidades UTF-16 ni grafemas).
+  return Array.from(password).length;
+}
+
 /** `POST /auth/register` (ADR-0022): público, sin token. */
 export function registerUser(api: ApiClient, username: string, password: string) {
   return api.request<UserRead>("/auth/register", {
@@ -18,6 +24,15 @@ export function registerUser(api: ApiClient, username: string, password: string)
     json: { username, password },
     auth: false,
   });
+}
+
+/**
+ * Un error del registro: su mensaje y el campo que hay que corregir, o null si no es culpa de
+ * ningún campo (límite, servidor, red), en cuyo caso el aviso se lleva el foco.
+ */
+export interface RegisterError {
+  message: string;
+  field: RegisterField | null;
 }
 
 function minutes(seconds: number) {
@@ -39,10 +54,10 @@ function invalidField(detail: unknown): RegisterField | null {
   return null;
 }
 
-/** Mensaje propio y campo a corregir para cada fallo del registro; el `detail` no se muestra. */
-export function registerErrorMessage(error: unknown): { message: string; field: RegisterField } {
+/** Mensaje propio para cada fallo del registro; el `detail` del backend no se muestra. */
+export function registerErrorMessage(error: unknown): RegisterError {
   if (!(error instanceof ApiError)) {
-    return { message: "No se pudo crear la cuenta. Inténtalo de nuevo.", field: "username" };
+    return { message: "No se pudo crear la cuenta. Inténtalo de nuevo.", field: null };
   }
   switch (error.kind) {
     case "conflict":
@@ -61,23 +76,26 @@ export function registerErrorMessage(error: unknown): { message: string; field: 
           error.retryAfterSeconds !== null
             ? `Demasiados intentos desde tu conexión. Vuelve a probar en ${minutes(error.retryAfterSeconds)}.`
             : "Demasiados intentos desde tu conexión. Espera un rato antes de volver a probar.",
-        field: "username",
+        field: null,
       };
     case "not-found":
+      return { message: "El registro de cuentas no está abierto en este servidor.", field: null };
+    case "network":
+    case "timeout":
       return {
-        message: "El registro de cuentas no está abierto en este servidor.",
-        field: "username",
+        message: `${error.message} Si la cuenta llegó a crearse, al reintentar el nombre aparecerá como ocupado: prueba a entrar más tarde.`,
+        field: null,
       };
     case "server":
       if (error.status === 503) {
         return {
           message:
-            "El registro está cerrado por ahora: hay muchas cuentas esperando a que un investigador las revise. Vuelve a probar más tarde.",
-          field: "username",
+            "El registro no admite cuentas nuevas ahora mismo: puede haber demasiadas cuentas sin activar o el servicio no está disponible. Vuelve a probar más tarde.",
+          field: null,
         };
       }
-      return { message: error.message, field: "username" };
+      return { message: error.message, field: null };
     default:
-      return { message: error.message, field: "username" };
+      return { message: error.message, field: null };
   }
 }

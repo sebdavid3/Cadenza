@@ -392,6 +392,13 @@
   gap: var(--space-4) var(--space-6);
 }
 
+/* Los enlaces de rótulo junto al botón miden lo mismo que un objetivo táctil (44 px). */
+.access__actions .label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
+
 /* Botón de doble filete sobre el violeta: papel, anillo de tinta dentro y fuera. */
 .access__button {
   border-color: var(--color-paper);

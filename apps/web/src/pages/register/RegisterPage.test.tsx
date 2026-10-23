@@ -54,7 +54,7 @@ describe("registro de cuentas", () => {
 
     expect(await screen.findByRole("heading", { name: "Cuenta creada" })).toHaveFocus();
     expect(screen.getByText("ana", { selector: "strong" })).toBeVisible();
-    expect(screen.getByText(/pendiente de activación/i)).toBeVisible();
+    expect(screen.getByText(/queda pendiente: un investigador/i)).toBeVisible();
     expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
     const call = calls.find((entry) => entry.key === "POST /auth/register");
     expect(JSON.parse(call?.init?.body as string)).toEqual({
@@ -110,6 +110,8 @@ describe("registro de cuentas", () => {
     await fill("ana", PASSWORD);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/usuario no válido/i);
+    expect(screen.getByLabelText("Usuario")).toHaveFocus();
+    expect(screen.getByLabelText("Usuario")).toHaveAttribute("aria-invalid", "true");
   });
 
   it("dice cuánto esperar con un 429", async () => {
@@ -144,5 +146,66 @@ describe("registro de cuentas", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/transcripcion");
     });
+  });
+
+  it("comprueba el nombre antes de enviar y marca el campo", async () => {
+    const { fetchMock } = mockApi({});
+    renderAt();
+
+    await fill("Ana ", PASSWORD);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/usuario no válido/i);
+    const field = screen.getByLabelText("Usuario");
+    expect(field).toHaveFocus();
+    expect(field).toHaveAttribute("aria-invalid", "true");
+    expect(field.getAttribute("aria-describedby")).toContain("register-error");
+    expect(field.getAttribute("aria-describedby")).toContain("register-username-help");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("un fallo que no es de un campo lleva el foco al aviso y conserva las contraseñas", async () => {
+    mockApi({ "POST /auth/register": () => jsonResponse({ detail: "cerrado" }, 503) });
+    renderAt();
+
+    await fill("ana", PASSWORD);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/no admite cuentas nuevas/i);
+    expect(alert).toHaveFocus();
+    expect(screen.getByLabelText("Usuario")).toHaveAttribute("aria-invalid", "false");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue(PASSWORD);
+    expect(screen.getByLabelText("Repite la contraseña")).toHaveValue(PASSWORD);
+  });
+
+  it("sin conexión avisa de que la cuenta pudo crearse", async () => {
+    mockApi({ "POST /auth/register": () => Promise.reject(new TypeError("Failed to fetch")) });
+    renderAt();
+
+    await fill("ana", PASSWORD);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/si la cuenta llegó a crearse/i);
+  });
+
+  it("al crearla vacía las contraseñas y no promete la activación", async () => {
+    mockApi({
+      "POST /auth/register": () =>
+        jsonResponse(
+          {
+            id: "u-1",
+            username: "ana",
+            role: "transcriptor",
+            active: false,
+            self_registered: true,
+            created_at: "2026-10-23T10:00:00",
+          },
+          201,
+        ),
+    });
+    renderAt();
+
+    await fill("ana", PASSWORD);
+
+    expect(await screen.findByText(/decidirá si la activa/i)).toBeVisible();
+    expect(screen.queryByDisplayValue(PASSWORD)).toBeNull();
   });
 });

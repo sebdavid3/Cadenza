@@ -46,6 +46,7 @@ afterEach(() => {
 
 describe("vista de acceso", () => {
   it("tiene campos etiquetados, enlaza al registro y no ofrece recuperación por correo", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
     renderUrl("/entrar");
 
     expect(screen.getByRole("heading", { level: 1, name: /entrar/i })).toBeVisible();
@@ -54,6 +55,14 @@ describe("vista de acceso", () => {
     expect(screen.getByRole("link", { name: "Créala" })).toHaveAttribute("href", "/registro");
     expect(screen.getByText(/queda pendiente hasta que un investigador/i)).toBeVisible();
     expect(screen.getByText(/no hay recuperación de contraseña por correo/i)).toBeVisible();
+  });
+
+  it("sin registro abierto en el build no lo enlaza", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
+    renderUrl("/entrar");
+
+    expect(screen.queryByRole("link", { name: "Créala" })).toBeNull();
+    expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
   });
 
   it("pide los dos campos antes de llamar a la API y lleva el foco al que falta", async () => {

@@ -9,7 +9,7 @@ export function loginErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "No se pudo entrar. Inténtalo de nuevo.";
   switch (error.kind) {
     case "unauthorized":
-      return "Usuario o contraseña incorrectos, o la cuenta todavía no está activada. Si te registraste hace poco, espera a que un investigador la active.";
+      return "Usuario o contraseña incorrectos, o la cuenta no está activada. Una cuenta creada en el registro no entra hasta que un investigador la active.";
     case "rate-limited":
       return "Demasiados intentos fallidos. Espera unos minutos antes de volver a probar.";
     case "validation":

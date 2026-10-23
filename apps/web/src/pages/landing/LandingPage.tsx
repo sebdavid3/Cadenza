@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
-import { REPOSITORY_URL } from "../../config";
+import { registrationEnabled, REPOSITORY_URL } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { STEPS } from "./content";
 import { CORRECTED, OMR_READING } from "./incipit";
@@ -48,8 +48,14 @@ export function LandingPage() {
               </a>
             </div>
             <p className="hero__note">
-              ¿Sin cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que el equipo
-              del proyecto la active.
+              {registrationEnabled() ? (
+                <>
+                  ¿Sin cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que el
+                  equipo del proyecto decida activarla.
+                </>
+              ) : (
+                "No hay registro abierto: las cuentas las crea el equipo del proyecto."
+              )}
             </p>
           </div>
         </section>
@@ -128,18 +134,20 @@ export function LandingPage() {
             Entra a trabajar.
           </h2>
           <p className="access__text">
-            Entra con tu usuario y tu contraseña. Si aún no tienes cuenta, créala: solo pide un
-            usuario y una contraseña, sin correo, y queda pendiente hasta que un investigador del
-            proyecto la active. No hay recuperación de contraseña por correo.
+            {registrationEnabled()
+              ? "Entra con tu usuario y tu contraseña. Si aún no tienes cuenta, créala: solo pide un usuario y una contraseña, sin correo, y queda pendiente hasta que un investigador del proyecto decida activarla. No hay recuperación de contraseña por correo."
+              : "Si el equipo del proyecto te dio una cuenta, entra con tu usuario y tu contraseña. No hay registro abierto ni recuperación de contraseña por correo: las cuentas las crea un investigador del proyecto."}
           </p>
           <div className="access__actions">
             <Link className="button access__button" to="/entrar">
               Entrar
               <PixelIcon name="arrow-right" />
             </Link>
-            <Link className="label access__code" to="/registro">
-              Crear una cuenta
-            </Link>
+            {registrationEnabled() && (
+              <Link className="label access__code access__register" to="/registro">
+                Crear una cuenta
+              </Link>
+            )}
             <a className="label access__code" href={REPOSITORY_URL}>
               Código abierto en GitHub
             </a>

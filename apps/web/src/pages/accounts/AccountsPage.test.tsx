@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../router";
-import { ANA, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import { ANA, deferred, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
 import type { UserRead } from "../../types";
 
 const INV: UserRead = {
@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 describe("cuentas", () => {
-  it("lista primero las pendientes y distingue las del registro de las del estudio", async () => {
+  it("lista primero las del registro sin activar y distingue las del estudio", async () => {
     mockApi({ "GET /users": () => jsonResponse([INV, STUDY, PENDING]) });
     renderAt(INV);
 
@@ -54,8 +54,8 @@ describe("cuentas", () => {
     const items = within(list).getAllByRole("listitem");
     expect(items[0]).toHaveTextContent("nuevo");
     expect(items[0]).toHaveTextContent(/registro/i);
-    expect(items[0]).toHaveTextContent("Pendiente");
-    expect(screen.getByText(/1 pendiente de activar/i)).toBeVisible();
+    expect(items[0]).toHaveTextContent("Sin activar");
+    expect(screen.getByText(/1 del registro sin activar/i)).toBeVisible();
     const study = items.find((item) => item.textContent.includes("participante_07"));
     expect(study).toHaveTextContent(/creada por un investigador/i);
     // Nadie puede desactivar su propia cuenta desde aquí.
@@ -67,7 +67,7 @@ describe("cuentas", () => {
     expect(own).toHaveTextContent(/tu cuenta/i);
   });
 
-  it("activa una cuenta pendiente con PATCH /users/{id}", async () => {
+  it("activa una cuenta del registro con PATCH /users/{id}", async () => {
     const { calls } = mockApi({
       "GET /users": () => jsonResponse([INV, PENDING]),
       "PATCH /users/u-pend": () => jsonResponse({ ...PENDING, active: true }),
@@ -78,7 +78,7 @@ describe("cuentas", () => {
     await screen.findByRole("list");
     await userEvent.click(screen.getByRole("button", { name: /^activar la cuenta nuevo/i }));
 
-    expect(await screen.findByText(/ninguna pendiente/i)).toBeVisible();
+    expect(await screen.findByText(/ninguna del registro sin activar/i)).toBeVisible();
     expect(screen.getByRole("button", { name: /desactivar la cuenta nuevo/i })).toBeVisible();
     const call = calls.find((entry) => entry.key === "PATCH /users/u-pend");
     expect(JSON.parse(call?.init?.body as string)).toEqual({ active: true });
@@ -90,5 +90,59 @@ describe("cuentas", () => {
 
     expect(await screen.findByRole("heading", { name: /esta página no existe/i })).toBeVisible();
     expect(screen.queryByRole("link", { name: "Cuentas" })).toBeNull();
+  });
+
+  it("pone primero una cuenta sin activar aunque sea más antigua que otras", async () => {
+    const old = { ...PENDING, id: "u-vieja", username: "vieja", created_at: "2026-10-01T10:00:00" };
+    mockApi({ "GET /users": () => jsonResponse([INV, STUDY, old]) });
+    renderAt(INV);
+
+    const items = within(await screen.findByRole("list")).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("vieja");
+  });
+
+  it("al activar, la fila no cambia de sitio y el resultado se anuncia", async () => {
+    const old = { ...PENDING, id: "u-vieja", username: "vieja", created_at: "2026-10-01T10:00:00" };
+    mockApi({
+      "GET /users": () => jsonResponse([INV, STUDY, old]),
+      "PATCH /users/u-vieja": () => jsonResponse({ ...old, active: true }),
+    });
+    renderAt(INV);
+    await screen.findByRole("list");
+
+    await userEvent.click(screen.getByRole("button", { name: /^activar la cuenta vieja/i }));
+
+    expect(await screen.findByText("Cuenta vieja activada.")).toBeInTheDocument();
+    const items = within(screen.getByRole("list")).getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("vieja");
+    expect(items[0]).toHaveTextContent("Activa");
+  });
+
+  it("mientras se guarda un cambio no admite otro, y un fallo dice qué cuenta", async () => {
+    const patch = deferred<Response>();
+    mockApi({
+      "GET /users": () => jsonResponse([INV, STUDY, PENDING]),
+      "PATCH /users/u-est": () => patch.promise,
+    });
+    renderAt(INV);
+    await screen.findByRole("list");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /^desactivar la cuenta participante_07/i }),
+    );
+
+    expect(screen.getByRole("button", { name: "Guardando…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /^activar la cuenta nuevo/i })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    patch.resolve(jsonResponse({ detail: "fallo" }, 500));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /no se pudo cambiar la cuenta participante_07/i,
+    );
   });
 });

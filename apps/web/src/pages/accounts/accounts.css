@@ -1,5 +1,5 @@
-/* Cuentas (solo investigadores): una lista de filas separadas por filetes. Lo pendiente de activar
-   es lo único que pide una acción, así que es lo único en violeta. */
+/* Cuentas (solo investigadores): una lista de filas separadas por filetes. Lo que espera una
+   decisión (una cuenta del registro sin activar) es lo único en violeta. */
 
 .accounts__head {
   display: grid;
@@ -95,7 +95,7 @@
 }
 
 .accounts__state {
-  padding: 6px var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border: var(--rule);
   background: var(--color-paper);
   font-weight: 700;
@@ -103,8 +103,8 @@
   white-space: nowrap;
 }
 
-/* Pendiente: rótulo violeta, el turno del investigador. */
-.accounts__item[data-state="pending"] .accounts__state {
+/* Del registro y sin activar: rótulo violeta, espera una decisión del investigador. */
+.accounts__item[data-state="waiting"] .accounts__state {
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: var(--color-on-accent);

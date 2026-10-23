@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate } from "react-router";
 import { api } from "../../api/instance";
-import { ApiError } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
@@ -12,16 +11,18 @@ import type { UserRead } from "../../types";
 import "../login/login.css";
 import {
   MIN_PASSWORD,
+  passwordLength,
   registerErrorMessage,
   registerUser,
   USERNAME_PATTERN,
   USERNAME_RULE,
+  type RegisterError,
   type RegisterField,
 } from "./register";
 
 /**
  * Registro de una cuenta (ADR-0022): solo usuario y contraseña, sin correo. La cuenta nace
- * inactiva hasta que un investigador la activa, y la vista lo dice antes y después de enviar.
+ * inactiva hasta que un investigador decide activarla, y la vista lo dice antes y después.
  */
 export function RegisterPage() {
   useDocumentTitle("Crear una cuenta");
@@ -29,19 +30,20 @@ export function RegisterPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [error, setError] = useState<{ message: string; field: RegisterField } | null>(null);
+  const [error, setError] = useState<RegisterError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<UserRead | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
   const doneRef = useRef<HTMLHeadingElement>(null);
 
-  // Tras un error, el foco vuelve al campo que hay que corregir.
+  // Tras un error, el foco va al campo que hay que corregir o, si no es de un campo, al aviso.
   useEffect(() => {
     if (!error) return;
-    const field = { username: usernameRef, password: passwordRef, confirmation: confirmationRef };
-    field[error.field].current?.focus();
+    const fields = { username: usernameRef, password: passwordRef, confirmation: confirmationRef };
+    (error.field ? fields[error.field] : errorRef).current?.focus();
   }, [error]);
 
   useEffect(() => {
@@ -58,7 +60,7 @@ export function RegisterPage() {
       setError({ message: `Usuario no válido. ${USERNAME_RULE}`, field: "username" });
       return;
     }
-    if (password.length < MIN_PASSWORD) {
+    if (passwordLength(password) < MIN_PASSWORD) {
       setError({
         message: `La contraseña debe tener al menos ${String(MIN_PASSWORD)} caracteres.`,
         field: "password",
@@ -72,20 +74,21 @@ export function RegisterPage() {
     setSubmitting(true);
     setError(null);
     try {
-      setCreated(await registerUser(api, name, password));
+      const user = await registerUser(api, name, password);
+      // La contraseña ya no hace falta en la vista.
+      setPassword("");
+      setConfirmation("");
+      setCreated(user);
     } catch (caught) {
+      // Los fallos pasajeros (límite, red, servidor) no obligan a escribirla de nuevo.
       setError(registerErrorMessage(caught));
-      if (!(caught instanceof ApiError && caught.kind === "conflict")) {
-        setPassword("");
-        setConfirmation("");
-      }
     } finally {
       setSubmitting(false);
     }
   };
 
-  const describedBy = (field: RegisterField) =>
-    error?.field === field ? "register-error" : undefined;
+  const describedBy = (field: RegisterField, help?: string) =>
+    [error?.field === field ? "register-error" : null, help].filter(Boolean).join(" ") || undefined;
 
   return (
     <>
@@ -103,9 +106,9 @@ export function RegisterPage() {
               Tu usuario es <strong>{created.username}</strong>.
             </p>
             <p className="login__notice">
-              Tu cuenta está pendiente de activación. Un investigador del proyecto la revisará y la
-              activará; hasta entonces no podrás entrar. No guardamos ningún correo, así que no te
-              llegará aviso: vuelve a probar más tarde.
+              Queda pendiente: un investigador del proyecto decidirá si la activa, y hasta entonces
+              no podrás entrar. No guardamos ningún correo, así que no te llegará aviso: vuelve a
+              probar más tarde.
             </p>
             <Link className="button login__submit" to="/entrar">
               Ir a entrar
@@ -115,7 +118,13 @@ export function RegisterPage() {
         ) : (
           <form className="login__form" onSubmit={(event) => void submit(event)} noValidate>
             {error && (
-              <p className="login__error" role="alert" id="register-error">
+              <p
+                className="login__error"
+                role="alert"
+                id="register-error"
+                ref={errorRef}
+                tabIndex={-1}
+              >
                 {error.message}
               </p>
             )}
@@ -137,7 +146,7 @@ export function RegisterPage() {
                 }}
                 readOnly={submitting}
                 aria-invalid={error?.field === "username"}
-                aria-describedby={describedBy("username") ?? "register-username-help"}
+                aria-describedby={describedBy("username", "register-username-help")}
                 required
               />
               <p className="login__hint" id="register-username-help">
@@ -160,7 +169,7 @@ export function RegisterPage() {
                 }}
                 readOnly={submitting}
                 aria-invalid={error?.field === "password"}
-                aria-describedby={describedBy("password") ?? "register-password-help"}
+                aria-describedby={describedBy("password", "register-password-help")}
                 required
               />
               <p className="login__hint" id="register-password-help">
@@ -196,7 +205,7 @@ export function RegisterPage() {
               {!submitting && <PixelIcon name="arrow-right" />}
             </button>
             <p className="login__help">
-              La cuenta queda pendiente hasta que un investigador del proyecto la active.{" "}
+              La cuenta queda pendiente hasta que un investigador del proyecto decida activarla.{" "}
               <Link to="/entrar">¿Ya tienes cuenta? Entra</Link>.
             </p>
           </form>
