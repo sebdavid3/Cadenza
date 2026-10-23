@@ -20,24 +20,27 @@ const pendingRefresh = new WeakSet<QueryClient>();
 
 /**
  * Actualiza el listado tras un envío. Si ya está pidiendo algo (otra página o una actualización
- * anterior), espera a que termine: invalidar en ese momento cancelaría esa petición, y la que
- * llegara después podría no traer la sesión nueva.
+ * anterior, también en pausa por falta de red), espera a que termine: invalidar en ese momento
+ * cancelaría esa petición, y la que llegara después podría no traer la sesión nueva. Si lo que
+ * terminó fue un error, sigue esperando a la próxima petición que salga bien, para no tapar ese
+ * error con una actualización.
  */
 export function refreshSessions(queryClient: QueryClient) {
   const cache = queryClient.getQueryCache();
-  const busy = () =>
-    cache.find({ queryKey: SESSIONS_QUERY_KEY, exact: true })?.state.fetchStatus === "fetching";
+  const state = () => cache.find({ queryKey: SESSIONS_QUERY_KEY, exact: true })?.state;
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
   };
-  if (!busy()) {
+  const current = state();
+  if (!current || current.fetchStatus === "idle") {
     invalidate();
     return;
   }
   if (pendingRefresh.has(queryClient)) return;
   pendingRefresh.add(queryClient);
   const unsubscribe = cache.subscribe(() => {
-    if (busy()) return;
+    const now = state();
+    if (now && (now.fetchStatus !== "idle" || now.status === "error")) return;
     unsubscribe();
     pendingRefresh.delete(queryClient);
     invalidate();
@@ -111,27 +114,30 @@ export function thumbnailSize(width: number, height: number) {
  * Reduce la imagen al tamaño de la miniatura para no guardar ni decodificar escaneos enteros en
  * un hueco de 96 × 48. Si el navegador no puede, se queda la original.
  */
-async function shrinkForThumbnail(blob: Blob): Promise<Blob> {
+export async function shrinkForThumbnail(blob: Blob): Promise<Blob> {
   if (!("createImageBitmap" in globalThis) || !("OffscreenCanvas" in globalThis)) return blob;
+  const bitmaps: ImageBitmap[] = [];
   try {
     const full = await createImageBitmap(blob);
+    bitmaps.push(full);
     const size = thumbnailSize(full.width, full.height);
-    if (!size) {
-      full.close();
-      return blob;
-    }
+    if (!size) return blob;
     const small = await createImageBitmap(full, {
       resizeWidth: size.width,
       resizeHeight: size.height,
       resizeQuality: "high",
     });
-    full.close();
+    bitmaps.push(small);
     const canvas = new OffscreenCanvas(size.width, size.height);
-    canvas.getContext("2d")?.drawImage(small, 0, 0);
-    small.close();
+    const context = canvas.getContext("2d");
+    if (!context) return blob;
+    // Con el tamaño explícito: si el navegador no aplicara resizeWidth, se reduce aquí.
+    context.drawImage(small, 0, 0, size.width, size.height);
     return await canvas.convertToBlob({ type: "image/png" });
   } catch {
     return blob;
+  } finally {
+    for (const bitmap of bitmaps) bitmap.close();
   }
 }
 

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
 import {
   ANA,
@@ -204,7 +205,10 @@ describe("vista de transcripción", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudieron cargar más/i);
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(within(table).getAllByRole("row")).toHaveLength(21);
-    expect(screen.getByRole("button", { name: "Cargar más" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Cargar más" })).toHaveAttribute(
+      "aria-disabled",
+      "false",
+    );
   });
 
   it("un investigador ve el propietario de cada sesión", async () => {
@@ -763,15 +767,122 @@ describe("vista de transcripción", () => {
     const router = renderPage();
     expect(await screen.findByText("deana000")).toBeVisible();
 
-    await userEvent.click(screen.getByRole("button", { name: "Salir" }));
+    // Sale una y entra otra sin que React llegue a pintar la pestaña sin sesión.
     act(() => {
+      useAuthStore.getState().signOut("signed-out");
       signInAs(bruno);
     });
-    await act(() => router.navigate("/transcripcion"));
+    expect(router.state.location.pathname).toBe("/transcripcion");
 
     expect(await screen.findByText(/cargando sesiones/i)).toBeVisible();
     expect(screen.queryByText("deana000")).not.toBeInTheDocument();
     brunoPage.resolve(jsonResponse([]));
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
+  });
+
+  it("tras «Cargar más» no mueve el foco si la persona ya está en otro sitio", async () => {
+    const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
+    const nextPage = deferred<Response>();
+    let page = 0;
+    mockApi({
+      "GET /sessions": () => {
+        page += 1;
+        return page === 1 ? jsonResponse(first) : nextPage.promise;
+      },
+    });
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
+    const exit = screen.getByRole("button", { name: "Salir" });
+    exit.focus();
+    nextPage.resolve(jsonResponse([session("ultima-0000")]));
+
+    expect(await within(table).findByText("ultima-0")).toBeVisible();
+    expect(exit).toHaveFocus();
+  });
+
+  it("si «Cargar más» falla con una actualización pendiente, avisa de la página y luego la actualiza", async () => {
+    const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
+    const created: SessionSummaryRead[] = [];
+    const all = () => [...[...created].reverse(), ...first, session("ultima-0000")];
+    const nextPage = deferred<undefined>();
+    const post = deferred<Response>();
+    let secondPages = 0;
+    const { calls } = mockApi({
+      "GET /sessions": () => {
+        const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
+        const page = () => jsonResponse(all().slice(offset, offset + 20));
+        if (offset === 0) return page();
+        secondPages += 1;
+        return secondPages === 1
+          ? nextPage.promise.then(() => jsonResponse({ detail: "boom" }, 500))
+          : page();
+      },
+      "POST /transcribe": () => post.promise,
+    });
+    renderPage();
+    const table = await screen.findByRole("table");
+    act(() => {
+      useQueueStore.getState().add([png("uno.png")]);
+    });
+    await waitFor(() => {
+      expect(calls.some((call) => call.key === "POST /transcribe")).toBe(true);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
+    created.push(session("nueva000-1"));
+    post.resolve(jsonResponse(transcribed("nueva000-1"), 201));
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Cola" })).toHaveTextContent(/1 transcrita/);
+    });
+    nextPage.resolve(undefined);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudieron cargar más/i);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(screen.getByRole("alert")).toHaveTextContent(/no se pudieron cargar más/i);
+
+    await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
+    await waitFor(() => {
+      expect(within(table).getByText("nueva000")).toBeVisible();
+    });
+    expect(within(table).getByText("ultima-0")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("no avisa de la pausa si ya no queda nada en cola", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    act(() => {
+      useQueueStore.setState({
+        paused: true,
+        items: [
+          item("a", "a.png", { status: "error", error: "No se pudo conectar con el servidor." }),
+        ],
+      });
+    });
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    expect(within(queue).queryByText(/la cola está en pausa/i)).not.toBeInTheDocument();
+  });
+
+  it("tras un 401 no pide el listado sin token", async () => {
+    const { calls } = mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => jsonResponse({ detail: "Not authenticated" }, 401),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await userEvent.upload(fileInput(), [png("uno.png")]);
+
+    expect(await screen.findByText(/tu sesión caducó/i)).toBeVisible();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const anonymous = calls.filter(
+      (call) =>
+        call.key === "GET /sessions" && !new Headers(call.init?.headers).has("Authorization"),
+    );
+    expect(anonymous).toHaveLength(0);
   });
 });

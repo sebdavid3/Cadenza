@@ -1,7 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "../../api/instance";
-import { useAuthStore } from "../../auth/store";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useQueueStore } from "./queue";
 import { QueuePanel } from "./QueuePanel";
@@ -23,8 +22,7 @@ export function TranscriptionPage() {
   useEffect(() => {
     if (!hasQueued || running || paused) return;
     void useQueueStore.getState().run(api, () => {
-      // Sin sesión no se pide nada: la caché de datos se vacía al cerrarla.
-      if (useAuthStore.getState().token) refreshSessions(queryClient);
+      refreshSessions(queryClient);
     });
   }, [hasQueued, running, paused, queryClient]);
 

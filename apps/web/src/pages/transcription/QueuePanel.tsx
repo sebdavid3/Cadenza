@@ -93,6 +93,7 @@ export function QueuePanel() {
     () =>
       useQueueStore.subscribe(() => {
         // Antes de que React pinte el cambio: ¿qué elemento de la cola tiene el foco?
+        focusIfLost.current = null;
         const active = document.activeElement;
         for (const [id, element] of itemRefs.current) {
           if (element.contains(active)) focusIfLost.current = id;
@@ -131,7 +132,7 @@ export function QueuePanel() {
           {items.length === 0 ? "Vacía" : summary(items)}
         </p>
       </div>
-      {paused && (
+      {paused && items.some((item) => item.status === "queued") && (
         <div className="panel__error" role="alert">
           <p>Se perdió la conexión con el servidor: la cola está en pausa.</p>
           <button

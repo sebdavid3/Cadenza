@@ -1,3 +1,4 @@
+import { onlineManager, QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "../../api/client";
 import { useAuthStore } from "../../auth/store";
@@ -18,6 +19,9 @@ import {
   formatTime,
   isoUtc,
   parseUtc,
+  refreshSessions,
+  SESSIONS_QUERY_KEY,
+  shrinkForThumbnail,
   statusLabel,
   thumbnailSize,
 } from "./sessions";
@@ -276,6 +280,32 @@ describe("cola secuencial", () => {
     expect(useQueueStore.getState().paused).toBe(false);
   });
 
+  it("reintentar, añadir imágenes o volver a entrar quitan la pausa", async () => {
+    mockApi({ "POST /transcribe": () => Promise.reject(new TypeError("Failed to fetch")) });
+    const store = useQueueStore.getState();
+    const pause = async () => {
+      store.add([png()]);
+      await store.run(api);
+      expect(useQueueStore.getState().paused).toBe(true);
+    };
+
+    await pause();
+    const failed = useQueueStore.getState().items.at(-1);
+    store.retry(failed?.id ?? "");
+    expect(useQueueStore.getState().paused).toBe(false);
+
+    await store.run(api);
+    expect(useQueueStore.getState().paused).toBe(true);
+    store.add([png("otra.png")]);
+    expect(useQueueStore.getState().paused).toBe(false);
+
+    await store.run(api);
+    expect(useQueueStore.getState().paused).toBe(true);
+    useAuthStore.getState().signOut("expired");
+    signInAs(ANA);
+    expect(useQueueStore.getState().paused).toBe(false);
+  });
+
   it("un 500 de una imagen no pausa la cola", async () => {
     let n = 0;
     mockApi({
@@ -516,5 +546,99 @@ describe("limitador de descargas", () => {
     gates[1]?.resolve("b");
     gates[3]?.resolve("d");
     await expect(Promise.all([results[1], results[3]])).resolves.toEqual(["b", "d"]);
+  });
+
+  it("la actualización del listado espera también a una petición en pausa por falta de red", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // Montado, como lo deja QueryClientProvider: así atiende a los cambios de conexión.
+    client.mount();
+    onlineManager.setOnline(false);
+    try {
+      void client.query({ queryKey: SESSIONS_QUERY_KEY, queryFn: () => Promise.resolve([]) });
+      expect(client.getQueryCache().find({ queryKey: SESSIONS_QUERY_KEY })?.state.fetchStatus).toBe(
+        "paused",
+      );
+      const invalidate = vi.spyOn(client, "invalidateQueries");
+
+      refreshSessions(client);
+      expect(invalidate).not.toHaveBeenCalled();
+
+      onlineManager.setOnline(true);
+      await vi.waitFor(() => {
+        expect(invalidate).toHaveBeenCalledOnce();
+      });
+    } finally {
+      onlineManager.setOnline(true);
+      client.clear();
+      client.unmount();
+    }
+  });
+});
+
+describe("reducción de miniaturas", () => {
+  function bitmap(width: number, height: number) {
+    return { width, height, close: vi.fn() };
+  }
+
+  function stubCanvas(context: { drawImage: (...args: unknown[]) => void } | null) {
+    const small = new Blob(["pequeña"], { type: "image/png" });
+    vi.stubGlobal(
+      "OffscreenCanvas",
+      class {
+        constructor(
+          readonly width: number,
+          readonly height: number,
+        ) {}
+        getContext() {
+          return context;
+        }
+        convertToBlob() {
+          return Promise.resolve(small);
+        }
+      },
+    );
+    return small;
+  }
+
+  it("dibuja la imagen al tamaño reducido y cierra los dos bitmaps", async () => {
+    const full = bitmap(1200, 200);
+    const reduced = bitmap(576, 96);
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValueOnce(full).mockResolvedValueOnce(reduced),
+    );
+    const drawImage = vi.fn();
+    const small = stubCanvas({ drawImage });
+    const original = new Blob(["original"], { type: "image/png" });
+
+    await expect(shrinkForThumbnail(original)).resolves.toBe(small);
+
+    expect(drawImage).toHaveBeenCalledWith(reduced, 0, 0, 576, 96);
+    expect(full.close).toHaveBeenCalledOnce();
+    expect(reduced.close).toHaveBeenCalledOnce();
+  });
+
+  it("si algo falla a mitad, devuelve la original sin dejar bitmaps abiertos", async () => {
+    const original = new Blob(["original"], { type: "image/png" });
+
+    const full = bitmap(1200, 200);
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValueOnce(full).mockRejectedValueOnce(new Error("sin memoria")),
+    );
+    stubCanvas({ drawImage: vi.fn() });
+    await expect(shrinkForThumbnail(original)).resolves.toBe(original);
+    expect(full.close).toHaveBeenCalledOnce();
+
+    const full2 = bitmap(1200, 200);
+    const reduced = bitmap(576, 96);
+    vi.stubGlobal(
+      "createImageBitmap",
+      vi.fn().mockResolvedValueOnce(full2).mockResolvedValueOnce(reduced),
+    );
+    stubCanvas(null);
+    await expect(shrinkForThumbnail(original)).resolves.toBe(original);
+    expect(full2.close).toHaveBeenCalledOnce();
+    expect(reduced.close).toHaveBeenCalledOnce();
   });
 });

@@ -60,9 +60,10 @@ export function SessionsPanel() {
 
   // «Cargar más» no se ofrece mientras el listado pide algo: pedir otra página cancelaría la
   // actualización en curso (y al revés), y la sesión recién creada podría no aparecer.
-  const busy = sessions.isFetching;
+  const busy = sessions.fetchStatus !== "idle";
 
-  // Tras cargar otra página, el foco pasa a la primera sesión nueva: el botón puede desaparecer.
+  // Tras cargar otra página, el foco pasa a la primera sesión nueva (el botón puede desaparecer),
+  // salvo que la persona ya lo haya llevado a otro sitio mientras tanto.
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bodyRef = useRef<HTMLTableSectionElement>(null);
   const moreRef = useRef<HTMLButtonElement>(null);
@@ -71,6 +72,9 @@ export function SessionsPanel() {
     const index = focusRowAfterLoad.current;
     if (index === null || sessions.isFetchingNextPage) return;
     focusRowAfterLoad.current = null;
+    const active = document.activeElement;
+    const waiting = !active || active === document.body || active === moreRef.current;
+    if (!waiting) return;
     const row = bodyRef.current?.rows[index];
     if (row) row.focus();
     else if (!moreRef.current) headingRef.current?.focus();
@@ -210,7 +214,7 @@ export function SessionsPanel() {
           onClick={() => {
             if (busy) return;
             focusRowAfterLoad.current = rows.length;
-            void sessions.fetchNextPage({ cancelRefetch: false });
+            void sessions.fetchNextPage();
           }}
         >
           {sessions.isFetchingNextPage ? "Cargando…" : "Cargar más"}

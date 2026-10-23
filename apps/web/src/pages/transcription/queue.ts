@@ -120,7 +120,8 @@ export const useQueueStore = create<QueueState>()((set, get) => {
           ? { id: newId(), file, status: "error", error: problem, rejected: true }
           : { id: newId(), file, status: "queued" };
       });
-      set((state) => ({ items: [...state.items, ...added] }));
+      // Añadir es pedir que se envíe: si la cola estaba en pausa, se vuelve a intentar.
+      set((state) => ({ items: [...state.items, ...added], paused: false }));
     },
     remove: (id) => {
       set((state) => ({
@@ -131,6 +132,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
       const item = get().items.find((candidate) => candidate.id === id);
       if (item?.status === "error" && !item.rejected) {
         patch(id, { status: "queued", error: undefined });
+        set({ paused: false });
       }
     },
     clearFinished: () => {
@@ -206,9 +208,14 @@ export const LEAVE_WARNING =
 registerPendingWork(() => (hasPendingWork(useQueueStore.getState().items) ? LEAVE_WARNING : null));
 
 // La cola es de quien la llenó. Si entra otra persona en la pestaña, o la dueña sale, se
-// vacía y se cancela lo que esté en vuelo; si la sesión caduca, se conserva para reanudarla.
-useAuthStore.subscribe((auth) => {
+// vacía y se cancela lo que esté en vuelo; si la sesión caduca, se conserva para reanudarla
+// (también si estaba en pausa: haber podido entrar indica que el servidor responde).
+useAuthStore.subscribe((auth, previous) => {
   const queue = useQueueStore.getState();
-  if (auth.user) queue.claim(auth.user.id);
-  else if (auth.endReason === "signed-out" && queue.ownerId !== null) queue.reset();
+  if (auth.user) {
+    queue.claim(auth.user.id);
+    if (!previous.user) queue.resume();
+  } else if (auth.endReason === "signed-out" && queue.ownerId !== null) {
+    queue.reset();
+  }
 });

@@ -65,7 +65,7 @@
 @media (max-width: 640px) {
   .app-header {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas:
       "brand user"
       "nav exit";
@@ -78,6 +78,7 @@
 
   .app-header__user {
     grid-area: user;
+    justify-self: end;
     margin-left: 0;
   }
 
@@ -87,5 +88,6 @@
 
   .app-header__exit {
     grid-area: exit;
+    justify-self: end;
   }
 }
