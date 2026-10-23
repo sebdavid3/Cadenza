@@ -29,6 +29,13 @@ Opciones de exposición: Tailscale Funnel (HTTPS en `*.ts.net`, sin dominio ni r
 
 **Comprobación previa (2026-10-23).** Con un proyecto desechable en el servidor (`127.0.0.1:18380`, secretos generados allí y borrados después): servicios en `healthy` en 100 s, rutas de la interfaz y `/api/health` con 200, solo `127.0.0.1:18380` en escucha y 5432 y 8000 inaccesibles desde la IP de Tailscale. Simulando la `X-Forwarded-For` de Funnel desde el host, el límite de registro contó por esa IP (tres 201, un 429 y 201 desde otra IP). Que Funnel añada la cabecera tal como se espera se comprueba al publicar (#157).
 
+**Comprobación al publicar (2026-10-23, [#157](https://github.com/sebdavid3/Cadenza/issues/157)).** Publicado en `https://r2d2.tailcacb19.ts.net`. Desde fuera del tailnet, conectando a la IP de Funnel que da un DNS público:
+- certificado de Let's Encrypt válido;
+- una `X-Forwarded-For` inventada por el cliente no llega: Nginx y uvicorn registran su IP pública real, así que Funnel añade la cabecera como se esperaba;
+- registro, entrada, transcripción y vista de la sesión funcionan por la URL pública.
+
+El detalle está en `docs/infra/operacion_backend.md` §2.2.
+
 **Segunda comprobación (2026-10-23), tras la revisión independiente**, con la subred fija y los límites de Nginx: sin cabecera, Nginx ve la pasarela `10.77.0.1`; una `X-Forwarded-For` con dos direcciones se resuelve a la última; una `X-Forwarded-For` enviada a la API desde otro contenedor no se cree; 25 accesos seguidos desde una IP dan 11 respuestas 401 y 14 respuestas 429, con las zonas del acceso y del registro separadas y las IPv6 agrupadas por /64; las rutas con caracteres de control responden 400; y en Chrome sin interfaz (1440 y 390 px) ninguna vista viola la política de seguridad de contenido. Las transcripciones simultáneas destaparon dos fallos anteriores, que se corrigen antes de publicar: HOMR no es seguro entre hilos ([#165](https://github.com/sebdavid3/Cadenza/issues/165)) y la API confirma la transacción después de responder ([#166](https://github.com/sebdavid3/Cadenza/issues/166)). El detalle está en `docs/infra/operacion_backend.md` §2.2.
 
 ## Consecuencias
