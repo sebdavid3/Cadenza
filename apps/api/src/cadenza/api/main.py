@@ -253,7 +253,11 @@ def get_db(request: Request) -> Iterator[DbSession]:
         session.close()
 
 
-DbDep = Annotated[DbSession, Depends(get_db)]
+# scope="function": la transacción se confirma (o se deshace) al terminar la ruta y antes de
+# enviar la respuesta. Con el ámbito por defecto de FastAPI («request»), el commit corría después
+# de enviarla: el cliente recibía un 2xx aunque el commit fallase, y una petición inmediata podía
+# no ver lo que acababa de crear (#166).
+DbDep = Annotated[DbSession, Depends(get_db, scope="function")]
 
 
 def get_current_user(
