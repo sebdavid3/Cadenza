@@ -1,0 +1,11 @@
+# Copias de seguridad del despliegue (#159, operacion_backend.md §4): scripts/backup_restore.py con
+# el pg_dump y el pg_restore de la misma versión que el servidor (PostgreSQL 16). Solo usa la
+# biblioteca estándar de Python.
+FROM postgres:16.15-alpine3.24
+
+RUN apk add --no-cache python3
+
+WORKDIR /app
+COPY scripts/backup_restore.py /app/backup_restore.py
+
+ENTRYPOINT ["python3", "/app/backup_restore.py"]

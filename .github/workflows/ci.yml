@@ -56,6 +56,21 @@ jobs:
       - name: Verificación de tipos estricta con Mypy
         run: uv run mypy packages apps
 
+      # pg_dump y pg_restore de la imagen postgres:16, la misma del servicio: el runner (Ubuntu
+      # 26.04) no trae el cliente 16, y uno más nuevo escribe volcados que un servidor 16 no
+      # restaura. Los envoltorios montan /tmp, donde pytest deja los archivos de las pruebas (#159).
+      - name: pg_dump y pg_restore de PostgreSQL 16 (copias, #159)
+        run: |
+          docker pull -q postgres:16
+          mkdir -p "$HOME/pg16/bin"
+          for tool in pg_dump pg_restore; do
+            printf '#!/bin/sh\nexec docker run --rm -i --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp -e PGPASSWORD postgres:16 %s "$@"\n' "$tool" > "$HOME/pg16/bin/$tool"
+            chmod +x "$HOME/pg16/bin/$tool"
+          done
+          echo "$HOME/pg16/bin" >> "$GITHUB_PATH"
+          "$HOME/pg16/bin/pg_dump" --version
+          "$HOME/pg16/bin/pg_restore" --version
+
       - name: Ejecutar pruebas con Pytest
         run: uv run pytest -vv
 
@@ -106,6 +121,13 @@ jobs:
       - name: Construir la imagen web
         run: docker build -f Dockerfile.web --build-arg VITE_REGISTRATION_ENABLED=true -t cadenza-web:ci .
 
+      # pg_dump y pg_restore de PostgreSQL 16 con el script de copias (#159)
+      - name: Construir la imagen de copias de seguridad
+        run: |
+          docker build -f Dockerfile.backup -t cadenza-backup:ci .
+          docker run --rm --entrypoint pg_dump cadenza-backup:ci --version
+          docker run --rm cadenza-backup:ci --help
+
       # Valores generados al vuelo: el compose exige los secretos, pero aquí no se usan.
       - name: Validar el compose de producción
         run: |
@@ -113,3 +135,4 @@ jobs:
           export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
           export CADENZA_PUBLIC_ORIGIN=https://cadenza.example
           docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml --profile backup config --quiet
