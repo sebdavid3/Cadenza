@@ -1069,6 +1069,30 @@ describe("elegir una nota sobre la partitura", () => {
     clientX: (15 + (measure - 1) * 20) * 7.5,
     clientY: 7 * 7.5,
   });
+  /** Ancho controlado por la prueba: devuelve con qué cambiarlo y avisar del cambio. */
+  function observeResizes(initial: number) {
+    let width = initial;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {
+          // El doble solo guarda el aviso; la prueba lo dispara a mano.
+        }
+        disconnect() {
+          // Nada que soltar.
+        }
+      },
+    );
+    return (next: number) => {
+      width = next;
+      for (const notify of observers) notify();
+    };
+  }
 
   it("elige con el ratón la nota tocada, la marca, la anuncia y guarda su ancla", async () => {
     api();
@@ -1169,6 +1193,57 @@ describe("elegir una nota sobre la partitura", () => {
     expect(screen.getByText("Mi4 · negra")).toBeVisible();
   });
 
+  it("anuncia también un evento que se describe igual que el anterior", async () => {
+    osmd.figures = [
+      [
+        { pitch: "C4", whole: [1, 4] },
+        { pitch: "C4", whole: [1, 4] },
+        { pitch: "C4", whole: [1, 4] },
+      ],
+    ];
+    const first = measure(1).events[0];
+    const current = detail();
+    const staff = current.current_score?.parts[0]?.staves[0];
+    if (!first || !staff?.measures[0]) throw new Error("partitura de prueba incompleta");
+    staff.measures[0].events = [1, 2, 3].map(() => ({ ...first, duration_beats: "1" }));
+    api({ detail: current });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Compás 1, voz 1: Do 4, negra.");
+    });
+    const before = live()?.textContent;
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+
+    // El texto es el mismo: cambia lo justo para que el lector de pantalla lo vuelva a leer.
+    await waitFor(() => {
+      expect(live()?.textContent).not.toBe(before);
+    });
+    expect(live()).toHaveTextContent("Compás 1, voz 1: Do 4, negra.");
+  });
+
+  it("no trae la nota a la vista al volver a maquetar si la tecla no la movió", async () => {
+    const resize = observeResizes(1200);
+    api();
+    renderPage();
+    const region = await findScore();
+    // A zoom 1, la cabeza del compás 3 está en x = 55 unidades × 10 px.
+    fireEvent.click(region, { clientX: 550, clientY: 70 });
+    // Es el último evento: la flecha no la mueve.
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Compás 3 · Voz 1")).toBeVisible();
+    scrollIntoView.mockClear();
+
+    resize(390);
+
+    await waitFor(() => {
+      expect(selection()?.style.left).toBe("408px");
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("los botones de la barra mueven la selección en una pantalla táctil", async () => {
     api();
     renderPage();
@@ -1223,23 +1298,7 @@ describe("elegir una nota sobre la partitura", () => {
   });
 
   it("al volver a maquetar recoloca la nota elegida y la conserva", async () => {
-    let width = 1200;
-    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
-    const observers: (() => void)[] = [];
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(callback: () => void) {
-          observers.push(callback);
-        }
-        observe() {
-          // El doble solo guarda el aviso; la prueba lo dispara a mano.
-        }
-        disconnect() {
-          // Nada que soltar.
-        }
-      },
-    );
+    const resize = observeResizes(1200);
     api();
     renderPage();
     const region = await findScore();
@@ -1247,8 +1306,7 @@ describe("elegir una nota sobre la partitura", () => {
     fireEvent.click(region, { clientX: 350, clientY: 70 });
     expect(selection()?.style.left).toBe("344px");
 
-    width = 390;
-    for (const notify of observers) notify();
+    resize(390);
 
     await waitFor(() => {
       expect(selection()?.style.left).toBe("258px");

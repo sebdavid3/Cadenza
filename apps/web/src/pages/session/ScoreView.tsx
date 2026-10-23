@@ -223,7 +223,8 @@ export function ScoreView({
   const revealRef = useRef(false);
   const choose = (target: SelectableEvent | null, reveal: boolean) => {
     if (!target) return;
-    revealRef.current = reveal;
+    // Si la tecla no movió la selección (un borde), no queda nada pendiente de traer a la vista.
+    revealRef.current = reveal && target.key !== noteKey;
     select({ sessionId, seq, anchor: target.anchor });
   };
   const move = (how: Move) => {
@@ -269,18 +270,22 @@ export function ScoreView({
 
   // Se anuncia dónde se detiene la selección, no cada paso intermedio.
   const spoken = description?.spoken ?? null;
+  const chosenKey = chosen?.key ?? null;
   const [announcement, setAnnouncement] = useState("");
-  const lastSpoken = useRef<string | null>(null);
+  const lastAnnounced = useRef<string | null>(null);
   useEffect(() => {
-    if (spoken === lastSpoken.current) return;
+    if (chosenKey === lastAnnounced.current) return;
     const timer = setTimeout(() => {
-      lastSpoken.current = spoken;
-      setAnnouncement(spoken ?? "Sin nota elegida.");
+      lastAnnounced.current = chosenKey;
+      const text = spoken ?? "Sin nota elegida.";
+      // Un texto igual al anterior (dos Do4 negras seguidas) no se volvería a leer: un espacio
+      // duro al final lo distingue sin cambiar lo que se oye.
+      setAnnouncement((previous) => (previous === text ? `${text} ` : text));
     }, ANNOUNCE_DELAY_MS);
     return () => {
       clearTimeout(timer);
     };
-  }, [spoken]);
+  }, [chosenKey, spoken]);
 
   const keysId = useId();
   let selectionStatus: SelectionStatus;
