@@ -52,5 +52,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0023](ADR-0023-despliegue-publico-con-tailscale-funnel.md) | Despliegue público en el homelab con Tailscale Funnel | Aceptado | Infra, Web |
 | [ADR-0024](ADR-0024-transcripciones-simultaneas.md) | Transcripciones simultáneas: HOMR de una en una y tope de admisión en la API | Aceptado | OMR, API |
 | [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md) | Registro abierto: la cuenta queda activa al crearse (enmienda ADR-0022 §4 y §9) | Aceptado | API, Web |
+| [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md) | Reproducción de la partitura en el navegador: notas del mapa de tiempos, Tone.js con reloj por `setTimeout` y la CSP sin cambios | Aceptado | Web |
 
 

@@ -1,7 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
-import type { FindingRead, SessionDetailRead } from "../../types";
+import type { FindingRead, SessionDetailRead, TimingMapRead } from "../../types";
 import { sessionImage } from "../transcription/sessions";
 
 const sessionPath = (sessionId: string) => `/sessions/${encodeURIComponent(sessionId)}` as const;
@@ -45,6 +45,23 @@ export const sessionMusicXmlQuery = (api: ApiClient, sessionId: string, seq: num
         signal,
       });
       return blob.text();
+    },
+    staleTime: Infinity,
+  });
+
+/**
+ * Mapa tiempo→ancla del estado materializado (D12): cuándo empieza cada compás y cada evento, en
+ * negras. Con las alturas de `current_score`, es lo que se reproduce (ADR-0026).
+ */
+export const sessionTimingQuery = (api: ApiClient, sessionId: string, seq: number) =>
+  queryOptions({
+    queryKey: ["session", sessionId, "timing", seq],
+    queryFn: async ({ signal }) => {
+      const timing = await api.request<TimingMapRead>(`${sessionPath(sessionId)}/timing`, {
+        signal,
+      });
+      if (typeof timing.total_beats !== "string") throw new ApiError("unexpected", 200);
+      return timing;
     },
     staleTime: Infinity,
   });

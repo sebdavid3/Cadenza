@@ -130,6 +130,106 @@
   border-bottom: var(--rule);
 }
 
+/* Transporte: en su propia franja, bajo el pie y la barra. */
+.sheet__transport {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.playback {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+.playback__transport,
+.playback__tempo {
+  display: flex;
+  align-items: center;
+}
+
+/* Conmutador segmentado: botones contiguos con el filete solapado. Mientras suena, «Pausa» es
+   un bloque de tinta (el estado pulsado del sistema). */
+.playback__button,
+.playback__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 44px;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.playback__step {
+  padding: var(--space-2);
+}
+
+.playback__button + .playback__button {
+  margin-left: calc(var(--rule-width) * -1);
+}
+
+.playback__button:hover,
+.playback__step:hover,
+.playback__button[data-active="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.playback__button[aria-disabled="true"],
+.playback__step[aria-disabled="true"] {
+  border-style: dashed;
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  cursor: not-allowed;
+}
+
+/* El foco queda por encima del filete del vecino. */
+.playback__button:focus-visible,
+.playback__step:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.playback__tempo-label {
+  margin-right: var(--space-3);
+  color: var(--color-ink-muted);
+}
+
+.playback__tempo-value {
+  display: inline-grid;
+  place-items: center;
+  min-width: 3.5rem;
+  min-height: 44px;
+  margin: 0 calc(var(--rule-width) * -1);
+  border-block: var(--rule);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.playback__readout {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
 .score-download {
   display: flex;
   flex-wrap: wrap-reverse;
@@ -155,6 +255,11 @@
   .sheet__bar,
   .score-download {
     justify-content: flex-start;
+  }
+
+  .playback__readout {
+    flex-basis: 100%;
+    margin-left: 0;
   }
 
   .score-download__hint {
@@ -232,6 +337,43 @@
 .notation__mark[data-selected="true"] .notation__tag {
   background: var(--color-ink);
   color: var(--color-paper);
+}
+
+/* Compás que suena: contorno de tinta por detrás de las notas y una banda maciza colgada bajo su
+   caja, fuera de ella para no tapar plicas, barras ni notas graves. No es violeta: no pide nada a
+   la persona. La banda entra con un barrido a saltos, como la lectura de la landing; con
+   movimiento reducido aparece sin más. */
+.notation__playhead {
+  position: absolute;
+  box-shadow: inset 0 0 0 var(--rule-width) var(--color-ink);
+  pointer-events: none;
+}
+
+.notation__playhead::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  height: 6px;
+  background: var(--color-ink);
+  transform-origin: left center;
+  animation: notation-playhead-sweep 240ms steps(6, end);
+}
+
+@keyframes notation-playhead-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notation__playhead::after {
+    animation: none;
+  }
 }
 
 @container notation (max-width: 36rem) {
