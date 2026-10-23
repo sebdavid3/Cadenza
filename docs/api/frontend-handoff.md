@@ -369,6 +369,7 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 - **Sesión** ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer o ante un 401 y rutas privadas.
 - **Página pública** en `/` ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
 - **Transcripción** en `/transcripcion` ([#147](https://github.com/sebdavid3/Cadenza/issues/147)): cola que envía las imágenes de una en una a `POST /transcribe` con el timeout de §5.7 y estado por archivo, y listado de `GET /sessions` con la miniatura de `GET /sessions/{id}/image` cargada como Blob (§5.6).
+- **Vista de una sesión** en `/sesiones/:id` ([#153](https://github.com/sebdavid3/Cadenza/issues/153), [ADR-0021](../adr/ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md)), enlazada desde el listado: solo lectura. La imagen original (Blob) sobre la partitura dibujada por OSMD 2.2.1 a partir del MusicXML exportado, cargado bajo demanda, y la lista de posibles errores de `GET /sessions/{id}/findings?latest_only=true&include_dismissed=true`. Cada hallazgo activo marca su compás (trama y contorno violetas); los descartados se listan aparte sin marca. Si OSMD dibuja otro número de compases que el `ScoreIR` no se marca nada y se avisa; una sesión ajena o inexistente responde 404 y la vista no distingue entre las dos.
 - **Sistema de diseño:** `PRODUCT.md`, `DESIGN.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
 
 Arranque, con la API ya en marcha (§1.4):
@@ -383,7 +384,7 @@ Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `
 
 Queda por construir sobre la API v1:
 - **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Quedan el cambio de contraseña y la gestión de cuentas del investigador (`/users`).
-- **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
+- **Corrección:** sobre la partitura ya dibujada con OSMD (la vista de solo lectura marca compases; corregir exige seleccionar cualquier símbolo sobre la notación, sin depender de las coordenadas del motor OMR, porque HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
 - **Reproducción:** Tone.js con el cursor sincronizado a partir de `GET /sessions/{id}/timing`.
 - **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y exportación MusicXML y MIDI.
 
@@ -421,7 +422,7 @@ La secuencia completa de digitalización, edición, concurrencia, validación, d
 
 ### 7.2. No Verificado (Alcance de la Fase 8)
 
-- **Renderizado OSMD en Navegador:** Render dinámico de las partituras exportadas dentro de componentes Canvas/SVG en el navegador.
+- **Selección de símbolos sobre OSMD:** el render en el navegador está verificado ([#153](https://github.com/sebdavid3/Cadenza/issues/153), 2026-10-23, contra la API real con HOMR); falta el mapa ancla→elemento SVG por evento que necesita la corrección.
 - **Reproducción Tone.js:** Síntesis de audio y seguimiento visual del cursor a partir de los tiempos de `GET /sessions/{id}/timing`.
 - **Panel Administrativo `/users`:** Vistas de gestión de cuentas en el frontend web.
 

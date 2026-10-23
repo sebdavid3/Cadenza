@@ -98,7 +98,7 @@ describe("vista de transcripción", () => {
     expect(screen.getByText(/las imágenes que elijas aparecerán aquí/i)).toBeVisible();
   });
 
-  it("lista las sesiones con fecha, estado, hallazgos y miniatura autenticada, sin enlaces a edición", async () => {
+  it("lista las sesiones con fecha, estado, hallazgos, miniatura autenticada y enlace a su vista", async () => {
     mockApi({
       "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111"), session("bbbbbbbb-2222")]),
       "GET /sessions/aaaaaaaa-1111/image": () =>
@@ -120,8 +120,13 @@ describe("vista de transcripción", () => {
     await waitFor(() => {
       expect(createObjectURL).toHaveBeenCalledTimes(2);
     });
+    // Cada sesión enlaza con su vista de solo lectura; no hay enlaces a una edición.
+    expect(within(table).getByRole("link", { name: "Ver la sesión aaaaaaaa" })).toHaveAttribute(
+      "href",
+      "/sesiones/aaaaaaaa-1111",
+    );
     for (const link of screen.getAllByRole("link")) {
-      expect(link.getAttribute("href")).not.toMatch(/sesion|session|editor/i);
+      expect(link.getAttribute("href")).not.toMatch(/editor|edicion|correccion/i);
     }
   });
 

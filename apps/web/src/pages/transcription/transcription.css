@@ -103,20 +103,6 @@
   border: var(--rule-width) solid var(--color-accent);
 }
 
-.link-button {
-  padding: var(--space-2) 0;
-  border: 0;
-  background: none;
-  font-family: var(--font-label);
-  font-size: var(--text-label);
-  letter-spacing: 0.06em;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 0.3em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
 /* Estados por patrón */
 .chip {
   display: inline-block;
@@ -314,9 +300,23 @@
   white-space: nowrap;
 }
 
+/* El identificador es el enlace a la vista de la sesión. */
 .sessions__id {
-  padding: 2px var(--space-1);
-  border: 1px solid var(--color-ink);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 2px var(--space-2);
+  border: var(--rule);
+  text-decoration: none;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.sessions__id:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
 }
 
 .thumb {

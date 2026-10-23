@@ -1,0 +1,415 @@
+/* Vista de una sesión (solo lectura): el escaneo sobre la notación, como en la demostración de
+   la landing, y los posibles errores al lado. El violeta solo marca el compás dudoso. */
+
+.session__head {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-5) var(--gutter) var(--space-6);
+  border-bottom: var(--rule);
+}
+
+.session__back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.session__back:hover {
+  text-decoration: underline;
+}
+
+.session__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.session__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+}
+
+.session__meta div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.session__meta dt {
+  color: var(--color-ink-muted);
+}
+
+.session__meta dd {
+  font-weight: 500;
+}
+
+.session__lead {
+  max-width: 62ch;
+  color: var(--color-ink-muted);
+}
+
+.session--missing {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--gutter) var(--space-9);
+}
+
+.session__error {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 62ch;
+}
+
+/* El escaneo y la notación ocupan dos tercios; los posibles errores, el tercio restante. */
+.session__body {
+  display: grid;
+  grid-template-columns: minmax(0, 8fr) minmax(20rem, 4fr);
+}
+
+.session__sheets {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--gutter) var(--space-8);
+}
+
+/* En escritorio, el escaneo encima de la notación (en el DOM y en móvil va después). */
+.sheet--scan {
+  order: -1;
+}
+
+.sheet {
+  min-width: 0;
+  border: var(--rule);
+  background: var(--color-paper);
+}
+
+.sheet__caption {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+/* Escaneo: la imagen tal cual, sin marcas (HOMR no da coordenadas). */
+.scan img {
+  width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+}
+
+.scan--empty {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  padding: var(--space-4);
+  background: var(--halftone-ink);
+}
+
+.scan--empty p {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-paper);
+}
+
+/* Notación vectorial de OSMD; la trama del compás dudoso queda detrás de las notas. */
+.notation {
+  position: relative;
+  container: notation / inline-size;
+  padding: var(--space-4) var(--space-3);
+}
+
+.notation__stage {
+  position: relative;
+}
+
+.notation__host {
+  position: relative;
+  z-index: 1;
+}
+
+.notation__marks {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.notation__mark {
+  position: absolute;
+  background: var(--halftone-accent);
+  box-shadow: inset 0 0 0 4px var(--color-accent);
+}
+
+.notation__mark[data-selected="true"] {
+  box-shadow:
+    inset 0 0 0 4px var(--color-accent),
+    0 0 0 var(--rule-width) var(--color-ink);
+}
+
+/* Rótulo del hallazgo: colgado del borde superior del compás señalado. */
+.notation__tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 2px var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  white-space: nowrap;
+  transform: translateY(-100%);
+}
+
+.notation__mark[data-selected="true"] .notation__tag {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+@container notation (max-width: 36rem) {
+  .notation__tag-word {
+    display: none;
+  }
+}
+
+.notation[data-state="rendering"] .notation__stage,
+.notation--placeholder {
+  min-height: 160px;
+  background: var(--halftone-ink);
+}
+
+.notation__status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-paper);
+  transform: translate(-50%, -50%);
+}
+
+.notation__note {
+  max-width: 62ch;
+  margin-top: var(--space-3);
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Fallo del dibujo: franja rayada en el acento, como los errores del acceso. */
+.notation__failed {
+  position: relative;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  margin: var(--space-4) var(--space-3);
+  padding: calc(var(--space-3) + 10px) var(--space-4) var(--space-3);
+  border: var(--rule-width) solid var(--color-accent);
+}
+
+.notation__failed::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 10px;
+  background: var(--hatch-accent);
+}
+
+.notation__failed-title {
+  font-weight: 700;
+}
+
+/* Posibles errores */
+.findings {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--gutter) var(--space-8);
+  border-left: var(--rule);
+}
+
+.findings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.findings__title {
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.findings__count {
+  min-width: 2.5rem;
+  padding: 6px var(--space-2);
+  border: var(--rule);
+  font-weight: 700;
+  text-align: center;
+}
+
+.findings__empty,
+.findings__notice {
+  color: var(--color-ink-muted);
+}
+
+.findings__notice {
+  max-width: 48ch;
+  font-size: var(--text-small);
+}
+
+.findings__stale {
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule);
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+.findings__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule-width) solid var(--color-accent);
+}
+
+.findings__list {
+  display: grid;
+  margin-top: calc(var(--space-4) * -1);
+  padding: 0;
+  list-style: none;
+}
+
+/* Cada compás es un conmutador: al pulsarlo se resalta y se trae a la vista en la partitura. */
+.findings__item {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-4) var(--space-3);
+  border: 0;
+  border-bottom: var(--rule);
+  background: var(--color-paper);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+button.findings__item:hover {
+  box-shadow: inset 0 0 0 var(--rule-width) var(--color-ink);
+}
+
+.findings__item--static {
+  cursor: default;
+}
+
+.findings__item[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.findings__item[aria-pressed="true"] .findings__rule {
+  color: var(--color-paper);
+}
+
+.findings__item:focus-visible {
+  outline-offset: -6px;
+}
+
+.findings__measure {
+  padding: 2px var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.findings__finding {
+  display: grid;
+  gap: 2px;
+}
+
+.findings__rule {
+  color: var(--color-ink-muted);
+}
+
+.findings__message {
+  max-width: 48ch;
+}
+
+/* Descartados: filete discontinuo, el patrón de lo que ya no pide acción. */
+.findings__dismissed summary {
+  min-height: 44px;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+}
+
+.findings__dismissed ul {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.findings__dismissed-item {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: var(--rule-width) dashed var(--color-ink);
+  color: var(--color-ink-muted);
+}
+
+.findings__dismissed-item .findings__measure {
+  padding: 0;
+  background: none;
+  color: var(--color-ink);
+}
+
+.findings__reason {
+  font-size: var(--text-small);
+}
+
+@media (max-width: 960px) {
+  .session__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .findings {
+    border-top: var(--rule);
+    border-left: 0;
+  }
+
+  /* En una columna, el orden del DOM: partitura, imagen y lista. */
+  .sheet--scan {
+    order: 0;
+  }
+}
+
+/* Un incipit de un solo pentagrama no se encoge hasta ser ilegible: se desplaza en horizontal. */
+@media (max-width: 760px) {
+  .scan[data-wide="true"] {
+    overflow-x: auto;
+  }
+
+  .scan[data-wide="true"] img {
+    min-width: 720px;
+    max-height: none;
+  }
+}
