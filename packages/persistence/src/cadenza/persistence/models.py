@@ -48,6 +48,10 @@ class UserRecord(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
+    # Cuenta del registro público (ADR-0022, migración 0012): fuera de los datos del estudio.
+    self_registered: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
