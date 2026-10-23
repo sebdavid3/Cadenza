@@ -9,6 +9,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 
+import pytest
 from cadenza.domain import (
     Clef,
     Event,
@@ -21,7 +22,7 @@ from cadenza.domain import (
     Tie,
     TimeSignature,
 )
-from cadenza.interchange import musicxml_to_score_ir, score_ir_to_musicxml
+from cadenza.interchange import InterchangeError, musicxml_to_score_ir, score_ir_to_musicxml
 
 THREE_FOUR = TimeSignature(beats=3, beat_type=4)
 
@@ -191,6 +192,89 @@ def test_roundtrip_preserves_chords_ties_and_voices() -> None:
     xml_text = score_ir_to_musicxml(score)
 
     assert _events(musicxml_to_score_ir(xml_text)) == _events(score)
+
+
+def _beams(measure: ET.Element) -> list[str | None]:
+    beams = []
+    for note_element in measure.findall("note"):
+        beam = note_element.find("beam")
+        beams.append(None if beam is None else beam.text)
+    return beams
+
+
+def test_incomplete_measure_after_the_first_is_beamed_from_the_downbeat() -> None:
+    # Un incipit truncado acaba a mitad de compás: las barras empiezan en la parte 1, no como
+    # en una anacrusa (hallazgo de la revisión de #152).
+    six_eight = TimeSignature(beats=6, beat_type=8)
+    eighths = [_note(pitch, "1/2") for pitch in ("D5", "C5", "B4", "A4", "G4", "F4")]
+    score = _score(
+        _first(1, *eighths, signature=six_eight),
+        _next(2, *eighths[:4], signature=six_eight),
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == ["begin", "continue", "end", "begin", "continue", "end"]
+    assert _beams(measures[1]) == ["begin", "continue", "end", None]
+
+
+def test_incomplete_first_measure_is_beamed_as_a_pickup() -> None:
+    score = _score(_first(1, _note("G4", "1/2"), _note("A4", "1/2"), _note("B4", "1/2")))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    # Anacrusa de tres corcheas en 3/4: se agrupan las que caen en la misma parte.
+    assert _beams(measures[0]) == [None, "begin", "end"]
+
+
+def test_two_voices_in_incomplete_and_overfull_measures_roundtrip() -> None:
+    score = _score(
+        _first(1, _note("C5", "3"), _note("E4", "3", voice=1)),
+        _next(2, _note("D5", "2"), _note("F4", "1/2", voice=1)),
+        _next(3, _note("E5", "3"), _note("C5", "1"), _note("G4", "3", voice=1)),
+    )
+
+    xml_text = score_ir_to_musicxml(score)
+
+    assert 'print-object="no"' not in xml_text
+    assert _events(musicxml_to_score_ir(xml_text)) == _events(score)
+
+
+def test_two_staves_with_incomplete_and_overfull_measures_roundtrip() -> None:
+    upper = (
+        _first(1, _note("C5", "3")),
+        _next(2, _note("D5", "1")),
+        _next(3, _note("E5", "3"), _note("F5", "1")),
+    )
+    lower = (
+        Measure(
+            number=1,
+            events=(_note("C3", "3"),),
+            time_signature=THREE_FOUR,
+            clef=Clef(sign="F", line=4),
+        ),
+        _next(2, _note("D3", "3")),
+        _next(3, _note("E3", "3")),
+    )
+    score = ScoreIR(
+        parts=(
+            Part(
+                id="Piano",
+                staves=(Staff(id="upper", measures=upper), Staff(id="lower", measures=lower)),
+            ),
+        )
+    )
+
+    xml_text = score_ir_to_musicxml(score)
+
+    assert 'print-object="no"' not in xml_text
+    assert xml_text.count("<time>") == 1
+    assert _events(musicxml_to_score_ir(xml_text)) == _events(score)
+
+
+def test_score_without_parts_is_rejected() -> None:
+    with pytest.raises(InterchangeError):
+        score_ir_to_musicxml(ScoreIR(parts=()))
 
 
 def test_beams_and_key_accidentals_are_kept() -> None:

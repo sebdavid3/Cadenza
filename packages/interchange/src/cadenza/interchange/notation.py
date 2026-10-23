@@ -382,10 +382,18 @@ def _build_measure(measure: Measure, previous_signature: TimeSignature | None = 
 def _build_staff_measures(measures: tuple[Measure, ...]) -> list[Any]:
     built: list[Any] = []
     previous_signature: TimeSignature | None = None
-    for measure in measures:
-        built.append(_build_measure(measure, previous_signature))
-        if measure.time_signature is not None:
-            previous_signature = measure.time_signature
+    for index, measure in enumerate(measures):
+        built_measure = _build_measure(measure, previous_signature)
+        signature = measure.time_signature
+        if signature is not None:
+            previous_signature = signature
+            # Sin silencios de relleno, music21 trata un compás incompleto como una anacrusa y
+            # agrupa las barras desde el final. Solo el primero puede serlo: en los demás, lo
+            # que falta va a la derecha, como al importar MusicXML (#152).
+            missing = signature.quarter_length - Fraction(built_measure.highestTime)
+            if index > 0 and missing > 0:
+                built_measure.paddingRight = missing
+        built.append(built_measure)
     return built
 
 
@@ -416,29 +424,20 @@ def score_ir_to_music21(score: ScoreIR) -> stream.Score:
     return out
 
 
-# music21 no publica tipos (pyproject: ignore_missing_imports), así que su clase es `Any` para
-# mypy estricto; heredar de ella es la única forma de cambiar estos dos pasos del exportador.
-class _ScoreExporter(musicxml.m21ToXml.ScoreExporter):  # type: ignore[misc]
-    """Exportador de music21 sin el título ni el compositor de relleno (#152).
+def _drop_placeholder_metadata(root: Any) -> None:
+    """Quita el título y el compositor que music21 escribe si la partitura no tiene metadatos.
 
-    music21 escribe «Music21 Fragment» y «Music21» cuando la partitura no tiene metadatos;
-    el `ScoreIR` no los tiene, así que no se escribe ninguno.
+    El `ScoreIR` no tiene título ni autor: «Music21 Fragment» y «Music21» serían inventados (#152).
     """
 
-    def setTitles(self) -> None:
-        md = self.scoreMetadata
-        if md is not None and (md["title"] or md["movementName"]):
-            super().setTitles()
-
-    def setIdentification(self) -> Any:
-        identification = super().setIdentification()
-        md = self.scoreMetadata
-        has_contributors = md is not None and any(True for _ in md.all(skipNonContributors=True))
-        if not has_contributors:
-            for creator in identification.findall("creator"):
-                if creator.text == defaults.author:
-                    identification.remove(creator)
-        return identification
+    for title in root.findall("movement-title"):
+        if title.text == defaults.title:
+            root.remove(title)
+    identification = root.find("identification")
+    if identification is not None:
+        for creator in identification.findall("creator"):
+            if creator.text == defaults.author:
+                identification.remove(creator)
 
 
 def score_ir_to_musicxml(score: ScoreIR) -> str:
@@ -448,13 +447,17 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
     ocultos y, con `makeNotation`, reparte entre compases las notas que cruzan la barra de un
     compás sobrellenado: la partitura exportada dejaría de ser la transcrita justo donde el
     validador señala un posible error (#152). El exportador de partes sigue haciendo las
-    barras de agrupación, las alteraciones visibles y los tresillos, y divide en notas ligadas
-    dentro del mismo compás las duraciones que MusicXML no puede escribir con una sola figura.
+    alteraciones visibles, los corchetes de los tresillos y las barras de agrupación (salvo en
+    los compases sobrellenados, que music21 no agrupa), y divide en notas ligadas dentro del
+    mismo compás las duraciones que MusicXML no puede escribir con una sola figura. Los
+    tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`.
     """
 
+    if not score.parts:
+        raise InterchangeError("La partitura no tiene partes que exportar")
     out = score_ir_to_music21(score)
-    exporter = _ScoreExporter(out, makeNotation=True)
-    exporter.parse()
+    exporter = musicxml.m21ToXml.ScoreExporter(out, makeNotation=True)
+    _drop_placeholder_metadata(exporter.parse())
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
 
