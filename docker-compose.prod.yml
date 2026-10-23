@@ -114,6 +114,32 @@ services:
       timeout: 5s
       retries: 3
 
+  # Copias de seguridad (#159, docs/infra/operacion_backend.md §4). Solo se ejecuta a petición:
+  #   docker compose -f docker-compose.prod.yml --profile backup run --rm backup backup -o /backups/cadenza.tar.gz
+  # Lleva el pg_dump de la misma versión que el servidor; la copia lee los artefactos y la
+  # restauración los escribe.
+  backup:
+    profiles:
+      - backup
+    build:
+      context: .
+      dockerfile: Dockerfile.backup
+    image: cadenza-backup:prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CADENZA_DATABASE_URL: postgresql://${CADENZA_POSTGRES_USER:-cadenza}:${CADENZA_POSTGRES_PASSWORD}@postgres:5432/${CADENZA_POSTGRES_DB:-cadenza}
+      CADENZA_ARTIFACTS_DIR: /artifacts
+    volumes:
+      - artifacts_data:/artifacts
+      - ${CADENZA_BACKUP_DIR:-./backups}:/backups
+    networks:
+      - cadenza
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
 # Subred fija: Nginx confía en X-Forwarded-For solo si viene de la pasarela (10.77.0.1, por donde
 # entra lo que Funnel reenvía a 127.0.0.1) y uvicorn solo si viene de web (10.77.0.10). Si se
 # cambia, hay que cambiar también deploy/nginx/cadenza.conf.

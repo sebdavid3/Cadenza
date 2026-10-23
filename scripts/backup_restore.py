@@ -15,11 +15,13 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tarfile
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote, unquote
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -38,6 +40,72 @@ def _parse_sqlite_path(db_url: str) -> Path | None:
     # Eliminar prefijos comunes sqlite:/// o sqlite+pysqlite:///
     clean = db_url.split(":///")[-1]
     return Path(clean)
+
+
+class BackupError(RuntimeError):
+    """La copia o la restauración no se pudo completar."""
+
+
+_PG_DUMP_MAGIC = b"PGDMP"
+
+
+def _libpq_url(db_url: str) -> str:
+    """Traduce una URL de SQLAlchemy (`postgresql+psycopg2://...`) a la que entiende libpq.
+
+    `pg_dump` y `pg_restore` no reconocen el sufijo del controlador (#159).
+    """
+    scheme, sep, rest = db_url.partition("://")
+    if not sep:
+        return db_url
+    return f"{scheme.split('+', 1)[0]}://{rest}"
+
+
+def _libpq_target(db_url: str) -> tuple[str, str | None]:
+    """URL de libpq sin la contraseña, y la contraseña aparte (para `PGPASSWORD`).
+
+    En la línea de órdenes, la contraseña quedaría a la vista en la lista de procesos.
+    """
+    url = _libpq_url(db_url)
+    scheme, sep, rest = url.partition("://")
+    # La última «@» separa las credenciales del servidor: el servidor y la ruta no llevan «@», y
+    # la contraseña sí puede llevar «@», «#», «/» o «?» aunque no estén codificados.
+    userinfo, at, location = rest.rpartition("@")
+    if not sep or not at or ":" not in userinfo:
+        return url, None
+    user, _, password = userinfo.partition(":")
+    target = f"{scheme}://{user}@{location}" if user else f"{scheme}://{location}"
+    return target, unquote(password)
+
+
+def _redact(text: str, db_url: str) -> str:
+    """Quita la URL y la contraseña de un mensaje de pg_dump o pg_restore."""
+    for url in {db_url, _libpq_url(db_url)}:
+        text = text.replace(url, "<CADENZA_DATABASE_URL>")
+    _, password = _libpq_target(db_url)
+    # Una contraseña muy corta aparecería por casualidad en cualquier texto.
+    if password and len(password) >= 4:
+        for form in {password, quote(password, safe="")}:
+            text = text.replace(form, "***")
+    return text
+
+
+def _run_pg_tool(command: list[str], db_url: str) -> None:
+    """Ejecuta pg_dump o pg_restore y convierte cualquier fallo en `BackupError`.
+
+    `command` lleva la URL sin contraseña (`_libpq_target`); la contraseña va en `PGPASSWORD`.
+    """
+    _, password = _libpq_target(db_url)
+    env = {**os.environ, "PGPASSWORD": password} if password else None
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+    except FileNotFoundError as err:
+        raise BackupError(
+            f"No se encontró {command[0]}: instálalo con la misma versión que el servidor "
+            "PostgreSQL o usa el servicio backup de docker-compose.prod.yml."
+        ) from err
+    except subprocess.CalledProcessError as err:
+        detail = _redact((err.stderr or "").strip(), db_url)
+        raise BackupError(f"{command[0]} falló (código {err.returncode}): {detail}") from err
 
 
 def _safe_extractall(tar: tarfile.TarFile, target_path: Path) -> None:
@@ -96,17 +164,11 @@ def create_backup(
             manifest["db_type"] = "postgresql"
             manifest["db_file"] = "cadenza.dump"
             target_dump = db_dir / "cadenza.dump"
-            # Intentar pg_dump
-            try:
-                subprocess.run(
-                    ["pg_dump", "-Fc", "-d", db_url, "-f", str(target_dump)],
-                    check=True,
-                    capture_output=True,
-                )
-            except (subprocess.SubprocessError, FileNotFoundError):
-                # Fallback defensivo si pg_dump no está disponible en PATH
-                with target_dump.open("w", encoding="utf-8") as f:
-                    f.write(f"-- Backup fallback for {db_url} at {manifest['timestamp']}\n")
+            # Sin pg_dump no hay copia: antes se escribía un archivo de texto en su lugar y la
+            # copia parecía válida sin contener datos (#159).
+            _run_pg_tool(
+                ["pg_dump", "-Fc", "-d", _libpq_target(db_url)[0], "-f", str(target_dump)], db_url
+            )
             manifest["db_sha256"] = compute_sha256(target_dump)
 
         # 2. Copia de artefactos
@@ -130,11 +192,19 @@ def create_backup(
         with manifest_file.open("w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2, sort_keys=True)
 
-        # 4. Empaquetar en tar.gz
-        with tarfile.open(output_path, "w:gz") as tar:
-            tar.add(manifest_file, arcname="manifest.json")
-            tar.add(db_dir, arcname="database")
-            tar.add(art_dir, arcname="artifacts")
+        # 4. Empaquetar en tar.gz: primero en un archivo temporal junto al destino y después se
+        # renombra, para que un fallo a medias (disco lleno) no deje una copia rota con el nombre
+        # final ni pise una anterior.
+        partial = output_path.with_name(output_path.name + ".tmp")
+        try:
+            with tarfile.open(partial, "w:gz") as tar:
+                tar.add(manifest_file, arcname="manifest.json")
+                tar.add(db_dir, arcname="database")
+                tar.add(art_dir, arcname="artifacts")
+            os.replace(partial, output_path)
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
 
     return output_path
 
@@ -167,6 +237,15 @@ def verify_backup(archive_path: Path) -> dict[str, Any]:
                 f"Hash mismatch en base de datos: esperado {manifest.get('db_sha256')}, "
                 f"obtenido {calculated_db_hash}"
             )
+        # Un volcado de pg_dump en formato custom empieza por «PGDMP». Las copias hechas sin
+        # pg_dump guardaban un comentario de texto con su hash, que pasaba la comprobación (#159).
+        if manifest.get("db_type") == "postgresql":
+            with db_file.open("rb") as f:
+                if f.read(5) != _PG_DUMP_MAGIC:
+                    raise ValueError(
+                        f"{manifest.get('db_file')} no es un volcado de pg_dump: la copia no "
+                        "contiene los datos de PostgreSQL."
+                    )
 
         artifacts = manifest.get("artifacts", {})
         for rel_str, expected_hash in artifacts.items():
@@ -210,18 +289,7 @@ def restore_backup(
         with (tmpdir / "manifest.json").open("r", encoding="utf-8") as f:
             manifest = json.load(f)
 
-        # 1. Restaurar artefactos
-        src_art = tmpdir / "artifacts"
-        if src_art.exists():
-            for root, _, files in os.walk(src_art):
-                for fname in files:
-                    full_p = Path(root) / fname
-                    rel_p = full_p.relative_to(src_art)
-                    dst_p = artifacts_dir / rel_p
-                    dst_p.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(full_p, dst_p)
-
-        # 2. Restaurar base de datos
+        # 1. Restaurar la base de datos primero: si falla, los artefactos quedan como estaban.
         db_file = tmpdir / "database" / manifest.get("db_file", "")
         sqlite_file = _parse_sqlite_path(db_url)
         if sqlite_file is not None:
@@ -234,12 +302,35 @@ def restore_backup(
             sqlite_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(db_file, sqlite_file)
         else:
-            # PostgreSQL restore
-            subprocess.run(
-                ["pg_restore", "--clean", "--if-exists", "-d", db_url, str(db_file)],
-                check=True,
-                capture_output=True,
+            # PostgreSQL: se borran los objetos existentes y se recrean desde el volcado, en una
+            # sola transacción que se detiene en el primer error: si falla, la base queda como
+            # estaba.
+            _run_pg_tool(
+                [
+                    "pg_restore",
+                    "--clean",
+                    "--if-exists",
+                    "--no-owner",
+                    "--single-transaction",
+                    "--exit-on-error",
+                    "-d",
+                    _libpq_target(db_url)[0],
+                    str(db_file),
+                ],
+                db_url,
             )
+
+        # 2. Restaurar los artefactos, direccionados por contenido: copiarlos sobre los existentes
+        # no cambia ninguno que ya estuviera.
+        src_art = tmpdir / "artifacts"
+        if src_art.exists():
+            for root, _, files in os.walk(src_art):
+                for fname in files:
+                    full_p = Path(root) / fname
+                    rel_p = full_p.relative_to(src_art)
+                    dst_p = artifacts_dir / rel_p
+                    dst_p.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(full_p, dst_p)
 
 
 def main() -> None:
@@ -308,6 +399,14 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    try:
+        _run_command(args)
+    except (BackupError, ValueError, OSError, tarfile.TarError) as err:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _run_command(args: argparse.Namespace) -> None:
     if args.command == "backup":
         out = create_backup(
             args.output,

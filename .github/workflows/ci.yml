@@ -56,6 +56,12 @@ jobs:
       - name: Verificación de tipos estricta con Mypy
         run: uv run mypy packages apps
 
+      - name: Cliente de PostgreSQL 16 (pg_dump y pg_restore de las copias, #159)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          pg_dump --version
+
       - name: Ejecutar pruebas con Pytest
         run: uv run pytest -vv
 
@@ -106,6 +112,13 @@ jobs:
       - name: Construir la imagen web
         run: docker build -f Dockerfile.web --build-arg VITE_REGISTRATION_ENABLED=true -t cadenza-web:ci .
 
+      # pg_dump y pg_restore de PostgreSQL 16 con el script de copias (#159)
+      - name: Construir la imagen de copias de seguridad
+        run: |
+          docker build -f Dockerfile.backup -t cadenza-backup:ci .
+          docker run --rm --entrypoint pg_dump cadenza-backup:ci --version
+          docker run --rm cadenza-backup:ci --help
+
       # Valores generados al vuelo: el compose exige los secretos, pero aquí no se usan.
       - name: Validar el compose de producción
         run: |
@@ -113,3 +126,4 @@ jobs:
           export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
           export CADENZA_PUBLIC_ORIGIN=https://cadenza.example
           docker compose -f docker-compose.prod.yml config --quiet
+          docker compose -f docker-compose.prod.yml --profile backup config --quiet

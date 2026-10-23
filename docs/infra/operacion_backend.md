@@ -165,22 +165,42 @@ INFO:     request_completed method=GET path=/sessions/e40a68a3-36d3-410b-91af-dc
 
 ## 4. Copias de Seguridad y Recuperación ante Desastres
 
-El script `scripts/backup_restore.py` permite crear snapshots atómicos de la base de datos y de todos los artefactos (`ArtifactStore`), verificando la integridad de cada archivo mediante SHA-256.
+El script `scripts/backup_restore.py` guarda en un `.tar.gz` la base de datos y todos los artefactos (`ArtifactStore`), con un manifiesto que registra el SHA-256 de cada archivo:
+- **PostgreSQL:** volcado de `pg_dump` en formato custom.
+- **SQLite:** copia consistente con la API de `sqlite3`.
 
-### 4.1 Crear una copia de seguridad
+Cuándo falla:
+- **`backup`:** si falta `pg_dump` o si falla, con un error claro que no muestra la contraseña, y sin dejar el archivo de salida. El `.tar.gz` se escribe primero como `.tmp` y se renombra al final: un fallo a medias no deja una copia rota ni pisa la anterior. Antes guardaba un comentario de texto en lugar del volcado y la copia parecía válida ([#159](https://github.com/sebdavid3/Cadenza/issues/159)).
+- **`verify`:** si un hash no coincide, o si el archivo de PostgreSQL no es un volcado de `pg_dump`.
+- **`restore`:** si falla `pg_restore`. La base se restaura primero y en una sola transacción que se detiene en el primer error (`--single-transaction --exit-on-error`), así que si falla queda como estaba. Los artefactos se copian solo después.
 
-```bash
-uv run python scripts/backup_restore.py backup --output backup-2026-10-08.tar.gz
-```
+`pg_dump` y `pg_restore` deben ser de la misma versión que el servidor (PostgreSQL 16). Acepta la URL de SQLAlchemy (`postgresql+psycopg2://…`) y la traduce a la de libpq. La contraseña se pasa en `PGPASSWORD`, no en la línea de órdenes, donde se vería en la lista de procesos.
 
-### 4.2 Verificar la integridad de una copia
-
-```bash
-uv run python scripts/backup_restore.py verify --archive backup-2026-10-08.tar.gz
-```
-
-### 4.3 Restaurar una copia de seguridad
+### 4.1 En local (SQLite o PostgreSQL con sus herramientas instaladas)
 
 ```bash
-uv run python scripts/backup_restore.py restore --archive backup-2026-10-08.tar.gz --force
+uv run --no-sync python scripts/backup_restore.py backup --output backup-2026-10-23.tar.gz
+uv run --no-sync python scripts/backup_restore.py verify --archive backup-2026-10-23.tar.gz
+uv run --no-sync python scripts/backup_restore.py restore --archive backup-2026-10-23.tar.gz --force
 ```
+
+### 4.2 En el despliegue público (`docker-compose.prod.yml`)
+
+El servicio `backup` (perfil `backup`, `Dockerfile.backup`) lleva el `pg_dump` 16 de la imagen de PostgreSQL. Monta el volumen de artefactos y el directorio de copias del host, `${CADENZA_BACKUP_DIR:-./backups}`, en `/backups`. Solo se ejecuta a petición. Las copias contienen todos los datos: el directorio debe tener permisos 700 y no salir del servidor sin cifrar. El contenedor corre como root, así que las copias pertenecen a root.
+
+```bash
+cd /opt/docker/cadenza
+mkdir -p backups && chmod 700 backups
+DC="docker compose -f docker-compose.prod.yml --env-file .env --profile backup"
+
+# Crear y verificar una copia
+$DC run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
+$DC run --rm backup verify --archive /backups/cadenza-AAAA-MM-DD-HHMM.tar.gz
+
+# Restaurar: con la API parada, para que nadie escriba mientras tanto
+docker compose -f docker-compose.prod.yml stop api
+$DC run --rm backup restore --archive /backups/cadenza-AAAA-MM-DD-HHMM.tar.gz
+docker compose -f docker-compose.prod.yml start api
+```
+
+`restore` borra y recrea los objetos de la base de datos desde el volcado (`pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error`). Después copia los artefactos de la copia sobre los existentes, que son direccionados por contenido. Para comprobar una copia sin tocar la base de producción, se puede restaurar en una base aparte creada con `CREATE DATABASE`, pasando su URL en `CADENZA_DATABASE_URL`.
