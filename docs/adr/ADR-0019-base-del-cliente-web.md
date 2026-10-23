@@ -37,16 +37,20 @@ varias decisiones de la base:
    - URL base configurable con `VITE_API_BASE_URL`, `/api` por defecto;
    - `Authorization: Bearer` a partir de un proveedor de token, salvo en las rutas
      públicas;
-   - timeout por petición con `AbortController`: 15 s por defecto y 30 s para
-     `POST /transcribe` (frontend-handoff §5.7);
+   - timeout por petición con `AbortController`: 15 s por defecto; la constante
+     `TRANSCRIBE_TIMEOUT_MS` (30 s) es la que usará `POST /transcribe`
+     (frontend-handoff §5.7);
    - errores tipados (`ApiError`) según el código de estado, la red, el timeout o
      la cancelación, cada uno con un mensaje propio en español. El `detail` del
      backend se conserva para depurar y nunca se muestra;
    - un 401 de una petición que llevaba token avisa a la aplicación
-     (`onUnauthorized`) para cerrar la sesión; el 401 de un inicio de sesión
-     fallido no, porque no lleva token.
+     (`onUnauthorized`) para cerrar la sesión. No avisan el 401 de un inicio de
+     sesión fallido, que no lleva token, ni el de las rutas en las que el 401
+     significa otra cosa y que lo declaran con `notifyUnauthorized: false`
+     (`POST /auth/password` responde 401 si la contraseña actual es incorrecta).
 3. **Acceso a la API en desarrollo mediante el proxy de Vite** bajo el prefijo
-   `/api`, que se quita al reenviar (`CADENZA_API_PROXY_TARGET`, por defecto
+   `/api` (como segmento completo: `/api`, `/api/…` o `/api?…`), que se quita al
+   reenviar (`CADENZA_API_PROXY_TARGET`, por defecto
    `http://127.0.0.1:8000`). Ninguna ruta de la interfaz empieza por `/api`. En un
    despliegue, o un proxy inverso con el mismo prefijo, o `VITE_API_BASE_URL` con
    la URL de la API y su origen en `CADENZA_CORS_ORIGINS` (ADR-0015).

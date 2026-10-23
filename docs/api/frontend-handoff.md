@@ -308,7 +308,7 @@ Ejemplo por discrepancia en el `before` suministrado por el cliente:
 ```
 
 > [!TIP]
-> **Integración en el Cliente Web:** El cliente HTTP del frontend debe comprobar si `Array.isArray(error.response.data.detail)`. Si es un array, puede mapear los errores por campo (`loc.join('.')`); si es una cadena de texto (`typeof detail === "string"`), debe presentarlo directamente como mensaje de error al usuario.
+> **Integración en el Cliente Web:** El cliente de `apps/web` convierte toda respuesta de error en un `ApiError` con su tipo (`kind`, según el código de estado) y un mensaje propio en español ([ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)). El `detail` se conserva en `ApiError.detail` solo para depurar y **no se muestra al usuario**, porque mezcla español e inglés. Una vista que necesite señalar campos en un 422 de esquema puede recorrer `detail` cuando es una lista y traducir cada `loc` a un mensaje propio; un `detail` de texto nunca se presenta tal cual.
 
 ### 5.5. Acceso a la API en Desarrollo (CORS o Proxy)
 
@@ -364,8 +364,8 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 `apps/web` se construye desde cero en la Fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129) retiró la base anterior). La base ([#144](https://github.com/sebdavid3/Cadenza/issues/144), [ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)) aporta:
 
 - **Stack:** React 18 + TypeScript estricto + Vite, con React Router, ESLint, Prettier y Vitest.
-- **Cliente HTTP** (`apps/web/src/api/client.ts`), tipado con `apps/web/src/types.ts`: URL base configurable (`VITE_API_BASE_URL`, `/api` por defecto), `Authorization: Bearer` cuando hay sesión, timeout por petición (15 s; 30 s para `POST /transcribe`, §5.7) y errores tipados por código de estado con mensajes propios en español. El `detail` del backend nunca se muestra.
-- **Proxy de desarrollo:** Vite reenvía `/api/*` a `http://127.0.0.1:8000` quitando el prefijo (§5.5), configurable con `CADENZA_API_PROXY_TARGET`. Ninguna ruta de la interfaz empieza por `/api`.
+- **Cliente HTTP** (`apps/web/src/api/client.ts`), tipado con `apps/web/src/types.ts`: URL base configurable (`VITE_API_BASE_URL`, `/api` por defecto), `Authorization: Bearer` cuando hay sesión, timeout por petición (15 s por defecto; la constante `TRANSCRIBE_TIMEOUT_MS`, 30 s, es la que usará `POST /transcribe`, §5.7) y errores tipados por código de estado con mensajes propios en español. El `detail` del backend nunca se muestra.
+- **Proxy de desarrollo:** Vite reenvía `/api` y lo que va bajo `/api/` a `http://127.0.0.1:8000` quitando el prefijo (§5.5); `/apidocs`, por ejemplo, no se reenvía, configurable con `CADENZA_API_PROXY_TARGET`. Ninguna ruta de la interfaz empieza por `/api`.
 - **Sistema de diseño:** `PRODUCT.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
 
 Arranque, con la API ya en marcha (§1.4):

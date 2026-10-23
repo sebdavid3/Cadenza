@@ -280,8 +280,8 @@ npm ci
 npm run dev        # http://localhost:5173
 ```
 
-El servidor de desarrollo reenvía a la API todo lo que empieza por `/api`, quitando el
-prefijo, así que no hace falta configurar CORS. Para apuntar a otro backend, copia
+El servidor de desarrollo reenvía a la API lo que va bajo `/api/`, quitando el prefijo, así
+que no hace falta configurar CORS. Para apuntar a otro backend, copia
 `apps/web/.env.example` como `.env.local` y ajusta `CADENZA_API_PROXY_TARGET` (destino del
 proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
 
