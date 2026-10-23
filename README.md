@@ -8,8 +8,10 @@ propone la transcripción, un validador de reglas musicales señala los compases
 sospechosos y una persona la corrige. Cada corrección se guarda como un evento inmutable
 que, más adelante, sirve para entrenar al sistema (aprendizaje activo).
 
-Es el proyecto de una tesis: el backend está completo y el siguiente paso es la interfaz
-de corrección en el navegador.
+Es el proyecto de una tesis. El backend está completo y la interfaz web, publicada en
+**https://r2d2.tailcacb19.ts.net**, ya transcribe, muestra la partitura con sus posibles
+errores, la descarga en MusicXML y la reproduce. El siguiente paso es corregir sobre la
+partitura en el navegador.
 
 ---
 
@@ -74,8 +76,9 @@ flowchart LR
 | Área | Estado |
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
-| Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | En construcción desde cero: landing, inicio de sesión y vista de transcripción (subir imágenes y ver las sesiones) listos ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#147](https://github.com/sebdavid3/Cadenza/issues/147)); la corrección con OSMD y Tone.js, después |
+| Contrato de la API v1 (OpenAPI 3.1.0, 25 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
+| Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML y la reproducción (Tone.js), y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#177](https://github.com/sebdavid3/Cadenza/issues/177)). Falta la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
+| Despliegue público | En **https://r2d2.tailcacb19.ts.net**, en el homelab ([ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)) |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
 
@@ -85,6 +88,22 @@ ajuste fino real del modelo OMR es [#103](https://github.com/sebdavid3/Cadenza/i
 Las cifras medidas (calidad OMR, precisión del validador, latencia), la deuda técnica y la
 bitácora están en [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md), con el experimento que
 produce cada una.
+
+### Siguientes etapas
+
+Planificadas en issues de los milestones de la
+[Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3) y del
+[despliegue público](https://github.com/sebdavid3/Cadenza/milestone/4) (#192, #193 y #194). El
+detalle, las dependencias y el criterio de cierre están en
+[`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md).
+
+| Etapa | Issues | Contenido |
+|---|---|---|
+| Corrección sobre la partitura | [#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Seleccionar una nota (mapa ancla→SVG, D11), corregir altura, duración y alteración, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores |
+| Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
+| Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Dataset sin cuentas del registro (D55), API sin root (D57), clave de firma con longitud mínima (D58) y límites del registro abierto (D59, alcance por decidir) |
+| Después de la fase 8 | — | Estudio de esfuerzo con participantes (D38) |
 
 ---
 
@@ -269,11 +288,23 @@ uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/opena
 
 ## Interfaz web
 
-La interfaz web vive en `apps/web` (React 18, TypeScript y Vite) y se construye desde cero en
-la fase 8 sobre la API v1. Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
-Las decisiones de la base están en
-[ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md); el producto, en [`PRODUCT.md`](PRODUCT.md), y el
-sistema de diseño, en [`DESIGN.md`](DESIGN.md) y `.impeccable/`.
+La interfaz web vive en `apps/web` (React 18, TypeScript y Vite), sobre la API v1. Sus rutas:
+
+- `/`: página pública.
+- `/registro` y `/entrar`: registro abierto y acceso.
+- `/transcripcion`: subir imágenes por lotes y ver las sesiones.
+- `/sesiones/:id`: la partitura dibujada con OSMD junto a la imagen original, los posibles
+  errores marcados por compás, la descarga del MusicXML y la reproducción con Tone.js con el
+  compás que suena resaltado.
+- `/cuentas`: moderación de cuentas, solo para investigadores.
+
+Las decisiones están en los ADR del
+[ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) al
+[ADR-0026](docs/adr/ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md). El estado y lo que
+falta están en [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) §6 y en
+[`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md). El
+producto está en [`PRODUCT.md`](PRODUCT.md) y el sistema de diseño, en [`DESIGN.md`](DESIGN.md) y
+`.impeccable/`.
 
 Con la API arrancada en `http://127.0.0.1:8000` (ver [Arranque local](#arranque-local)):
 
@@ -444,7 +475,8 @@ Cadenza/
 |---|---|
 | [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
-| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0020) |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0026) |
+| [`docs/phases/`](docs/phases) | Alcance y criterio de cierre de cada fase; la vigente es la [Fase 8](docs/phases/phase_8_web_interface/README.md) |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
 | [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR) |

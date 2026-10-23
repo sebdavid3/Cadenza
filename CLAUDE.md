@@ -14,7 +14,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
   - §6: Casos de uso, puertos y endpoints.
   - §7: Modelo de datos y esquemas relacionales.
   - §10: Estado real frente al objetivo.
-- **`docs/adr/ADR-0001` a `ADR-0020`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
+- **`docs/adr/ADR-0001` a `ADR-0026`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
 - **`docs/api/frontend-handoff.md` y `docs/api/openapi.json`:** Contrato congelado de la API v1 y guía de integración para el frontend.
 - **`docs/infra/operacion_backend.md`:** Procedimientos de despliegue, monitoreo (`/health`), logs estructurados, copias de seguridad y ejecución en GPU.
 - **`docs/CONVENTIONS.md`:** Convenciones de Git, calidad y Definition of Done.
@@ -26,8 +26,13 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 
 - **Fase 7 (backend):** cerrada. El backend está completo y el contrato de la API v1, congelado.
 - **Verificación de evidencia (milestone 2):** corrigió los resultados experimentales que figuraban como medidos sin serlo (#106 cerrado con transcripción síncrona ratificada; #99 cerrado con PostgreSQL en CI). #100 (línea base de oemer) se cerró como «no se hará»: HOMR es el único motor OMR (ADR-0018, #130).
-- **Fase 8 (frontend), trabajo siguiente:** interfaz de corrección en `apps/web` sobre la API v1, construida desde cero (`apps/web` solo conserva los tipos generados, #129). Punto de partida: `docs/api/frontend-handoff.md`. Deuda asociada: D11 (render de notación con OSMD y reproducción con Tone.js).
-- **Alcance por decidir (no implementar sin consultar):** #102 (evaluación real sobre SMB y MUSCIMA++) y #103 (ajuste fino real del modelo OMR), que no forman parte de la Fase 8.
+- **Fase 8 (frontend), hecho:** `apps/web` sobre la API v1, publicada en `https://r2d2.tailcacb19.ts.net`. Incluye la landing, el registro y el acceso, la transcripción por lotes, la vista de una sesión (partitura con OSMD, posibles errores, descarga del MusicXML y reproducción con Tone.js) y la moderación de cuentas. Detalle y criterio de cierre en `docs/phases/phase_8_web_interface/README.md`. Punto de partida para integrar: `docs/api/frontend-handoff.md`.
+- **Fase 8, trabajo siguiente, por orden de dependencias:**
+  1. Corrección sobre la partitura: #182 (seleccionar una nota; D11) → #183 (altura, duración y alteración) → #184 (insertar, borrar, clave y armadura), #185 (deshacer y rehacer) y #186 (descartar, restaurar y revalidar).
+  2. Cierre: #191 (D55: el dataset sin las cuentas del registro) → #187 (finalizar y reabrir) → #188 (métricas de esfuerzo).
+  - Sin dependencias, en cualquier momento: #189 (descargar el MIDI), #190 (cambiar la contraseña) y, en el milestone del despliegue, #192 (D57) y #193 (D58).
+- **Alcance por decidir (no implementar sin consultar):** #102 (evaluación real sobre SMB y MUSCIMA++) y #103 (ajuste fino real del modelo OMR), que no forman parte de la Fase 8, y #194 (límites del registro abierto, D59), que espera una decisión de política.
+- **Después de la Fase 8:** el estudio de esfuerzo con participantes (D38, `docs/experimentos/protocolo_medicion_esfuerzo.md`), que necesita la corrección y las métricas de esfuerzo.
 
 Al empezar una fase nueva, lo primero es planificarla: milestone e issues con contexto, objetivo, criterios de aceptación y dependencias. Después se trabaja issue por issue con el flujo de la sección 4.
 
@@ -94,7 +99,7 @@ Un issue está terminado únicamente cuando:
    - `uv run --no-sync mypy packages apps`
    - `uv run --no-sync ruff check .`
    - `uv run --no-sync black --check .`
-   - Si existe la aplicación de `apps/web` (`apps/web/package.json`) y se modificó `apps/web`, incluido `apps/web/src/types.ts` al regenerar el contrato: `npm run test` y `npm run build` en `apps/web`. Mientras no exista, regenerar `types.ts` con `scripts/generate_openapi_and_types.py` no exige estas puertas: su sincronía con el contrato la comprueba `pytest`.
+   - Si se modificó `apps/web`, incluido `apps/web/src/types.ts` al regenerar el contrato: `npm run test` y `npm run build` en `apps/web` (la CI pasa además `npm run lint` y `npm run format:check`). La sincronía de `types.ts` con el contrato la comprueba también `pytest`.
 3. Documentación actualizada e issue cerrado a mano en GitHub.
 4. **Regla de integridad:** prohibido rebajar puertas, silenciar tests, debilitar el tipado estricto o insertar `# type: ignore` sin justificación explícita.
 
@@ -127,7 +132,7 @@ Un issue está terminado únicamente cuando:
 - Incorporar dependencias pequeñas y estándar que el trabajo requiera.
 
 ### Detenerse y consultar al usuario
-- Issues con alcance por decidir (#102, #103) y cualquier cambio del contrato de la API v1 que rompa compatibilidad.
+- Issues con alcance por decidir (#102, #103, #194) y cualquier cambio del contrato de la API v1 que rompa compatibilidad.
 - Credenciales reales, secretos de producción o servicios de pago.
 - Acciones destructivas: borrado de `data/`, `results/` o `legacy/`, alteración de historia Git, push forzado o tocar `main`.
 - Contradicciones insolubles entre ADR.

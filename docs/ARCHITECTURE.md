@@ -877,6 +877,25 @@ El diseño del frontend y de las interfaces de usuario (render con OSMD,
 reproducción con Tone.js, editor) empieza cuando el bloque F está cerrado y
 queda fuera de esta fase.
 
+### 10.4 Fase 8 — Interfaz web
+
+La Fase 8 construye `apps/web` sobre la API v1 congelada. Ya permite transcribir por lotes,
+ver una sesión con la partitura (OSMD) y sus posibles errores, descargar el MusicXML y
+reproducirla con el compás en curso resaltado; está publicada en el homelab (ADR-0023). Lo
+que falta para alcanzar el Módulo 3 (§5) está planificado en issues; el detalle, las
+dependencias y el criterio de cierre, en
+[`phases/phase_8_web_interface/README.md`](phases/phase_8_web_interface/README.md).
+
+| Etapa | Issues | Brecha frente al objetivo |
+|---|---|---|
+| Corrección sobre la partitura | [#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Mapa `Anchor → elemento SVG` por evento (D11) y las siete operaciones de `EditOp`, deshacer y rehacer, y gestión de hallazgos desde la interfaz |
+| Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
+| Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D55, D57, D58 y D59 (esta última, con el alcance por decidir) |
+
+El estudio de esfuerzo con participantes (D38) va después de la Fase 8. #102 y #103 siguen
+con el alcance por decidir.
+
 ---
 
 ## 11. Registro de decisiones (ADR)
@@ -908,6 +927,7 @@ queda fuera de esta fase.
 | [ADR-0023](adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md) | Despliegue público en el homelab con Tailscale Funnel, proxy Nginx e IP real |
 | [ADR-0024](adr/ADR-0024-transcripciones-simultaneas.md) | Transcripciones simultáneas: HOMR de una en una y tope de admisión en la API |
 | [ADR-0025](adr/ADR-0025-registro-abierto-sin-aprobacion.md) | Registro abierto: la cuenta queda activa al crearse (enmienda ADR-0022) |
+| [ADR-0026](adr/ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md) | Reproducción de la partitura en el navegador: notas del mapa de tiempos, Tone.js con reloj por `setTimeout` y la CSP sin cambios |
 
 
 ---
