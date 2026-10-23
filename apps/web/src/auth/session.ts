@@ -31,8 +31,20 @@ export async function logIn(api: ApiClient, username: string, password: string) 
   return user;
 }
 
-/** Recupera la sesión guardada en la pestaña si el token sigue vigente. */
-export async function restoreSession(api: ApiClient) {
+let restoring: Promise<void> | null = null;
+
+/**
+ * Recupera la sesión guardada en la pestaña si el token sigue vigente. Las llamadas
+ * simultáneas (p. ej. el doble montaje de StrictMode en desarrollo) comparten la misma.
+ */
+export function restoreSession(api: ApiClient): Promise<void> {
+  restoring ??= doRestore(api).finally(() => {
+    restoring = null;
+  });
+  return restoring;
+}
+
+async function doRestore(api: ApiClient) {
   const store = useAuthStore.getState();
   const token = readStoredToken();
   if (!token || msUntilExpiry(token) <= 0) {

@@ -110,6 +110,16 @@ describe("recuperar la sesión de la pestaña", () => {
     expect(useAuthStore.getState()).toMatchObject({ status: "authenticated", token, user: ANA });
   });
 
+  it("dos recuperaciones simultáneas hacen una sola petición", async () => {
+    useAuthStore.setState({ status: "restoring" });
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, fakeJwt(10 * 60_000));
+    const { calls } = mockApi({ "GET /auth/me": () => jsonResponse(ANA) });
+
+    await Promise.all([restoreSession(api), restoreSession(api)]);
+
+    expect(calls.filter((call) => call.key === "GET /auth/me")).toHaveLength(1);
+  });
+
   it("si la API rechaza el token, la sesión queda caducada", async () => {
     useAuthStore.setState({ status: "restoring" });
     sessionStorage.setItem(TOKEN_STORAGE_KEY, fakeJwt(10 * 60_000));
