@@ -195,9 +195,11 @@ def extract_study_data_from_db(
     db: DbSession,
 ) -> tuple[list[EffortSessionRow], list[MeasureInterventionRow]]:
     """Extrae las sesiones de estudio y métricas persistidas en la base de datos."""
+    # Las cuentas del registro público no forman parte del estudio (ADR-0022).
     stmt = (
         select(SessionRecord, UserRecord)
         .join(UserRecord, SessionRecord.owner_id == UserRecord.id)
+        .where(UserRecord.self_registered.is_(False))
         .order_by(SessionRecord.created_at)
     )
     results = db.execute(stmt).all()

@@ -56,7 +56,7 @@ export CADENZA_DISABLE_POWER_THROTTLING="true"
 
 ### 1.3. Creación del Primer Usuario Investigador
 
-Dado que la plataforma no expone registro público ni recuperación por correo ([ADR-0012](../adr/ADR-0012-autenticacion-e-identidad.md)), el usuario inicial debe crearse mediante la CLI:
+No hay recuperación por correo ([ADR-0012](../adr/ADR-0012-autenticacion-e-identidad.md)). El registro público (`POST /auth/register`, [ADR-0022](../adr/ADR-0022-registro-de-cuentas-con-activacion.md)) crea cuentas inactivas que un investigador tiene que activar, así que el primer investigador se crea con la CLI:
 
 ```bash
 uv run --no-sync python -m cadenza.api.cli create-investigator --username admin --password "clave_segura_min_8"
@@ -93,7 +93,7 @@ La API de Cadenza proporciona el ciclo de vida completo de digitalización y cor
 
 | Módulo / Capacidad | Endpoints Principales | Descripción |
 | :--- | :--- | :--- |
-| **Autenticación y Cuentas** | `POST /auth/login`<br>`GET /auth/me`<br>`POST /auth/password`<br>`GET/POST/PATCH /users` | Autenticación OAuth2 Bearer JWT. Control de roles (ADR-0012): `transcriptor` (edita sus sesiones) e `investigador` (administra usuarios y audita métricas). |
+| **Autenticación y Cuentas** | `POST /auth/login`<br>`POST /auth/register`<br>`GET /auth/me`<br>`POST /auth/password`<br>`GET/POST/PATCH /users` | Autenticación OAuth2 Bearer JWT. Control de roles (ADR-0012): `transcriptor` (edita sus sesiones) e `investigador` (administra usuarios y audita métricas). Registro público con activación (ADR-0022): `POST /auth/register` con `{username, password}` crea un transcriptor **inactivo** y autorregistrado (`self_registered: true` en `UserRead`). El nombre: de 3 a 64 caracteres entre minúsculas sin tilde, cifras, `.`, `-` y `_`, empezando por letra o cifra; la contraseña, de al menos 8. Respuestas: 201, 409 nombre ocupado, 422 (esquema, con `loc` del campo), 429 con `Retry-After`, 503 si hay demasiadas cuentas pendientes de activación y 404 si el registro está desactivado (`CADENZA_REGISTRATION_ENABLED`). Hasta que un investigador la activa con `PATCH /users/{id}` `{"active": true}`, su inicio de sesión responde 401, como unas credenciales incorrectas. |
 | **Transcripción OMR** | `POST /transcribe` | Ingesta síncrona de imágenes (PNG/JPEG), inferencia simbólica OMR con HOMR (ADR-0018), validación inicial y creación de sesión en estado `transcribed` (ADR-0005, ADR-0016). |
 | **Consultas de Sesión** | `GET /sessions`<br>`GET /sessions/{id}`<br>`GET /sessions/{id}/image`<br>`GET /sessions/{id}/export` | Listado ligero paginado (sin JSONB pesado). Consulta completa con estado materializado (`current_score`, `current_seq`, `anchor_index`). Descarga de imagen de origen. Exportación a MusicXML 4.0 y MIDI 1.0. |
 | **Edición Humana (HITL)** | `POST /sessions/{id}/edits`<br>`POST /sessions/{id}/undo` | Registro append-only inmutable de ediciones con verificación de concurrencia optimista (`base_seq`). Operaciones atómicas tipadas (`EditOp`). Deshacer en el servidor como evento compensatorio inverso (ADR-0007, #35). |

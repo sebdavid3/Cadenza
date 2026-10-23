@@ -1008,6 +1008,48 @@ def test_exp_10_empty_database_is_marked_as_synthetic(tmp_path: Path) -> None:
     assert "simulation_warning" in summary
 
 
+def test_exp_10_excludes_self_registered_accounts() -> None:
+    """Las sesiones de cuentas del registro público no entran en el estudio (ADR-0022, #154)."""
+    from cadenza.persistence import Session as SessionRecord
+    from cadenza.persistence import (
+        UserRecord,
+        create_memory_engine,
+        create_schema,
+        create_session_factory,
+    )
+
+    from ml.experiments import exp_10_effort_study
+
+    engine = create_memory_engine()
+    create_schema(engine)
+    factory = create_session_factory(engine)
+    with factory() as db:
+        for user_id, self_registered in (("estudio", False), ("publico", True)):
+            db.add(
+                UserRecord(
+                    id=user_id,
+                    username=user_id,
+                    password_hash="hash",
+                    role="transcriptor",
+                    self_registered=self_registered,
+                )
+            )
+            db.add(
+                SessionRecord(
+                    id=f"s-{user_id}",
+                    owner_id=user_id,
+                    document_id=f"d-{user_id}",
+                    omr_engine="homr",
+                    document={"score": {"parts": []}},
+                )
+            )
+        db.commit()
+
+        sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+
+    assert [row.session_id for row in sessions] == ["s-estudio"]
+
+
 def test_ml_cli_export_effort(tmp_path: Path) -> None:
     from ml import cli
 

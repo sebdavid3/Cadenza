@@ -19,6 +19,10 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_CORS_ORIGINS` | `list[str]` | `*` | Orígenes permitidos para peticiones cruzadas: `*` o `esquema://host[:puerto]` (sin ruta ni barra final), uno o varios separados por comas o en una lista JSON. `*` va solo y no envía credenciales; `[]` desactiva CORS (con Docker Compose, un valor vacío se convierte en `*`). Un valor mal escrito impide arrancar la API. |
 | `CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | `int` | `5` | Máximo de fallos antes de bloquear temporalmente intentos en `/auth/login`. |
 | `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `int` | `300` | Ventana temporal en segundos (5 min) para la protección contra fuerza bruta. |
+| `CADENZA_REGISTRATION_ENABLED` | `bool` | `false` | Abre `POST /auth/register` ([ADR-0022](../adr/ADR-0022-registro-de-cuentas-con-activacion.md)): la cuenta nace inactiva y marcada como autorregistrada hasta que un investigador la activa. Apagado, la ruta responde 404 sea cual sea el cuerpo. Encendido exige `CADENZA_CORS_ORIGINS` sin `*` (si no, la API no arranca) y, para que el límite cuente por visitante, un proxy de confianza que dé la IP real ([#156](https://github.com/sebdavid3/Cadenza/issues/156)): sin él, todas las peticiones llegan con la IP del proxy y el límite es uno solo para todo el servicio. |
+| `CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` | `int` | `5` | Intentos de registro por IP (red /64 en IPv6) en la ventana, como mínimo 1. Cuentan los que llegan a procesarse, también los que acaban en 409 (nombre ocupado); un cuerpo que no supera el esquema (422) no cuenta porque no toca la base de datos. |
+| `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS` | `int` | `3600` | Ventana en segundos del límite de registros por IP, como mínimo 1. |
+| `CADENZA_REGISTRATION_MAX_PENDING` | `int` | `50` | Con tantas cuentas autorregistradas pendientes de activación, el registro responde 503 hasta que un investigador las revise. |
 | `CADENZA_DISABLE_POWER_THROTTLING` | `bool` | `true` | Desactiva la limitación de energía (EcoQoS) del proceso en Windows (#106). |
 
 ---

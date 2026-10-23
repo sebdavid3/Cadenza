@@ -93,6 +93,16 @@ class WeakPassword(ApplicationError):
         self.min_length = min_length
 
 
+class RegistrationClosed(ApplicationError):
+    """El registro público no admite más cuentas por ahora (ADR-0022)."""
+
+    def __init__(self, pending: int) -> None:
+        super().__init__(
+            f"Hay {pending} cuentas pendientes de activación; el registro está cerrado por ahora"
+        )
+        self.pending = pending
+
+
 class SessionClosed(ApplicationError):
     """La sesión está finalizada y no admite más ediciones sin reapertura explícita.
 

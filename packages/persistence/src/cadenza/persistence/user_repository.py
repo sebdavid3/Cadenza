@@ -23,6 +23,7 @@ class SqlAlchemyUserRepository(UserRepository):
             password_hash=user.password_hash,
             role=user.role.value,
             active=user.active,
+            self_registered=user.self_registered,
         )
         try:
             with self._session.begin_nested():
@@ -76,4 +77,5 @@ class SqlAlchemyUserRepository(UserRepository):
             role=Role(record.role),
             active=record.active,
             created_at=record.created_at,
+            self_registered=record.self_registered,
         )
