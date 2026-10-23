@@ -1,0 +1,419 @@
+/* Landing: muestrario bitmap. Una sola retícula de filetes de tinta; el violeta solo
+   donde le toca actuar al visitante (acción, compás dudoso, cierre). */
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+/* Primera fila: titular de cartel y columna de texto tras un filete */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 480px);
+  border-bottom: var(--rule);
+}
+
+.hero__title {
+  align-self: center;
+  padding: var(--space-6) var(--gutter);
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 0.86;
+  text-transform: uppercase;
+}
+
+.hero__title span {
+  display: block;
+}
+
+.hero__copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-7);
+  border-left: var(--rule);
+}
+
+.hero__lead {
+  font-size: var(--text-lead);
+  font-weight: 500;
+  line-height: 1.38;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+}
+
+.hero__note {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Banda de demostración */
+.demo {
+  position: relative;
+  padding: var(--space-5) var(--gutter) var(--space-6);
+  border-bottom: var(--rule);
+}
+
+.demo__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.demo__tabs {
+  display: flex;
+}
+
+.demo__tabs button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border: var(--rule);
+  background: var(--color-paper);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.demo__tabs button + button {
+  margin-left: calc(var(--rule-width) * -1);
+}
+
+.demo__tabs button[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.demo__meta {
+  color: var(--color-ink-muted);
+}
+
+.demo__stage {
+  position: relative;
+  aspect-ratio: 1360 / 262;
+  isolation: isolate;
+}
+
+.demo__scan,
+.demo__notation,
+.demo__notation svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.demo__scan {
+  image-rendering: pixelated;
+}
+
+.demo__notation {
+  background: var(--color-paper);
+}
+
+.demo[data-phase="waiting"] .demo__notation {
+  clip-path: inset(0 100% 0 0);
+}
+
+.demo[data-view="image"] .demo__notation,
+.demo[data-view="image"] .demo__scanline {
+  visibility: hidden;
+}
+
+.demo__scanline {
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 0;
+  width: 6px;
+  margin-left: -3px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-ink);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.demo__finding {
+  position: absolute;
+  margin-left: -1px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: 700;
+  transform: translateY(-100%);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.demo[data-phase="done"][data-view="notation"] .demo__finding {
+  opacity: 1;
+}
+
+/* Cómo funciona: el mismo incipit recorre los cuatro pasos */
+.steps {
+  padding: var(--space-8) var(--gutter) 0;
+}
+
+.steps__list {
+  margin-top: var(--space-6);
+  padding: 0;
+  list-style: none;
+  border-top: var(--rule);
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 34ch) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: center;
+  padding: var(--space-6) 0;
+  border-bottom: var(--rule);
+}
+
+.step__number {
+  font-family: var(--font-display);
+  font-size: 6rem;
+  font-weight: 700;
+  line-height: 0.8;
+}
+
+.step__title {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.step__text p {
+  color: var(--color-ink-muted);
+}
+
+.step__figure {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.step__figure svg,
+.step__scan {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1360 / 262;
+}
+
+.step__scan {
+  image-rendering: pixelated;
+}
+
+.step__figure figcaption {
+  color: var(--color-ink-muted);
+}
+
+/* Alcance: dos columnas de muestrario, sí y todavía no */
+.scope {
+  padding: var(--space-9) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.scope__intro {
+  max-width: 60ch;
+  margin-top: var(--space-4);
+  font-size: var(--text-lead);
+  line-height: 1.4;
+}
+
+.scope__columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-7);
+  border-block: var(--rule);
+}
+
+.scope__column {
+  padding: var(--space-6) var(--space-6) var(--space-6) 0;
+}
+
+.scope__column--no {
+  padding-left: var(--space-6);
+  border-left: var(--rule);
+  background: var(--halftone-ink);
+}
+
+.scope__column--no ul {
+  background: var(--color-paper);
+  justify-self: start;
+}
+
+.scope__heading {
+  margin-bottom: var(--space-4);
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.scope__column--no .scope__heading {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  background: var(--color-paper);
+}
+
+.scope__column ul {
+  display: grid;
+  list-style: square;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6);
+  font-size: var(--text-lead);
+}
+
+/* Cierre: el campo violeta es el turno del visitante */
+.access {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-9) var(--gutter);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.access__title {
+  font-family: var(--font-display);
+  font-size: clamp(3rem, 8vw, 7rem);
+  font-weight: 700;
+  line-height: 0.88;
+  text-transform: uppercase;
+}
+
+.access__text {
+  max-width: 56ch;
+  font-size: var(--text-lead);
+  line-height: 1.4;
+}
+
+.access__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-6);
+}
+
+.access__button {
+  border-color: var(--color-on-accent);
+  background: var(--color-on-accent);
+  color: var(--color-ink);
+}
+
+.access__button:hover {
+  border-color: var(--color-ink);
+}
+
+.access :focus-visible {
+  outline-color: var(--color-on-accent);
+}
+
+/* Pie: la marca repetida a varios tamaños, como en un muestrario */
+.site-footer {
+  display: grid;
+  gap: var(--space-5);
+  padding: var(--space-8) var(--gutter) var(--space-7);
+}
+
+.site-footer__specimen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-6);
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.site-footer__specimen span:nth-child(1) {
+  font-size: clamp(3rem, 9vw, 6rem);
+}
+
+.site-footer__specimen span:nth-child(2) {
+  font-size: clamp(2rem, 4.5vw, 3rem);
+}
+
+.site-footer__specimen span:nth-child(3) {
+  font-size: 1.5rem;
+}
+
+.site-footer__specimen span:nth-child(4) {
+  font-size: 0.75rem;
+}
+
+/* En pantallas estrechas el rótulo del hallazgo no cabe sobre el compás: cuelga bajo el
+   pentagrama, alineado a la derecha, y puede partirse en dos líneas. */
+@media (max-width: 600px) {
+  .demo {
+    padding-bottom: calc(var(--space-6) + 2.75rem);
+  }
+
+  .demo__finding {
+    top: auto !important;
+    right: 0;
+    bottom: calc(var(--space-2) * -1);
+    left: auto !important;
+    max-width: 100%;
+    transform: translateY(100%);
+    white-space: normal;
+    text-align: right;
+  }
+}
+
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero__copy {
+    padding: var(--space-6) var(--gutter);
+    border-top: var(--rule);
+    border-left: 0;
+  }
+
+  .step {
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: var(--space-4) var(--space-5);
+  }
+
+  .step__number {
+    font-size: 4rem;
+  }
+
+  .step__figure {
+    grid-column: 1 / -1;
+  }
+
+  .scope__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scope__column--no {
+    padding-left: var(--space-5);
+    border-top: var(--rule);
+    border-left: 0;
+  }
+}
