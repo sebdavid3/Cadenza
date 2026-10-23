@@ -69,7 +69,7 @@ describe("measureSlot", () => {
 
 describe("measureMarks", () => {
   it("agrupa los hallazgos del mismo compás y ordena por posición en la partitura", () => {
-    const marks = measureMarks(SCORE, [
+    const { marks } = measureMarks(SCORE, [
       finding(1, 3),
       finding(2, 1),
       finding(3, 3, { rule_id: "pitch.range" }),
@@ -80,8 +80,10 @@ describe("measureMarks", () => {
     ]);
   });
 
-  it("omite los hallazgos cuyo compás no está en la partitura", () => {
-    expect(measureMarks(SCORE, [finding(1, 7)])).toEqual([]);
+  it("no marca los hallazgos cuyo compás no está en la partitura, pero los devuelve", () => {
+    const { marks, unplaced } = measureMarks(SCORE, [finding(1, 7), finding(2, 2)]);
+    expect(marks.map((mark) => mark.measureNumber)).toEqual([2]);
+    expect(unplaced.map((f) => f.id)).toEqual([1]);
   });
 });
 

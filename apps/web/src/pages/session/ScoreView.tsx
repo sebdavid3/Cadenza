@@ -15,6 +15,8 @@ interface ScoreViewProps {
   /** Compases de cada pentagrama en el `ScoreIR`: si OSMD dibuja otros, no se marca nada. */
   expectedMeasures: readonly number[];
   selectedKey: string | null;
+  /** Avisa de si las marcas se pudieron situar sobre la partitura dibujada. */
+  onPlacement?: (placed: boolean) => void;
 }
 
 function sameCounts(a: readonly number[], b: readonly number[]) {
@@ -44,26 +46,36 @@ const RELAYOUT_DELAY_MS = 150;
  * Se vuelve a maquetar cuando cambia el ancho. Si OSMD falla, lo dice sin arrastrar al resto de
  * la vista: la imagen y la lista siguen disponibles.
  */
-export function ScoreView({ xml, marks, expectedMeasures, selectedKey }: ScoreViewProps) {
+export function ScoreView({
+  xml,
+  marks,
+  expectedMeasures,
+  selectedKey,
+  onPlacement,
+}: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<RenderState>({ status: "rendering" });
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    // Cada montaje dibuja en su propio contenedor: con el doble montaje de StrictMode, el
-    // dibujo que se descarta no pisa al que se queda.
+    // Cada montaje dibuja en su propio contenedor y cancela su dibujo al irse: con el doble
+    // montaje de StrictMode, o al salir mientras OSMD carga, el dibujo descartado no pisa al que
+    // se queda y se libera.
     const target = document.createElement("div");
     host.appendChild(target);
-    let cancelled = false;
+    const controller = new AbortController();
     let rendered: RenderedScore | null = null;
     let observer: ResizeObserver | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
-    renderScore(target, xml)
+    renderScore(target, xml, controller.signal)
       .then((score) => {
+        if (controller.signal.aborted) {
+          score.dispose();
+          return;
+        }
         rendered = score;
-        if (cancelled) return;
         setState({ status: "ready", score, layout: 0 });
         if (!("ResizeObserver" in window)) return;
         let width = target.clientWidth;
@@ -87,11 +99,11 @@ export function ScoreView({ xml, marks, expectedMeasures, selectedKey }: ScoreVi
         observer.observe(target);
       })
       .catch(() => {
-        if (!cancelled) setState({ status: "failed" });
+        if (!controller.signal.aborted) setState({ status: "failed" });
       });
 
     return () => {
-      cancelled = true;
+      controller.abort();
       clearTimeout(timer);
       observer?.disconnect();
       rendered?.dispose();
@@ -106,12 +118,24 @@ export function ScoreView({ xml, marks, expectedMeasures, selectedKey }: ScoreVi
     [score, layout, marks, expectedMeasures],
   );
 
-  // Al elegir un posible error en la lista, su compás se trae a la vista.
-  const marksRef = useRef<HTMLDivElement>(null);
+  const placed = state.status === "ready" ? boxes !== null : null;
   useEffect(() => {
-    if (!selectedKey || !boxes) return;
+    if (placed !== null) onPlacement?.(placed);
+  }, [placed, onPlacement]);
+
+  // Al elegir un posible error en la lista, su compás se trae a la vista una sola vez: volver a
+  // maquetar al cambiar el ancho no vuelve a desplazar la página.
+  const marksRef = useRef<HTMLDivElement>(null);
+  const scrolledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedKey) {
+      scrolledRef.current = null;
+      return;
+    }
+    if (!boxes || scrolledRef.current === selectedKey) return;
     const element = marksRef.current?.querySelector(`[data-key="${selectedKey}"]`);
     if (!element) return;
+    scrolledRef.current = selectedKey;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     element.scrollIntoView({
       block: "nearest",
@@ -121,6 +145,10 @@ export function ScoreView({ xml, marks, expectedMeasures, selectedKey }: ScoreVi
   }, [selectedKey, boxes]);
 
   const flagged = marks.map((mark) => mark.measureNumber).join(", ");
+  const label =
+    boxes && marks.length > 0
+      ? `Partitura transcrita. Compases con posibles errores: ${flagged}.`
+      : "Partitura transcrita.";
 
   return (
     <div className="notation" data-state={state.status}>
@@ -147,15 +175,12 @@ export function ScoreView({ xml, marks, expectedMeasures, selectedKey }: ScoreVi
             })}
           </div>
         )}
+        {/* Solo es una imagen con nombre cuando hay partitura dibujada. */}
         <div
           className="notation__host"
           ref={hostRef}
-          role="img"
-          aria-label={
-            marks.length > 0
-              ? `Partitura transcrita. Compases con posibles errores: ${flagged}.`
-              : "Partitura transcrita."
-          }
+          role={state.status === "ready" ? "img" : undefined}
+          aria-label={state.status === "ready" ? label : undefined}
         />
       </div>
       {state.status === "rendering" && (

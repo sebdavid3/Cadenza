@@ -38,13 +38,39 @@ function cssColor(name: string, fallback: string): string {
   return value || fallback;
 }
 
+/** Se cancela un dibujo que ya no hace falta (la vista se desmontó mientras cargaba). */
+function abortError() {
+  return new DOMException("Dibujo cancelado", "AbortError");
+}
+
+/**
+ * Analiza el MusicXML antes de dárselo a OSMD: con una cadena corta que no empieza por `<?xml`,
+ * OSMD la trataría como una URL que descargar.
+ */
+function parseMusicXml(xml: string): Document {
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  if (document.getElementsByTagName("parsererror").length > 0) {
+    throw new Error("El MusicXML no es XML válido");
+  }
+  return document;
+}
+
 /**
  * Carga OSMD bajo demanda (pesa más que el resto de la interfaz junta) y dibuja el MusicXML en
  * `host`. Sin título, compositor ni nombres de parte, que el exportador no tiene, y sin agrupar
- * los silencios de compás en un multicompás, que rompería la correspondencia de compases.
+ * los silencios de compás en un multicompás, que rompería la correspondencia de compases. Si
+ * `signal` se cancela antes de dibujar, no se dibuja y se libera lo cargado.
  */
-export async function renderScore(host: HTMLElement, xml: string): Promise<RenderedScore> {
+export async function renderScore(
+  host: HTMLElement,
+  xml: string,
+  signal: AbortSignal,
+): Promise<RenderedScore> {
+  // Función y no propiedad: TypeScript no sabe que la señal puede cambiar durante un await.
+  const cancelled = () => signal.aborted;
+  const document = parseMusicXml(xml);
   const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
+  if (cancelled()) throw abortError();
   const ink = cssColor("--color-ink", "#0a0a0a");
   const osmd = new OpenSheetMusicDisplay(host, {
     backend: "svg",
@@ -62,7 +88,11 @@ export async function renderScore(host: HTMLElement, xml: string): Promise<Rende
     defaultFontFamily: "Hanken Grotesk, system-ui, sans-serif",
   });
   osmd.EngravingRules.PageBottomMargin = PAGE_BOTTOM_MARGIN_UNITS;
-  await osmd.load(xml);
+  await osmd.load(document);
+  if (cancelled()) {
+    osmd.clear();
+    throw abortError();
+  }
   osmd.zoom = zoomFor(host.clientWidth);
   osmd.render();
 

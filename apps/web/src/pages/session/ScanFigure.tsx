@@ -43,7 +43,15 @@ export function ScanFigure({ blob, status }: ScanFigureProps) {
     );
   }
   return (
-    <div className="scan" data-wide={wide} tabIndex={wide ? 0 : undefined}>
+    // Un incipit ancho se desplaza en horizontal en móvil: el marco se puede enfocar para
+    // desplazarlo con el teclado.
+    <div
+      className="scan"
+      data-wide={wide}
+      tabIndex={wide ? 0 : undefined}
+      role={wide ? "group" : undefined}
+      aria-label={wide ? "Imagen original, desplazable" : undefined}
+    >
       <img
         ref={imageRef}
         alt="Imagen original de la partitura"

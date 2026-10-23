@@ -81,6 +81,11 @@
   padding: var(--space-6) var(--gutter) var(--space-8);
 }
 
+/* En escritorio, el escaneo encima de la notación (en el DOM y en móvil va después). */
+.sheet--scan {
+  order: -1;
+}
+
 .sheet {
   min-width: 0;
   border: var(--rule);
@@ -303,8 +308,12 @@
     color var(--duration-quick) var(--ease-out);
 }
 
-.findings__item:hover {
+button.findings__item:hover {
   box-shadow: inset 0 0 0 var(--rule-width) var(--color-ink);
+}
+
+.findings__item--static {
+  cursor: default;
 }
 
 .findings__item[aria-pressed="true"] {
@@ -387,9 +396,9 @@
     border-left: 0;
   }
 
-  /* En una columna, primero la partitura, luego la imagen y al final la lista. */
-  .sheet--notation {
-    order: -1;
+  /* En una columna, el orden del DOM: partitura, imagen y lista. */
+  .sheet--scan {
+    order: 0;
   }
 }
 

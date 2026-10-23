@@ -45,10 +45,15 @@ function SessionNotFound() {
 
 /**
  * Vista de solo lectura de una sesión: la imagen original sobre la partitura transcrita y los
- * posibles errores que señala el validador, marcados por compás (ADR-0021). No edita nada.
+ * posibles errores que señala el validador, marcados por compás (ADR-0021). No edita nada. Cada
+ * sesión monta su propia vista, para que la selección no pase de una a otra.
  */
 export function SessionPage() {
   const { sessionId = "" } = useParams();
+  return <SessionView key={sessionId} sessionId={sessionId} />;
+}
+
+function SessionView({ sessionId }: { sessionId: string }) {
   const shortId = sessionId.slice(0, 8);
   useDocumentTitle(`Sesión ${shortId}`);
   const user = useAuthStore((state) => state.user);
@@ -72,15 +77,20 @@ export function SessionPage() {
 
   const score = detail.data?.current_score ?? null;
   const { active, dismissed } = useMemo(() => splitFindings(findings.data ?? []), [findings.data]);
-  const marks = useMemo(() => (score ? measureMarks(score, active) : []), [score, active]);
+  const { marks, unplaced } = useMemo(
+    () => (score ? measureMarks(score, active) : { marks: [], unplaced: [] }),
+    [score, active],
+  );
   const expected = useMemo(() => (score ? measuresPerStaff(score) : []), [score]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [placed, setPlaced] = useState(true);
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
   }
 
-  if (detail.isError) {
+  // Sin datos que enseñar; si ya los había, un fallo al recargarlos no tapa la vista.
+  if (detail.isError && !detail.data) {
     return (
       <main className="session session--missing">
         <BackLink />
@@ -131,14 +141,8 @@ export function SessionPage() {
       </header>
 
       <div className="session__body">
-        <section className="session__sheets" aria-label="Imagen original y transcripción">
-          <figure className="sheet sheet--scan">
-            <figcaption className="label sheet__caption">Imagen original</figcaption>
-            <ScanFigure
-              blob={image.data ?? null}
-              status={image.isError ? "error" : image.data ? "ready" : "loading"}
-            />
-          </figure>
+        {/* En el DOM, primero la transcripción; en escritorio la imagen se dibuja encima. */}
+        <section className="session__sheets" aria-label="Transcripción e imagen original">
           <figure className="sheet sheet--notation">
             <figcaption className="label sheet__caption">Transcripción</figcaption>
             {musicXml.data ? (
@@ -148,6 +152,7 @@ export function SessionPage() {
                 marks={marks}
                 expectedMeasures={expected}
                 selectedKey={selectedKey}
+                onPlacement={setPlaced}
               />
             ) : musicXml.isError ? (
               <div className="notation__failed" role="alert">
@@ -165,12 +170,23 @@ export function SessionPage() {
               <div className="notation notation--placeholder" aria-hidden="true" />
             )}
           </figure>
+          <figure className="sheet sheet--scan">
+            <figcaption className="label sheet__caption">Imagen original</figcaption>
+            <ScanFigure
+              blob={image.data ?? null}
+              status={image.isError ? "error" : image.data ? "ready" : "loading"}
+            />
+          </figure>
         </section>
 
         <FindingsPanel
           marks={marks}
+          unplaced={unplaced}
           dismissed={dismissed}
           staleSeq={staleValidationSeq(findings.data ?? [], seq)}
+          edits={edits}
+          multiStaff={expected.length > 1}
+          selectable={placed && musicXml.isSuccess}
           selectedKey={selectedKey}
           onSelect={setSelectedKey}
           status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}

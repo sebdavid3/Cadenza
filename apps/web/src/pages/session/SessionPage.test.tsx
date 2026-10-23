@@ -7,18 +7,25 @@ import { ANA, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth
 import type { FindingRead, SessionDetailRead, UserRead } from "../../types";
 
 // OSMD no se puede dibujar en jsdom: un doble con la misma forma de lo que la vista lee.
-const osmd = vi.hoisted(() => ({ measures: 3, fail: false, cleared: 0, loaded: [] as string[] }));
+const osmd = vi.hoisted(() => ({
+  measures: 3,
+  fail: false,
+  cleared: 0,
+  zooms: [] as number[],
+  loaded: [] as string[],
+}));
 vi.mock("opensheetmusicdisplay", () => ({
   OpenSheetMusicDisplay: class {
     zoom = 1;
     GraphicSheet = { MeasureList: [] as unknown[][] };
     EngravingRules = { PageBottomMargin: 10 };
     constructor(readonly host: HTMLElement) {}
-    load(xml: string) {
-      osmd.loaded.push(xml);
+    load(document: Document) {
+      osmd.loaded.push(document.documentElement.nodeName);
       return osmd.fail ? Promise.reject(new Error("MusicXML no válido")) : Promise.resolve({});
     }
     render() {
+      osmd.zooms.push(this.zoom);
       this.host.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "svg"));
       this.GraphicSheet.MeasureList = Array.from({ length: osmd.measures }, (_unused, index) => [
         {
@@ -123,17 +130,19 @@ const png = () =>
 function api(
   options: {
     detail?: SessionDetailRead;
-    findings?: FindingRead[];
+    findings?: FindingRead[] | (() => Response);
     exportStatus?: number;
     status?: number;
   } = {},
 ) {
+  const findings = options.findings;
   return mockApi({
     [`GET /sessions/${ID}`]: () =>
       options.status
         ? jsonResponse({ detail: "Sesión no encontrada" }, options.status)
         : jsonResponse(options.detail ?? detail()),
-    [`GET /sessions/${ID}/findings`]: () => jsonResponse(options.findings ?? []),
+    [`GET /sessions/${ID}/findings`]: () =>
+      typeof findings === "function" ? findings() : jsonResponse(findings ?? []),
     [`GET /sessions/${ID}/export`]: () =>
       options.exportStatus
         ? jsonResponse({ detail: "fallo" }, options.exportStatus)
@@ -156,7 +165,7 @@ const scrollIntoView = vi.fn();
 
 beforeEach(() => {
   resetAuth();
-  Object.assign(osmd, { measures: 3, fail: false, cleared: 0, loaded: [] });
+  Object.assign(osmd, { measures: 3, fail: false, cleared: 0, zooms: [], loaded: [] });
   createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
   revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   scrollIntoView.mockClear();
@@ -190,7 +199,8 @@ describe("vista de una sesión", () => {
     expect(mark?.style.left).toBe("225px");
     expect(mark).toHaveTextContent("Compás 2");
     expect(screen.getByRole("img", { name: /posibles errores: 2/i })).toBeInTheDocument();
-    expect(osmd.loaded).toEqual([XML]);
+    // OSMD recibe el MusicXML ya analizado, no una cadena que podría tomar por una URL.
+    expect(osmd.loaded).toEqual(["score-partwise"]);
 
     // Hallazgos de la última validación, también los descartados; nada del estudio.
     const findingsCall = calls.find((call) => call.key === `GET /sessions/${ID}/findings`);
@@ -223,7 +233,10 @@ describe("vista de una sesión", () => {
     api();
     renderPage();
 
-    expect(await screen.findByText("El validador no ha señalado ningún compás.")).toBeVisible();
+    expect(
+      await screen.findByText("El validador no señaló ningún compás en su última validación."),
+    ).toBeVisible();
+    expect(screen.queryByText(/puede que el resultado ya no esté al día/i)).toBeNull();
     expect(screen.getByText(/no lo detecta todo/i)).toBeVisible();
     expect(document.querySelector(".notation__mark")).toBeNull();
   });
@@ -266,7 +279,7 @@ describe("vista de una sesión", () => {
 
     expect(await screen.findByText(/no se pudieron situar los posibles errores/i)).toBeVisible();
     expect(document.querySelector(".notation__mark")).toBeNull();
-    expect(screen.getByRole("button", { name: /compás 2/i })).toBeVisible();
+    expect(screen.getByText("Compás 2")).toBeVisible();
   });
 
   it("si la partitura no se puede dibujar, la imagen y la lista siguen disponibles", async () => {
@@ -288,10 +301,124 @@ describe("vista de una sesión", () => {
     expect(screen.getByRole("button", { name: "Reintentar" })).toBeVisible();
   });
 
-  it("responde igual a una sesión inexistente que a una ajena", async () => {
-    api({ status: 404 });
-    renderPage(LUIS);
+  it("lista y cuenta un posible error cuyo compás ya no está en la partitura", async () => {
+    api({ findings: [finding(1, 2), finding(2, 9)] });
+    renderPage();
 
+    expect(await screen.findByText(/ese compás ya no está en la partitura/i)).toBeVisible();
+    expect(document.querySelector(".findings__count")).toHaveTextContent("2");
+    await waitFor(() => {
+      expect(document.querySelectorAll(".notation__mark")).toHaveLength(1);
+    });
+  });
+
+  it("sin posibles errores pero con ediciones, avisa de que puede no estar al día", async () => {
+    api({ detail: detail({ current_seq: 4, edits: [{} as SessionDetailRead["edits"][number]] }) });
+    renderPage();
+
+    expect(await screen.findByText(/puede que el resultado ya no esté al día/i)).toBeVisible();
+  });
+
+  it("si solo quedan descartados, no dice que el validador no señaló nada", async () => {
+    api({ findings: [finding(1, 2, { status: "dismissed" })] });
+    renderPage();
+
+    expect(await screen.findByText(/se descartaron como falso positivo/i)).toBeVisible();
+    expect(screen.queryByText(/no señaló ningún compás/i)).toBeNull();
+  });
+
+  it("si fallan los posibles errores lo dice y permite reintentar", async () => {
+    let fail = true;
+    api({
+      findings: () =>
+        fail ? jsonResponse({ detail: "fallo" }, 500) : jsonResponse([finding(1, 1)]),
+    });
+    renderPage();
+
+    expect(await screen.findByText(/no se pudieron cargar los posibles errores/i)).toBeVisible();
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByRole("button", { name: /compás 1/i })).toBeVisible();
+  });
+
+  it("si falla el detalle de la sesión lo dice sin confundirlo con un 404", async () => {
+    api({ status: 503 });
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "No se pudo cargar la sesión" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reintentar" })).toBeVisible();
+  });
+
+  it("solo es una imagen con nombre cuando la partitura está dibujada", async () => {
+    osmd.fail = true;
+    api({ findings: [finding(1, 2)] });
+    renderPage();
+
+    expect(await screen.findByText("No se pudo dibujar la partitura.")).toBeVisible();
+    expect(screen.queryByRole("img", { name: /partitura transcrita/i })).toBeNull();
+  });
+
+  it("si no se pueden situar las marcas, la lista no ofrece resaltarlas", async () => {
+    osmd.measures = 2;
+    api({ findings: [finding(1, 2)] });
+    renderPage();
+
+    expect(await screen.findByText(/no se pudieron situar/i)).toBeVisible();
+    expect(screen.queryByRole("button", { name: /compás 2/i })).toBeNull();
+    expect(screen.getByText("Compás 2")).toBeVisible();
+  });
+
+  it("vuelve a maquetar la partitura al cambiar el ancho", async () => {
+    let width = 1200;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {
+          // El doble solo guarda el aviso; la prueba lo dispara a mano.
+        }
+        disconnect() {
+          // Nada que soltar.
+        }
+      },
+    );
+    api({ findings: [finding(1, 2)] });
+    renderPage();
+    await waitFor(() => {
+      expect(document.querySelector(".notation__mark")).not.toBeNull();
+    });
+    expect(osmd.zooms).toEqual([1]);
+    expect(document.querySelector<HTMLElement>(".notation__mark")?.style.left).toBe("300px");
+
+    width = 390;
+    for (const notify of observers) notify();
+
+    await waitFor(() => {
+      expect(osmd.zooms).toEqual([1, 0.75]);
+    });
+    // La marca se recoloca con el zoom nuevo: x = 30 unidades × 10 px × 0,75.
+    await waitFor(() => {
+      expect(document.querySelector<HTMLElement>(".notation__mark")?.style.left).toBe("225px");
+    });
+  });
+
+  it("responde igual a una sesión inexistente que a una ajena", async () => {
+    // La API responde 404 a las dos (ADR-0012): la vista no puede ni debe distinguirlas.
+    api({ status: 404 });
+    const router = renderPage(LUIS);
+
+    expect(await screen.findByRole("heading", { name: "Sesión no encontrada" })).toBeVisible();
+    const { calls } = mockApi({ "GET /sessions/otra": () => jsonResponse({ detail: "no" }, 404) });
+    await router.navigate("/sesiones/otra");
+    await waitFor(() => {
+      expect(calls.map((call) => call.key)).toContain("GET /sessions/otra");
+    });
     expect(await screen.findByRole("heading", { name: "Sesión no encontrada" })).toBeVisible();
     expect(screen.getByText(/no existe o no tienes acceso/i)).toBeVisible();
     expect(screen.getByRole("link", { name: /sesiones/i })).toHaveAttribute(

@@ -3,9 +3,17 @@ import { ruleLabel, type MeasureMark } from "./findings";
 
 interface FindingsPanelProps {
   marks: readonly MeasureMark[];
+  /** Hallazgos activos cuyo compás no está en la partitura: se listan sin marca. */
+  unplaced: readonly FindingRead[];
   dismissed: readonly FindingRead[];
   /** Estado validado si es anterior al actual (la partitura se editó después). */
   staleSeq: number | null;
+  /** Ediciones de la sesión: sin hallazgos no se sabe si la validación es anterior a ellas. */
+  edits: number;
+  /** Con varios pentagramas, cada compás dice en cuál está. */
+  multiStaff: boolean;
+  /** Si las marcas no se pudieron situar, los compases de la lista no se pueden resaltar. */
+  selectable: boolean;
   selectedKey: string | null;
   onSelect: (key: string | null) => void;
   /** Mientras llegan o si fallan los hallazgos, el panel lo dice en su lugar. */
@@ -23,21 +31,49 @@ function FindingText({ finding }: { finding: FindingRead }) {
   );
 }
 
+function measureName(mark: MeasureMark, multiStaff: boolean) {
+  const staff = multiStaff ? ` · pentagrama ${String(mark.slot.staff + 1)}` : "";
+  return `Compás ${String(mark.measureNumber)}${staff}`;
+}
+
+/** Qué decir cuando no queda ningún posible error activo, sin prometer más de lo que se sabe. */
+function EmptyMessage({ dismissed, edits }: { dismissed: number; edits: number }) {
+  if (dismissed > 0) {
+    return (
+      <p className="findings__empty">
+        No queda ningún posible error activo: los que señaló el validador se descartaron como falso
+        positivo.
+      </p>
+    );
+  }
+  return (
+    <p className="findings__empty">
+      El validador no señaló ningún compás en su última validación.
+      {edits > 0 &&
+        " La partitura tiene ediciones: si se hicieron después de esa validación, puede que el resultado ya no esté al día."}
+    </p>
+  );
+}
+
 /**
  * Posibles errores del validador agrupados por compás. Nunca se presentan como errores seguros:
  * el validador no lo detecta todo y lo que señala hay que comprobarlo (ADR-0021).
  */
 export function FindingsPanel({
   marks,
+  unplaced,
   dismissed,
   staleSeq,
+  edits,
+  multiStaff,
+  selectable,
   selectedKey,
   onSelect,
   status,
   errorText,
   onRetry,
 }: FindingsPanelProps) {
-  const total = marks.reduce((count, mark) => count + mark.findings.length, 0);
+  const total = marks.reduce((count, mark) => count + mark.findings.length, 0) + unplaced.length;
 
   return (
     <section className="findings" aria-labelledby="findings-title">
@@ -74,33 +110,55 @@ export function FindingsPanel({
       )}
 
       {status === "ready" && total === 0 && (
-        <p className="findings__empty">El validador no ha señalado ningún compás.</p>
+        <EmptyMessage dismissed={dismissed.length} edits={edits} />
       )}
 
       {status === "ready" && total > 0 && (
         <ul className="findings__list" role="list">
           {marks.map((mark) => {
             const selected = mark.key === selectedKey;
+            const content = (
+              <>
+                <span className="findings__measure">{measureName(mark, multiStaff)}</span>
+                {mark.findings.map((finding) => (
+                  <span key={finding.id} className="findings__finding">
+                    <FindingText finding={finding} />
+                  </span>
+                ))}
+              </>
+            );
             return (
               <li key={mark.key}>
-                <button
-                  type="button"
-                  className="findings__item"
-                  aria-pressed={selected}
-                  onClick={() => {
-                    onSelect(selected ? null : mark.key);
-                  }}
-                >
-                  <span className="findings__measure">Compás {mark.measureNumber}</span>
-                  {mark.findings.map((finding) => (
-                    <span key={finding.id} className="findings__finding">
-                      <FindingText finding={finding} />
-                    </span>
-                  ))}
-                </button>
+                {selectable ? (
+                  <button
+                    type="button"
+                    className="findings__item"
+                    aria-pressed={selected}
+                    onClick={() => {
+                      onSelect(selected ? null : mark.key);
+                    }}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div className="findings__item findings__item--static">{content}</div>
+                )}
               </li>
             );
           })}
+          {unplaced.map((finding) => (
+            <li key={finding.id}>
+              <div className="findings__item findings__item--static">
+                <span className="findings__measure">Compás {finding.anchor.measure}</span>
+                <span className="findings__finding">
+                  <FindingText finding={finding} />
+                </span>
+                <span className="findings__reason">
+                  Ese compás ya no está en la partitura: no se puede marcar.
+                </span>
+              </div>
+            </li>
+          ))}
         </ul>
       )}
 

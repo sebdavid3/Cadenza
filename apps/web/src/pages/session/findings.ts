@@ -66,20 +66,31 @@ export function slotKey(slot: MeasureSlot): string {
   return `${String(slot.staff)}:${String(slot.measure)}`;
 }
 
-/** Agrupa los hallazgos activos por compás, en el orden de la partitura. */
-export function measureMarks(score: ScoreIRPayload, active: readonly FindingRead[]): MeasureMark[] {
+/**
+ * Agrupa los hallazgos activos por compás, en el orden de la partitura. Los que no caen en
+ * ningún compás de la partitura no se marcan, pero se devuelven aparte para listarlos igual.
+ */
+export function measureMarks(
+  score: ScoreIRPayload,
+  active: readonly FindingRead[],
+): { marks: MeasureMark[]; unplaced: FindingRead[] } {
   const marks = new Map<string, MeasureMark>();
+  const unplaced: FindingRead[] = [];
   for (const finding of active) {
     const slot = measureSlot(score, finding.anchor);
-    if (!slot) continue;
+    if (!slot) {
+      unplaced.push(finding);
+      continue;
+    }
     const key = slotKey(slot);
     const mark = marks.get(key);
     if (mark) mark.findings.push(finding);
     else marks.set(key, { key, slot, measureNumber: finding.anchor.measure, findings: [finding] });
   }
-  return [...marks.values()].sort(
+  const sorted = [...marks.values()].sort(
     (a, b) => a.slot.staff - b.slot.staff || a.slot.measure - b.slot.measure,
   );
+  return { marks: sorted, unplaced };
 }
 
 /**
