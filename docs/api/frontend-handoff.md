@@ -368,6 +368,7 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 - **Proxy de desarrollo:** Vite reenvía `/api` y lo que va bajo `/api/` a `http://127.0.0.1:8000` quitando el prefijo (§5.5); `/apidocs`, por ejemplo, no se reenvía, configurable con `CADENZA_API_PROXY_TARGET`. Ninguna ruta de la interfaz empieza por `/api`.
 - **Sesión** ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer o ante un 401 y rutas privadas.
 - **Página pública** en `/` ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
+- **Transcripción** en `/transcripcion` ([#147](https://github.com/sebdavid3/Cadenza/issues/147)): cola que envía las imágenes de una en una a `POST /transcribe` con el timeout de §5.7 y estado por archivo, y listado de `GET /sessions` con la miniatura de `GET /sessions/{id}/image` cargada como Blob (§5.6).
 - **Sistema de diseño:** `PRODUCT.md`, `DESIGN.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
 
 Arranque, con la API ya en marcha (§1.4):
@@ -382,7 +383,6 @@ Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `
 
 Queda por construir sobre la API v1:
 - **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Quedan el cambio de contraseña y la gestión de cuentas del investigador (`/users`).
-- **Ingesta:** envío de imágenes a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones ([#147](https://github.com/sebdavid3/Cadenza/issues/147)).
 - **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
 - **Reproducción:** Tone.js con el cursor sincronizado a partir de `GET /sessions/{id}/timing`.
 - **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y exportación MusicXML y MIDI.
