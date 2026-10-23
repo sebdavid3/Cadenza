@@ -12,8 +12,11 @@ export interface ApiClientOptions {
   baseUrl?: string;
   /** Token Bearer vigente, o null si no hay sesión. */
   getToken?: () => string | null;
-  /** Se llama cuando una petición autenticada recibe un 401 (token caducado o revocado). */
-  onUnauthorized?: () => void;
+  /**
+   * Se llama cuando una petición autenticada recibe un 401 (token caducado o revocado), con el
+   * token que llevaba la petición, para no cerrar una sesión más reciente.
+   */
+  onUnauthorized?: (token: string) => void;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
@@ -29,6 +32,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Si es false no se envía el token (rutas públicas como `/health` o `/auth/login`). */
   auth?: boolean;
+  /** Token para esta petición en lugar del vigente (p. ej. `GET /auth/me` justo tras entrar). */
+  token?: string;
   /**
    * Si es false, un 401 no se trata como sesión caducada. Para las rutas cuyo 401 tiene otro
    * significado, como `POST /auth/password` con la contraseña actual equivocada.
@@ -66,7 +71,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
   async function request<T = unknown>(path: ApiPath, req: RequestOptions = {}): Promise<T> {
     // La preparación va antes del temporizador: si falla, no deja nada pendiente.
     const headers = new Headers();
-    const token = req.auth === false ? null : (options.getToken?.() ?? null);
+    const token = req.auth === false ? null : (req.token ?? options.getToken?.() ?? null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
     let body: BodyInit | undefined;
     if (req.json !== undefined) {
@@ -112,7 +117,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         // Cancelado o vencido mientras se leía el cuerpo del error.
         if (controller.signal.aborted) throw failure();
         if (response.status === 401 && token && req.notifyUnauthorized !== false) {
-          options.onUnauthorized?.();
+          options.onUnauthorized?.(token);
         }
         throw new ApiError(kindForStatus(response.status), response.status, detail);
       }

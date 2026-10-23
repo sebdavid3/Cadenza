@@ -1,0 +1,120 @@
+/* Acceso: un titular de cartel y un formulario en la misma retícula de filetes. */
+.login {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
+  min-height: calc(100vh - 97px);
+}
+
+.login__title {
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--space-7) var(--gutter);
+  border-right: var(--rule);
+  background: var(--halftone-ink);
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 0.86;
+  text-transform: uppercase;
+}
+
+.login__title span {
+  padding: var(--space-2) var(--space-3) 0;
+  background: var(--color-paper);
+}
+
+.login__form {
+  display: grid;
+  align-content: center;
+  gap: var(--space-5);
+  padding: var(--space-7) var(--space-7);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.field input {
+  min-height: 52px;
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule);
+  border-radius: 0;
+  background: var(--color-paper);
+  font-size: 1.125rem;
+}
+
+.field input:focus-visible {
+  outline-offset: 0;
+}
+
+.field input:read-only {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--color-accent);
+}
+
+.login__submit {
+  justify-self: start;
+  min-width: 12rem;
+}
+
+.login__error,
+.login__notice {
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule);
+  font-weight: 500;
+}
+
+/* El error es turno del visitante: franja rayada en el acento sobre un recuadro de papel. */
+.login__error {
+  position: relative;
+  padding-top: calc(var(--space-3) + 10px);
+  border-color: var(--color-accent);
+}
+
+.login__error::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 10px;
+  background: var(--hatch-accent);
+}
+
+.login__notice {
+  background: var(--color-paper);
+}
+
+.login__notice:focus-visible {
+  outline-offset: 2px;
+}
+
+.login__help {
+  max-width: 44ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+@media (max-width: 860px) {
+  .login {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .login__title {
+    min-height: 9rem;
+    border-right: 0;
+    border-bottom: var(--rule);
+    font-size: clamp(3.5rem, 18vw, 6rem);
+  }
+
+  .login__form {
+    padding: var(--space-6) var(--gutter) var(--space-8);
+  }
+}
