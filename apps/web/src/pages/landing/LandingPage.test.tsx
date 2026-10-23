@@ -92,11 +92,23 @@ describe("landing", () => {
     expect(router.state.location.pathname).toBe("/entrar");
   });
 
-  it("no ofrece registro ni recuperación de contraseña y explica quién crea las cuentas", () => {
+  it("sin registro abierto en el build, explica quién crea las cuentas y no lo enlaza", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
     renderLanding();
 
-    expect(screen.queryByText(/regístrate|crear cuenta|olvidaste/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /créala|crear una cuenta/i })).toBeNull();
     expect(screen.getAllByText(/las cuentas las crea/i).length).toBeGreaterThan(0);
+  });
+
+  it("con registro abierto, lo enlaza, dice que la cuenta queda pendiente y no ofrece recuperación", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
+    renderLanding();
+
+    const links = screen.getAllByRole("link", { name: /créala|crear una cuenta/i });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toHaveAttribute("href", "/registro");
+    expect(screen.getAllByText(/queda pendiente hasta que/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/olvidaste/i)).not.toBeInTheDocument();
   });
 
   it("enlaza al repositorio público", () => {

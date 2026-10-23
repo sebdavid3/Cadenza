@@ -371,3 +371,24 @@ describe("limpieza", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 });
+
+describe("Retry-After", () => {
+  it.each([
+    ["120", 120],
+    [null, null],
+    ["0", null],
+    ["Wed, 21 Oct 2026 07:28:00 GMT", null],
+  ])("Retry-After %s → %s", async (header, expected) => {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (header !== null) headers.set("Retry-After", header);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ detail: "x" }), { status: 429, headers })),
+    );
+    const client = createApiClient({ fetch: fetchMock });
+
+    const error = await caught(client.request("/x"));
+
+    expect(error.kind).toBe("rate-limited");
+    expect(error.retryAfterSeconds).toBe(expected);
+  });
+});

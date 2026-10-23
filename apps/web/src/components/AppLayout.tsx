@@ -25,6 +25,11 @@ export function AppLayout() {
           <NavLink className="label" to="/transcripcion">
             Transcripción
           </NavLink>
+          {user?.role === "investigador" && (
+            <NavLink className="label" to="/cuentas">
+              Cuentas
+            </NavLink>
+          )}
         </nav>
         {user && (
           <div className="app-header__user">

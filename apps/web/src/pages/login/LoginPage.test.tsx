@@ -45,13 +45,23 @@ afterEach(() => {
 });
 
 describe("vista de acceso", () => {
-  it("tiene campos etiquetados y no ofrece registro ni recuperación por correo", () => {
+  it("tiene campos etiquetados, enlaza al registro y no ofrece recuperación por correo", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
     renderUrl("/entrar");
 
     expect(screen.getByRole("heading", { level: 1, name: /entrar/i })).toBeVisible();
     expect(screen.getByLabelText("Usuario")).toHaveAttribute("autocomplete", "username");
     expect(screen.getByLabelText("Contraseña")).toHaveAttribute("type", "password");
-    expect(screen.queryByText(/regístrate|crear cuenta|olvidaste/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Créala" })).toHaveAttribute("href", "/registro");
+    expect(screen.getByText(/queda pendiente hasta que un investigador/i)).toBeVisible();
+    expect(screen.getByText(/no hay recuperación de contraseña por correo/i)).toBeVisible();
+  });
+
+  it("sin registro abierto en el build no lo enlaza", () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
+    renderUrl("/entrar");
+
+    expect(screen.queryByRole("link", { name: "Créala" })).toBeNull();
     expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
   });
 

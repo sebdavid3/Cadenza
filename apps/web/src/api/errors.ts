@@ -61,13 +61,21 @@ export class ApiError extends Error {
   readonly status: number | null;
   /** `detail` de la respuesta, solo para depurar: nunca se muestra en la interfaz. */
   readonly detail: unknown;
+  /** Segundos de `Retry-After` en un 429, o null si no llegó. */
+  readonly retryAfterSeconds: number | null;
 
-  constructor(kind: ApiErrorKind, status: number | null = null, detail: unknown = null) {
+  constructor(
+    kind: ApiErrorKind,
+    status: number | null = null,
+    detail: unknown = null,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(MESSAGES[kind]);
     this.name = "ApiError";
     this.kind = kind;
     this.status = status;
     this.detail = detail;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
