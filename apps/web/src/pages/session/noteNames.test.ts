@@ -89,6 +89,17 @@ describe("descripción del evento elegido", () => {
     ).toBe("Compás 1, voz 1: Do 5, blanca, en acorde, ligada.");
   });
 
+  it("dice que la nota que empieza un acorde también es de acorde", () => {
+    expect(
+      describeEvent(event({ pitch: "C5", duration_beats: "2" }), {
+        measure: 1,
+        staff: 0,
+        multiStaff: false,
+        chord: true,
+      }).spoken,
+    ).toBe("Compás 1, voz 1: Do 5, blanca, en acorde.");
+  });
+
   it("con una altura que no entiende, la muestra tal cual", () => {
     expect(
       describeEvent(event({ pitch: "H4" }), { measure: 1, staff: 0, multiStaff: false }).what,

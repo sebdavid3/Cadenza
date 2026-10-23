@@ -189,12 +189,20 @@
   margin-left: calc(var(--rule-width) * -1);
 }
 
-.playback__button:hover,
-.playback__step:hover,
-.playback__button[data-active="true"],
-.selection__button:hover {
+.playback__button[data-active="true"] {
   background: var(--color-ink);
   color: var(--color-paper);
+}
+
+/* Solo con un puntero que pasa por encima: en una pantalla táctil el estado se quedaría pegado
+   tras el toque y parecería pulsado. */
+@media (hover: hover) {
+  .playback__button:hover,
+  .playback__step:hover,
+  .selection__button:hover {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
 }
 
 .playback__button[aria-disabled="true"],
@@ -518,6 +526,16 @@
     0 0 0 var(--rule-width) var(--color-paper),
     0 0 0 calc(var(--rule-width) * 2) var(--color-accent);
   pointer-events: none;
+}
+
+/* Con colores forzados el navegador quita las sombras y el fondo: la marca pasa a un contorno
+   con el color de selección del sistema, y la muestra de la barra igual. */
+@media (forced-colors: active) {
+  .notation__selection,
+  .selection[data-selected="true"] .selection__readout::before {
+    outline: var(--rule-width) solid Highlight;
+    outline-offset: var(--rule-width);
+  }
 }
 
 @container notation (max-width: 36rem) {

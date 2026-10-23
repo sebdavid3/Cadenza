@@ -290,6 +290,43 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
   });
 });
 
+describe("lo que sale del dibujo", () => {
+  it("marca como de acorde también la nota que lo empieza", () => {
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "2"), note("E4", "2", { is_chord: true }), note("G4", "2")]]),
+        drawing([[[figure(["C4", "E4"], [2, 1], 10), figure(["G4"], [2, 1], 40)]]]),
+      ),
+    );
+    expect(events.map((selectable) => selectable.chord)).toEqual([true, true, false]);
+  });
+
+  it("sitúa cada evento donde está dibujado, aunque su duración sea cero", () => {
+    // El exportador dibuja la duración cero como una negra y la nota siguiente detrás.
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "0"), note("D4"), note("E4")]]),
+        drawing([[[figure(["C4"]), figure(["D4"]), figure(["E4"])]]]),
+      ),
+    );
+    expect(events.map((selectable) => selectable.onset)).toEqual([0, 1, 2]);
+  });
+
+  it("una nota marcada como de acorde tras un silencio es una figura aparte", () => {
+    const events = complete(
+      buildNoteMap(
+        score([[rest("1"), note("D4", "1", { is_chord: true }), note("E4")]]),
+        drawing([[[figure("rest"), figure(["D4"]), figure(["E4"])]]]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.onset, selectable.chord])).toEqual([
+      [0, false],
+      [1, false],
+      [2, false],
+    ]);
+  });
+});
+
 describe("lo que no se empareja no se ofrece", () => {
   const base = score([[note("C4"), note("D4")], [note("E4", "2")]]);
   const ok = () => [[[figure(["C4"]), figure(["D4"])]], [[figure(["E4"], [2, 1])]]];
@@ -329,6 +366,17 @@ describe("lo que no se empareja no se ofrece", () => {
   it("si OSMD no dibujó un compás, sus eventos no se pueden elegir", () => {
     const map = buildNoteMap(base, drawing([ok()[0] as DrawnVoice[]]));
     expect(map).toEqual({ status: "incomplete", total: 3, unmatched: 1 });
+  });
+
+  it("si dos compases de un pentagrama tienen el mismo número, no se elige ninguno de los dos", () => {
+    const repeated = score([[note("C4", "4")], [note("D4", "4")]]);
+    const second = repeated.parts[0]?.staves[0]?.measures[1];
+    if (second) second.number = 1;
+    const map = buildNoteMap(
+      repeated,
+      drawing([[[figure(["C4"], [4, 1])]], [[figure(["D4"], [4, 1])]]]),
+    );
+    expect(map).toEqual({ status: "incomplete", total: 2, unmatched: 2 });
   });
 
   it("un evento que no es nota ni silencio no se puede elegir", () => {
@@ -455,6 +503,42 @@ describe("elegir con el puntero", () => {
 
   it("fuera de los compases no elige nada", () => {
     expect(pick(50, 200)).toBeNull();
+  });
+
+  it("elige una nota dibujada fuera de la franja de su compás, con líneas adicionales", () => {
+    const drawn = figure(["A6"], [4, 1], 20);
+    const high = complete(
+      buildNoteMap(
+        score([[note("A6", "4")]]),
+        drawing([
+          [
+            [
+              {
+                ...drawn,
+                notes: [{ midi: 93, step: "A", box: { left: 20, top: -60, width: 10, height: 8 } }],
+              },
+            ],
+          ],
+        ]),
+      ),
+    );
+    expect(nearestEvent(high, 25, -56, measures)?.event.pitch).toBe("A6");
+  });
+
+  it("en una figura partida, mide la distancia a cada una de sus figuras", () => {
+    // Sol de 5/4 en dos figuras (10–20 y 70–80) y, entre ellas, el La de la otra voz (40–50).
+    const split = complete(
+      buildNoteMap(
+        score([[note("G4", "5/4"), note("A4", "5/4", { voice: 1 })]]),
+        drawing([
+          [
+            [figure(["G4"], [1, 1], 10), figure(["G4"], [1, 4], 70)],
+            [figure(["A4"], [1, 1], 40), figure(["A4"], [1, 4], 100)],
+          ],
+        ]),
+      ),
+    );
+    expect(nearestEvent(split, 45, 4, measures)?.event.pitch).toBe("A4");
   });
 
   it("las anclas de los eventos tienen claves únicas", () => {

@@ -1,7 +1,7 @@
 import type { AnchorPayload, ScoreEventPayload, ScoreIRPayload } from "../../types";
 import { slotKey, type MeasureSlot } from "./findings";
 import type { Box, DrawnFigure, DrawnVoice } from "./osmd";
-import { parseBeats, pitchToMidi } from "./playback";
+import { pitchToMidi } from "./playback";
 
 /** Evento del `ScoreIR` que se puede elegir: su ancla y dónde está dibujado (ADR-0027). */
 export interface SelectableEvent {
@@ -11,8 +11,13 @@ export interface SelectableEvent {
   event: ScoreEventPayload;
   /** Compás dibujado: pentagrama en el orden global de OSMD e índice del compás. */
   slot: MeasureSlot;
-  /** Cuándo empieza dentro del compás, en negras: sirve para pasar de una voz a otra. */
+  /**
+   * Cuándo empieza dentro del compás dibujado, en negras: sirve para pasar de una voz a otra. Es
+   * el instante del dibujo, que con una duración cero no es el del mapa de tiempos.
+   */
   onset: number;
+  /** Si es una nota de un acorde, también la que lo empieza. */
+  chord: boolean;
   /** Caja de cada figura que lo dibuja: más de una si el exportador partió su duración. */
   boxes: Box[];
   /** Caja que abarca todas sus figuras. */
@@ -127,15 +132,23 @@ function pairNotes(members: Indexed[], figure: DrawnFigure): number[] | null {
   return pairs;
 }
 
+/** Lo que el emparejamiento sabe de un evento dibujado. */
+interface Matched {
+  boxes: Box[];
+  chord: boolean;
+  onset: number;
+}
+
 /**
  * Empareja los eventos de un compás con sus figuras dibujadas: voz con voz por orden y, dentro
  * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración, que han de
- * ser de su misma clase y alturas. Devuelve las cajas de cada evento, o null si algo no cuadra.
+ * ser de su misma clase y alturas. Devuelve, por posición en el compás, las cajas de cada evento,
+ * si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
   events: readonly ScoreEventPayload[],
   drawn: readonly DrawnVoice[] | null,
-): Map<number, Box[]> | null {
+): Map<number, Matched> | null {
   if (!drawn) return null;
   const voices = new Map<number, Indexed[]>();
   events.forEach((event, index) => {
@@ -146,12 +159,13 @@ function matchMeasure(
   const ordered = [...voices.entries()].sort(([a], [b]) => a - b).map(([, voice]) => voice);
   if (ordered.length !== drawn.length) return null;
 
-  const boxes = new Map<number, Box[]>();
+  const matched = new Map<number, Matched>();
   for (const [voiceIndex, voice] of ordered.entries()) {
     const figures = drawn[voiceIndex] ?? [];
     const groups = groupsOf(voice);
     if (!groups) return null;
     let cursor = 0;
+    let start: Fraction = [0, 1];
     for (const group of groups) {
       const first = group.members[0];
       const wanted = first ? exportedBeats(first.event.duration_beats) : null;
@@ -183,12 +197,17 @@ function matchMeasure(
         }
       }
       group.members.forEach((member, position) => {
-        boxes.set(member.index, perMember[position] ?? []);
+        matched.set(member.index, {
+          boxes: perMember[position] ?? [],
+          chord: group.members.length > 1,
+          onset: start[0] / start[1],
+        });
       });
+      start = add(start, wanted);
     }
     if (cursor !== figures.length) return null;
   }
-  return boxes;
+  return matched;
 }
 
 function union(boxes: readonly Box[]): Box {
@@ -219,27 +238,16 @@ export function buildNoteMap(
       staff.measures.forEach((measure, measureIndex) => {
         total += measure.events.length;
         const slot = { staff: slotStaff, measure: measureIndex };
-        const boxes = matchMeasure(measure.events, drawn(slot));
-        if (!boxes) {
+        const matched = matchMeasure(measure.events, drawn(slot));
+        if (!matched) {
           unmatched += measure.events.length;
           return;
         }
         const counters = new Map<number, number>();
-        const onsets = new Map<number, number>();
-        const previousOnsets = new Map<number, number>();
         const found: SelectableEvent[] = [];
         measure.events.forEach((event, index) => {
           const eventIndex = counters.get(event.voice) ?? 0;
           counters.set(event.voice, eventIndex + 1);
-          // Como el mapa de tiempos: una nota de acorde empieza con la anterior de su voz.
-          const start = event.is_chord
-            ? (previousOnsets.get(event.voice) ?? 0)
-            : (onsets.get(event.voice) ?? 0);
-          if (!event.is_chord) {
-            previousOnsets.set(event.voice, start);
-            const duration = event.duration_beats === null ? 0 : parseBeats(event.duration_beats);
-            onsets.set(event.voice, start + (Number.isFinite(duration) ? duration : 0));
-          }
           const anchor: AnchorPayload = {
             part: partIndex,
             staff: staffIndex,
@@ -250,15 +258,20 @@ export function buildNoteMap(
             bbox: event.bbox,
             confidence: event.confidence,
           };
-          const eventBoxes = boxes.get(index) ?? [];
+          const { boxes, chord, onset } = matched.get(index) ?? {
+            boxes: [],
+            chord: false,
+            onset: 0,
+          };
           found.push({
             key: anchorKey(anchor),
             anchor,
             event,
             slot,
-            onset: start,
-            boxes: eventBoxes,
-            box: union(eventBoxes),
+            onset,
+            chord,
+            boxes,
+            box: union(boxes),
           });
         });
         found.sort(
@@ -268,6 +281,11 @@ export function buildNoteMap(
       });
     });
   });
+  // Dos compases con el mismo número en un pentagrama darían la misma ancla a dos eventos: como
+  // no se sabe a cuál se refiere, no se ofrece ninguno de los dos.
+  const seen = new Map<string, number>();
+  for (const selectable of events) seen.set(selectable.key, (seen.get(selectable.key) ?? 0) + 1);
+  unmatched += events.filter((selectable) => (seen.get(selectable.key) ?? 0) > 1).length;
   return unmatched > 0
     ? { status: "incomplete", total, unmatched }
     : { status: "complete", events };
@@ -371,10 +389,15 @@ export function moveSelection(
 const gap = (value: number, start: number, length: number) =>
   value < start ? start - value : value > start + length ? value - (start + length) : 0;
 
+const contains = (box: Box, x: number, y: number) =>
+  gap(x, box.left, box.width) === 0 && gap(y, box.top, box.height) === 0;
+
 /**
  * Evento que se elige al tocar un punto de la partitura: el más cercano en horizontal entre los
- * del compás tocado y, a igual distancia (las notas de un acorde), el más cercano en vertical.
- * Fuera de los compases no se elige nada.
+ * de los compases tocados y, a igual distancia (las notas de un acorde), el más cercano en
+ * vertical. Un compás abarca su franja (la de ADR-0021) y lo que tiene dibujado, también las
+ * notas con líneas adicionales que salen de ella. La distancia a una figura partida es la de la
+ * más cercana de sus figuras. Fuera de los compases no se elige nada.
  */
 export function nearestEvent(
   events: readonly SelectableEvent[],
@@ -382,26 +405,26 @@ export function nearestEvent(
   y: number,
   measureBox: (slot: MeasureSlot) => Box | null,
 ): SelectableEvent | null {
-  const touched = new Map<string, boolean>();
+  const areas = new Map<string, Box>();
+  for (const selectable of events) {
+    const key = slotKey(selectable.slot);
+    const area = areas.get(key) ?? measureBox(selectable.slot);
+    areas.set(key, area ? union([area, ...selectable.boxes]) : selectable.box);
+  }
   let best: SelectableEvent | null = null;
   let bestX = Infinity;
   let bestY = Infinity;
   for (const selectable of events) {
-    const key = slotKey(selectable.slot);
-    let inside = touched.get(key);
-    if (inside === undefined) {
-      const box = measureBox(selectable.slot);
-      inside =
-        box !== null && gap(x, box.left, box.width) === 0 && gap(y, box.top, box.height) === 0;
-      touched.set(key, inside);
-    }
-    if (!inside) continue;
-    const dx = gap(x, selectable.box.left, selectable.box.width);
-    const dy = gap(y, selectable.box.top, selectable.box.height);
-    if (dx < bestX || (dx === bestX && dy < bestY)) {
-      best = selectable;
-      bestX = dx;
-      bestY = dy;
+    const area = areas.get(slotKey(selectable.slot));
+    if (!area || !contains(area, x, y)) continue;
+    for (const box of selectable.boxes) {
+      const dx = gap(x, box.left, box.width);
+      const dy = gap(y, box.top, box.height);
+      if (dx < bestX || (dx === bestX && dy < bestY)) {
+        best = selectable;
+        bestX = dx;
+        bestY = dy;
+      }
     }
   }
   return best;

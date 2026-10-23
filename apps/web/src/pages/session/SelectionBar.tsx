@@ -58,7 +58,14 @@ export function SelectionBar({
       </div>
     );
   }
-  if (status.kind === "ready" && status.empty) {
+  if (status.kind === "pending") {
+    return (
+      <div className="selection" data-status="pending">
+        <p className="selection__note">Preparando la selección de notas…</p>
+      </div>
+    );
+  }
+  if (status.empty) {
     return (
       <div className="selection" data-status="empty">
         <p className="selection__note">La partitura no tiene notas ni silencios que elegir.</p>
@@ -66,9 +73,8 @@ export function SelectionBar({
     );
   }
 
-  const ready = status.kind === "ready";
   return (
-    <div className="selection" data-status={status.kind} data-selected={description !== null}>
+    <div className="selection" data-status="ready" data-selected={description !== null}>
       <div className="selection__readout">
         {description ? (
           <>
@@ -79,29 +85,27 @@ export function SelectionBar({
           <p className="selection__hint">Elige una nota o un silencio: tócalo o usa las flechas.</p>
         )}
       </div>
-      {ready && (
-        <div className="selection__steps" role="group" aria-label="Nota elegida">
-          {/* En una partitura estrecha quedan las flechas; el nombre sigue para el lector. */}
-          <button type="button" className="selection__button" onClick={onPrevious}>
-            <PixelIcon name="arrow-left" />
-            <span className="selection__word">Anterior</span>
-          </button>
-          <button type="button" className="selection__button" onClick={onNext}>
-            <span className="selection__word">Siguiente</span>
-            <PixelIcon name="arrow-right" />
-          </button>
-          <button
-            type="button"
-            className="selection__button"
-            aria-disabled={description === null}
-            onClick={() => {
-              if (description) onClear();
-            }}
-          >
-            Quitar
-          </button>
-        </div>
-      )}
+      <div className="selection__steps" role="group" aria-label="Nota elegida">
+        {/* En una partitura estrecha quedan las flechas; el nombre sigue para el lector. */}
+        <button type="button" className="selection__button" onClick={onPrevious}>
+          <PixelIcon name="arrow-left" />
+          <span className="selection__word">Anterior</span>
+        </button>
+        <button type="button" className="selection__button" onClick={onNext}>
+          <span className="selection__word">Siguiente</span>
+          <PixelIcon name="arrow-right" />
+        </button>
+        <button
+          type="button"
+          className="selection__button"
+          aria-disabled={description === null}
+          onClick={() => {
+            if (description) onClear();
+          }}
+        >
+          Quitar
+        </button>
+      </div>
       <p className="selection__keys" id={keysId}>
         <span>
           <Key icon="arrow-left">flecha izquierda</Key>
@@ -112,9 +116,13 @@ export function SelectionBar({
           <Key icon="arrow-down">flecha abajo</Key> voz y pentagrama
         </span>
         <span>
-          <Key>Ctrl</Key>
+          <Key>Ctrl</Key> o <Key>Cmd</Key>
           <Key icon="arrow-left">flecha izquierda</Key>
           <Key icon="arrow-right">flecha derecha</Key> compás
+        </span>
+        <span>
+          <Key>Re Pág</Key>
+          <Key>Av Pág</Key> compás
         </span>
         <span>
           <Key>Inicio</Key>

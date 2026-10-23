@@ -198,7 +198,9 @@ export function ScoreView({
         : null,
     [score, aligned, layout, transcription],
   );
-  const selectable = noteMap?.status === "complete" ? noteMap.events : null;
+  // Sin notas ni silencios no hay nada que elegir: la partitura sigue siendo una imagen.
+  const selectable =
+    noteMap?.status === "complete" && noteMap.events.length > 0 ? noteMap.events : null;
 
   // La nota elegida vale para esta sesión y este estado: las anclas son relativas a un estado.
   const stored = useSelectionStore((store) => store.selection);
@@ -215,6 +217,7 @@ export function ScoreView({
         measure: chosen.anchor.measure,
         staff: chosen.slot.staff,
         multiStaff,
+        chord: chosen.chord,
       })
     : null;
 
@@ -294,7 +297,7 @@ export function ScoreView({
   else if (!aligned) selectionStatus = { kind: "unavailable" };
   else if (noteMap?.status === "incomplete") {
     selectionStatus = { kind: "unavailable", total: noteMap.total, unmatched: noteMap.unmatched };
-  } else selectionStatus = { kind: "ready", empty: (selectable?.length ?? 0) === 0 };
+  } else selectionStatus = { kind: "ready", empty: selectable === null };
 
   const placed = state.status === "ready" ? boxes !== null : null;
   useEffect(() => {
@@ -422,18 +425,15 @@ export function ScoreView({
                   style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
                 />
               ))}
-              {chosen && (
+              {/* Una marca por figura: la de una nota partida no abarca lo que hay entre medias. */}
+              {chosen?.boxes.map((box, index) => (
                 <div
-                  ref={selectionRef}
+                  key={`${chosen.key}:${String(index)}`}
+                  ref={index === 0 ? selectionRef : undefined}
                   className="notation__selection"
-                  style={{
-                    left: chosen.box.left,
-                    top: chosen.box.top,
-                    width: chosen.box.width,
-                    height: chosen.box.height,
-                  }}
+                  style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
                 />
-              )}
+              ))}
             </div>
           )}
           {/* Solo es una imagen con nombre cuando hay partitura dibujada y no se eligen notas. */}

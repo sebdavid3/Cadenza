@@ -82,7 +82,7 @@ export function durationName(beats: string | null): string {
 /** Dónde está el evento elegido y qué es: para la barra y para el anuncio. */
 export function describeEvent(
   event: ScoreEventPayload,
-  where: { measure: number; staff: number; multiStaff: boolean },
+  where: { measure: number; staff: number; multiStaff: boolean; chord?: boolean },
 ): { place: string; what: string; spoken: string } {
   const voice = String(event.voice + 1);
   const staff = where.multiStaff ? `Pentagrama ${String(where.staff + 1)}` : null;
@@ -101,7 +101,8 @@ export function describeEvent(
   }
   const pitch = event.pitch === null ? null : pitchName(event.pitch);
   const written = pitch?.written ?? event.pitch ?? "Sin altura";
-  const extras = [event.is_chord ? "en acorde" : null, event.tie ? "ligada" : null].filter(
+  const chord = where.chord ?? event.is_chord ?? false;
+  const extras = [chord ? "en acorde" : null, event.tie ? "ligada" : null].filter(
     (extra) => extra !== null,
   );
   return {

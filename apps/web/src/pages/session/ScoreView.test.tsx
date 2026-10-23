@@ -77,6 +77,14 @@ describe("ScoreView", () => {
     expect(kept.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("mientras se dibuja no invita a elegir notas", () => {
+    const rendered = render(view());
+
+    expect(rendered.getByText("Preparando la selección de notas…")).toBeInTheDocument();
+    expect(rendered.queryByText(/elige una nota/i)).toBeNull();
+    expect(rendered.queryByRole("button", { name: "Siguiente" })).toBeNull();
+  });
+
   it("al salir mientras OSMD carga, cancela el dibujo y lo libera cuando termina", async () => {
     const rendered = render(view());
     rendered.unmount();
