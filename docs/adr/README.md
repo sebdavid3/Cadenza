@@ -50,5 +50,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md) | Visualización de la transcripción y marcado de hallazgos por compás | Aceptado | Web, M2 |
 | [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) | Registro de cuentas con activación por un investigador (enmienda ADR-0012 §1) | Aceptado | API, Persistencia, Web |
 | [ADR-0023](ADR-0023-despliegue-publico-con-tailscale-funnel.md) | Despliegue público en el homelab con Tailscale Funnel | Aceptado | Infra, Web |
+| [ADR-0024](ADR-0024-transcripciones-simultaneas.md) | Transcripciones simultáneas: HOMR de una en una y tope de admisión en la API | Aceptado | OMR, API |
 
 

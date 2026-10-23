@@ -8,7 +8,6 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 import tempfile
@@ -34,6 +33,7 @@ from cadenza.application import (
     SessionClosed,
     SessionNotFound,
     TokenService,
+    TranscribeResult,
     UnsupportedExportFormat,
     User,
     UserNotFound,
@@ -175,6 +175,7 @@ from .security import (
     client_network_key,
 )
 from .settings import Settings
+from .transcription_slots import TranscriptionSlots, run_in_transcription_slot
 
 logger = logging.getLogger("cadenza.api")
 API_VERSION = "1.0.0"
@@ -222,6 +223,21 @@ REGISTRATION_CLOSED_503: dict[int | str, dict[str, Any]] = {
         "description": (
             "Demasiadas cuentas pendientes de activación: el registro está cerrado por ahora"
         ),
+    }
+}
+TRANSCRIBE_BUSY_503: dict[int | str, dict[str, Any]] = {
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": ErrorDetail,
+        "description": (
+            "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After "
+            "(ADR-0024)"
+        ),
+        "headers": {
+            "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {"type": "integer"},
+            }
+        },
     }
 }
 UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
@@ -515,6 +531,8 @@ def create_app(
         window_seconds=app_settings.registration_rate_limit_window_seconds,
         message="Demasiados registros desde esta conexión. Reintente en {retry_after} segundos.",
     )
+    # Huecos de transcripción: los libera el cálculo al terminar, no la petición (ADR-0024).
+    app.state.transcription_slots = TranscriptionSlots(app_settings.transcribe_max_concurrency)
 
     # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
     resolved_engine = (
@@ -880,7 +898,7 @@ def create_app(
             "Sube una imagen de partitura, ejecuta inferencia OMR asíncrona, "
             "valida reglas y crea la sesión inicial."
         ),
-        responses={**AUTH_401, **UPLOAD_ERRORS, **UNPROCESSABLE_422},
+        responses={**AUTH_401, **UPLOAD_ERRORS, **UNPROCESSABLE_422, **TRANSCRIBE_BUSY_503},
     )
     async def transcribe(
         request: Request,
@@ -947,7 +965,6 @@ def create_app(
                 detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
             )
 
-        session_repo = SqlAlchemySessionRepository(db)
         artifact_store = get_artifact_store(request, db)
 
         # Resolver versión activa del modelo OMR si existe en el registry (#21)
@@ -965,20 +982,39 @@ def create_app(
                 preprocessing=preproc_config,
             )
 
-        with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
-            upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
-            upload_path.write_bytes(content)
-            result = await asyncio.to_thread(
-                transcribe_score_use_case,
-                upload_path,
-                omr_engine=effective_engine,
-                validator=request.app.state.validator,
-                session_repository=session_repo,
-                current_user=current_user,
-                artifact_store=artifact_store,
-                condition=effective_condition,
-                test_score_id=effective_score_id,
-            )
+        upload_name = Path(file.filename or "upload.png").name
+        factory: SessionFactory = request.app.state.session_factory
+
+        # La transcripción usa su propia sesión de base de datos y su propio directorio temporal, y
+        # confirma antes de devolver: si la petición se cancela (el cliente se va) mientras HOMR
+        # calcula, el trabajo termina y se guarda igualmente, sin tocar una sesión ya cerrada
+        # (ADR-0024). Con un 2xx, la sesión ya está confirmada (#166).
+        def transcribe_and_commit() -> TranscribeResult:
+            with (
+                factory() as work_db,
+                tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir,
+            ):
+                upload_path = Path(work_dir) / upload_name
+                upload_path.write_bytes(content)
+                outcome = transcribe_score_use_case(
+                    upload_path,
+                    omr_engine=effective_engine,
+                    validator=request.app.state.validator,
+                    session_repository=SqlAlchemySessionRepository(work_db),
+                    current_user=current_user,
+                    artifact_store=get_artifact_store(request, work_db),
+                    condition=effective_condition,
+                    test_score_id=effective_score_id,
+                )
+                work_db.commit()
+                return outcome
+
+        # La sesión de la petición solo ha leído: se cierra su transacción para no retener una
+        # conexión del pool, «idle in transaction» en PostgreSQL, mientras HOMR calcula.
+        db.rollback()
+        result = await run_in_transcription_slot(
+            request.app.state.transcription_slots, transcribe_and_commit
+        )
 
         return TranscribeResponse(
             session_id=result.session_id,

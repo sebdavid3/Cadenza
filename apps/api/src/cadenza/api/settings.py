@@ -146,6 +146,16 @@ class Settings(BaseSettings):
             "responde 503 hasta que un investigador revise las que hay (ADR-0022)."
         ),
     )
+    transcribe_max_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description=(
+            "Transcripciones que la API admite a la vez, con un hilo cada una; HOMR calcula de una "
+            "en una y el resto espera su turno. Sin hueco, POST /transcribe responde 503 "
+            "(ADR-0024)."
+        ),
+    )
     omr_preprocess_enabled: bool = Field(
         default=False,
         description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",

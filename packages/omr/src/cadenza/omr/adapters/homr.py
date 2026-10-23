@@ -15,6 +15,7 @@ import os
 import shutil
 import site
 import tempfile
+import threading
 from concurrent.futures import Future
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -27,6 +28,10 @@ from ..errors import OMRTranscriptionError
 from ..preprocessing import PreprocessingConfig, preprocess_image_file
 
 ENGINE_ID = "homr"
+# HOMR guarda sus sesiones de ONNX y las salidas preasignadas del decodificador como estado global
+# del proceso: dos hilos a la vez se las pisan y fallan con errores internos de ONNX Runtime. Las
+# llamadas se hacen de una en una en todo el proceso (#165, ADR-0024).
+_HOMR_LOCK = threading.Lock()
 _HOMR_EXTRA_HINT = (
     "HOMREngine requiere el extra opcional 'homr'. "
     'Instálalo con: uv pip install -e "packages/omr[homr]".'
@@ -166,12 +171,6 @@ def _run_homr(
         staged_image = Path(work_dir) / image_path.name
         shutil.copy2(image_path, staged_image)
 
-        if weights_path is None:
-            homr_main.download_weights(
-                segnet_use_gpu=use_gpu,
-                transformer_use_gpu=use_gpu,
-                coreml_encoder=False,
-            )
         config = homr_main.ProcessingConfig(
             enable_debug=False,
             enable_cache=False,
@@ -183,11 +182,18 @@ def _run_homr(
             coreml_encoder=False,
         )
         xml_generator_args = XmlGeneratorArguments(False, None, None)
-        try:
-            # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
-            homr_main.process_image(str(staged_image), config, xml_generator_args)
-        except Exception as exc:
-            raise OMRTranscriptionError(f"HOMR falló al procesar la imagen: {exc}") from exc
+        with _HOMR_LOCK:
+            if weights_path is None:
+                homr_main.download_weights(
+                    segnet_use_gpu=use_gpu,
+                    transformer_use_gpu=use_gpu,
+                    coreml_encoder=False,
+                )
+            try:
+                # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
+                homr_main.process_image(str(staged_image), config, xml_generator_args)
+            except Exception as exc:
+                raise OMRTranscriptionError(f"HOMR falló al procesar la imagen: {exc}") from exc
 
         xml_path = staged_image.with_suffix(".musicxml")
         if not xml_path.is_file():
