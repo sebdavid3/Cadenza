@@ -50,8 +50,7 @@ export function LandingPage() {
             <p className="hero__note">
               {registrationEnabled() ? (
                 <>
-                  ¿Sin cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que el
-                  equipo del proyecto decida activarla.
+                  ¿Sin cuenta? <Link to="/registro">Créala</Link> y pruébalo en el momento.
                 </>
               ) : (
                 "No hay registro abierto: las cuentas las crea el equipo del proyecto."
@@ -135,7 +134,7 @@ export function LandingPage() {
           </h2>
           <p className="access__text">
             {registrationEnabled()
-              ? "Entra con tu usuario y tu contraseña. Si aún no tienes cuenta, créala: solo pide un usuario y una contraseña, sin correo, y queda pendiente hasta que un investigador del proyecto decida activarla. No hay recuperación de contraseña por correo."
+              ? "Entra con tu usuario y tu contraseña. Si aún no tienes cuenta, créala: solo pide un usuario y una contraseña, sin correo, y entras en el momento. No hay recuperación de contraseña por correo."
               : "Si el equipo del proyecto te dio una cuenta, entra con tu usuario y tu contraseña. No hay registro abierto ni recuperación de contraseña por correo: las cuentas las crea un investigador del proyecto."}
           </p>
           <div className="access__actions">

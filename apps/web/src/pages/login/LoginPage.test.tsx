@@ -53,7 +53,8 @@ describe("vista de acceso", () => {
     expect(screen.getByLabelText("Usuario")).toHaveAttribute("autocomplete", "username");
     expect(screen.getByLabelText("Contraseña")).toHaveAttribute("type", "password");
     expect(screen.getByRole("link", { name: "Créala" })).toHaveAttribute("href", "/registro");
-    expect(screen.getByText(/queda pendiente hasta que un investigador/i)).toBeVisible();
+    expect(screen.getByText(/y entra en el momento/i)).toBeVisible();
+    expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.getByText(/no hay recuperación de contraseña por correo/i)).toBeVisible();
   });
 

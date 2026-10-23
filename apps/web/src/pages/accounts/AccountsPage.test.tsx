@@ -13,11 +13,12 @@ const INV: UserRead = {
   role: "investigador",
   self_registered: false,
 };
-const PENDING: UserRead = {
-  id: "u-pend",
+// Del registro: entra en el momento, sin activación (ADR-0025).
+const REGISTERED: UserRead = {
+  id: "u-reg",
   username: "nuevo",
   role: "transcriptor",
-  active: false,
+  active: true,
   self_registered: true,
   created_at: "2026-10-23T10:00:00",
 };
@@ -37,6 +38,12 @@ function renderAt(user: UserRead, path = "/cuentas") {
   return router;
 }
 
+function names() {
+  return within(screen.getByRole("list"))
+    .getAllByRole("listitem")
+    .map((item) => item.querySelector(".accounts__name")?.textContent);
+}
+
 beforeEach(() => {
   resetAuth();
 });
@@ -46,16 +53,17 @@ afterEach(() => {
 });
 
 describe("cuentas", () => {
-  it("lista primero las del registro sin activar y distingue las del estudio", async () => {
-    mockApi({ "GET /users": () => jsonResponse([INV, STUDY, PENDING]) });
+  it("lista por fecha de alta y distingue las del registro de las del estudio", async () => {
+    mockApi({ "GET /users": () => jsonResponse([STUDY, INV, REGISTERED]) });
     renderAt(INV);
 
     const list = await screen.findByRole("list");
     const items = within(list).getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("nuevo");
+    expect(names()).toEqual(["nuevo", "inv", "participante_07"]);
     expect(items[0]).toHaveTextContent(/registro/i);
-    expect(items[0]).toHaveTextContent("Sin activar");
-    expect(screen.getByText(/1 del registro sin activar/i)).toBeVisible();
+    expect(items[0]).toHaveTextContent("Activa");
+    expect(screen.getByText("3 cuentas, 1 del registro")).toBeVisible();
+    expect(screen.queryByText(/sin activar|pendiente/i)).toBeNull();
     const study = items.find((item) => item.textContent.includes("participante_07"));
     expect(study).toHaveTextContent(/creada por un investigador/i);
     // Nadie puede desactivar su propia cuenta desde aquí.
@@ -67,21 +75,25 @@ describe("cuentas", () => {
     expect(own).toHaveTextContent(/tu cuenta/i);
   });
 
-  it("activa una cuenta del registro con PATCH /users/{id}", async () => {
+  it("desactiva una cuenta con PATCH /users/{id}, sin moverla, y lo anuncia", async () => {
     const { calls } = mockApi({
-      "GET /users": () => jsonResponse([INV, PENDING]),
-      "PATCH /users/u-pend": () => jsonResponse({ ...PENDING, active: true }),
+      "GET /users": () => jsonResponse([INV, STUDY, REGISTERED]),
+      "PATCH /users/u-reg": () => jsonResponse({ ...REGISTERED, active: false }),
     });
     renderAt(INV);
-
     // El nombre accesible se calcula despacio en jsdom: primero se espera al listado.
     await screen.findByRole("list");
-    await userEvent.click(screen.getByRole("button", { name: /^activar la cuenta nuevo/i }));
+    const before = names();
 
-    expect(await screen.findByText(/ninguna del registro sin activar/i)).toBeVisible();
-    expect(screen.getByRole("button", { name: /desactivar la cuenta nuevo/i })).toBeVisible();
-    const call = calls.find((entry) => entry.key === "PATCH /users/u-pend");
-    expect(JSON.parse(call?.init?.body as string)).toEqual({ active: true });
+    await userEvent.click(screen.getByRole("button", { name: /^desactivar la cuenta nuevo/i }));
+
+    expect(await screen.findByText("Cuenta nuevo desactivada.")).toBeInTheDocument();
+    expect(names()).toEqual(before);
+    const row = within(screen.getByRole("list")).getAllByRole("listitem")[0];
+    expect(row).toHaveTextContent("Desactivada");
+    expect(screen.getByRole("button", { name: /^activar la cuenta nuevo/i })).toBeVisible();
+    const call = calls.find((entry) => entry.key === "PATCH /users/u-reg");
+    expect(JSON.parse(call?.init?.body as string)).toEqual({ active: false });
   });
 
   it("no la ve un transcriptor", async () => {
@@ -92,36 +104,10 @@ describe("cuentas", () => {
     expect(screen.queryByRole("link", { name: "Cuentas" })).toBeNull();
   });
 
-  it("pone primero una cuenta sin activar aunque sea más antigua que otras", async () => {
-    const old = { ...PENDING, id: "u-vieja", username: "vieja", created_at: "2026-10-01T10:00:00" };
-    mockApi({ "GET /users": () => jsonResponse([INV, STUDY, old]) });
-    renderAt(INV);
-
-    const items = within(await screen.findByRole("list")).getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("vieja");
-  });
-
-  it("al activar, la fila no cambia de sitio y el resultado se anuncia", async () => {
-    const old = { ...PENDING, id: "u-vieja", username: "vieja", created_at: "2026-10-01T10:00:00" };
-    mockApi({
-      "GET /users": () => jsonResponse([INV, STUDY, old]),
-      "PATCH /users/u-vieja": () => jsonResponse({ ...old, active: true }),
-    });
-    renderAt(INV);
-    await screen.findByRole("list");
-
-    await userEvent.click(screen.getByRole("button", { name: /^activar la cuenta vieja/i }));
-
-    expect(await screen.findByText("Cuenta vieja activada.")).toBeInTheDocument();
-    const items = within(screen.getByRole("list")).getAllByRole("listitem");
-    expect(items[0]).toHaveTextContent("vieja");
-    expect(items[0]).toHaveTextContent("Activa");
-  });
-
   it("mientras se guarda un cambio no admite otro, y un fallo dice qué cuenta", async () => {
     const patch = deferred<Response>();
     mockApi({
-      "GET /users": () => jsonResponse([INV, STUDY, PENDING]),
+      "GET /users": () => jsonResponse([INV, STUDY, REGISTERED]),
       "PATCH /users/u-est": () => patch.promise,
     });
     renderAt(INV);
@@ -135,7 +121,7 @@ describe("cuentas", () => {
       "aria-disabled",
       "true",
     );
-    expect(screen.getByRole("button", { name: /^activar la cuenta nuevo/i })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: /^desactivar la cuenta nuevo/i })).toHaveAttribute(
       "aria-disabled",
       "true",
     );

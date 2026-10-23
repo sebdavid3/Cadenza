@@ -61,7 +61,10 @@ export function registerErrorMessage(error: unknown): RegisterError {
   }
   switch (error.kind) {
     case "conflict":
-      return { message: "Ese nombre de usuario ya existe. Elige otro.", field: "username" };
+      return {
+        message: "Ese nombre de usuario ya existe. Elige otro o, si es tuyo, entra con él.",
+        field: "username",
+      };
     case "validation":
       // Un 422 de esquema señala el campo; si no lo señala, es la contraseña.
       return invalidField(error.detail) === "username"
@@ -83,18 +86,9 @@ export function registerErrorMessage(error: unknown): RegisterError {
     case "network":
     case "timeout":
       return {
-        message: `${error.message} Si la cuenta llegó a crearse, al reintentar el nombre aparecerá como ocupado: prueba a entrar más tarde.`,
+        message: `${error.message} Si la cuenta llegó a crearse, al reintentar el nombre aparecerá como ocupado: prueba a entrar con él.`,
         field: null,
       };
-    case "server":
-      if (error.status === 503) {
-        return {
-          message:
-            "El registro no admite cuentas nuevas ahora mismo: puede haber demasiadas cuentas sin activar o el servicio no está disponible. Vuelve a probar más tarde.",
-          field: null,
-        };
-      }
-      return { message: error.message, field: null };
     default:
       return { message: error.message, field: null };
   }

@@ -13,8 +13,8 @@ Decidido en `docs/ARCHITECTURE.md` (tabla de stack) y ADR-0006: React 18 + TypeS
 ## Users
 
 - **Transcriptores.** Digitalizan partituras impresas por lotes: suben muchas imágenes en una jornada, siguen el estado de cada una y después revisan y corrigen la transcripción propuesta. Solo ven sus propias sesiones.
-- **Investigadores.** Crean las cuentas del estudio, activan las del registro, ven las sesiones de todos y auditan el trabajo. También pueden transcribir.
-- **Visitantes de la página pública.** Archivos, bibliotecas y músicos que pueden registrarse y esperar a que el equipo active su cuenta (registro con activación desde el 2026-10-23). Les interesa el uso, no la investigación.
+- **Investigadores.** Crean las cuentas del estudio, pueden desactivar las del registro, ven las sesiones de todos y auditan el trabajo. También pueden transcribir.
+- **Visitantes de la página pública.** Archivos, bibliotecas y músicos que pueden registrarse y probarlo en el momento (registro abierto desde el 2026-10-23). Les interesa el uso, no la investigación.
 
 ## Product Purpose
 
@@ -30,7 +30,7 @@ No es un reconocimiento automático que entrega un resultado cerrado: la máquin
 
 - La transcripción es síncrona: una imagen por petición, de unos segundos en el peor caso documentado, con imágenes PNG o JPEG de hasta 20 MB.
 - Cada imagen crea una sesión de trabajo con hallazgos del validador; la corrección de la sesión se hace en una vista de edición que todavía no existe.
-- Cualquiera puede crear una cuenta en `/registro` (solo usuario y contraseña), pero queda inactiva hasta que un investigador la activa en `/cuentas`; los investigadores también crean cuentas para el estudio, que no se mezclan con las del registro (ADR-0022). No hay recuperación de contraseña por correo. La sesión del navegador dura 30 minutos y no se renueva.
+- Cualquiera puede crear una cuenta en `/registro` (solo usuario y contraseña) y entra en el momento; un investigador puede desactivarla en `/cuentas`. Los investigadores también crean cuentas para el estudio, que no se mezclan con las del registro (ADR-0022, ADR-0025). No hay recuperación de contraseña por correo. La sesión del navegador dura 30 minutos y no se renueva.
 
 ## Capabilities and Constraints
 

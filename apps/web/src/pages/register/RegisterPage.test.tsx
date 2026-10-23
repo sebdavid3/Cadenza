@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../router";
-import { ANA, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import { ANA, fakeJwt, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import type { UserRead } from "../../types";
 
 // Contraseñas generadas en cada ejecución: ninguna prueba depende de su valor.
 const PASSWORD = crypto.randomUUID();
@@ -24,6 +25,16 @@ async function fill(username: string, password: string, confirmation = password)
   await user.click(screen.getByRole("button", { name: /crear cuenta/i }));
 }
 
+// La cuenta nace activa (ADR-0025).
+const CREATED: UserRead = {
+  id: "u-1",
+  username: "ana",
+  role: "transcriptor",
+  active: true,
+  self_registered: true,
+  created_at: "2026-10-23T10:00:00",
+};
+
 beforeEach(() => {
   resetAuth();
 });
@@ -33,35 +44,28 @@ afterEach(() => {
 });
 
 describe("registro de cuentas", () => {
-  it("crea la cuenta y explica que queda pendiente de activación", async () => {
+  it("crea la cuenta, entra con ella y lleva a la transcripción", async () => {
     const { calls } = mockApi({
-      "POST /auth/register": () =>
-        jsonResponse(
-          {
-            id: "u-1",
-            username: "ana",
-            role: "transcriptor",
-            active: false,
-            self_registered: true,
-            created_at: "2026-10-23T10:00:00",
-          },
-          201,
-        ),
+      "POST /auth/register": () => jsonResponse(CREATED, 201),
+      "POST /auth/login": () => jsonResponse({ access_token: fakeJwt(1_800_000, CREATED.id) }),
+      "GET /auth/me": () => jsonResponse(CREATED),
+      "GET /sessions": () => jsonResponse([]),
     });
-    renderAt();
+    const router = renderAt();
 
     await fill("ana", PASSWORD);
 
-    expect(await screen.findByRole("heading", { name: "Cuenta creada" })).toHaveFocus();
-    expect(screen.getByText("ana", { selector: "strong" })).toBeVisible();
-    expect(screen.getByText(/queda pendiente: un investigador/i)).toBeVisible();
-    expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/transcripcion");
+    });
     const call = calls.find((entry) => entry.key === "POST /auth/register");
     expect(JSON.parse(call?.init?.body as string)).toEqual({
       username: "ana",
       password: PASSWORD,
     });
     expect(new Headers(call?.init?.headers).get("Authorization")).toBeNull();
+    const login = calls.find((entry) => entry.key === "POST /auth/login");
+    expect((login?.init?.body as URLSearchParams).get("username")).toBe("ana");
   });
 
   it("comprueba la contraseña antes de enviar", async () => {
@@ -164,13 +168,13 @@ describe("registro de cuentas", () => {
   });
 
   it("un fallo que no es de un campo lleva el foco al aviso y conserva las contraseñas", async () => {
-    mockApi({ "POST /auth/register": () => jsonResponse({ detail: "cerrado" }, 503) });
+    mockApi({ "POST /auth/register": () => jsonResponse({ detail: "fallo" }, 503) });
     renderAt();
 
     await fill("ana", PASSWORD);
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/no admite cuentas nuevas/i);
+    expect(alert).toHaveTextContent(/el servidor tuvo un problema/i);
     expect(alert).toHaveFocus();
     expect(screen.getByLabelText("Usuario")).toHaveAttribute("aria-invalid", "false");
     expect(screen.getByLabelText("Contraseña")).toHaveValue(PASSWORD);
@@ -186,26 +190,47 @@ describe("registro de cuentas", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/si la cuenta llegó a crearse/i);
   });
 
-  it("al crearla vacía las contraseñas y no promete la activación", async () => {
+  it("si /auth/me falla tras crearla, no deja sesión a medias y enlaza a entrar", async () => {
     mockApi({
-      "POST /auth/register": () =>
-        jsonResponse(
-          {
-            id: "u-1",
-            username: "ana",
-            role: "transcriptor",
-            active: false,
-            self_registered: true,
-            created_at: "2026-10-23T10:00:00",
-          },
-          201,
-        ),
+      "POST /auth/register": () => jsonResponse(CREATED, 201),
+      "POST /auth/login": () => jsonResponse({ access_token: fakeJwt(1_800_000, CREATED.id) }),
+      "GET /auth/me": () => jsonResponse({ detail: "fallo" }, 500),
+    });
+    const router = renderAt();
+
+    await fill("ana", PASSWORD);
+
+    expect(await screen.findByRole("heading", { name: "Cuenta creada" })).toHaveFocus();
+    expect(router.state.location.pathname).toBe("/registro");
+    expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
+  });
+
+  it("con el límite de accesos agotado, dice que la cuenta existe y cuándo entrar", async () => {
+    mockApi({
+      "POST /auth/register": () => jsonResponse(CREATED, 201),
+      "POST /auth/login": () => jsonResponse({ detail: "Demasiados intentos" }, 429),
     });
     renderAt();
 
     await fill("ana", PASSWORD);
 
-    expect(await screen.findByText(/decidirá si la activa/i)).toBeVisible();
+    const heading = await screen.findByRole("heading", { name: "Cuenta creada" });
+    expect(heading).toHaveAccessibleDescription(/demasiados intentos de acceso/i);
+  });
+
+  it("si no puede entrar tras crearla, dice que la cuenta existe y enlaza a entrar", async () => {
+    mockApi({
+      "POST /auth/register": () => jsonResponse(CREATED, 201),
+      "POST /auth/login": () => jsonResponse({ detail: "fallo" }, 500),
+    });
+    renderAt();
+
+    await fill("ana", PASSWORD);
+
+    expect(await screen.findByRole("heading", { name: "Cuenta creada" })).toHaveFocus();
+    expect(screen.getByText("ana", { selector: "strong" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
+    expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.queryByDisplayValue(PASSWORD)).toBeNull();
   });
 });
