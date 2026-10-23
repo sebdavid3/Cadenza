@@ -1,0 +1,61 @@
+/* Botones como bloques de doble filete: el primario, en el acento; el secundario, en contorno. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-3) var(--space-5);
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.button:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.button--primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  box-shadow:
+    inset 0 0 0 var(--rule-width) var(--color-paper),
+    0 0 0 var(--rule-width) var(--color-ink);
+}
+
+.button--primary:hover {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  border-style: dashed;
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.button svg {
+  flex: none;
+  transition: transform var(--duration-quick) var(--ease-out);
+}
+
+.button:hover svg {
+  transform: translateX(2px);
+}
