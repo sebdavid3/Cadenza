@@ -9,7 +9,7 @@
 
 ## 1. Guía de Arranque Rápido del Entorno Local
 
-Esta guía describe los pasos mínimos y reproducibles para levantar el backend en el entorno de desarrollo local. El frontend de `apps/web` se rehace desde cero en la Fase 8 (§6).
+Esta guía describe los pasos mínimos y reproducibles para levantar el backend en el entorno de desarrollo local. El frontend de `apps/web` se construye desde cero en la Fase 8 y se arranca como indica §6.
 
 ### 1.1. Dependencias y Entorno Python
 
@@ -308,7 +308,7 @@ Ejemplo por discrepancia en el `before` suministrado por el cliente:
 ```
 
 > [!TIP]
-> **Integración en el Cliente Web:** El cliente HTTP del frontend debe comprobar si `Array.isArray(error.response.data.detail)`. Si es un array, puede mapear los errores por campo (`loc.join('.')`); si es una cadena de texto (`typeof detail === "string"`), debe presentarlo directamente como mensaje de error al usuario.
+> **Integración en el Cliente Web:** El cliente de `apps/web` convierte toda respuesta de error en un `ApiError` con su tipo (`kind`, según el código de estado) y un mensaje propio en español ([ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)). El `detail` se conserva en `ApiError.detail` solo para depurar y **no se muestra al usuario**, porque mezcla español e inglés. Una vista que necesite señalar campos en un 422 de esquema puede recorrer `detail` cuando es una lista y traducir cada `loc` a un mensaje propio; un `detail` de texto nunca se presenta tal cual.
 
 ### 5.5. Acceso a la API en Desarrollo (CORS o Proxy)
 
@@ -359,13 +359,29 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 
 ---
 
-## 6. Estado Actual de `apps/web` (Punto de Partida para Fase 8)
+## 6. Estado Actual de `apps/web` (Fase 8)
 
-`apps/web` está vacío a propósito ([#129](https://github.com/sebdavid3/Cadenza/issues/129)): la base inicial del cliente web y el sistema de diseño anterior se retiraron para rehacer el frontend desde cero. Solo contiene `apps/web/src/types.ts`, las interfaces TypeScript generadas desde `docs/api/openapi.json` (§8), que no se editan a mano.
+`apps/web` se construye desde cero en la Fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129) retiró la base anterior). La base ([#144](https://github.com/sebdavid3/Cadenza/issues/144), [ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)) aporta:
 
-La Fase 8 debe cubrir sobre la API v1:
-- **Acceso:** inicio de sesión con token Bearer JWT, perfil (`GET /auth/me`), cambio de contraseña y gestión de cuentas para el rol investigador (`/users`).
-- **Ingesta:** envío de la imagen a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones (`GET /sessions`).
+- **Stack:** React 18 + TypeScript estricto + Vite, con React Router, ESLint, Prettier y Vitest.
+- **Cliente HTTP** (`apps/web/src/api/client.ts`), tipado con `apps/web/src/types.ts`: URL base configurable (`VITE_API_BASE_URL`, `/api` por defecto), `Authorization: Bearer` cuando hay sesión, timeout por petición (15 s por defecto; la constante `TRANSCRIBE_TIMEOUT_MS`, 30 s, es la que usará `POST /transcribe`, §5.7) y errores tipados por código de estado con mensajes propios en español. El `detail` del backend nunca se muestra.
+- **Proxy de desarrollo:** Vite reenvía `/api` y lo que va bajo `/api/` a `http://127.0.0.1:8000` quitando el prefijo (§5.5); `/apidocs`, por ejemplo, no se reenvía, configurable con `CADENZA_API_PROXY_TARGET`. Ninguna ruta de la interfaz empieza por `/api`.
+- **Sistema de diseño:** `PRODUCT.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
+
+Arranque, con la API ya en marcha (§1.4):
+
+```bash
+cd apps/web
+npm ci
+npm run dev        # http://localhost:5173 ; la API queda en http://localhost:5173/api
+```
+
+Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `npm run build` (también en la CI).
+
+Queda por construir sobre la API v1:
+- **Acceso:** inicio de sesión ([#146](https://github.com/sebdavid3/Cadenza/issues/146)); cambio de contraseña y gestión de cuentas del investigador (`/users`), más adelante.
+- **Ingesta:** envío de imágenes a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones ([#147](https://github.com/sebdavid3/Cadenza/issues/147)).
+- **Página pública** ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
 - **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
 - **Reproducción:** Tone.js con el cursor sincronizado a partir de `GET /sessions/{id}/timing`.
 - **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y exportación MusicXML y MIDI.

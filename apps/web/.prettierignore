@@ -1,0 +1,5 @@
+dist
+coverage
+package-lock.json
+# Generado desde docs/api/openapi.json por scripts/generate_openapi_and_types.py
+src/types.ts

@@ -1,0 +1,57 @@
+/*
+ * Tokens del mundo visual de Cadenza: muestrario bitmap sobre papel prensa.
+ * Papel, tinta y un único acento, el violeta eléctrico, que significa «te toca a ti»:
+ * acción principal, compás dudoso y error. Los estados se distinguen por patrón
+ * (contorno, trama, macizo, rayado), no por más colores.
+ */
+:root {
+  /* Color */
+  --color-paper: #f0eff2;
+  --color-ink: #0a0a0a;
+  --color-ink-muted: #4a4950; /* 7,8:1 sobre papel */
+  --color-accent: #7a2cf0; /* 5,3:1 sobre papel; el papel sobre el acento, igual */
+  --color-on-accent: #f0eff2;
+
+  /* Filetes: siempre de tinta y de grosor entero */
+  --rule-width: 3px;
+  --rule: var(--rule-width) solid var(--color-ink);
+
+  /* Tramas y matrices, superficies legítimas del mundo */
+  --halftone-ink: radial-gradient(circle, var(--color-ink) 1.2px, transparent 1.4px) 0 0 / 5px 5px;
+  --halftone-accent: radial-gradient(circle, var(--color-accent) 1.7px, transparent 2px) 0 0 / 7px
+    7px;
+  --hatch-accent: repeating-linear-gradient(
+    45deg,
+    var(--color-accent) 0 4px,
+    var(--color-paper) 4px 8px
+  );
+
+  /* Tipografía: display bitmap, rótulos bitmap y texto grotesco fino */
+  --font-display: "Pixelify Sans", "Silkscreen", monospace;
+  --font-label: "Silkscreen", "Pixelify Sans", monospace;
+  --font-text: "Hanken Grotesk", system-ui, sans-serif;
+
+  --text-label: 0.8125rem;
+  --text-small: 0.875rem;
+  --text-body: 1rem;
+  --text-lead: 1.3125rem;
+  --text-title: 1.375rem;
+  --text-heading: clamp(2rem, 4.5vw, 3rem);
+  --text-display: clamp(3.5rem, 10vw, 9.25rem);
+
+  /* Espaciado en pasos de 4 px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 56px;
+  --space-9: 80px;
+  --gutter: clamp(16px, 2.8vw, 40px);
+
+  /* Movimiento: un solo momento autoral por vista, salida exponencial */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-quick: 160ms;
+}

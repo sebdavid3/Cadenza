@@ -59,6 +59,38 @@ jobs:
       - name: Ejecutar pruebas con Pytest
         run: uv run pytest -vv
 
+  frontend:
+    name: Frontend (Node 24)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Lint con ESLint
+        run: npm run lint
+
+      - name: Verificar formateo con Prettier
+        run: npm run format:check
+
+      - name: Ejecutar pruebas con Vitest
+        run: npm run test
+
+      - name: Comprobar tipos y construir
+        run: npm run build
+
   docker:
     name: Imagen Docker de la API
     runs-on: ubuntu-latest

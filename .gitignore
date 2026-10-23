@@ -72,5 +72,21 @@ Thumbs.db
 .gemini/
 .claude/
 
-# Estado de ejecución local de Impeccable (servidor live, inyecciones)
+# Estado de ejecución local de Impeccable (servidor live, inyecciones, bocetos de
+# decisión, capturas de revisión y caché del detector). Se versionan PRODUCT.md,
+# DESIGN.md, .impeccable/design.json y los briefs de .impeccable/surfaces/.
 **/.impeccable/live/
+**/.impeccable/mocks/
+**/.impeccable/questions/
+**/.impeccable/review/
+**/.impeccable/build/
+**/.impeccable/hook.cache.json
+**/.impeccable/config.local.json
+
+# Interfaz web: cobertura de pruebas. Los patrones de Python de arriba (lib/, build/...)
+# no deben ocultar carpetas de código de la aplicación.
+apps/web/coverage/
+!/apps/web/src/**/lib/
+
+# Base SQLite local creada al arrancar la API sin configurar CADENZA_DATABASE_URL
+/cadenza.db
