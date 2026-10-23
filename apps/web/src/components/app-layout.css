@@ -61,9 +61,14 @@
   padding-block: var(--space-2);
 }
 
+/* En móvil: marca y persona arriba; secciones y «Salir» en la segunda fila. */
 @media (max-width: 600px) {
   .app-header__nav {
     order: 1;
-    width: 100%;
+    flex: 1;
+  }
+
+  .app-header__exit {
+    order: 2;
   }
 }

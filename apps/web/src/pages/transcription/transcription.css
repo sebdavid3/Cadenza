@@ -183,6 +183,8 @@
 
 .queue__item[data-status="transcribing"] .chip {
   border-color: var(--color-paper);
+  background: var(--halftone-ink), var(--color-paper);
+  color: var(--color-ink);
 }
 
 .queue__item[data-status="transcribing"] .queue__size {
@@ -271,6 +273,10 @@
   text-align: right;
 }
 
+.sessions__table time {
+  white-space: nowrap;
+}
+
 .sessions__id {
   padding: 2px var(--space-1);
   border: 1px solid var(--color-ink);
@@ -324,7 +330,7 @@
   }
 }
 
-/* En móvil, cada sesión es una ficha de dos columnas en lugar de una fila de tabla. */
+/* En móvil, cada sesión es una ficha: miniatura a la izquierda y datos en tres líneas. */
 @media (max-width: 600px) {
   .sessions__table thead {
     position: absolute;
@@ -334,10 +340,20 @@
     clip-path: inset(50%);
   }
 
+  .sessions__table tbody {
+    display: block;
+  }
+
   .sessions__table tr {
     display: grid;
-    grid-template-columns: 96px minmax(0, 1fr) auto;
-    gap: var(--space-1) var(--space-3);
+    grid-template-columns: 96px auto minmax(0, 1fr);
+    grid-template-areas:
+      "thumb id date"
+      "thumb status status"
+      "thumb findings edits"
+      "thumb owner owner";
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
     padding: var(--space-3) 0;
     border-bottom: 1px solid var(--color-ink);
   }
@@ -347,8 +363,35 @@
     border: 0;
   }
 
-  .sessions__thumb {
-    grid-row: span 3;
+  .sessions__table td:nth-child(1) {
+    grid-area: thumb;
+    align-self: start;
+  }
+
+  .sessions__table td:nth-child(2) {
+    grid-area: id;
+  }
+
+  .sessions__table td:nth-child(3) {
+    grid-area: date;
+    justify-self: end;
+    font-size: var(--text-small);
+  }
+
+  .sessions__table td:nth-child(4) {
+    grid-area: status;
+  }
+
+  .sessions__table td:nth-child(5) {
+    grid-area: findings;
+  }
+
+  .sessions__table td:nth-child(6) {
+    grid-area: edits;
+  }
+
+  .sessions__table td:nth-child(7) {
+    grid-area: owner;
   }
 
   .sessions__table td.num {

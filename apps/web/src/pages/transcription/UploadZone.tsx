@@ -55,8 +55,8 @@ export function UploadZone({ onFiles }: UploadZoneProps) {
         Elegir imágenes
       </button>
       <p className="upload__hint">
-        o arrástralas aquí. PNG o JPEG de partituras impresas, de hasta 20 MB y una página por
-        imagen.
+        o arrástralas aquí. PNG o JPEG de partituras impresas, de hasta 20 MB; cada imagen crea una
+        sesión.
       </p>
     </div>
   );
