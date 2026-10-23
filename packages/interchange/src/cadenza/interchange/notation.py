@@ -25,7 +25,20 @@ from cadenza.domain import (
     Tie,
     TimeSignature,
 )
-from music21 import chord, clef, converter, key, layout, meter, midi, musicxml, note, stream, tie
+from music21 import (
+    chord,
+    clef,
+    converter,
+    defaults,
+    key,
+    layout,
+    meter,
+    midi,
+    musicxml,
+    note,
+    stream,
+    tie,
+)
 
 _MAX_DENOMINATOR = 1000
 
@@ -319,7 +332,12 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
     return elements
 
 
-def _build_measure(measure: Measure) -> Any:
+def _build_measure(measure: Measure, previous_signature: TimeSignature | None = None) -> Any:
+    """Construye el compás de music21.
+
+    La importación da a cada compás su métrica efectiva; aquí solo se escribe donde cambia
+    respecto a ``previous_signature``, para no repetirla en cada compás de la partitura (#152).
+    """
     built = stream.Measure(number=measure.number)
     if measure.clef is not None:
         try:
@@ -341,7 +359,7 @@ def _build_measure(measure: Measure) -> Any:
         if measure.key_signature.mode is not None:
             k.mode = measure.key_signature.mode
         built.insert(0, k)
-    if measure.time_signature is not None:
+    if measure.time_signature is not None and measure.time_signature != previous_signature:
         signature = measure.time_signature
         built.insert(0, meter.TimeSignature(f"{signature.beats}/{signature.beat_type}"))
 
@@ -361,6 +379,16 @@ def _build_measure(measure: Measure) -> Any:
     return built
 
 
+def _build_staff_measures(measures: tuple[Measure, ...]) -> list[Any]:
+    built: list[Any] = []
+    previous_signature: TimeSignature | None = None
+    for measure in measures:
+        built.append(_build_measure(measure, previous_signature))
+        if measure.time_signature is not None:
+            previous_signature = measure.time_signature
+    return built
+
+
 def score_ir_to_music21(score: ScoreIR) -> stream.Score:
     """Convierte un `ScoreIR` a un objeto `music21.stream.Score` estructurado."""
 
@@ -373,8 +401,8 @@ def score_ir_to_music21(score: ScoreIR) -> stream.Score:
                     id=f"{part.id or f'P{part_index + 1}'}-Staff{staff_index + 1}"
                 )
                 p_staff.partName = part.id
-                for measure in staff.measures:
-                    p_staff.append(_build_measure(measure))
+                for built_measure in _build_staff_measures(staff.measures):
+                    p_staff.append(built_measure)
                 part_staffs.append(p_staff)
                 out.insert(0, p_staff)
             sg = layout.StaffGroup(part_staffs, name=part.id, symbol="brace")
@@ -382,17 +410,52 @@ def score_ir_to_music21(score: ScoreIR) -> stream.Score:
         else:
             built_part = stream.Part(id=part.id or f"P{part_index + 1}")
             for staff in part.staves:
-                for measure in staff.measures:
-                    built_part.append(_build_measure(measure))
+                for built_measure in _build_staff_measures(staff.measures):
+                    built_part.append(built_measure)
             out.insert(0, built_part)
     return out
 
 
+# music21 no publica tipos (pyproject: ignore_missing_imports), así que su clase es `Any` para
+# mypy estricto; heredar de ella es la única forma de cambiar estos dos pasos del exportador.
+class _ScoreExporter(musicxml.m21ToXml.ScoreExporter):  # type: ignore[misc]
+    """Exportador de music21 sin el título ni el compositor de relleno (#152).
+
+    music21 escribe «Music21 Fragment» y «Music21» cuando la partitura no tiene metadatos;
+    el `ScoreIR` no los tiene, así que no se escribe ninguno.
+    """
+
+    def setTitles(self) -> None:
+        md = self.scoreMetadata
+        if md is not None and (md["title"] or md["movementName"]):
+            super().setTitles()
+
+    def setIdentification(self) -> Any:
+        identification = super().setIdentification()
+        md = self.scoreMetadata
+        has_contributors = md is not None and any(True for _ in md.all(skipNonContributors=True))
+        if not has_contributors:
+            for creator in identification.findall("creator"):
+                if creator.text == defaults.author:
+                    identification.remove(creator)
+        return identification
+
+
 def score_ir_to_musicxml(score: ScoreIR) -> str:
-    """Serializa un `ScoreIR` a MusicXML 4.0 (base para la exportación, D11)."""
+    """Serializa un `ScoreIR` a MusicXML 4.0 tal como está (base para la exportación, D11).
+
+    No pasa por `GeneralObjectExporter`, que rellena los compases incompletos con silencios
+    ocultos y, con `makeNotation`, reparte entre compases las notas que cruzan la barra de un
+    compás sobrellenado: la partitura exportada dejaría de ser la transcrita justo donde el
+    validador señala un posible error (#152). El exportador de partes sigue haciendo las
+    barras de agrupación, las alteraciones visibles y los tresillos, y divide en notas ligadas
+    dentro del mismo compás las duraciones que MusicXML no puede escribir con una sola figura.
+    """
 
     out = score_ir_to_music21(score)
-    exported: bytes = musicxml.m21ToXml.GeneralObjectExporter(out).parse()
+    exporter = _ScoreExporter(out, makeNotation=True)
+    exporter.parse()
+    exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
 
 

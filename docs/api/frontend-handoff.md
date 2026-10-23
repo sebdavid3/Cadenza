@@ -322,7 +322,7 @@ La API escucha en `http://127.0.0.1:8000` (§1.4) y sus rutas no llevan prefijo 
 
 ### 5.6. Renderizado de Notación y Navegación
 
-1. **Lienzo de Partitura:** Se recomienda renderizar la partitura materializada usando OSMD (OpenSheetMusicDisplay) o Verovio alimentado desde `GET /sessions/{id}/export?format=musicxml` o procesando el `ScoreIR` tipado.
+1. **Lienzo de Partitura:** Se recomienda renderizar la partitura materializada usando OSMD (OpenSheetMusicDisplay) o Verovio alimentado desde `GET /sessions/{id}/export?format=musicxml` o procesando el `ScoreIR` tipado. Desde [#152](https://github.com/sebdavid3/Cadenza/issues/152) el MusicXML reproduce el `ScoreIR` compás a compás: cada compás lleva sus eventos en orden y con sus duraciones, también si está incompleto o sobrellenado (sin silencios ocultos de relleno ni notas repartidas entre compases); la métrica se escribe solo en el primer compás y donde cambia, y no hay título ni compositor de relleno. Una duración que no cabe en una sola figura se escribe como notas ligadas dentro del mismo compás.
 2. **Imagen de Referencia:** La imagen se obtiene en `GET /sessions/{id}/image` y se expone como un panel lateral o pestaña de referencia comparativa global. El endpoint exige `Authorization: Bearer` y un `<img src>` no envía esa cabecera: la imagen debe descargarse con el cliente HTTP autenticado y mostrarse a partir de un `Blob` (`URL.createObjectURL`).
 3. **Panel de Hallazgos:** La lista de hallazgos devuelta por `GET /sessions/{id}/findings` señala anclas específicas (compás, pentagrama, evento). Al seleccionar un hallazgo, el frontend debe enfocar y resaltar el evento correspondiente en la partitura renderizada (OSMD/SVG).
 
