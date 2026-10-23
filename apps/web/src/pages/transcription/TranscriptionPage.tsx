@@ -3,7 +3,7 @@ import { useEffect } from "react";
 import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { useQueueStore } from "./queue";
+import { hasPendingWork, useQueueStore } from "./queue";
 import { QueuePanel } from "./QueuePanel";
 import { SESSIONS_QUERY_KEY } from "./sessions";
 import { SessionsPanel } from "./SessionsPanel";
@@ -18,10 +18,23 @@ export function TranscriptionPage() {
   const claim = useQueueStore((state) => state.claim);
   const running = useQueueStore((state) => state.running);
   const hasQueued = useQueueStore((state) => state.items.some((item) => item.status === "queued"));
+  const pending = useQueueStore((state) => hasPendingWork(state.items));
 
   useEffect(() => {
     if (userId) claim(userId);
   }, [userId, claim]);
+
+  // Cerrar o recargar la pestaña a mitad de un lote perdería la cola: el navegador pide confirmación.
+  useEffect(() => {
+    if (!pending) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, [pending]);
 
   // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto.
   useEffect(() => {

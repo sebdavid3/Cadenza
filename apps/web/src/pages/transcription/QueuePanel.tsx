@@ -23,7 +23,11 @@ function Elapsed() {
       clearInterval(timer);
     };
   }, []);
-  return <span className="queue__elapsed">{seconds} s</span>;
+  return (
+    <span className="queue__elapsed" aria-hidden="true">
+      {seconds} s
+    </span>
+  );
 }
 
 function StatusChip({ item }: { item: QueueItem }) {
@@ -38,7 +42,13 @@ function StatusChip({ item }: { item: QueueItem }) {
       );
     case "done":
       return (
-        <span className="chip chip--done">{findingsLabel(item.result?.findings_count ?? 0)}</span>
+        <span
+          className={
+            (item.result?.findings_count ?? 0) > 0 ? "chip chip--finding" : "chip chip--done"
+          }
+        >
+          {findingsLabel(item.result?.findings_count ?? 0)}
+        </span>
       );
     case "error":
       return (
@@ -82,7 +92,7 @@ export function QueuePanel() {
                   <span className="queue__name">{item.file.name}</span>
                   <span className="label queue__size">{formatSize(item.file.size)}</span>
                 </div>
-                <div className="queue__state" aria-live="polite">
+                <div className="queue__state">
                   <StatusChip item={item} />
                   {item.status === "transcribing" && <Elapsed />}
                 </div>

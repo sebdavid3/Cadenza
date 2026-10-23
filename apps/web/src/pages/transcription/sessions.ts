@@ -41,6 +41,24 @@ export function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? value : DATE_FORMAT.format(date);
 }
 
+const DAY_FORMAT = new Intl.DateTimeFormat("es", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+const TIME_FORMAT = new Intl.DateTimeFormat("es", { hour: "2-digit", minute: "2-digit" });
+
+/** Día y hora por separado, para partir la fecha en dos líneas controladas. */
+export function formatDay(value: string): string {
+  const date = parseUtc(value);
+  return Number.isNaN(date.getTime()) ? value : DAY_FORMAT.format(date);
+}
+
+export function formatTime(value: string): string {
+  const date = parseUtc(value);
+  return Number.isNaN(date.getTime()) ? "" : TIME_FORMAT.format(date);
+}
+
 const STATUS_LABELS: Record<string, string> = {
   transcribed: "Transcrita",
   correcting: "En corrección",

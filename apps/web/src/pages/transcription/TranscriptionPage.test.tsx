@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -201,5 +201,55 @@ describe("vista de transcripción", () => {
     expect(within(queue).getByText("Rechazada")).toBeVisible();
     expect(within(queue).getByText(/no es una imagen png o jpeg/i)).toBeVisible();
     expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+  });
+
+  it("marca en violeta las sesiones con hallazgos y deja en contorno las que no tienen", async () => {
+    mockApi({
+      "GET /sessions": () =>
+        jsonResponse([
+          session("aaaaaaaa-1", { findings_count: 3 }),
+          session("bbbbbbbb-2", { findings_count: 0 }),
+        ]),
+    });
+    renderPage();
+
+    const table = await screen.findByRole("table");
+    const [, withFindings, without] = within(table).getAllByRole("row");
+    if (!withFindings || !without) throw new Error("faltan filas");
+    expect(within(withFindings).getByText("3")).toHaveClass("chip--finding");
+    expect(without.querySelector(".chip--finding")).toBeNull();
+  });
+
+  it("con un lote en curso pide confirmación al cerrar la pestaña y al salir", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    const router = renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    act(() => {
+      useQueueStore.setState({
+        items: [
+          {
+            id: "x",
+            file: new File([new Uint8Array(4)], "pendiente.png", { type: "image/png" }),
+            status: "queued",
+          },
+        ],
+        running: true,
+      });
+    });
+
+    const unload = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    await userEvent.click(screen.getByRole("button", { name: "Salir" }));
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(router.state.location.pathname).toBe("/transcripcion");
+
+    confirm.mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Salir" }));
+    expect(router.state.location.pathname).toBe("/entrar");
+    expect(useQueueStore.getState().items).toHaveLength(0);
   });
 });

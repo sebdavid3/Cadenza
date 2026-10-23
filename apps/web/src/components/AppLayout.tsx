@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useAuthStore } from "../auth/store";
+import { hasPendingWork, LEAVE_WARNING, useQueueStore } from "../pages/transcription/queue";
 import "./app-layout.css";
 import "./button.css";
 
@@ -35,6 +36,9 @@ export function AppLayout() {
           type="button"
           className="button app-header__exit"
           onClick={() => {
+            const queue = useQueueStore.getState();
+            if (hasPendingWork(queue.items) && !window.confirm(LEAVE_WARNING)) return;
+            queue.reset();
             signOut("signed-out");
             void navigate("/entrar", { replace: true });
           }}

@@ -138,3 +138,11 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     },
   };
 });
+
+/** Hay trabajo que se perdería al cerrar la pestaña o salir: imágenes en cola o en curso. */
+export function hasPendingWork(items: QueueItem[]): boolean {
+  return items.some((item) => item.status === "queued" || item.status === "transcribing");
+}
+
+export const LEAVE_WARNING =
+  "Hay imágenes en cola o transcribiéndose. Si sales, la cola se pierde. ¿Salir igualmente?";

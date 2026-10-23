@@ -3,7 +3,8 @@ import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import {
-  formatDate,
+  formatDay,
+  formatTime,
   listSessions,
   listUsers,
   SESSIONS_PAGE_SIZE,
@@ -74,50 +75,59 @@ export function SessionsPanel() {
       )}
 
       {rows.length > 0 && (
-        <table className="sessions__table">
-          <thead>
-            <tr>
-              <th scope="col">
-                <span className="visually-hidden">Imagen</span>
-              </th>
-              <th scope="col">Sesión</th>
-              <th scope="col">Creada</th>
-              <th scope="col">Estado</th>
-              <th scope="col" className="num">
-                Hallazgos
-              </th>
-              <th scope="col" className="num">
-                Ediciones
-              </th>
-              {isResearcher && <th scope="col">Propietario</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((session) => (
-              <tr key={session.session_id}>
-                <td className="sessions__thumb">
-                  <SessionThumb sessionId={session.session_id} />
-                </td>
-                <td>
-                  <span className="label sessions__id">{session.session_id.slice(0, 8)}</span>
-                </td>
-                <td>
-                  <time dateTime={session.created_at}>{formatDate(session.created_at)}</time>
-                </td>
-                <td>
-                  <span className="chip chip--status">{statusLabel(session.status)}</span>
-                </td>
-                <td className="num" data-label="Hallazgos">
-                  {session.findings_count ?? 0}
-                </td>
-                <td className="num" data-label="Ediciones">
-                  {session.edits_count ?? 0}
-                </td>
-                {isResearcher && <td data-label="Propietario">{ownerName(session.owner_id)}</td>}
+        <div className="sessions__scroll">
+          <table className="sessions__table">
+            <thead>
+              <tr>
+                <th scope="col">
+                  <span className="visually-hidden">Imagen</span>
+                </th>
+                <th scope="col">Sesión</th>
+                <th scope="col">Creada</th>
+                <th scope="col">Estado</th>
+                <th scope="col" className="num">
+                  Hallazgos
+                </th>
+                <th scope="col" className="num">
+                  Ediciones
+                </th>
+                {isResearcher && <th scope="col">Propietario</th>}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((session) => (
+                <tr key={session.session_id}>
+                  <td className="sessions__thumb">
+                    <SessionThumb sessionId={session.session_id} />
+                  </td>
+                  <td>
+                    <span className="label sessions__id">{session.session_id.slice(0, 8)}</span>
+                  </td>
+                  <td>
+                    <time dateTime={session.created_at}>
+                      <span>{formatDay(session.created_at)}</span>{" "}
+                      <span>{formatTime(session.created_at)}</span>
+                    </time>
+                  </td>
+                  <td>
+                    <span className="chip chip--status">{statusLabel(session.status)}</span>
+                  </td>
+                  <td className="num" data-label="Hallazgos">
+                    {(session.findings_count ?? 0) > 0 ? (
+                      <span className="chip chip--finding">{session.findings_count}</span>
+                    ) : (
+                      0
+                    )}
+                  </td>
+                  <td className="num" data-label="Ediciones">
+                    {session.edits_count ?? 0}
+                  </td>
+                  {isResearcher && <td data-label="Propietario">{ownerName(session.owner_id)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {sessions.hasNextPage && (

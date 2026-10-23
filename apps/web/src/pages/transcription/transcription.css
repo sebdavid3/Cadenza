@@ -6,13 +6,13 @@
   grid-template-columns: minmax(0, 1fr) minmax(320px, 560px);
   gap: var(--space-4) var(--space-7);
   align-items: end;
-  padding: var(--space-7) var(--gutter);
+  padding: var(--space-6) var(--gutter);
   border-bottom: var(--rule);
 }
 
 .transcription__title {
   font-family: var(--font-display);
-  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
   font-weight: 700;
   line-height: 0.9;
   text-transform: uppercase;
@@ -31,7 +31,7 @@
   justify-items: start;
   gap: var(--space-3);
   padding: var(--space-5);
-  border: var(--rule-width) dashed var(--color-ink);
+  border: var(--rule);
   transition: background-color var(--duration-quick) var(--ease-out);
 }
 
@@ -74,6 +74,9 @@
 }
 
 .panel__title {
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
   font-family: var(--font-display);
   font-size: var(--text-title);
   font-weight: 700;
@@ -142,9 +145,16 @@
   animation: chip-running 1.2s steps(5) infinite;
 }
 
+/* Terminada: contorno, como «Transcrita» en el listado. El único macizo es la imagen en curso. */
 .chip--done {
-  background: var(--color-ink);
-  color: var(--color-paper);
+  background: var(--color-paper);
+}
+
+/* Con hallazgos: rótulo violeta, el turno de la persona. */
+.chip--finding {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .chip--error {
@@ -179,6 +189,27 @@
   padding-inline: var(--space-3);
   background: var(--color-ink);
   color: var(--color-paper);
+}
+
+.queue__item {
+  position: relative;
+}
+
+.queue__item[data-status="transcribing"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--color-accent);
+  animation: queue-reading 2.4s steps(24, end) infinite;
+}
+
+@keyframes queue-reading {
+  to {
+    left: calc(100% - 4px);
+  }
 }
 
 .queue__item[data-status="transcribing"] .chip {
@@ -273,7 +304,12 @@
   text-align: right;
 }
 
-.sessions__table time {
+.sessions__scroll {
+  overflow-x: auto;
+}
+
+.sessions__table time span {
+  display: block;
   white-space: nowrap;
 }
 
@@ -327,6 +363,23 @@
   .panel + .panel {
     border-top: var(--rule);
     border-left: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .queue__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue__state,
+  .queue__actions {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .queue__name {
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 }
 
