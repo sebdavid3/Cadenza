@@ -42,11 +42,13 @@
   padding-block: var(--space-2);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
   .site-header__tagline {
     display: none;
   }
+}
 
+@media (max-width: 860px) {
   .site-header__nav {
     gap: var(--space-3) var(--space-5);
   }

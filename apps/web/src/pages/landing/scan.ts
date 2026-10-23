@@ -1,6 +1,7 @@
-import { GEOMETRY, STAFF_BOTTOM, measureX, placeNotes, stemUp, type Measure } from "./incipit";
+import { GEOMETRY, STAFF_BOTTOM, type Measure } from "./incipit";
+import { HEAD_RX, HEAD_RY, layoutIncipit, STAFF_END } from "./notation";
 
-const { width, height, staffTop, space } = GEOMETRY;
+const { width, height, staffTop } = GEOMETRY;
 
 /** Resolución del «escaneo»: una fracción de la geometría vectorial. */
 export const SCAN_SCALE = 0.2;
@@ -20,9 +21,10 @@ function parseHex(hex: string, fallback: Rgb): Rgb {
 }
 
 /**
- * Dibuja el incipit como una imagen escaneada a baja resolución: tinta umbralizada a un
- * bit con un ruido determinista, para que se lean los píxeles. Devuelve false si el
- * navegador no ofrece un contexto 2D.
+ * Dibuja el incipit como una imagen escaneada a baja resolución: la misma maqueta que la
+ * notación vectorial, con trazos algo más gruesos (la tinta de imprenta engorda al escanear) y
+ * umbralizada a un bit con un ruido determinista, para que se lean los píxeles. Devuelve false
+ * si el navegador no ofrece un contexto 2D.
  */
 export function drawScan(canvas: HTMLCanvasElement, measures: Measure[]): boolean {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -33,6 +35,7 @@ export function drawScan(canvas: HTMLCanvasElement, measures: Measure[]): boolea
   const styles = getComputedStyle(canvas);
   const paper = parseHex(styles.getPropertyValue("--color-paper"), { r: 240, g: 239, b: 242 });
   const ink = parseHex(styles.getPropertyValue("--color-ink"), { r: 10, g: 10, b: 10 });
+  const layout = layoutIncipit(measures);
 
   ctx.save();
   ctx.scale(SCAN_SCALE, SCAN_SCALE);
@@ -40,69 +43,55 @@ export function drawScan(canvas: HTMLCanvasElement, measures: Measure[]): boolea
   ctx.fillRect(0, 0, width, height);
   ctx.fillStyle = "#000";
   ctx.strokeStyle = "#000";
+  ctx.lineJoin = "round";
 
-  ctx.lineWidth = 7;
-  for (let line = 0; line < 5; line += 1) {
+  const line = (x1: number, y1: number, x2: number, y2: number, lineWidth: number) => {
+    ctx.lineWidth = lineWidth;
     ctx.beginPath();
-    ctx.moveTo(0, staffTop + line * space);
-    ctx.lineTo(width, staffTop + line * space);
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
     ctx.stroke();
-  }
-  for (let bar = 0; bar <= 4; bar += 1) {
-    ctx.lineWidth = bar === 4 ? 12 : 7;
-    const x = measureX(bar) - (bar === 4 ? 6 : 0);
-    ctx.beginPath();
-    ctx.moveTo(x, staffTop);
-    ctx.lineTo(x, STAFF_BOTTOM);
-    ctx.stroke();
+  };
+
+  for (const y of layout.staffLines) line(0, y, STAFF_END, y, 7);
+  for (const bar of layout.barlines) line(bar.x, staffTop, bar.x, STAFF_BOTTOM, bar.width + 3);
+
+  for (const glyph of layout.glyphs) {
+    ctx.save();
+    ctx.translate(glyph.tx, glyph.ty);
+    ctx.scale(glyph.scale, glyph.scale);
+    const path = new Path2D(glyph.path);
+    if (glyph.stroke) {
+      ctx.lineWidth = glyph.stroke;
+      ctx.stroke(path);
+    }
+    ctx.fill(path);
+    ctx.restore();
   }
 
-  ctx.font = `${String(space * 4.1)}px "Noto Music"`;
-  ctx.fillText("\u{1D11E}", 12, staffTop + 3 * space + 4);
-  ctx.font = `700 ${String(space * 2.2)}px "Pixelify Sans"`;
-  ctx.fillText("3", 116, staffTop + 2 * space - 4);
-  ctx.fillText("4", 116, STAFF_BOTTOM - 2);
-
-  const notes = placeNotes(measures);
-  for (const note of notes) {
-    const open = note.beats >= 2;
+  for (const { note, open, stem, dot } of layout.notes) {
     ctx.beginPath();
-    ctx.ellipse(note.x, note.y, space * 0.62, space * 0.44, (-20 * Math.PI) / 180, 0, Math.PI * 2);
+    ctx.ellipse(note.x, note.y, HEAD_RX, HEAD_RY, (-20 * Math.PI) / 180, 0, Math.PI * 2);
     if (open) {
       ctx.lineWidth = 7;
       ctx.stroke();
     } else {
       ctx.fill();
     }
-    if (note.beats < 3) {
-      const up = stemUp(note.pitch);
-      const x = up ? note.x + space * 0.56 : note.x - space * 0.56;
-      ctx.lineWidth = 8;
+    if (stem) line(stem.x, stem.y1, stem.x, stem.y2, 8);
+    if (dot) {
       ctx.beginPath();
-      ctx.moveTo(x, note.y);
-      ctx.lineTo(x, up ? note.y - space * 3.4 : note.y + space * 3.4);
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(note.x + space * 1.1, note.y - space * 0.25, 7, 0, Math.PI * 2);
+      ctx.arc(dot.cx, dot.cy, 7, 0, Math.PI * 2);
       ctx.fill();
     }
   }
-  const eighths = notes.filter((note) => note.beats === 0.5);
-  const first = eighths[0];
-  const last = eighths.at(-1);
-  if (first && last && first !== last) {
-    const up = stemUp(first.pitch);
-    const x1 = up ? first.x + space * 0.56 : first.x - space * 0.56;
-    const x2 = up ? last.x + space * 0.56 : last.x - space * 0.56;
-    const y1 = up ? first.y - space * 3.4 : first.y + space * 3.4;
-    const y2 = up ? last.y - space * 3.4 : last.y + space * 3.4;
-    const t = space * 0.55 * (up ? 1 : -1);
+
+  for (const points of layout.beams) {
     ctx.beginPath();
-    ctx.moveTo(x1 - 3, y1);
-    ctx.lineTo(x2 + 3, y2);
-    ctx.lineTo(x2 + 3, y2 + t);
-    ctx.lineTo(x1 - 3, y1 + t);
+    points.forEach(([x, y], index) => {
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
     ctx.closePath();
     ctx.fill();
   }

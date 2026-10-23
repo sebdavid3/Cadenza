@@ -4,38 +4,22 @@ import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
 import { REPOSITORY_URL } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { STEPS } from "./content";
 import { CORRECTED, OMR_READING } from "./incipit";
 import { IncipitDemo } from "./IncipitDemo";
 import { IncipitScan } from "./IncipitScan";
 import { IncipitStaff } from "./IncipitStaff";
 import "./landing.css";
 
-const STEPS = [
-  {
-    title: "Sube las imágenes",
-    text: "Fotografías o escaneos de partituras impresas, en PNG o JPEG de hasta 20 MB. Puedes subir varias: se transcriben en cola, una tras otra.",
-    figure: <IncipitScan measures={CORRECTED} className="step__scan" />,
-    caption: "La imagen",
-  },
-  {
-    title: "HOMR transcribe",
-    text: "Un motor de reconocimiento óptico de música lee la imagen y propone la partitura como notación. Cada imagen abre una sesión de trabajo.",
-    figure: <IncipitStaff measures={OMR_READING} />,
-    caption: "Lo que lee el motor",
-  },
-  {
-    title: "Las reglas señalan la duda",
-    text: "Un validador revisa la duración de cada compás, la armadura, el registro y otras reglas musicales, y marca lo sospechoso. No cambia nada por su cuenta.",
-    figure: <IncipitStaff measures={OMR_READING} flagged />,
-    caption: "Compás 3: cuatro tiempos en un 3/4",
-  },
-  {
-    title: "Tú decides",
-    text: "Corriges sobre la notación. Cada cambio queda registrado, con su autor y su orden, y se puede deshacer. La corrección en el navegador está en construcción.",
-    figure: <IncipitStaff measures={CORRECTED} />,
-    caption: "Dos duraciones corregidas",
-  },
+// Las figuras de los pasos: el mismo incipit sintético en cada momento del proceso.
+const STEP_FIGURES = [
+  <IncipitScan key="imagen" measures={CORRECTED} className="step__scan" />,
+  <IncipitStaff key="lectura" measures={OMR_READING} />,
+  <IncipitStaff key="hallazgo" measures={OMR_READING} mark="flagged" />,
+  <IncipitStaff key="correccion" measures={CORRECTED} mark="resolved" />,
 ];
+
+const SPECIMEN_SIZES = ["96 px", "48 px", "24 px", "12 px"];
 
 export function LandingPage() {
   useDocumentTitle();
@@ -75,9 +59,12 @@ export function LandingPage() {
           <h2 id="steps-title" className="section-title">
             Cómo funciona
           </h2>
-          <ol className="steps__list">
+          <p className="steps__note">
+            Las figuras son ilustraciones con el mismo incipit sintético de arriba.
+          </p>
+          <ol className="steps__list" role="list">
             {STEPS.map((step, index) => (
-              <li key={step.title} className="step">
+              <li key={step.title} id={`paso-${String(index + 1)}`} className="step">
                 <span className="step__number" aria-hidden="true">
                   {index + 1}
                 </span>
@@ -86,7 +73,7 @@ export function LandingPage() {
                   <p>{step.text}</p>
                 </div>
                 <figure className="step__figure">
-                  {step.figure}
+                  {STEP_FIGURES[index]}
                   <figcaption className="label">{step.caption}</figcaption>
                 </figure>
               </li>
@@ -103,23 +90,35 @@ export function LandingPage() {
             se ha evaluado, no lo prometemos.
           </p>
           <div className="scope__columns">
-            <div className="scope__column">
-              <h3 className="scope__heading">Sí</h3>
+            <section className="scope__column" aria-labelledby="scope-tested">
+              <h3 id="scope-tested" className="scope__heading">
+                Probado
+              </h3>
               <ul>
-                <li>Partituras impresas</li>
+                <li>Incipits y fragmentos impresos</li>
                 <li>Una voz en un pentagrama</li>
-                <li>Imágenes PNG o JPEG de hasta 20 MB, una página por imagen</li>
-                <li>Exportación a MusicXML y MIDI (desde el navegador, próximamente)</li>
+                <li>Imágenes PNG o JPEG de hasta 20 MB, una por sesión</li>
               </ul>
-            </div>
-            <div className="scope__column scope__column--no">
-              <h3 className="scope__heading">Todavía no</h3>
-              <ul>
-                <li>Manuscritos</li>
-                <li>Polifonía densa</li>
-                <li>PDF y documentos de varias páginas</li>
-              </ul>
-            </div>
+            </section>
+            <section className="scope__column scope__column--untested" aria-labelledby="scope-no">
+              <div className="scope__block">
+                <h3 id="scope-no" className="scope__heading">
+                  Sin evaluar
+                </h3>
+                <ul>
+                  <li>Manuscritos</li>
+                  <li>Más de una voz o varios pentagramas</li>
+                  <li>Fotografías de partituras</li>
+                </ul>
+              </div>
+            </section>
+          </div>
+          <div className="scope__notes">
+            <p>
+              Las reglas no lo detectan todo: una nota con la altura equivocada en un compás que
+              suma bien pasa sin señal. Revisa toda la transcripción, no solo lo marcado.
+            </p>
+            <p>No admite PDF ni documentos de varias páginas: una imagen por sesión.</p>
           </div>
         </section>
 
@@ -145,12 +144,14 @@ export function LandingPage() {
       </main>
 
       <footer className="site-footer">
-        <p className="site-footer__specimen" aria-hidden="true">
-          <span>Cadenza</span>
-          <span>Cadenza</span>
-          <span>Cadenza</span>
-          <span>Cadenza</span>
-        </p>
+        <ul className="site-footer__specimen" aria-hidden="true">
+          {SPECIMEN_SIZES.map((size) => (
+            <li key={size}>
+              <span className="site-footer__word">Cadenza</span>
+              <span className="label site-footer__size">{size}</span>
+            </li>
+          ))}
+        </ul>
         <p className="label">
           Cadenza · digitalización asistida de partituras ·{" "}
           <a href={REPOSITORY_URL}>github.com/sebdavid3/Cadenza</a>

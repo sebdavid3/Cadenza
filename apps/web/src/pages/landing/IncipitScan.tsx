@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { whenFontsReady } from "../../styles/whenFontsReady";
 import type { Measure } from "./incipit";
 import { drawScan } from "./scan";
 
@@ -9,14 +8,7 @@ export function IncipitScan({ measures, className }: { measures: Measure[]; clas
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
-    let cancelled = false;
-    void whenFontsReady().then(() => {
-      if (!cancelled) drawScan(canvas, measures);
-    });
-    return () => {
-      cancelled = true;
-    };
+    if (canvas) drawScan(canvas, measures);
   }, [measures]);
 
   return <canvas className={className} ref={canvasRef} aria-hidden="true" />;
