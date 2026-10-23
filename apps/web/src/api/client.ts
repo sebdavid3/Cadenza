@@ -29,6 +29,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   /** Si es false no se envía el token (rutas públicas como `/health` o `/auth/login`). */
   auth?: boolean;
+  /** Token para esta petición en lugar del vigente (p. ej. `GET /auth/me` justo tras entrar). */
+  token?: string;
   /**
    * Si es false, un 401 no se trata como sesión caducada. Para las rutas cuyo 401 tiene otro
    * significado, como `POST /auth/password` con la contraseña actual equivocada.
@@ -66,7 +68,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
   async function request<T = unknown>(path: ApiPath, req: RequestOptions = {}): Promise<T> {
     // La preparación va antes del temporizador: si falla, no deja nada pendiente.
     const headers = new Headers();
-    const token = req.auth === false ? null : (options.getToken?.() ?? null);
+    const token = req.auth === false ? null : (req.token ?? options.getToken?.() ?? null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
     let body: BodyInit | undefined;
     if (req.json !== undefined) {
