@@ -19,27 +19,40 @@ recargar y cómo actuar cuando el token caduca o la API lo rechaza (D47).
 
 ## Decisión
 
-1. **Token en `sessionStorage`** (clave `cadenza.token`), además de en memoria:
+1. **Token en `sessionStorage`** (claves `cadenza.token` y `cadenza.token.caduca`),
+   además de en memoria:
    - sobrevive a recargar la pestaña, que no debe echar a nadie de una sesión de
      30 minutos;
-   - no se comparte entre pestañas ni sobrevive a cerrar la pestaña;
+   - no sobrevive a cerrar la pestaña ni se comparte con otras pestañas abiertas
+     por separado (el «duplicar pestaña» del navegador sí copia `sessionStorage`);
    - si el almacenamiento no está disponible, la sesión vive solo en memoria.
 2. **Estado de autenticación en Zustand** (`apps/web/src/auth/store.ts`, ADR-0006):
-   `restoring`, `anonymous` o `authenticated`, con el token, el perfil de
-   `GET /auth/me` y el motivo de cierre (`expired`) para avisar en el acceso.
-3. **Recuperación al arrancar.** Si hay un token guardado y su `exp` no ha
-   vencido, se pide `GET /auth/me`. Un 401 cierra la sesión como caducada. Un token
-   ya vencido se descarta sin llamar a la API. Las recuperaciones simultáneas
-   comparten una sola petición.
-4. **Caducidad.** El cliente lee el `exp` del JWT sin verificarlo (la firma la
-   comprueba la API) y cierra la sesión al vencer. Cualquier 401 de una petición
-   autenticada la cierra también (ADR-0019, `onUnauthorized`). En ambos casos las
-   rutas privadas llevan a `/entrar`, que avisa de que la sesión caducó y, tras
-   entrar, devuelve a la ruta pedida.
+   `restoring`, `unreachable`, `anonymous` o `authenticated`, con el token, su
+   caducidad local, el perfil de `GET /auth/me` y el motivo del último cierre
+   (`expired` o `signed-out`).
+3. **Recuperación al arrancar.** Si hay un token guardado y no ha caducado, se pide
+   `GET /auth/me`:
+   - con 200 se recupera la sesión; con 401 se cierra como caducada;
+   - sin conexión, timeout o 5xx se conserva el token y la ruta privada ofrece
+     «Reintentar» (`unreachable`), en vez de echar a la persona;
+   - un token ya caducado se descarta sin llamar a la API;
+   - el resultado solo se aplica si la sesión sigue en comprobación: si mientras
+     tanto la persona entró o salió, no se pisa; las recuperaciones simultáneas
+     comparten una petición, y mientras se comprueba no se puede enviar el acceso.
+4. **Caducidad.** El cliente lee `exp` e `iat` del JWT sin verificarlo (la firma
+   la comprueba la API) y cuenta la vida del token (`exp - iat`) desde que lo
+   recibe, en su propio reloj: un reloj del equipo desajustado no acorta ni alarga
+   la sesión. Al vencer la cierra; el temporizador se reprograma por tramos por
+   debajo del límite de `setTimeout`. Un 401 de una petición autenticada la cierra
+   también (ADR-0019, `onUnauthorized`), pero solo si el token rechazado es el
+   vigente: un 401 tardío de una sesión anterior no cierra la nueva. En ambos casos
+   las rutas privadas llevan a `/entrar`, que avisa de que la sesión caducó y, tras
+   entrar, devuelve a la ruta pedida (solo rutas internas).
 5. **Mensajes del acceso por código de estado:** 401, credenciales inválidas;
    429, demasiados intentos; 422, campos vacíos o no válidos; red, timeout y 5xx,
    los mensajes generales del cliente. El `detail` del backend no se muestra.
-6. **«Salir»** borra el token y el estado, sin aviso de caducidad.
+6. **«Salir»** borra el token y el estado, sin aviso de caducidad y sin recordar
+   la ruta: la siguiente persona en la pestaña empieza desde la vista por defecto.
 
 ## Consecuencias
 
@@ -53,8 +66,8 @@ recargar y cómo actuar cuando el token caduca o la API lo rechaza (D47).
   controlado; una cookie `HttpOnly` exigiría cambiar la API y queda fuera de esta
   fase.
 - Sin refresco, una sesión de trabajo larga obliga a volver a entrar cada 30
-  minutos; lo que haya en curso en la interfaz (por ejemplo, la cola de
-  transcripción) se conserva en la pestaña mientras sea la misma persona.
+  minutos. Lo que conserve cada vista mientras tanto lo decide la vista (la de
+  transcripción, [#147](https://github.com/sebdavid3/Cadenza/issues/147)).
 
 ## Alternativas consideradas
 

@@ -854,7 +854,7 @@ backend ([#40](https://github.com/sebdavid3/Cadenza/issues/40)), mapa de tiempo
 ([#42](https://github.com/sebdavid3/Cadenza/issues/42)) y transcripción síncrona
 ([#37](https://github.com/sebdavid3/Cadenza/issues/37), ratificada con evidencia empírica en [#106](https://github.com/sebdavid3/Cadenza/issues/106) y ADR-0016).
 La entrada PDF y de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)) se decidió dejar fuera del alcance.
-La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) se completó, pero ese visor se retiró al vaciar `apps/web` ([#129](https://github.com/sebdavid3/Cadenza/issues/129)) y el inicio de sesión del nuevo frontend queda para la Fase 8.
+La adaptación del visor web al inicio de sesión ([#47](https://github.com/sebdavid3/Cadenza/issues/47)) se completó, pero ese visor se retiró al vaciar `apps/web` ([#129](https://github.com/sebdavid3/Cadenza/issues/129)); el nuevo frontend tiene inicio de sesión desde [#146](https://github.com/sebdavid3/Cadenza/issues/146) (ADR-0020).
 
 El análisis completo y el seguimiento están en [#1](https://github.com/sebdavid3/Cadenza/issues/1).
 

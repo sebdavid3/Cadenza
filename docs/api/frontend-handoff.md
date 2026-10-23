@@ -366,7 +366,9 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 - **Stack:** React 18 + TypeScript estricto + Vite, con React Router, ESLint, Prettier y Vitest.
 - **Cliente HTTP** (`apps/web/src/api/client.ts`), tipado con `apps/web/src/types.ts`: URL base configurable (`VITE_API_BASE_URL`, `/api` por defecto), `Authorization: Bearer` cuando hay sesión, timeout por petición (15 s por defecto; la constante `TRANSCRIBE_TIMEOUT_MS`, 30 s, es la que usará `POST /transcribe`, §5.7) y errores tipados por código de estado con mensajes propios en español. El `detail` del backend nunca se muestra.
 - **Proxy de desarrollo:** Vite reenvía `/api` y lo que va bajo `/api/` a `http://127.0.0.1:8000` quitando el prefijo (§5.5); `/apidocs`, por ejemplo, no se reenvía, configurable con `CADENZA_API_PROXY_TARGET`. Ninguna ruta de la interfaz empieza por `/api`.
-- **Sistema de diseño:** `PRODUCT.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
+- **Sesión** ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer o ante un 401 y rutas privadas.
+- **Página pública** en `/` ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
+- **Sistema de diseño:** `PRODUCT.md`, `DESIGN.md` y los *briefs* de `.impeccable/surfaces/`; tokens en `apps/web/src/styles/tokens.css` y tipografías servidas desde el proyecto.
 
 Arranque, con la API ya en marcha (§1.4):
 
@@ -381,7 +383,6 @@ Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `
 Queda por construir sobre la API v1:
 - **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Quedan el cambio de contraseña y la gestión de cuentas del investigador (`/users`).
 - **Ingesta:** envío de imágenes a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones ([#147](https://github.com/sebdavid3/Cadenza/issues/147)).
-- **Página pública** ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
 - **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
 - **Reproducción:** Tone.js con el cursor sincronizado a partir de `GET /sessions/{id}/timing`.
 - **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y exportación MusicXML y MIDI.
