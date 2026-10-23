@@ -1205,7 +1205,11 @@ describe("elegir una nota sobre la partitura", () => {
     const current = detail();
     const staff = current.current_score?.parts[0]?.staves[0];
     if (!first || !staff?.measures[0]) throw new Error("partitura de prueba incompleta");
-    staff.measures[0].events = [1, 2, 3].map(() => ({ ...first, duration_beats: "1" }));
+    staff.measures[0].events = [1, 2, 3].map(() => ({
+      ...first,
+      kind: "note" as const,
+      duration_beats: "1",
+    }));
     api({ detail: current });
     renderPage();
     const region = await findScore();

@@ -76,6 +76,7 @@ function keyAction(event: KeyboardEvent): Move | "clear" | null {
 
 /** Espera antes de anunciar la nota elegida: al moverse deprisa solo se anuncia la última. */
 const ANNOUNCE_DELAY_MS = 300;
+const HARD_SPACE = String.fromCharCode(0xa0);
 
 function sameCounts(a: readonly number[], b: readonly number[]) {
   return a.length === b.length && a.every((count, index) => count === b[index]);
@@ -280,7 +281,7 @@ export function ScoreView({
       const text = spoken ?? "Sin nota elegida.";
       // Un texto igual al anterior (dos Do4 negras seguidas) no se volvería a leer: un espacio
       // duro al final lo distingue sin cambiar lo que se oye.
-      setAnnouncement((previous) => (previous === text ? `${text} ` : text));
+      setAnnouncement((previous) => (previous === text ? `${text}${HARD_SPACE}` : text));
     }, ANNOUNCE_DELAY_MS);
     return () => {
       clearTimeout(timer);
