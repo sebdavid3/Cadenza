@@ -1,0 +1,77 @@
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-7);
+  min-height: 96px;
+  padding: var(--space-4) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.site-header__brand {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 3.2vw, 2.875rem);
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.site-header__tagline {
+  max-width: 15rem;
+}
+
+.site-header__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-7);
+  margin-left: auto;
+}
+
+.site-header__nav a {
+  text-decoration: none;
+}
+
+.site-header__nav a:hover {
+  text-decoration: underline;
+}
+
+.site-header__enter {
+  min-height: 44px;
+  padding-block: var(--space-2);
+}
+
+@media (max-width: 1100px) {
+  .site-header__tagline {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .site-header__nav {
+    gap: var(--space-3) var(--space-5);
+  }
+}
+
+/* En pantallas estrechas: marca y «Entrar» en la primera fila; las anclas, debajo. */
+@media (max-width: 600px) {
+  .site-header {
+    min-height: 0;
+    row-gap: var(--space-4);
+  }
+
+  .site-header__brand {
+    flex: 1;
+  }
+
+  .site-header__nav {
+    order: 1;
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .site-header__nav a {
+    padding-block: var(--space-2);
+  }
+}

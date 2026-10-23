@@ -269,8 +269,8 @@ uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/opena
 La interfaz web vive en `apps/web` (React 18, TypeScript y Vite) y se construye desde cero en
 la fase 8 sobre la API v1. Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
 Las decisiones de la base están en
-[ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) y el sistema de diseño, en
-[`PRODUCT.md`](PRODUCT.md) y `.impeccable/`.
+[ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md); el producto, en [`PRODUCT.md`](PRODUCT.md), y el
+sistema de diseño, en [`DESIGN.md`](DESIGN.md) y `.impeccable/`.
 
 Con la API arrancada en `http://127.0.0.1:8000` (ver [Arranque local](#arranque-local)):
 
