@@ -119,7 +119,7 @@ export function drawScan(canvas: HTMLCanvasElement, measures: Measure[]): boolea
   for (let i = 0; i < data.length; i += 4) {
     const value =
       (data[i] ?? 255) * 0.3 + (data[i + 1] ?? 255) * 0.59 + (data[i + 2] ?? 255) * 0.11;
-    const on = value + (random() - 0.5) * 70 < 170;
+    const on = value + (random() - 0.5) * 50 < 190;
     const color = on ? ink : paper;
     data[i] = color.r;
     data[i + 1] = color.g;
