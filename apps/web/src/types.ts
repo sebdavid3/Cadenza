@@ -316,6 +316,16 @@ export interface ProvenancePayload {
 }
 
 /**
+ * Registro de una cuenta por la propia persona (ADR-0022, #154).
+ * 
+ * Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+ */
+export interface RegisterRequest {
+  username: string;
+  password: string;
+}
+
+/**
  * Respuesta tras reabrir una sesión finalizada (ADR-0014, #34).
  */
 export interface ReopenResponse {
@@ -523,6 +533,8 @@ export interface UserRead {
   role: UserRole;
   active: boolean;
   created_at?: string | null;
+  /** Cuenta creada desde el registro público (ADR-0022): nace inactiva y no forma parte de los datos del estudio. */
+  self_registered?: boolean;
 }
 
 /**

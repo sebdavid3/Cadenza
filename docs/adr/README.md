@@ -48,5 +48,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0019](ADR-0019-base-del-cliente-web.md) | Base del cliente web (Fase 8) | Aceptado | Web |
 | [ADR-0020](ADR-0020-sesion-del-cliente-web.md) | Sesión del cliente web: token, recuperación y caducidad | Aceptado | Web |
 | [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md) | Visualización de la transcripción y marcado de hallazgos por compás | Aceptado | Web, M2 |
+| [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) | Registro de cuentas con activación por un investigador (enmienda ADR-0012 §1) | Aceptado | API, Persistencia, Web |
 
 

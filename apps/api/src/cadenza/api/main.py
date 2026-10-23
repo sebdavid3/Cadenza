@@ -86,6 +86,9 @@ from cadenza.application import (
     record_effort as record_effort_use_case,
 )
 from cadenza.application import (
+    register_user as register_user_use_case,
+)
+from cadenza.application import (
     reopen_session as reopen_session_use_case,
 )
 from cadenza.application import (
@@ -146,6 +149,7 @@ from .schemas import (
     FinalizeResponse,
     FindingRead,
     HealthStatusResponse,
+    RegisterRequest,
     ReopenResponse,
     RevalidateResponse,
     ScoreDocumentPayload,
@@ -198,6 +202,12 @@ UNPROCESSABLE_422: dict[int | str, dict[str, Any]] = {
     status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "model": ErrorDetail,
         "description": "Entidad no procesable o violación de validación de negocio",
+    }
+}
+RATE_LIMITED_429: dict[int | str, dict[str, Any]] = {
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": ErrorDetail,
+        "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
     }
 }
 UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
@@ -481,6 +491,11 @@ def create_app(
         max_attempts=app_settings.login_rate_limit_max_attempts,
         window_seconds=app_settings.login_rate_limit_window_seconds,
     )
+    # El registro cuenta todos los intentos por IP, también los fallidos (ADR-0022).
+    app.state.registration_rate_limiter = LoginRateLimiter(
+        max_attempts=app_settings.registration_rate_limit_max_attempts,
+        window_seconds=app_settings.registration_rate_limit_window_seconds,
+    )
 
     # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
     resolved_engine = (
@@ -655,6 +670,44 @@ def create_app(
         token = token_serv.create_access_token(user_id=user.id, role=user.role)
         return TokenResponse(access_token=token, token_type="bearer")
 
+    @app.post(
+        "/auth/register",
+        response_model=UserRead,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Auth"],
+        summary="Registro de una cuenta por la propia persona",
+        description=(
+            "Crea una cuenta de transcriptor marcada como autorregistrada e inactiva: no puede "
+            "iniciar sesión hasta que un investigador la active con PATCH /users/{id} "
+            "(ADR-0022). Solo usuario y contraseña. Limitado por IP; si el registro está "
+            "desactivado en la configuración, responde 404."
+        ),
+        responses={
+            **NOT_FOUND_404,
+            **CONFLICT_409,
+            **RATE_LIMITED_429,
+            **UNPROCESSABLE_422,
+        },
+    )
+    def register(payload: RegisterRequest, request: Request, db: DbDep) -> UserRead:
+        """Registra una cuenta inactiva hasta que un investigador la active (ADR-0022)."""
+        app_settings: Settings = request.app.state.settings
+        if not app_settings.registration_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+        client_host = request.client.host if request.client else "unknown"
+        rate_limiter: LoginRateLimiter = request.app.state.registration_rate_limiter
+        rate_limiter.check(client_host)
+        # Todo intento cuenta: así no se pueden sondear nombres ocupados sin límite.
+        rate_limiter.record_failure(client_host)
+
+        user = register_user_use_case(
+            payload.username,
+            payload.password,
+            user_repository=SqlAlchemyUserRepository(db),
+            password_hasher=request.app.state.password_hasher,
+        )
+        return UserRead.from_user(user)
+
     @app.get(
         "/auth/me",
         response_model=UserRead,
@@ -667,13 +720,7 @@ def create_app(
     )
     def get_me(current_user: CurrentUserDep) -> UserRead:
         """Devuelve el perfil del usuario autenticado."""
-        return UserRead(
-            id=current_user.id,
-            username=current_user.username,
-            role=current_user.role.value,
-            active=current_user.active,
-            created_at=current_user.created_at,
-        )
+        return UserRead.from_user(current_user)
 
     @app.post(
         "/auth/password",
@@ -725,16 +772,7 @@ def create_app(
             current_user=current_user,
             user_repository=user_repo,
         )
-        return [
-            UserRead(
-                id=u.id,
-                username=u.username,
-                role=u.role.value,
-                active=u.active,
-                created_at=u.created_at,
-            )
-            for u in users
-        ]
+        return [UserRead.from_user(u) for u in users]
 
     @app.post(
         "/users",
@@ -765,13 +803,7 @@ def create_app(
             user_repository=user_repo,
             password_hasher=hasher,
         )
-        return UserRead(
-            id=new_user.id,
-            username=new_user.username,
-            role=new_user.role.value,
-            active=new_user.active,
-            created_at=new_user.created_at,
-        )
+        return UserRead.from_user(new_user)
 
     @app.patch(
         "/users/{user_id}",
@@ -803,13 +835,7 @@ def create_app(
             new_password=payload.password,
             password_hasher=hasher,
         )
-        return UserRead(
-            id=updated.id,
-            username=updated.username,
-            role=updated.role.value,
-            active=updated.active,
-            created_at=updated.created_at,
-        )
+        return UserRead.from_user(updated)
 
     @app.post(
         "/transcribe",

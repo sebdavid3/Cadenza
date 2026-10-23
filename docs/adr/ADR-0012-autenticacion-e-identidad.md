@@ -1,6 +1,6 @@
 # ADR-0012: Autenticación e identidad de usuario
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (su §1 lo enmienda [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md): registro abierto con la cuenta inactiva hasta que un investigador la active)
 - **Fecha:** 2026-10-03
 - **Decisores:** Arquitecto de Software, Dirección del proyecto Cadenza
 - **Relacionado:** [ADR-0004](ADR-0004-persistencia-postgresql-jsonb.md), [ADR-0007](ADR-0007-edit-events-inmutables.md), [ADR-0009](ADR-0009-capa-de-aplicacion.md)

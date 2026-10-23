@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from cadenza.application import EffortMetricsData, PersistedFinding
+from cadenza.application import EffortMetricsData, PersistedFinding, User
 from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
@@ -425,6 +425,36 @@ class UserRead(BaseModel):
     role: str
     active: bool
     created_at: datetime | None = None
+    self_registered: bool = Field(
+        default=False,
+        description=(
+            "Cuenta creada desde el registro público (ADR-0022): nace inactiva y no forma parte "
+            "de los datos del estudio."
+        ),
+    )
+
+    @classmethod
+    def from_user(cls, user: User) -> UserRead:
+        return cls(
+            id=user.id,
+            username=user.username,
+            role=user.role.value,
+            active=user.active,
+            created_at=user.created_at,
+            self_registered=user.self_registered,
+        )
+
+
+class RegisterRequest(BaseModel):
+    """Registro de una cuenta por la propia persona (ADR-0022, #154).
+
+    Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8)
 
 
 class UserCreate(BaseModel):

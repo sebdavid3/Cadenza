@@ -105,6 +105,78 @@
         }
       }
     },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Registro de una cuenta por la propia persona",
+        "description": "Crea una cuenta de transcriptor marcada como autorregistrada e inactiva: no puede iniciar sesión hasta que un investigador la active con PATCH /users/{id} (ADR-0022). Solo usuario y contraseña. Limitado por IP; si el registro está desactivado en la configuración, responde 404.",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/me": {
       "get": {
         "tags": [
@@ -2917,6 +2989,29 @@
         "title": "ProvenancePayload",
         "description": "Trazabilidad y procedencia de la inferencia OMR y validación."
       },
+      "RegisterRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nSolo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza."
+      },
       "ReopenResponse": {
         "properties": {
           "session_id": {
@@ -3633,6 +3728,12 @@
               }
             ],
             "title": "Created At"
+          },
+          "self_registered": {
+            "type": "boolean",
+            "title": "Self Registered",
+            "description": "Cuenta creada desde el registro público (ADR-0022): nace inactiva y no forma parte de los datos del estudio.",
+            "default": false
           }
         },
         "type": "object",

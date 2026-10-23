@@ -124,3 +124,21 @@ def test_cors_origins_rejects_values_a_browser_never_sends(
     monkeypatch.setenv("CADENZA_CORS_ORIGINS", raw)
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_registration_is_closed_by_default_and_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """El registro público (ADR-0022) solo se abre si se pide expresamente."""
+    defaults = Settings()
+    assert defaults.registration_enabled is False
+    assert defaults.registration_rate_limit_max_attempts == 5
+    assert defaults.registration_rate_limit_window_seconds == 3600
+
+    monkeypatch.setenv("CADENZA_REGISTRATION_ENABLED", "true")
+    monkeypatch.setenv("CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS", "600")
+    configured = Settings()
+    assert configured.registration_enabled is True
+    assert configured.registration_rate_limit_max_attempts == 3
+    assert configured.registration_rate_limit_window_seconds == 600

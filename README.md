@@ -188,9 +188,9 @@ export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"        # "true" para HOMR en GPU
 ```
 
-Crea el primer usuario. No hay registro público
-([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)); con SQLite, este comando crea
-también el esquema de la base de datos:
+Crea el primer usuario. El registro público, si se activa, crea cuentas inactivas que un
+investigador tiene que activar ([ADR-0022](docs/adr/ADR-0022-registro-de-cuentas-con-activacion.md));
+con SQLite, este comando crea también el esquema de la base de datos:
 
 ```bash
 uv run --no-sync python -m cadenza.api.cli create-investigator --username admin --password "<mínimo 8 caracteres>"

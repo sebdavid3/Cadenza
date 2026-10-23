@@ -103,6 +103,21 @@ class Settings(BaseSettings):
         default=300,
         description="Ventana de tiempo en segundos para el límite de intentos de login (#40).",
     )
+    registration_enabled: bool = Field(
+        default=False,
+        description=(
+            "Abre POST /auth/register (ADR-0022). Apagado, la ruta responde 404 "
+            "como si no existiera."
+        ),
+    )
+    registration_rate_limit_max_attempts: int = Field(
+        default=5,
+        description="Intentos de registro por IP en la ventana, también los fallidos (ADR-0022).",
+    )
+    registration_rate_limit_window_seconds: int = Field(
+        default=3600,
+        description="Ventana en segundos del límite de intentos de registro por IP (ADR-0022).",
+    )
     omr_preprocess_enabled: bool = Field(
         default=False,
         description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",
