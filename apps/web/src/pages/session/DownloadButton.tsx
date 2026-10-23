@@ -3,6 +3,13 @@ import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { musicXmlFile, saveFile } from "./download";
 
+/**
+ * Tras un reintento, solo se descarga si el archivo llega poco después del clic: es lo que dura
+ * la activación del gesto en Chrome, y una descarga que llega minutos después (por ejemplo, al
+ * volver la conexión) sería inesperada o el navegador la bloquearía.
+ */
+export const RETRY_DOWNLOAD_WINDOW_MS = 5_000;
+
 interface DownloadButtonProps {
   sessionId: string;
   /** MusicXML que la vista ya pidió para OSMD: descargar no lo vuelve a pedir. */
@@ -14,7 +21,8 @@ interface DownloadButtonProps {
 
 /**
  * «Descargar MusicXML» del estado que se ve. Mientras se prepara no descarga y lo dice; si la
- * exportación falló, pulsarlo la vuelve a pedir y descarga al llegar.
+ * exportación falló, pulsarlo la vuelve a pedir y descarga al llegar. El aviso describe el botón
+ * y no es una alerta: el fallo ya lo anuncia la partitura.
  */
 export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButtonProps) {
   const hintId = useId();
@@ -32,16 +40,20 @@ export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButt
       return;
     }
     if (status !== "error") return;
+    const clickedAt = performance.now();
     const fresh = await onRetry();
-    // Si la persona ya se fue de la vista, no le llega una descarga inesperada.
-    if (fresh !== undefined && mounted.current) saveFile(musicXmlFile(sessionId, fresh));
+    // Si la persona ya se fue de la vista o el archivo tardó, no le llega una descarga
+    // inesperada: el botón queda listo para pulsarlo otra vez.
+    if (fresh === undefined || !mounted.current) return;
+    if (performance.now() - clickedAt > RETRY_DOWNLOAD_WINDOW_MS) return;
+    saveFile(musicXmlFile(sessionId, fresh));
   }
 
   const hint =
     status === "loading"
       ? "Preparando el MusicXML…"
       : status === "error"
-        ? "No se pudo preparar el MusicXML. Púlsalo para volver a intentarlo."
+        ? "No se pudo preparar el MusicXML. Pulsa «Descargar MusicXML» para volver a intentarlo."
         : null;
 
   return (
@@ -53,15 +65,11 @@ export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButt
         aria-describedby={hint ? hintId : undefined}
         onClick={() => void download()}
       >
-        <PixelIcon name="download" />
+        <PixelIcon name="download" className="button__icon--down" />
         Descargar MusicXML
       </button>
       {hint && (
-        <p
-          className="score-download__hint"
-          id={hintId}
-          role={status === "error" ? "alert" : undefined}
-        >
+        <p className="score-download__hint" id={hintId}>
           {hint}
         </p>
       )}

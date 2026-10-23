@@ -69,6 +69,17 @@
   transform: translateX(2px);
 }
 
+/* Un icono que apunta hacia abajo (descargar) baja en vez de avanzar. */
+.button:hover .button__icon--down {
+  transform: translateY(2px);
+}
+
+/* Deshabilitado no responde al paso del ratón. */
+.button:disabled:hover svg,
+.button[aria-disabled="true"]:hover svg {
+  transform: none;
+}
+
 /* Acción secundaria en línea (reintentar, cargar más): rótulo subrayado sin caja. */
 .link-button {
   min-height: 44px;

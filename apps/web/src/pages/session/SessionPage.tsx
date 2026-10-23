@@ -151,11 +151,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 sessionId={sessionId}
                 xml={musicXml.data}
                 status={
-                  musicXml.data !== undefined
-                    ? "ready"
-                    : musicXml.isError && !musicXml.isFetching
-                      ? "error"
-                      : "loading"
+                  musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
                 }
                 onRetry={async () => (await musicXml.refetch()).data}
               />

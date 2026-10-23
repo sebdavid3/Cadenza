@@ -38,8 +38,10 @@ describe("descarga del MusicXML", () => {
     ]);
     expect(document.querySelector("a[download]")).toBeNull();
     // Safari empieza la descarga después del clic: la URL se revoca con margen.
+    expect(REVOKE_DELAY_MS).toBeGreaterThanOrEqual(40_000);
+    vi.advanceTimersByTime(REVOKE_DELAY_MS - 1);
     expect(revokeObjectURL).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(REVOKE_DELAY_MS);
+    vi.advanceTimersByTime(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:descarga");
   });
 });
