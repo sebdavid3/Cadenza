@@ -227,9 +227,8 @@ Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proce
 | `CADENZA_CORS_ORIGINS` | `*` | Orígenes CORS: `*`, un origen, lista separada por comas o lista JSON. |
 | `CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | `5` | Intentos de login fallidos antes del bloqueo temporal. |
 | `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Ventana del límite de intentos de login. |
-| `CADENZA_REGISTRATION_ENABLED` | `false` | Abrir el registro público con activación ([ADR-0022](docs/adr/ADR-0022-registro-de-cuentas-con-activacion.md)); exige `CADENZA_CORS_ORIGINS` sin `*`. |
+| `CADENZA_REGISTRATION_ENABLED` | `false` | Abrir el registro público: la cuenta entra en el momento ([ADR-0022](docs/adr/ADR-0022-registro-de-cuentas-con-activacion.md), [ADR-0025](docs/adr/ADR-0025-registro-abierto-sin-aprobacion.md)); exige `CADENZA_CORS_ORIGINS` sin `*`. |
 | `CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `5` / `3600` | Límite de registros por IP. |
-| `CADENZA_REGISTRATION_MAX_PENDING` | `50` | Cuentas pendientes de activación a partir de las cuales el registro se cierra (503). |
 | `CADENZA_OMR_PREPROCESS_ENABLED` | `false` | Activar el preprocesado de imagen antes del OMR. |
 | `CADENZA_OMR_PREPROCESS_DESKEW` / `_BINARIZE` / `_RESCALE` | `false` | Pasos del preprocesado: enderezado, binarización y reescalado. |
 | `CADENZA_OMR_PREPROCESS_TARGET_DPI` | `300` | Resolución objetivo del reescalado. |
@@ -344,7 +343,7 @@ docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --user
 Sin `--password`, la CLI pide la contraseña sin eco y dos veces.
 
 Para el despliegue público (interfaz web, proxy Nginx con la IP real, PostgreSQL y la API sin
-puertos publicados, CORS cerrado y registro con activación) está
+puertos publicados, CORS cerrado y registro abierto) está
 [`docker-compose.prod.yml`](docker-compose.prod.yml), con sus variables en
 [`deploy/.env.example`](deploy/.env.example):
 [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) §2.2 y

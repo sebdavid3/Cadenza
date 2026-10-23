@@ -1,4 +1,4 @@
-"""Pruebas del caso de uso register_user: registro con activación (ADR-0022, #154)."""
+"""Pruebas del caso de uso register_user: registro abierto (ADR-0022, ADR-0025, #169)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from cadenza.application import (
     DuplicateUsername,
     InMemoryPasswordHasher,
     InMemoryUserRepository,
-    NotAuthenticated,
     Role,
     WeakPassword,
     authenticate,
@@ -21,7 +20,7 @@ PASSWORD = secrets.token_urlsafe(12)
 OTHER_PASSWORD = secrets.token_urlsafe(12)
 
 
-def test_register_user_creates_an_inactive_self_registered_transcriptor() -> None:
+def test_register_user_creates_an_active_self_registered_transcriptor() -> None:
     repo = InMemoryUserRepository()
     hasher = InMemoryPasswordHasher()
 
@@ -31,19 +30,18 @@ def test_register_user_creates_an_inactive_self_registered_transcriptor() -> Non
 
     assert user.id == "u-1"
     assert user.role is Role.TRANSCRIPTOR
-    assert user.active is False
+    assert user.active is True
     assert user.self_registered is True
     assert user.password_hash != PASSWORD
     assert repo.get_by_username("ana") == user
 
 
-def test_registered_user_cannot_authenticate_until_activated() -> None:
+def test_registered_user_can_authenticate_right_away() -> None:
     repo = InMemoryUserRepository()
     hasher = InMemoryPasswordHasher()
-    register_user("ana", PASSWORD, user_repository=repo, password_hasher=hasher)
+    created = register_user("ana", PASSWORD, user_repository=repo, password_hasher=hasher)
 
-    with pytest.raises(NotAuthenticated):
-        authenticate("ana", PASSWORD, user_repository=repo, password_hasher=hasher)
+    assert authenticate("ana", PASSWORD, user_repository=repo, password_hasher=hasher) == created
 
 
 def test_register_user_rejects_short_passwords_and_taken_usernames() -> None:

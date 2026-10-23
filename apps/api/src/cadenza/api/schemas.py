@@ -428,8 +428,8 @@ class UserRead(BaseModel):
     self_registered: bool = Field(
         default=False,
         description=(
-            "Cuenta creada desde el registro público (ADR-0022): nace inactiva y no forma parte "
-            "de los datos del estudio."
+            "Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y "
+            "no forma parte de los datos del estudio."
         ),
     )
 

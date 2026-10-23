@@ -32,7 +32,6 @@ def _app(
     enabled: bool = True,
     max_attempts: int = 5,
     window_seconds: int = 3600,
-    max_pending: int = 50,
 ) -> FastAPI:
     engine = create_memory_engine()
     create_schema(engine)
@@ -42,7 +41,6 @@ def _app(
         registration_enabled=enabled,
         registration_rate_limit_max_attempts=max_attempts,
         registration_rate_limit_window_seconds=window_seconds,
-        registration_max_pending=max_pending,
     )
     return create_app(create_session_factory(engine), settings=settings)
 
@@ -52,14 +50,8 @@ def _client(
     enabled: bool = True,
     max_attempts: int = 5,
     window_seconds: int = 3600,
-    max_pending: int = 50,
 ) -> tuple[TestClient, FastAPI]:
-    app = _app(
-        enabled=enabled,
-        max_attempts=max_attempts,
-        window_seconds=window_seconds,
-        max_pending=max_pending,
-    )
+    app = _app(enabled=enabled, max_attempts=max_attempts, window_seconds=window_seconds)
     return TestClient(app), app
 
 
@@ -86,7 +78,7 @@ def _register(client: TestClient, username: str, password: str = PASSWORD) -> in
     return code
 
 
-def test_register_creates_an_inactive_self_registered_transcriptor() -> None:
+def test_register_creates_an_active_self_registered_transcriptor() -> None:
     client, _app = _client()
 
     response = client.post("/auth/register", json={"username": "ana", "password": PASSWORD})
@@ -95,28 +87,29 @@ def test_register_creates_an_inactive_self_registered_transcriptor() -> None:
     body = response.json()
     assert body["username"] == "ana"
     assert body["role"] == "transcriptor"
-    assert body["active"] is False
+    assert body["active"] is True
     assert body["self_registered"] is True
     assert "password" not in body and "password_hash" not in body
 
 
-def test_self_registered_account_cannot_log_in_until_activated() -> None:
+def test_self_registered_account_logs_in_right_away_until_deactivated() -> None:
     client, app = _client()
     created = client.post("/auth/register", json={"username": "ana", "password": PASSWORD})
     form = {"username": "ana", "password": PASSWORD}
 
-    # Igual que unas credenciales incorrectas.
-    assert client.post("/auth/login", data=form).status_code == 401
+    assert client.post("/auth/login", data=form).status_code == 200
 
+    # Un investigador puede desactivarla (moderación): entonces no entra, como con unas
+    # credenciales incorrectas.
     token = _add_investigator(app)
-    activated = client.patch(
+    deactivated = client.patch(
         f"/users/{created.json()['id']}",
-        json={"active": True},
+        json={"active": False},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert activated.status_code == 200
-    assert activated.json()["self_registered"] is True
-    assert client.post("/auth/login", data=form).status_code == 200
+    assert deactivated.status_code == 200
+    assert deactivated.json()["self_registered"] is True
+    assert client.post("/auth/login", data=form).status_code == 401
 
 
 def test_register_rejects_a_taken_username() -> None:
@@ -170,23 +163,6 @@ def test_register_limit_is_per_ip() -> None:
     assert _register(first, "aaa1") == 201
     assert _register(first, "aaa2") == 429
     assert _register(second, "aaa3") == 201
-
-
-def test_register_is_closed_while_too_many_accounts_await_activation() -> None:
-    client, app = _client(max_pending=2)
-    created = client.post("/auth/register", json={"username": "aaa1", "password": PASSWORD})
-    _register(client, "aaa2")
-
-    closed = client.post("/auth/register", json={"username": "aaa3", "password": PASSWORD})
-    assert closed.status_code == 503
-
-    token = _add_investigator(app)
-    client.patch(
-        f"/users/{created.json()['id']}",
-        json={"active": True},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert _register(client, "aaa3") == 201
 
 
 @pytest.mark.parametrize(

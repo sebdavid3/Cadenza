@@ -1,6 +1,6 @@
 # ADR-0022: Registro de cuentas con activación por un investigador
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md): la cuenta nace activa y desaparece el tope de pendientes; los §4 y §9 ya no rigen)
 - **Fecha:** 2026-10-23
 - **Decisores:** Dirección del proyecto Cadenza (decisión aprobada por el responsable el 2026-10-23), Equipo de Desarrollo
 - **Relacionado:** [ADR-0012](ADR-0012-autenticacion-e-identidad.md) (enmienda su §1), [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md)

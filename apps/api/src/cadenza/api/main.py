@@ -26,7 +26,6 @@ from cadenza.application import (
     NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
-    RegistrationClosed,
     Role,
     ScoreExporter,
     SequenceConflict,
@@ -215,14 +214,6 @@ RATE_LIMITED_429: dict[int | str, dict[str, Any]] = {
     status.HTTP_429_TOO_MANY_REQUESTS: {
         "model": ErrorDetail,
         "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
-    }
-}
-REGISTRATION_CLOSED_503: dict[int | str, dict[str, Any]] = {
-    status.HTTP_503_SERVICE_UNAVAILABLE: {
-        "model": ErrorDetail,
-        "description": (
-            "Demasiadas cuentas pendientes de activación: el registro está cerrado por ahora"
-        ),
     }
 }
 TRANSCRIBE_BUSY_503: dict[int | str, dict[str, Any]] = {
@@ -653,13 +644,6 @@ def create_app(
             content={"detail": str(exc)},
         )
 
-    @app.exception_handler(RegistrationClosed)
-    def registration_closed_handler(request: Request, exc: RegistrationClosed) -> JSONResponse:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={"detail": str(exc)},
-        )
-
     def require_registration_enabled(request: Request) -> None:
         """Con el registro apagado, la ruta responde 404 antes de leer el cuerpo (ADR-0022)."""
         app_settings: Settings = request.app.state.settings
@@ -726,24 +710,21 @@ def create_app(
         tags=["Auth"],
         summary="Registro de una cuenta por la propia persona",
         description=(
-            "Crea una cuenta de transcriptor marcada como autorregistrada e inactiva: no puede "
-            "iniciar sesión hasta que un investigador la active con PATCH /users/{id} "
-            "(ADR-0022). Solo usuario y contraseña. Limitado por IP (red /64 en IPv6) y cerrado "
-            "con 503 mientras haya demasiadas cuentas pendientes; si el registro está desactivado "
-            "en la configuración, responde 404."
+            "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede "
+            "iniciar sesión en el momento, y un investigador puede desactivarla con "
+            "PATCH /users/{id} (ADR-0022, ADR-0025). Solo usuario y contraseña. Limitado por IP "
+            "(red /64 en IPv6); si el registro está desactivado en la configuración, responde 404."
         ),
         responses={
             **NOT_FOUND_404,
             **CONFLICT_409,
             **RATE_LIMITED_429,
             **UNPROCESSABLE_422,
-            **REGISTRATION_CLOSED_503,
         },
         dependencies=[Depends(require_registration_enabled)],
     )
     def register(payload: RegisterRequest, request: Request, db: DbDep) -> UserRead:
-        """Registra una cuenta inactiva hasta que un investigador la active (ADR-0022)."""
-        app_settings: Settings = request.app.state.settings
+        """Registra una cuenta activa de transcriptor (ADR-0022, ADR-0025)."""
         client_host = request.client.host if request.client else "unknown"
         rate_limiter: LoginRateLimiter = request.app.state.registration_rate_limiter
         # Todo intento que llega aquí cuenta, también el que acaba en 409: así no se pueden
@@ -755,7 +736,6 @@ def create_app(
             payload.password,
             user_repository=SqlAlchemyUserRepository(db),
             password_hasher=request.app.state.password_hasher,
-            max_pending=app_settings.registration_max_pending,
         )
         return UserRead.from_user(user)
 

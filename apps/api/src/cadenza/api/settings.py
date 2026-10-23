@@ -138,14 +138,6 @@ class Settings(BaseSettings):
         ge=1,
         description="Ventana en segundos del límite de intentos de registro por IP (ADR-0022).",
     )
-    registration_max_pending: int = Field(
-        default=50,
-        ge=1,
-        description=(
-            "Cuentas autorregistradas pendientes de activación a partir de las cuales el registro "
-            "responde 503 hasta que un investigador revise las que hay (ADR-0022)."
-        ),
-    )
     transcribe_max_concurrency: int = Field(
         default=2,
         ge=1,

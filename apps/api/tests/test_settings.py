@@ -134,7 +134,6 @@ def test_registration_is_closed_by_default_and_configurable(
         "CADENZA_REGISTRATION_ENABLED",
         "CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS",
         "CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS",
-        "CADENZA_REGISTRATION_MAX_PENDING",
         "CADENZA_CORS_ORIGINS",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -142,7 +141,6 @@ def test_registration_is_closed_by_default_and_configurable(
     assert defaults.registration_enabled is False
     assert defaults.registration_rate_limit_max_attempts == 5
     assert defaults.registration_rate_limit_window_seconds == 3600
-    assert defaults.registration_max_pending == 50
 
     monkeypatch.setenv("CADENZA_CORS_ORIGINS", "https://cadenza.test")
     monkeypatch.setenv("CADENZA_REGISTRATION_ENABLED", "true")
@@ -152,3 +150,5 @@ def test_registration_is_closed_by_default_and_configurable(
     assert configured.registration_enabled is True
     assert configured.registration_rate_limit_max_attempts == 3
     assert configured.registration_rate_limit_window_seconds == 600
+    # El tope de cuentas pendientes desapareció con el registro abierto (ADR-0025).
+    assert not hasattr(configured, "registration_max_pending")
