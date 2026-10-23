@@ -50,7 +50,8 @@ export function createLimiter(max: number) {
           resolve();
         };
         const cancel = () => {
-          waiting.splice(waiting.indexOf(start), 1);
+          const index = waiting.indexOf(start);
+          if (index >= 0) waiting.splice(index, 1);
           reject(new ApiError("aborted"));
         };
         waiting.push(start);

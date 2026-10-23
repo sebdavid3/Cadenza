@@ -12,7 +12,7 @@ import {
 } from "../../test/auth-helpers";
 import type { UserRead } from "../../types";
 import { MAX_UPLOAD_BYTES, precheck, useQueueStore } from "./queue";
-import { formatDate, isoUtc, parseUtc, statusLabel } from "./sessions";
+import { createLimiter, formatDate, isoUtc, parseUtc, statusLabel } from "./sessions";
 
 // Sin getToken: la cola manda en cada envío el token de quien la llenó.
 const api = createApiClient({ baseUrl: "/api" });
@@ -419,5 +419,37 @@ describe("datos de sesiones", () => {
     expect(formatDate("2026-10-22T20:15:00")).toMatch(/2026/);
     expect(statusLabel("transcribed")).toBe("Transcrita");
     expect(statusLabel("finalized")).toBe("Finalizada");
+  });
+});
+
+describe("limitador de descargas", () => {
+  it("no pasa del máximo y una tarea cancelada en espera no ocupa hueco", async () => {
+    const limit = createLimiter(2);
+    const gates = [deferred<string>(), deferred<string>(), deferred<string>(), deferred<string>()];
+    const started: number[] = [];
+    const task = (i: number) => () => {
+      started.push(i);
+      return gates[i]?.promise ?? Promise.reject(new Error("sin puerta"));
+    };
+    const cancelled = new AbortController();
+
+    const results = [
+      limit(task(0)),
+      limit(task(1)),
+      limit(task(2), cancelled.signal),
+      limit(task(3)),
+    ];
+    cancelled.abort();
+    await expect(results[2]).rejects.toMatchObject({ kind: "aborted" });
+    expect(started).toEqual([0, 1]);
+
+    gates[0]?.resolve("a");
+    await results[0];
+    await vi.waitFor(() => {
+      expect(started).toEqual([0, 1, 3]);
+    });
+    gates[1]?.resolve("b");
+    gates[3]?.resolve("d");
+    await expect(Promise.all([results[1], results[3]])).resolves.toEqual(["b", "d"]);
   });
 });
