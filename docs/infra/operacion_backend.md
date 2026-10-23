@@ -108,7 +108,7 @@ docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli cre
 
 Cadenza está publicada en **https://r2d2.tailcacb19.ts.net**, desde `/opt/docker/cadenza` en el servidor `r2d2`, un clon de la rama `dev`:
 - `.env` generado en el servidor con secretos aleatorios de 64 caracteres y permisos 600. Los secretos no han salido de allí.
-- Copias en `/opt/docker/cadenza/backups`, con permisos 700.
+- Copias en `/opt/docker/cadenza/backups`, con permisos 700, una al día por cron (§4.3).
 - Funnel en modo proxy HTTP (`sudo tailscale funnel --bg 8380`), activado por el responsable.
 
 Procedimientos, en el servidor y dentro de `/opt/docker/cadenza`:
@@ -120,6 +120,7 @@ DC="docker compose -f docker-compose.prod.yml --env-file .env"
 $DC --profile backup run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
 git pull --ff-only
 $DC up -d --build
+$DC --profile backup build backup   # la imagen de copias no se reconstruye sola con «up»
 
 # Parar y volver a arrancar: los volúmenes, y con ellos los datos, se conservan
 $DC down
@@ -253,3 +254,22 @@ docker compose -f docker-compose.prod.yml start api
 ```
 
 `restore` borra y recrea los objetos de la base de datos desde el volcado (`pg_restore --clean --if-exists --no-owner --single-transaction --exit-on-error`). Después copia los artefactos de la copia sobre los existentes, que son direccionados por contenido. Para comprobar una copia sin tocar la base de producción, se puede restaurar en una base aparte creada con `CREATE DATABASE`, pasando su URL en `CADENZA_DATABASE_URL`.
+
+### 4.3 Copia diaria ([#174](https://github.com/sebdavid3/Cadenza/issues/174))
+
+`deploy/copia-diaria.sh` hace una copia con el servicio `backup` y la verifica. Solo si la copia nueva es válida, borra las de más de `CADENZA_BACKUP_KEEP_DAYS` días (14 por defecto). Si algo falla, sale con un código distinto de 0 y deja una línea `ERROR` en el registro.
+
+En el servidor del despliegue corre cada día a las 04:15 UTC (23:15 en Colombia) desde el cron de `papoi`. La línea está también en `~/scripts/crontab-papoi.txt`, el archivo desde el que se instala ese crontab:
+
+```cron
+15 4 * * * /bin/sh /opt/docker/cadenza/deploy/copia-diaria.sh >> /opt/docker/cadenza/backups/copias.log 2>&1
+```
+
+Para ver cómo van las copias:
+
+```bash
+tail -n 20 /opt/docker/cadenza/backups/copias.log
+ls -la /opt/docker/cadenza/backups
+```
+
+Las copias se quedan en el mismo disco que los datos: protegen de errores y borrados, no de que falle el disco. Sacar una copia del servidor (cifrada) queda en manos del responsable.
