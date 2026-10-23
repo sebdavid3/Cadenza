@@ -888,7 +888,7 @@ dependencias y el criterio de cierre, en
 
 | Etapa | Issues | Brecha frente al objetivo |
 |---|---|---|
-| Corrección sobre la partitura | [#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Mapa `Anchor → elemento SVG` por evento (D11) y las siete operaciones de `EditOp`, deshacer y gestión de hallazgos desde la interfaz |
+| Corrección sobre la partitura | [#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Mapa `Anchor → elemento SVG` por evento (D11) y las siete operaciones de `EditOp`, deshacer y rehacer, y gestión de hallazgos desde la interfaz |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
 | Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D55, D57, D58 y D59 (esta última, con el alcance por decidir) |

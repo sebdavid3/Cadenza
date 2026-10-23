@@ -385,9 +385,8 @@ Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `
 
 Queda por construir sobre la API v1, planificado en issues del milestone de la Fase 8:
 - **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Queda el cambio de contraseña ([#190](https://github.com/sebdavid3/Cadenza/issues/190)); la gestión de cuentas se limita a activar y desactivar ([#155](https://github.com/sebdavid3/Cadenza/issues/155)), sin roles ni restablecer contraseñas.
-- **Corrección:** sobre la partitura ya dibujada con OSMD (la vista de solo lectura marca compases; corregir exige seleccionar cualquier símbolo sobre la notación, sin depender de las coordenadas del motor OMR, porque HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos. Planificado en [#182](https://github.com/sebdavid3/Cadenza/issues/182) (seleccionar una nota: mapa ancla→SVG por evento), [#183](https://github.com/sebdavid3/Cadenza/issues/183) (altura, duración y alteración), [#184](https://github.com/sebdavid3/Cadenza/issues/184) (insertar, borrar, clave y armadura), [#185](https://github.com/sebdavid3/Cadenza/issues/185) (deshacer) y [#186](https://github.com/sebdavid3/Cadenza/issues/186) (posibles errores).
+- **Corrección:** sobre la partitura ya dibujada con OSMD (la vista de solo lectura marca compases; corregir exige seleccionar cualquier símbolo sobre la notación, sin depender de las coordenadas del motor OMR, porque HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos. Planificado en [#182](https://github.com/sebdavid3/Cadenza/issues/182) (seleccionar una nota: mapa ancla→SVG por evento), [#183](https://github.com/sebdavid3/Cadenza/issues/183) (altura, duración y alteración), [#184](https://github.com/sebdavid3/Cadenza/issues/184) (insertar, borrar, clave y armadura), [#185](https://github.com/sebdavid3/Cadenza/issues/185) (deshacer y rehacer) y [#186](https://github.com/sebdavid3/Cadenza/issues/186) (posibles errores).
 - **Cierre:** finalización y reapertura ([#187](https://github.com/sebdavid3/Cadenza/issues/187)), métricas de esfuerzo (`POST /sessions/{id}/effort`, [#188](https://github.com/sebdavid3/Cadenza/issues/188)) y descarga del MIDI ([#189](https://github.com/sebdavid3/Cadenza/issues/189); la del MusicXML ya existe, [#176](https://github.com/sebdavid3/Cadenza/issues/176)).
-- **Cuenta:** cambio de contraseña ([#190](https://github.com/sebdavid3/Cadenza/issues/190)).
 
 ---
 
@@ -425,7 +424,6 @@ La secuencia completa de digitalización, edición, concurrencia, validación, d
 
 - **Selección de símbolos sobre OSMD:** el render en el navegador está verificado ([#153](https://github.com/sebdavid3/Cadenza/issues/153), 2026-10-23, contra la API real con HOMR); falta el mapa ancla→elemento SVG por evento que necesita la corrección.
 - **Reproducción Tone.js:** el transporte y el compás que suena están verificados en el navegador ([#177](https://github.com/sebdavid3/Cadenza/issues/177), 2026-10-23, contra la API real con HOMR y con la CSP de producción); el sonido no lo ha escuchado nadie (un navegador sin interfaz no oye) y queda por comprobar a mano, también en móvil.
-- **Panel Administrativo `/users`:** Vistas de gestión de cuentas en el frontend web.
 
 ---
 

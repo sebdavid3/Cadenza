@@ -26,8 +26,8 @@ Seguimiento: milestones
 | Tanda | Issues | Contenido | ADR |
 |---|---|---|---|
 | 1 | [#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#147](https://github.com/sebdavid3/Cadenza/issues/147) | Base del cliente, landing, acceso y transcripción por lotes con el listado de sesiones | ADR-0019, ADR-0020 |
-| 2 | [#152](https://github.com/sebdavid3/Cadenza/issues/152)–[#155](https://github.com/sebdavid3/Cadenza/issues/155), [#169](https://github.com/sebdavid3/Cadenza/issues/169) | MusicXML fiel al `ScoreIR`; vista de solo lectura con OSMD y posibles errores por compás; registro abierto y moderación de cuentas | ADR-0021, ADR-0022, ADR-0025 |
-| Despliegue | [#156](https://github.com/sebdavid3/Cadenza/issues/156), [#157](https://github.com/sebdavid3/Cadenza/issues/157), [#159](https://github.com/sebdavid3/Cadenza/issues/159), [#165](https://github.com/sebdavid3/Cadenza/issues/165), [#166](https://github.com/sebdavid3/Cadenza/issues/166), [#174](https://github.com/sebdavid3/Cadenza/issues/174), [#180](https://github.com/sebdavid3/Cadenza/issues/180) | Publicación en `https://r2d2.tailcacb19.ts.net`, transcripciones simultáneas, confirmación antes de responder y copias diarias | ADR-0023, ADR-0024 |
+| 2 | [#152](https://github.com/sebdavid3/Cadenza/issues/152)–[#155](https://github.com/sebdavid3/Cadenza/issues/155) | MusicXML fiel al `ScoreIR`; vista de solo lectura con OSMD y posibles errores por compás; registro de cuentas y moderación | ADR-0021, ADR-0022 |
+| Despliegue | [#156](https://github.com/sebdavid3/Cadenza/issues/156), [#157](https://github.com/sebdavid3/Cadenza/issues/157), [#159](https://github.com/sebdavid3/Cadenza/issues/159), [#165](https://github.com/sebdavid3/Cadenza/issues/165), [#166](https://github.com/sebdavid3/Cadenza/issues/166), [#169](https://github.com/sebdavid3/Cadenza/issues/169), [#174](https://github.com/sebdavid3/Cadenza/issues/174), [#180](https://github.com/sebdavid3/Cadenza/issues/180) | Publicación en `https://r2d2.tailcacb19.ts.net`, transcripciones simultáneas, confirmación antes de responder, registro abierto y copias diarias | ADR-0023, ADR-0024, ADR-0025 |
 | 3 | [#176](https://github.com/sebdavid3/Cadenza/issues/176), [#177](https://github.com/sebdavid3/Cadenza/issues/177) | Descarga del MusicXML y reproducción con Tone.js, con el compás que suena resaltado | ADR-0026 |
 
 Queda pendiente la escucha manual de la reproducción por el responsable, en escritorio y en
@@ -40,7 +40,7 @@ móvil: un navegador sin interfaz no la oye.
 | **Corrección** | [#182](https://github.com/sebdavid3/Cadenza/issues/182) | Seleccionar una nota sobre la partitura: mapa ancla→SVG por evento (ADR-0027 previsto) | — | D11 |
 | | [#183](https://github.com/sebdavid3/Cadenza/issues/183) | Corregir la altura, la duración y la alteración (`base_seq`, 409, 422) | #182 | — |
 | | [#184](https://github.com/sebdavid3/Cadenza/issues/184) | Insertar y borrar eventos, y cambiar la clave y la armadura | #183 | — |
-| | [#185](https://github.com/sebdavid3/Cadenza/issues/185) | Deshacer en el servidor | #183 | — |
+| | [#185](https://github.com/sebdavid3/Cadenza/issues/185) | Deshacer en el servidor y rehacer (ADR-0006, ADR-0007) | #183 | — |
 | | [#186](https://github.com/sebdavid3/Cadenza/issues/186) | Descartar, restaurar y revalidar los posibles errores | #183 | — |
 | **Cierre** | [#187](https://github.com/sebdavid3/Cadenza/issues/187) | Finalizar y reabrir una sesión | #183 | — |
 | | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo | #183, #187 | D38 |
@@ -55,7 +55,7 @@ móvil: un navegador sin interfaz no la oye.
 flowchart LR
     S182["#182 seleccionar una nota"] --> S183["#183 altura, duración y alteración"]
     S183 --> S184["#184 insertar, borrar, clave y armadura"]
-    S183 --> S185["#185 deshacer"]
+    S183 --> S185["#185 deshacer y rehacer"]
     S183 --> S186["#186 posibles errores"]
     S183 --> S187["#187 finalizar y reabrir"]
     S191["#191 dataset sin cuentas del registro"] -.-> S187
@@ -77,7 +77,7 @@ flowchart LR
 ## Criterio de cierre
 
 1. Desde la interfaz, una persona transcribe, revisa, corrige con las siete operaciones de
-   `EditOp`, deshace, gestiona los posibles errores, finaliza, reabre y exporta a MusicXML y
+   `EditOp`, deshace y rehace, gestiona los posibles errores, finaliza, reabre y exporta a MusicXML y
    MIDI. Se verifica contra la API real con HOMR a 1440 y 390 px y en el despliegue público.
 2. Las métricas de esfuerzo se registran como pide el protocolo, y las sesiones de cuentas del
    registro no llegan ni al estudio ni al dataset (D55).

@@ -8,7 +8,7 @@ web
 
 ## Stack
 
-Decidido en `docs/ARCHITECTURE.md` (tabla de stack) y ADR-0006: React 18 + TypeScript + Vite en `apps/web`, Zustand para el estado del editor y TanStack Query para el estado del servidor, ESLint, Vitest y Playwright. El cliente consume la API v1 congelada (`docs/api/openapi.json`) con los tipos generados en `apps/web/src/types.ts`.
+Decidido en `docs/ARCHITECTURE.md` (tabla de stack) y ADR-0006: React 18 + TypeScript + Vite en `apps/web`, Zustand para el estado del editor y TanStack Query para el estado del servidor, ESLint y Vitest; Playwright está previsto, pero todavía no se usa. El cliente consume la API v1 congelada (`docs/api/openapi.json`) con los tipos generados en `apps/web/src/types.ts`.
 
 ## Users
 
