@@ -106,11 +106,14 @@ def client_network_key(host: str) -> str:
 class LoginRateLimiter:
     """Control en memoria de intentos por clave en una ventana de tiempo (#40, ADR-0022).
 
-    El inicio de sesión cuenta solo los fallos (`check` + `record_failure`); el registro cuenta
-    cada intento con `hit`, que comprueba y anota bajo el mismo cerrojo.
+    El inicio de sesión y el registro anotan cada intento con `hit`, que comprueba y anota bajo el
+    mismo cerrojo; el inicio de sesión borra el historial de su clave con `reset` si sale bien, de
+    modo que en la práctica solo cuentan los fallos.
     """
 
-    # Por encima de este número de claves se purgan las que ya no tienen intentos en la ventana.
+    # A partir de este número de claves se purgan las que ya no tienen intentos en la ventana. El
+    # umbral siguiente se fija en el doble de las que sobreviven, para que purgar cueste O(1)
+    # amortizado aunque alguien cree claves sin parar (revisión de #156).
     _PURGE_THRESHOLD = 10_000
 
     def __init__(
@@ -124,6 +127,7 @@ class LoginRateLimiter:
         self.window_seconds = window_seconds
         self.message = message
         self._failures: dict[str, list[float]] = {}
+        self._next_purge = self._PURGE_THRESHOLD
         self._lock = threading.Lock()
 
     def _recent(self, key: str, now: float) -> list[float]:
@@ -135,10 +139,11 @@ class LoginRateLimiter:
         return failures
 
     def _purge(self, now: float) -> None:
-        if len(self._failures) <= self._PURGE_THRESHOLD:
+        if len(self._failures) < self._next_purge:
             return
         for key in list(self._failures):
             self._recent(key, now)
+        self._next_purge = max(self._PURGE_THRESHOLD, 2 * len(self._failures))
 
     def _raise_limited(self, failures: list[float], now: float) -> None:
         retry_after = max(1, int(self.window_seconds - (now - failures[0])))
