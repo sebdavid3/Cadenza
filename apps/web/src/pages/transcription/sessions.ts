@@ -1,3 +1,4 @@
+import { queryOptions } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type { SessionSummaryRead, UserRead } from "../../types";
@@ -26,10 +27,68 @@ export function sessionImage(api: ApiClient, sessionId: string, signal?: AbortSi
   });
 }
 
+/**
+ * Limita cuántas tareas corren a la vez; las demás esperan su turno en orden. Al terminar una,
+ * su hueco pasa directamente a la siguiente, y la que se cancela mientras espera no lo ocupa.
+ */
+export function createLimiter(max: number) {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else active -= 1;
+  };
+  return async function limit<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (signal?.aborted) throw new ApiError("aborted");
+    if (active < max) {
+      active += 1;
+    } else {
+      await new Promise<void>((resolve, reject) => {
+        const start = () => {
+          signal?.removeEventListener("abort", cancel);
+          resolve();
+        };
+        const cancel = () => {
+          waiting.splice(waiting.indexOf(start), 1);
+          reject(new ApiError("aborted"));
+        };
+        waiting.push(start);
+        signal?.addEventListener("abort", cancel, { once: true });
+      });
+    }
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  };
+}
+
+/**
+ * La API solo sirve la imagen original, sin miniaturas: se descargan de pocas en pocas y el Blob
+ * se guarda en la caché de consultas, que se vacía al cerrar la sesión.
+ */
+const thumbnailSlots = createLimiter(3);
+
+export const sessionImageQuery = (api: ApiClient, sessionId: string) =>
+  queryOptions({
+    queryKey: ["session-image", sessionId],
+    queryFn: ({ signal }) => thumbnailSlots(() => sessionImage(api, sessionId, signal), signal),
+    // La imagen de una sesión no cambia.
+    staleTime: Infinity,
+  });
+
 /** `created_at` llega sin zona horaria pero es UTC. */
 export function parseUtc(value: string): Date {
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value);
   return new Date(hasZone ? value : `${value}Z`);
+}
+
+/** Valor de `<time dateTime>`: ISO con zona; si la fecha no se puede leer, la cadena tal cual. */
+export function isoUtc(value: string): string {
+  const date = parseUtc(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 const DATE_FORMAT = new Intl.DateTimeFormat("es", {

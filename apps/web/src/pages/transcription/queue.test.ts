@@ -1,11 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "../../api/client";
-import { TRANSCRIBE_TIMEOUT_MS } from "../../api/config";
-import { jsonResponse, mockApi } from "../../test/auth-helpers";
+import { useAuthStore } from "../../auth/store";
+import {
+  ANA,
+  deferred,
+  hangUntilAborted,
+  jsonResponse,
+  mockApi,
+  resetAuth,
+  signInAs,
+} from "../../test/auth-helpers";
+import type { UserRead } from "../../types";
 import { MAX_UPLOAD_BYTES, precheck, useQueueStore } from "./queue";
-import { formatDate, parseUtc, statusLabel } from "./sessions";
+import { formatDate, isoUtc, parseUtc, statusLabel } from "./sessions";
 
+// Sin getToken: la cola manda en cada envío el token de quien la llenó.
 const api = createApiClient({ baseUrl: "/api" });
+
+const BRUNO: UserRead = { ...ANA, id: "b7c1a3f0-0000-4000-8000-000000000002", username: "bruno" };
+
+function authorization(init: RequestInit | undefined): string | null {
+  return new Headers(init?.headers).get("Authorization");
+}
+
+const statuses = () => useQueueStore.getState().items.map((item) => item.status);
 
 function png(name = "incipit.png", size = 1024) {
   return new File([new Uint8Array(size)], name, { type: "image/png" });
@@ -22,8 +40,12 @@ function transcribed(id: string, findings = 0) {
   };
 }
 
+let anaToken = "";
+
 beforeEach(() => {
-  useQueueStore.setState({ items: [], running: false, ownerId: null });
+  resetAuth();
+  useQueueStore.getState().reset();
+  anaToken = signInAs(ANA);
 });
 
 afterEach(() => {
@@ -49,7 +71,7 @@ describe("comprobación previa", () => {
 });
 
 describe("cola secuencial", () => {
-  it("envía las imágenes de una en una, como multipart con el campo file y 30 s de timeout", async () => {
+  it("envía las imágenes de una en una, como multipart con el campo file y el token de quien la llenó", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     let n = 0;
@@ -63,24 +85,119 @@ describe("cola secuencial", () => {
         return jsonResponse(transcribed(`s${String(n)}`, n), 201);
       },
     });
-    const transcribedIds: string[] = [];
     const store = useQueueStore.getState();
     store.add([png("a.png"), png("b.png"), png("c.png")]);
 
-    await store.run(api, (result) => transcribedIds.push(result.session_id));
+    await store.run(api);
 
     expect(maxInFlight).toBe(1);
-    expect(transcribedIds).toEqual(["s1", "s2", "s3"]);
-    expect(useQueueStore.getState().items.map((item) => item.status)).toEqual([
-      "done",
-      "done",
-      "done",
+    expect(useQueueStore.getState().items.map((item) => item.result?.session_id)).toEqual([
+      "s1",
+      "s2",
+      "s3",
     ]);
+    expect(statuses()).toEqual(["done", "done", "done"]);
     const body = calls[0]?.init?.body;
     expect(body).toBeInstanceOf(FormData);
     expect((body as FormData).get("file")).toBeInstanceOf(File);
     expect([...(body as FormData).keys()]).toEqual(["file"]);
-    expect(TRANSCRIBE_TIMEOUT_MS).toBe(30_000);
+    expect(calls.map((call) => authorization(call.init))).toEqual([
+      `Bearer ${anaToken}`,
+      `Bearer ${anaToken}`,
+      `Bearer ${anaToken}`,
+    ]);
+  });
+
+  it("guarda cuándo empezó cada imagen para que el contador no se reinicie", async () => {
+    const response = deferred<Response>();
+    mockApi({ "POST /transcribe": () => response.promise });
+    const store = useQueueStore.getState();
+    store.add([png()]);
+    const before = Date.now();
+
+    const running = store.run(api);
+    const [item] = useQueueStore.getState().items;
+    expect(item?.status).toBe("transcribing");
+    expect(item?.startedAt).toBeGreaterThanOrEqual(before);
+
+    response.resolve(jsonResponse(transcribed("s1"), 201));
+    await running;
+  });
+
+  it("acepta imágenes nuevas con la cola en marcha y las envía en el mismo recorrido", async () => {
+    const first = deferred<Response>();
+    let n = 0;
+    const { calls } = mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1 ? first.promise : jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png")]);
+
+    const running = store.run(api);
+    store.add([png("b.png"), png("c.png")]);
+    expect(statuses()).toEqual(["transcribing", "queued", "queued"]);
+    // Una segunda llamada mientras corre no abre otro recorrido en paralelo.
+    await store.run(api);
+    first.resolve(jsonResponse(transcribed("s1"), 201));
+    await running;
+
+    expect(statuses()).toEqual(["done", "done", "done"]);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("espera 30 s a la transcripción y avisa de que la sesión puede haberse creado", async () => {
+    vi.useFakeTimers();
+    mockApi({ "POST /transcribe": hangUntilAborted });
+    const store = useQueueStore.getState();
+    store.add([png()]);
+
+    const running = store.run(api);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(statuses()).toEqual(["transcribing"]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await running;
+    const [item] = useQueueStore.getState().items;
+    expect(item?.status).toBe("error");
+    expect(item?.error).toMatch(/más de 30 s/);
+    expect(item?.error).toMatch(/puede que se haya creado; revisa el listado antes de reintentar/i);
+  });
+
+  it("un fallo de red deja un mensaje propio", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    const store = useQueueStore.getState();
+    store.add([png()]);
+
+    await store.run(api);
+
+    expect(useQueueStore.getState().items[0]?.error).toMatch(
+      /no se pudo conectar con el servidor/i,
+    );
+  });
+
+  it("tras cada envío, salga bien o mal, avisa para actualizar el listado", async () => {
+    let n = 0;
+    mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1
+          ? jsonResponse({ detail: "x" }, 503)
+          : jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
+    });
+    const settled = vi.fn();
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    await store.run(api, settled);
+
+    expect(settled).toHaveBeenCalledTimes(2);
   });
 
   it("no envía los archivos rechazados en la comprobación previa", async () => {
@@ -125,13 +242,126 @@ describe("cola secuencial", () => {
   );
 
   it("ante un 401 se detiene y deja el resto en cola", async () => {
-    mockApi({ "POST /transcribe": () => jsonResponse({ detail: "Not authenticated" }, 401) });
+    const { calls } = mockApi({
+      "POST /transcribe": () => jsonResponse({ detail: "Not authenticated" }, 401),
+    });
     const store = useQueueStore.getState();
     store.add([png("a.png"), png("b.png")]);
 
     await store.run(api);
 
-    expect(useQueueStore.getState().items.map((item) => item.status)).toEqual(["error", "queued"]);
+    expect(statuses()).toEqual(["error", "queued"]);
+    expect(useQueueStore.getState().items[0]?.error).toMatch(/sesión/i);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("si la sesión caduca con una imagen en vuelo, la siguiente espera en cola y no sale sin token", async () => {
+    const first = deferred<Response>();
+    const { calls } = mockApi({ "POST /transcribe": () => first.promise });
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    const running = store.run(api);
+    useAuthStore.getState().signOut("expired");
+    first.resolve(jsonResponse(transcribed("s1"), 201));
+    await running;
+
+    expect(statuses()).toEqual(["done", "queued"]);
+    expect(calls).toHaveLength(1);
+    expect(useQueueStore.getState().running).toBe(false);
+  });
+
+  it("al volver a entrar la misma persona, la cola se conserva y se reanuda", async () => {
+    let n = 0;
+    const { calls } = mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png")]);
+    useAuthStore.getState().signOut("expired");
+    await store.run(api);
+    expect(statuses()).toEqual(["queued"]);
+    expect(calls).toHaveLength(0);
+
+    const newToken = signInAs(ANA);
+    await store.run(api);
+
+    expect(statuses()).toEqual(["done"]);
+    expect(authorization(calls[0]?.init)).toBe(`Bearer ${newToken}`);
+  });
+
+  it("si entra otra persona con una imagen en vuelo, se cancela y nada sale con su token", async () => {
+    const signals: AbortSignal[] = [];
+    const { calls } = mockApi({
+      "POST /transcribe": (init) => {
+        if (init?.signal) signals.push(init.signal);
+        return hangUntilAborted(init);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    const running = store.run(api);
+    const brunoToken = signInAs(BRUNO);
+    await running;
+
+    expect(signals.map((signal) => signal.aborted)).toEqual([true]);
+    expect(useQueueStore.getState()).toMatchObject({
+      items: [],
+      ownerId: BRUNO.id,
+      running: false,
+    });
+    expect(calls).toHaveLength(1);
+    expect(authorization(calls[0]?.init)).toBe(`Bearer ${anaToken}`);
+    expect(calls.some((call) => authorization(call.init) === `Bearer ${brunoToken}`)).toBe(false);
+  });
+
+  it("una respuesta tardía de un recorrido cancelado no toca la cola nueva", async () => {
+    const late = deferred<Response>();
+    let n = 0;
+    mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1 ? late.promise : jsonResponse(transcribed("de-bruno"), 201);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("de-ana.png")]);
+    const oldRun = store.run(api);
+
+    signInAs(BRUNO);
+    store.add([png("de-bruno.png")]);
+    await store.run(api);
+    late.resolve(jsonResponse(transcribed("de-ana"), 201));
+    await oldRun;
+
+    const items = useQueueStore.getState().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ status: "done", result: { session_id: "de-bruno" } });
+    expect(useQueueStore.getState().running).toBe(false);
+  });
+
+  it("al salir se cancela la petición en vuelo y se vacía la cola", async () => {
+    const signals: AbortSignal[] = [];
+    const { calls } = mockApi({
+      "POST /transcribe": (init) => {
+        if (init?.signal) signals.push(init.signal);
+        return hangUntilAborted(init);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    const running = store.run(api);
+    useAuthStore.getState().signOut("signed-out");
+    await running;
+
+    expect(signals.map((signal) => signal.aborted)).toEqual([true]);
+    expect(useQueueStore.getState()).toMatchObject({ items: [], ownerId: null, running: false });
+    expect(calls).toHaveLength(1);
   });
 
   it("quita pendientes, reintenta fallidos y limpia terminados", async () => {
@@ -161,14 +391,14 @@ describe("cola secuencial", () => {
     expect(useQueueStore.getState().items).toHaveLength(0);
   });
 
-  it("vacía la cola si entra otra persona en la pestaña", () => {
+  it("vacía la cola si entra otra persona en la pestaña, pero no si vuelve la misma", () => {
     const store = useQueueStore.getState();
-    store.claim("ana");
     store.add([png()]);
-    store.claim("ana");
+    useAuthStore.getState().signOut("expired");
+    signInAs(ANA);
     expect(useQueueStore.getState().items).toHaveLength(1);
 
-    store.claim("bruno");
+    signInAs(BRUNO);
     expect(useQueueStore.getState().items).toHaveLength(0);
   });
 });
@@ -178,6 +408,11 @@ describe("datos de sesiones", () => {
     expect(parseUtc("2026-10-22T20:15:00").toISOString()).toBe("2026-10-22T20:15:00.000Z");
     expect(parseUtc("2026-10-22T20:15:00Z").toISOString()).toBe("2026-10-22T20:15:00.000Z");
     expect(parseUtc("2026-10-22T20:15:00+02:00").toISOString()).toBe("2026-10-22T18:15:00.000Z");
+  });
+
+  it("da a <time> la fecha en ISO con zona y no falla con una fecha ilegible", () => {
+    expect(isoUtc("2026-10-22T20:15:00")).toBe("2026-10-22T20:15:00.000Z");
+    expect(isoUtc("no-es-fecha")).toBe("no-es-fecha");
   });
 
   it("formatea la fecha en español y traduce el estado", () => {

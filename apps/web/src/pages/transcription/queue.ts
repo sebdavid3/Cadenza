@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { ApiClient } from "../../api/client";
 import { TRANSCRIBE_TIMEOUT_MS } from "../../api/config";
 import { ApiError } from "../../api/errors";
+import { useAuthStore } from "../../auth/store";
+import { registerPendingWork } from "../../pendingWork";
 import type { TranscribeResponse } from "../../types";
 
 /** Límite de la API: `max_upload_size_bytes` (20 MB). */
@@ -15,6 +17,8 @@ export interface QueueItem {
   id: string;
   file: File;
   status: ItemStatus;
+  /** Cuándo empezó a transcribirse (ms): el contador no se reinicia al volver a la vista. */
+  startedAt?: number;
   result?: TranscribeResponse;
   error?: string;
   /** Rechazado antes de enviarlo: no se puede reintentar tal cual. */
@@ -40,7 +44,8 @@ export function transcribeErrorMessage(error: unknown): string {
     case "unsupported-media-type":
       return "El servidor no la reconoce como imagen PNG o JPEG.";
     case "timeout":
-      return "La transcripción tardó más de 30 s. Inténtalo de nuevo.";
+      // La imagen ya se había enviado: la API puede terminar y crear la sesión igualmente.
+      return "La transcripción tardó más de 30 s. Puede que se haya creado; revisa el listado antes de reintentar.";
     default:
       return error.message;
   }
@@ -52,7 +57,7 @@ const newId = () => `img-${String(++nextId)}`;
 interface QueueState {
   items: QueueItem[];
   running: boolean;
-  /** Persona dueña de la cola: si entra otra en la misma pestaña, la cola se vacía. */
+  /** Persona dueña de la cola: solo se envía con su sesión, y si entra otra, la cola se vacía. */
   ownerId: string | null;
   claim: (ownerId: string) => void;
   reset: () => void;
@@ -60,8 +65,11 @@ interface QueueState {
   remove: (id: string) => void;
   retry: (id: string) => void;
   clearFinished: () => void;
-  /** Envía los pendientes de uno en uno; termina cuando no queda ninguno en cola. */
-  run: (api: ApiClient, onTranscribed?: (result: TranscribeResponse) => void) => Promise<void>;
+  /**
+   * Envía los pendientes de uno en uno; termina cuando no queda ninguno en cola o cuando la
+   * sesión de la dueña ya no está. `onSettled` se llama tras cada envío, salga bien o mal.
+   */
+  run: (api: ApiClient, onSettled?: () => void) => Promise<void>;
 }
 
 export const useQueueStore = create<QueueState>()((set, get) => {
@@ -71,15 +79,28 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     }));
   };
 
+  // Cada vaciado abre una generación nueva: un recorrido de una generación anterior se
+  // detiene tras su `await` sin tocar la cola, y su petición en vuelo se cancela.
+  let generation = 0;
+  let inFlight: AbortController | null = null;
+  const cancel = () => {
+    generation += 1;
+    inFlight?.abort();
+    inFlight = null;
+  };
+
   return {
     items: [],
     running: false,
     ownerId: null,
     claim: (ownerId) => {
-      if (get().ownerId !== ownerId) set({ items: [], ownerId });
+      if (get().ownerId === ownerId) return;
+      cancel();
+      set({ items: [], running: false, ownerId });
     },
     reset: () => {
-      set({ items: [], ownerId: null });
+      cancel();
+      set({ items: [], running: false, ownerId: null });
     },
     add: (files) => {
       const added = [...files].map((file): QueueItem => {
@@ -108,32 +129,48 @@ export const useQueueStore = create<QueueState>()((set, get) => {
         ),
       }));
     },
-    run: async (api, onTranscribed) => {
+    run: async (api, onSettled) => {
       if (get().running) return;
+      const runGeneration = generation;
+      const current = () => runGeneration === generation;
       set({ running: true });
       try {
         for (;;) {
           const next = get().items.find((item) => item.status === "queued");
           if (!next) break;
-          patch(next.id, { status: "transcribing" });
+          // Solo con la sesión de la dueña: si caducó o entró otra persona, lo pendiente
+          // sigue en cola hasta que ella vuelva a entrar (ADR-0012: el autor es quien envía).
+          const { token, user } = useAuthStore.getState();
+          if (!token || user?.id !== get().ownerId) break;
+
+          patch(next.id, { status: "transcribing", startedAt: Date.now() });
+          const controller = new AbortController();
+          inFlight = controller;
           const body = new FormData();
           body.append("file", next.file, next.file.name);
           try {
             const result = await api.request<TranscribeResponse>("/transcribe", {
               method: "POST",
               body,
+              token,
+              signal: controller.signal,
               timeoutMs: TRANSCRIBE_TIMEOUT_MS,
             });
+            if (!current()) return;
             patch(next.id, { status: "done", result });
-            onTranscribed?.(result);
           } catch (error) {
+            if (!current()) return;
             patch(next.id, { status: "error", error: transcribeErrorMessage(error) });
             // Sin sesión no tiene sentido seguir: el resto espera a que se vuelva a entrar.
             if (error instanceof ApiError && error.kind === "unauthorized") break;
+          } finally {
+            if (inFlight === controller) inFlight = null;
+            // Tras un timeout, un fallo de red o un 5xx la sesión puede existir igualmente.
+            onSettled?.();
           }
         }
       } finally {
-        set({ running: false });
+        if (current()) set({ running: false });
       }
     },
   };
@@ -146,3 +183,13 @@ export function hasPendingWork(items: QueueItem[]): boolean {
 
 export const LEAVE_WARNING =
   "Hay imágenes en cola o transcribiéndose. Si sales, la cola se pierde. ¿Salir igualmente?";
+
+registerPendingWork(() => (hasPendingWork(useQueueStore.getState().items) ? LEAVE_WARNING : null));
+
+// La cola es de quien la llenó. Si entra otra persona en la pestaña, o la dueña sale, se
+// vacía y se cancela lo que esté en vuelo; si la sesión caduca, se conserva para reanudarla.
+useAuthStore.subscribe((auth) => {
+  const queue = useQueueStore.getState();
+  if (auth.user) queue.claim(auth.user.id);
+  else if (auth.endReason === "signed-out" && queue.ownerId !== null) queue.reset();
+});

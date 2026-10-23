@@ -1,9 +1,8 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "../../api/instance";
-import { useAuthStore } from "../../auth/store";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { hasPendingWork, useQueueStore } from "./queue";
+import { useQueueStore } from "./queue";
 import { QueuePanel } from "./QueuePanel";
 import { SESSIONS_QUERY_KEY } from "./sessions";
 import { SessionsPanel } from "./SessionsPanel";
@@ -13,30 +12,12 @@ import { UploadZone } from "./UploadZone";
 export function TranscriptionPage() {
   useDocumentTitle("Transcripción");
   const queryClient = useQueryClient();
-  const userId = useAuthStore((state) => state.user?.id);
   const add = useQueueStore((state) => state.add);
-  const claim = useQueueStore((state) => state.claim);
   const running = useQueueStore((state) => state.running);
   const hasQueued = useQueueStore((state) => state.items.some((item) => item.status === "queued"));
-  const pending = useQueueStore((state) => hasPendingWork(state.items));
 
-  useEffect(() => {
-    if (userId) claim(userId);
-  }, [userId, claim]);
-
-  // Cerrar o recargar la pestaña a mitad de un lote perdería la cola: el navegador pide confirmación.
-  useEffect(() => {
-    if (!pending) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => {
-      window.removeEventListener("beforeunload", warn);
-    };
-  }, [pending]);
-
-  // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto.
+  // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto. Tras
+  // cada envío se actualiza el listado, también si falló: la sesión puede haberse creado.
   useEffect(() => {
     if (!hasQueued || running) return;
     void useQueueStore.getState().run(api, () => {

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Outlet } from "react-router";
 import { useAuthStore } from "./auth/store";
 import { useSessionLifecycle } from "./auth/useSessionLifecycle";
+import { pendingWorkWarning } from "./pendingWork";
 
 function createQueryClient() {
   return new QueryClient({
@@ -22,6 +23,22 @@ export function AppRoot() {
   useEffect(() => {
     if (!token) queryClient.clear();
   }, [token, queryClient]);
+
+  // Cerrar o recargar la pestaña con trabajo pendiente lo perdería: el navegador pide
+  // confirmación, también fuera de la vista que lo creó.
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!pendingWorkWarning()) return;
+      event.preventDefault();
+      // Chrome anterior a la 119 solo pregunta si además se asigna returnValue (MDN).
+      // eslint-disable-next-line @typescript-eslint/no-deprecated -- compatibilidad, ver arriba
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => {
+      window.removeEventListener("beforeunload", warn);
+    };
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
