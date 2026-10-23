@@ -675,25 +675,24 @@ def create_app(
     ) -> TokenResponse:
         """Autentica credenciales y emite un token JWT con rate limiting (#40)."""
         client_host = request.client.host if request.client else "unknown"
-        rate_key = f"{client_host}:{form_data.username}"
+        # Ningún nombre válido pasa de 64 caracteres (users.username): con más, la clave del límite
+        # crecería con lo que mande el cliente y se guardaría toda la ventana (revisión de #156).
+        rate_key = f"{client_network_key(client_host)}:{form_data.username[:64]}"
         rate_limiter: LoginRateLimiter = request.app.state.login_rate_limiter
-        rate_limiter.check(rate_key)
+        # El intento se anota antes de comprobar las credenciales, de forma atómica: peticiones
+        # simultáneas no pasan todas el límite. Si sale bien, se borra el historial.
+        rate_limiter.hit(rate_key)
 
         user_repo = SqlAlchemyUserRepository(db)
         hasher: PasswordHasher = request.app.state.password_hasher
         token_serv: TokenService = request.app.state.token_service
 
-        try:
-            user = authenticate_use_case(
-                form_data.username,
-                form_data.password,
-                user_repository=user_repo,
-                password_hasher=hasher,
-            )
-        except NotAuthenticated:
-            rate_limiter.record_failure(rate_key)
-            raise
-
+        user = authenticate_use_case(
+            form_data.username,
+            form_data.password,
+            user_repository=user_repo,
+            password_hasher=hasher,
+        )
         rate_limiter.reset(rate_key)
         token = token_serv.create_access_token(user_id=user.id, role=user.role)
         return TokenResponse(access_token=token, token_type="bearer")

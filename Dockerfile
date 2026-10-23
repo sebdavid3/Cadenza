@@ -44,4 +44,6 @@ RUN python -c "import cadenza.api.main, homr.main, cv2, onnxruntime"
 EXPOSE 8000
 
 # En producción: aplicar migraciones Alembic y arrancar FastAPI (#6)
-CMD ["sh", "-c", "alembic -c packages/persistence/alembic.ini upgrade head && uvicorn cadenza.api.main:create_default_app --factory --host 0.0.0.0 --port 8000"]
+# Detrás de un proxy (ADR-0023), uvicorn toma la IP del cliente de X-Forwarded-For solo si la
+# petición llega de CADENZA_FORWARDED_ALLOW_IPS (por defecto, solo localhost).
+CMD ["sh", "-c", "alembic -c packages/persistence/alembic.ini upgrade head && uvicorn cadenza.api.main:create_default_app --factory --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips \"${CADENZA_FORWARDED_ALLOW_IPS:-127.0.0.1}\""]

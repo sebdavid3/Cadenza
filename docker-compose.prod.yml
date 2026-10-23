@@ -1,0 +1,130 @@
+# Despliegue público de Cadenza (#156, ADR-0023). Solo el servicio web publica un puerto, y solo en
+# 127.0.0.1: Tailscale Funnel lo expone con HTTPS. PostgreSQL y la API no publican ninguno.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# Las variables obligatorias están en deploy/.env.example; los secretos viven solo en el .env del
+# servidor (ADR-0015). Otro nombre de proyecto que el del compose de desarrollo, para que los dos no
+# compartan contenedores ni volúmenes si conviven en una máquina.
+name: cadenza-prod
+
+# Registros con rotación: sin ella, el json-file de Docker crece sin límite.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16.15-alpine3.24
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${CADENZA_POSTGRES_DB:-cadenza}
+      POSTGRES_USER: ${CADENZA_POSTGRES_USER:-cadenza}
+      POSTGRES_PASSWORD: ${CADENZA_POSTGRES_PASSWORD:?falta CADENZA_POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cadenza
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cadenza-api:prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CADENZA_DATABASE_URL: postgresql+psycopg2://${CADENZA_POSTGRES_USER:-cadenza}:${CADENZA_POSTGRES_PASSWORD}@postgres:5432/${CADENZA_POSTGRES_DB:-cadenza}
+      CADENZA_AUTH_SECRET_KEY: ${CADENZA_AUTH_SECRET_KEY:?falta CADENZA_AUTH_SECRET_KEY}
+      CADENZA_ARTIFACTS_DIR: /app/data/artifacts
+      CADENZA_AUTO_CREATE_SCHEMA: "false"
+      CADENZA_OMR_USE_GPU: "false"
+      # El navegador llama a la API en el mismo origen, bajo /api.
+      CADENZA_CORS_ORIGINS: ${CADENZA_PUBLIC_ORIGIN:?falta CADENZA_PUBLIC_ORIGIN}
+      CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS:-300}
+      # Registro con activación por un investigador (ADR-0022), apagado salvo que se encienda.
+      CADENZA_REGISTRATION_ENABLED: ${CADENZA_REGISTRATION_ENABLED:-false}
+      CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS: ${CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS:-3600}
+      CADENZA_REGISTRATION_MAX_PENDING: ${CADENZA_REGISTRATION_MAX_PENDING:-50}
+      # Uvicorn solo cree X-Forwarded-For si la petición viene del servicio web, el único cliente
+      # que la reescribe con la IP real (dirección fija más abajo).
+      CADENZA_FORWARDED_ALLOW_IPS: 10.77.0.10
+    volumes:
+      - artifacts_data:/app/data/artifacts
+    networks:
+      - cadenza
+    # HOMR en CPU ocupa unos 600 MiB en reposo; el tope impide que una transcripción se lleve la
+    # memoria del servidor, que comparte con otros servicios.
+    mem_limit: 3g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      # Migraciones y carga de los modelos de HOMR en CPU antes de responder.
+      start_period: 120s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        VITE_REGISTRATION_ENABLED: ${CADENZA_REGISTRATION_ENABLED:-false}
+    image: cadenza-web:prod
+    restart: unless-stopped
+    # La interfaz se sirve aunque la API aún arranque o haya caído: /api responde 502 mientras
+    # tanto, pero la landing sigue en pie.
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "127.0.0.1:${CADENZA_WEB_PORT:-8380}:8080"
+    networks:
+      cadenza:
+        ipv4_address: 10.77.0.10
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+# Subred fija: Nginx confía en X-Forwarded-For solo si viene de la pasarela (10.77.0.1, por donde
+# entra lo que Funnel reenvía a 127.0.0.1) y uvicorn solo si viene de web (10.77.0.10). Si se
+# cambia, hay que cambiar también deploy/nginx/cadenza.conf.
+networks:
+  cadenza:
+    ipam:
+      config:
+        - subnet: 10.77.0.0/24
+          gateway: 10.77.0.1
+          # Las direcciones dinámicas salen de la mitad alta: ningún otro contenedor (un
+          # «compose run» o la API recreada) puede quedarse con la de web.
+          ip_range: 10.77.0.128/25
+
+volumes:
+  postgres_data:
+  artifacts_data:

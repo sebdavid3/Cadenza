@@ -24,6 +24,7 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS` | `int` | `3600` | Ventana en segundos del límite de registros por IP, como mínimo 1. |
 | `CADENZA_REGISTRATION_MAX_PENDING` | `int` | `50` | Con tantas cuentas autorregistradas pendientes de activación, el registro responde 503 hasta que un investigador las revise. |
 | `CADENZA_DISABLE_POWER_THROTTLING` | `bool` | `true` | Desactiva la limitación de energía (EcoQoS) del proceso en Windows (#106). |
+| `CADENZA_FORWARDED_ALLOW_IPS` | `str` | `127.0.0.1` | Solo en la imagen Docker (el `CMD` del `Dockerfile`, no la API): direcciones o redes desde las que uvicorn acepta `X-Forwarded-For` y `X-Forwarded-Proto` (`--forwarded-allow-ips`). En `docker-compose.prod.yml` es la IP fija del servicio `web`, `10.77.0.10` ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)). |
 
 ---
 
@@ -50,12 +51,59 @@ El servicio `api` cuenta con un `healthcheck` automatizado que invoca periódica
 La imagen de la API (`Dockerfile`) instala el paquete `cadenza-api` con el extra `homr` desde `uv.lock` y descarga los pesos de HOMR al construirse (`homr --init`): transcribe en CPU sin acceso a la red. El build falla si la API, HOMR u OpenCV no se pueden importar, y el job `docker` de la CI lo construye en cada PR. HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)); la imagen no incluye `onnxruntime-gpu`. El primer usuario se crea dentro del contenedor:
 
 ```bash
-docker exec cadenza-api python -m cadenza.api.cli create-investigator --username <usuario> --password <contraseña>
+docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>
 ```
+
+Sin `--password`, la CLI pide la contraseña sin eco y dos veces; pasarla como argumento la deja en el historial del shell y en la lista de procesos.
 
 Verificado el 2026-10-20 con `docker compose up --build`: migraciones 0001–0011 aplicadas sobre PostgreSQL 16, `GET /health` con `"omr_engine": "homr"` y `POST /transcribe` = 201 con una imagen de PrIMuS ([#135](https://github.com/sebdavid3/Cadenza/issues/135)).
 
-### 2.2 Ejecución del plano offline con GPU (perfil batch)
+### 2.2 Despliegue público (`docker-compose.prod.yml`)
+
+El despliegue público ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md), [#156](https://github.com/sebdavid3/Cadenza/issues/156)) usa un compose propio (proyecto `cadenza-prod`), independiente del de desarrollo:
+
+| Servicio | Imagen | Puertos | Función |
+|---|---|---|---|
+| `postgres` | `postgres:16.15-alpine3.24` | ninguno | Base de datos, volumen `postgres_data` |
+| `api` | `Dockerfile` (`cadenza-api:prod`) | ninguno | FastAPI con HOMR en CPU; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
+| `web` | `Dockerfile.web` (`cadenza-web:prod`) | `127.0.0.1:${CADENZA_WEB_PORT:-8380}` | Nginx sin privilegios: sirve `apps/web/dist` (con `index.html` para las rutas de la interfaz) y reenvía `/api/*` a `api:8000` quitando el prefijo (`deploy/nginx/`) |
+
+Puesta en marcha en el servidor:
+
+```bash
+cp deploy/.env.example .env
+chmod 600 .env
+# Rellenar CADENZA_AUTH_SECRET_KEY y CADENZA_POSTGRES_PASSWORD con openssl rand -hex 32
+docker compose -f docker-compose.prod.yml up -d --build
+sudo tailscale funnel --bg 8380
+```
+
+- **Funnel en modo proxy HTTP**, como en el último comando: termina TLS y reenvía a `http://127.0.0.1:8380` añadiendo `X-Forwarded-For`. Los modos TCP (`--tcp`, `--tls-terminated-tcp`) no se usan: no añaden la cabecera, todos los visitantes compartirían una IP y cualquiera podría inventarse la suya.
+- **IP real.** La red de Compose tiene una subred fija (`10.77.0.0/24`): lo que Funnel reenvía a `127.0.0.1` entra por la pasarela `10.77.0.1`, y `web` tiene la dirección `10.77.0.10` (las dinámicas salen de `10.77.0.128/25`, así que ningún otro contenedor puede ocuparla). Nginx cree `X-Forwarded-For` solo si viene de la pasarela, toma su última dirección y la reenvía a la API **sustituyendo** la cabecera; uvicorn la acepta solo de `web` (`CADENZA_FORWARDED_ALLOW_IPS`, `--proxy-headers`). Así, los límites del login y del registro cuentan por visitante. Si se cambia la subred, hay que cambiar también `deploy/nginx/cadenza.conf`.
+- **Límites en Nginx**, además de los de la API y por visitante (la IPv4, o la red /64 de una IPv6, como en la API): 10 peticiones por minuto a `/api/auth/login` y otras 10 a `/api/auth/register`, con ráfagas de 10 y cuerpos de hasta 16 KB, y 4 transcripciones abiertas a la vez; por encima, 429. Las rutas con caracteres de control responden 400 antes de elegir la `location`: `/api/auth/login%0A` esquivaría el límite exacto y la API la atendería como su login. Varias personas tras una misma IP (una sala, un campus) comparten estos límites.
+- **Cabeceras**: política de seguridad de contenido (`script-src 'self'`; `style-src` con `'unsafe-inline'` porque OSMD dibuja con atributos `style`), `nosniff`, `X-Frame-Options: DENY` y `Referrer-Policy: same-origin`; gzip para JavaScript, CSS, JSON y SVG. `/api/docs`, `/api/redoc` y `/api/openapi.json` responden 404: el contrato está en el repositorio.
+- **Contenedores**: registros con rotación (5 archivos de 10 MB), `no-new-privileges` en los tres y, en `api` y `web`, sin capacidades de Linux. La interfaz no espera a que la API esté sana: con la API caída, `/` sigue respondiendo y `/api/*` da 502.
+- **CORS** limitado a `CADENZA_PUBLIC_ORIGIN`; el navegador llama a la API en el mismo origen, bajo `/api`.
+- **Registro**: `CADENZA_REGISTRATION_ENABLED` enciende la ruta de la API y, como argumento del build de `web`, los enlaces de la interfaz. Solo admite `true` o `false`: la API aceptaría también `1`, `yes` u `on`, pero el build compara con `true` y dejaría ocultos los enlaces.
+- **Secretos** solo en el `.env` del servidor (`chmod 600`), a partir de `deploy/.env.example`; nunca salen del servidor. `docker compose config` imprime el compose con los secretos ya sustituidos: no se pega su salida en ningún sitio.
+
+Comprobado el 2026-10-23 en el servidor del despliegue (i5-10300H, 7,1 GiB de RAM), con proyectos desechables en `127.0.0.1:18380` que se retiraron después; las cifras son de la última prueba, con esta configuración:
+- Servicios en `healthy`, con las imágenes construidas en el servidor (`up -d --build`: 85 s). Las direcciones dinámicas de la red salen de la mitad alta (`postgres` en `10.77.0.128`, `api` en `10.77.0.129`) y `web` tiene `10.77.0.10`.
+- `/`, `/entrar`, `/registro` y `/sesiones/abc` responden 200 con `index.html`; `/api/health` y `/api/version`, 200 con `device: cpu`; `/api/docs`, `/api/redoc` y `/api/openapi.json`, 404. Con la API parada, `/` da 200 y `/api/health`, 502.
+- En el host solo escucha `127.0.0.1:18380`; 5432, 8000 y 18380 no responden desde la IP de Tailscale.
+- IP real: sin cabecera, Nginx ve la pasarela `10.77.0.1`; con `X-Forwarded-For: 198.51.100.4, 203.0.113.9` desde la pasarela, `203.0.113.9`; uvicorn ve la IP que le pasa `web`, y una `X-Forwarded-For` enviada desde otro contenedor de la red no se cree (ve `10.77.0.128`, la IP de ese contenedor).
+- Con un límite de 3 registros, la misma IP da 201, 201, 201 y 429, y otra IP vuelve a dar 201. 25 intentos de acceso seguidos desde una IP, con usuarios distintos: 11 respuestas 401 y 14 respuestas 429 de Nginx; agotado el acceso, el registro desde esa IP sigue dando 201 (zonas aparte). 11 accesos desde `2001:db8:1:2::1` dan 401, y el siguiente desde otra dirección de la misma /64 da 429; desde otra /64, 401.
+- `/api/auth/login%0A`, `/api/auth/register%0A`, `/api/transcribe%0A`, `/api/docs%0A` y `/sesiones/abc%09` responden 400; un acceso con un cuerpo de 20 KB, 413.
+- `POST /transcribe` con un incipit de PrIMuS en CPU: 201 en 2,33 s. Cinco a la vez desde una IP: un 429 de Nginx y cuatro que llegan a la API, con un pico de memoria de 1968 MiB y sin que el kernel la mate. Esas transcripciones simultáneas destaparon dos fallos anteriores a este despliegue, que van aparte. HOMR no es seguro entre hilos: con cuatro imágenes distintas a la vez, varias responden 422 con errores internos de ONNX Runtime ([#165](https://github.com/sebdavid3/Cadenza/issues/165)). Y la API confirma la transacción después de enviar la respuesta: enviar la misma imagen dos veces seguidas dio un 500 por clave duplicada ([#166](https://github.com/sebdavid3/Cadenza/issues/166)).
+- En Chrome sin interfaz por un túnel SSH (1440 y 390 px): landing, registro, acceso, transcripción, vista de una sesión con cuatro compases marcados y cuentas, sin ninguna violación de la política de seguridad de contenido; un `<script>` en línea inyectado como control sí queda bloqueado.
+
+La primera cuenta de investigador se crea dentro del contenedor; sin `--password`, la CLI la pide sin eco y dos veces, para que no quede en el historial del shell:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli create-investigator --username <usuario>
+```
+
+### 2.3 Ejecución del plano offline con GPU (perfil batch)
 
 Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos con aceleración NVIDIA CUDA:
 
@@ -103,7 +151,7 @@ Al iniciar, la API emite el estado de la renuncia a la limitación de energía (
 INFO:     power_throttling_disabled requested=True applied=True platform=win32
 ```
 
-Asimismo, el middleware de observabilidad asigna a cada petición la cabecera `X-Request-ID` (generada automáticamente o propagada desde el cliente) y emite un registro estructurado al completar cada solicitud:
+Asimismo, el middleware de observabilidad asigna a cada petición la cabecera `X-Request-ID` (generada automáticamente o propagada desde el cliente; en el despliegue público la fija Nginx con su `$request_id` y sustituye la del cliente, §2.2) y emite un registro estructurado al completar cada solicitud:
 
 ```text
 INFO:     request_completed method=GET path=/health status=200 duration_ms=4.23 request_id=74207509005b4c9ba98271fdb99356e4 session_id=-
