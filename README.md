@@ -338,8 +338,17 @@ La imagen de la API incluye HOMR en CPU con sus pesos ya descargados, así que t
 acceso a la red. Crea el primer usuario dentro del contenedor:
 
 ```bash
-docker exec cadenza-api python -m cadenza.api.cli create-investigator --username <usuario> --password <contraseña>
+docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>
 ```
+
+Sin `--password`, la CLI pide la contraseña sin eco y dos veces.
+
+Para el despliegue público (interfaz web, proxy Nginx con la IP real, PostgreSQL y la API sin
+puertos publicados, CORS cerrado y registro con activación) está
+[`docker-compose.prod.yml`](docker-compose.prod.yml), con sus variables en
+[`deploy/.env.example`](deploy/.env.example):
+[`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) §2.2 y
+[ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md).
 
 > [!WARNING]
 > La imagen del perfil `batch` (`Dockerfile.ml-cuda`) no se construye hoy (deuda D53).

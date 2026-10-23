@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 import uuid
 
@@ -60,13 +61,23 @@ def main() -> None:
     )
     create_parser.add_argument("--username", required=True, help="Nombre de usuario")
     create_parser.add_argument(
-        "--password", required=True, help="Contraseña inicial (mínimo 8 caracteres)"
+        "--password",
+        help=(
+            "Contraseña inicial (mínimo 8 caracteres). Si no se pasa, se pide sin eco, para que "
+            "no quede en el historial del shell ni en la lista de procesos."
+        ),
     )
 
     args = parser.parse_args()
     if args.command == "create-investigator":
+        password = args.password
+        if password is None:
+            password = getpass.getpass("Contraseña: ")
+            if getpass.getpass("Repite la contraseña: ") != password:
+                print("Error: las dos contraseñas no coinciden", file=sys.stderr)
+                sys.exit(1)
         try:
-            user = create_initial_investigator(args.username, args.password)
+            user = create_initial_investigator(args.username, password)
             print(f"Investigador '{user.username}' creado exitosamente (ID: {user.id}).")
         except Exception as err:
             print(f"Error: {err}", file=sys.stderr)

@@ -92,7 +92,7 @@ jobs:
         run: npm run build
 
   docker:
-    name: Imagen Docker de la API
+    name: Imágenes Docker de la API y la web
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del repositorio
@@ -101,3 +101,15 @@ jobs:
       # El Dockerfile falla si la API, HOMR u OpenCV no se pueden importar (#135)
       - name: Construir la imagen de la API
         run: docker build -t cadenza-api:ci .
+
+      # Compila apps/web y valida la configuración de Nginx con nginx -t (#156)
+      - name: Construir la imagen web
+        run: docker build -f Dockerfile.web --build-arg VITE_REGISTRATION_ENABLED=true -t cadenza-web:ci .
+
+      # Valores generados al vuelo: el compose exige los secretos, pero aquí no se usan.
+      - name: Validar el compose de producción
+        run: |
+          export CADENZA_POSTGRES_PASSWORD="$(openssl rand -hex 16)"
+          export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
+          export CADENZA_PUBLIC_ORIGIN=https://cadenza.example
+          docker compose -f docker-compose.prod.yml config --quiet

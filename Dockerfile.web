@@ -1,0 +1,25 @@
+# Imagen del frontend en producción (#156, ADR-0023): compila apps/web y lo sirve con Nginx sin
+# privilegios, que además reenvía /api a la API.
+FROM node:24.22.1-alpine3.24 AS build
+
+WORKDIR /app
+
+# .npmrc impide que la dependencia opcional gl de OSMD compile código nativo (ADR-0021).
+COPY apps/web/package.json apps/web/package-lock.json apps/web/.npmrc ./
+RUN npm ci --no-audit --no-fund
+
+COPY apps/web/ ./
+# Enlazar el registro desde la landing y el acceso solo si la API lo abre (ADR-0022).
+ARG VITE_REGISTRATION_ENABLED=false
+ENV VITE_REGISTRATION_ENABLED=${VITE_REGISTRATION_ENABLED}
+RUN npm run build
+
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24 AS runner
+
+COPY deploy/nginx/cadenza.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Falla al construir si la configuración de Nginx no es válida.
+RUN nginx -t
+
+EXPOSE 8080

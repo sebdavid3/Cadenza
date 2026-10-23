@@ -55,7 +55,37 @@ docker exec cadenza-api python -m cadenza.api.cli create-investigator --username
 
 Verificado el 2026-10-20 con `docker compose up --build`: migraciones 0001–0011 aplicadas sobre PostgreSQL 16, `GET /health` con `"omr_engine": "homr"` y `POST /transcribe` = 201 con una imagen de PrIMuS ([#135](https://github.com/sebdavid3/Cadenza/issues/135)).
 
-### 2.2 Ejecución del plano offline con GPU (perfil batch)
+### 2.2 Despliegue público (`docker-compose.prod.yml`)
+
+El despliegue público ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md), [#156](https://github.com/sebdavid3/Cadenza/issues/156)) usa un compose propio (proyecto `cadenza`), independiente del de desarrollo:
+
+| Servicio | Imagen | Puertos | Función |
+|---|---|---|---|
+| `postgres` | `postgres:16.15-alpine3.24` | ninguno | Base de datos, volumen `postgres_data` |
+| `api` | `Dockerfile` (`cadenza-api:prod`) | ninguno | FastAPI con HOMR en CPU; aplica las migraciones al arrancar; volumen `artifacts_data` |
+| `web` | `Dockerfile.web` (`cadenza-web:prod`) | `127.0.0.1:${CADENZA_WEB_PORT:-8380}` | Nginx sin privilegios: sirve `apps/web/dist` (con `index.html` para las rutas de la interfaz) y reenvía `/api/*` a `api:8000` quitando el prefijo |
+
+- **IP real.** Tailscale Funnel termina TLS en el host y reenvía con `X-Forwarded-For`. Nginx cree esa cabecera solo si la petición llega de una dirección privada (el host visto desde el contenedor), toma su última dirección y la reenvía a la API **sustituyendo** la cabecera. Uvicorn la acepta solo desde las redes privadas de Docker (`CADENZA_FORWARDED_ALLOW_IPS`, `--proxy-headers`). Así, los límites del login y del registro cuentan por visitante.
+- **CORS** limitado a `CADENZA_PUBLIC_ORIGIN`; el navegador llama a la API en el mismo origen, bajo `/api`.
+- **Registro**: `CADENZA_REGISTRATION_ENABLED` enciende la ruta de la API y, como argumento del build de `web`, los enlaces de la interfaz.
+- **Secretos** solo en el `.env` del servidor (`chmod 600`), a partir de `deploy/.env.example`; nunca salen del servidor.
+
+Comprobado el 2026-10-23 en el servidor del despliegue (i5-10300H, 7,1 GiB de RAM) con un proyecto desechable en `127.0.0.1:18380`:
+- `docker compose up -d --build`: los tres servicios en `healthy` en 100 s.
+- `/`, `/entrar`, `/registro` y `/sesiones/abc` responden 200 con `index.html`; `/api/health` y `/api/version` responden 200, con `device: cpu`.
+- En el host solo escucha `127.0.0.1:18380`; 5432, 8000 y 18380 no responden desde la IP de Tailscale.
+- Con un límite de 3 registros, la misma `X-Forwarded-For` (lo que añade Funnel) da 201, 201, 201 y 429, y otra IP vuelve a dar 201: la API ve la IP real.
+- `POST /transcribe` con un incipit de PrIMuS en CPU: 201 en 2,71 s (primera petición) y 2,23 s (segunda).
+- Memoria en reposo: API 604 MiB, PostgreSQL 30 MiB, web 9 MiB.
+
+La primera cuenta de investigador se crea dentro del contenedor; sin `--password`, la CLI la pide sin eco y dos veces, para que no quede en el historial del shell:
+
+```bash
+docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli create-investigator --username <usuario>
+```
+
+
+### 2.3 Ejecución del plano offline con GPU (perfil batch)
 
 Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos con aceleración NVIDIA CUDA:
 
