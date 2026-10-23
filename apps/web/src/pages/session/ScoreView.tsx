@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { slotKey, type MeasureMark } from "./findings";
+import { slotKey, type MeasureMark, type MeasureSlot } from "./findings";
 import { renderScore, type Box, type RenderedScore } from "./osmd";
 
 type RenderState =
@@ -17,6 +17,8 @@ interface ScoreViewProps {
   selectedKey: string | null;
   /** Avisa de si las marcas se pudieron situar sobre la partitura dibujada. */
   onPlacement?: (placed: boolean) => void;
+  /** Compás que suena y dónde se dibuja en cada pentagrama; null si no suena nada. */
+  playing?: { measure: number; slots: readonly MeasureSlot[] } | null;
 }
 
 function sameCounts(a: readonly number[], b: readonly number[]) {
@@ -24,12 +26,7 @@ function sameCounts(a: readonly number[], b: readonly number[]) {
 }
 
 /** Cajas de los compases marcados, o null si no se pueden situar con seguridad (ADR-0021). */
-function placeMarks(
-  score: RenderedScore,
-  marks: readonly MeasureMark[],
-  expected: readonly number[],
-): Map<string, Box> | null {
-  if (!sameCounts(score.measuresPerStaff(), expected)) return null;
+function placeMarks(score: RenderedScore, marks: readonly MeasureMark[]): Map<string, Box> | null {
   const boxes = new Map<string, Box>();
   for (const mark of marks) {
     const box = score.measureBox(mark.slot);
@@ -52,6 +49,7 @@ export function ScoreView({
   expectedMeasures,
   selectedKey,
   onPlacement,
+  playing = null,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<RenderState>({ status: "rendering" });
@@ -113,10 +111,24 @@ export function ScoreView({
 
   const layout = state.status === "ready" ? state.layout : -1;
   const score = state.status === "ready" ? state.score : null;
-  const boxes = useMemo(
-    () => (score && layout >= 0 ? placeMarks(score, marks, expectedMeasures) : null),
-    [score, layout, marks, expectedMeasures],
+  // Solo se dibuja sobre la partitura si OSMD dibujó los mismos compases que el `ScoreIR`.
+  const aligned = useMemo(
+    () => score !== null && layout >= 0 && sameCounts(score.measuresPerStaff(), expectedMeasures),
+    [score, layout, expectedMeasures],
   );
+  // `layout` cambia al volver a maquetar: las cajas se recalculan con la geometría nueva.
+  const boxes = useMemo(
+    () => (score && aligned && layout >= 0 ? placeMarks(score, marks) : null),
+    [score, aligned, layout, marks],
+  );
+  // El compás que suena, con la misma geometría que las marcas (en cada pentagrama donde está).
+  const playheadBoxes = useMemo(() => {
+    if (!score || !aligned || layout < 0 || !playing) return [];
+    return playing.slots.flatMap((slot) => {
+      const box = score.measureBox(slot);
+      return box ? [{ key: slotKey(slot), box }] : [];
+    });
+  }, [score, aligned, layout, playing]);
 
   const placed = state.status === "ready" ? boxes !== null : null;
   useEffect(() => {
@@ -144,6 +156,36 @@ export function ScoreView({
     });
   }, [selectedKey, boxes]);
 
+  // El compás que suena se trae a la vista si sale de ella, pero solo si el anterior estaba a la
+  // vista: si la persona se fue a mirar la imagen o la lista, no se la devuelve a la partitura.
+  // Con movimiento reducido, sin desplazamiento suave.
+  const playingMeasure = playheadBoxes.length > 0 ? (playing?.measure ?? null) : null;
+  const followed = useRef<{ measure: number; box: Box } | null>(null);
+  useEffect(() => {
+    const box = playheadBoxes[0]?.box ?? null;
+    if (playingMeasure === null || !box) {
+      followed.current = null;
+      return;
+    }
+    const previous = followed.current;
+    followed.current = { measure: playingMeasure, box };
+    // El mismo compás con otra geometría (se volvió a maquetar): no se desplaza nada.
+    if (previous?.measure === playingMeasure) return;
+    const layer = marksRef.current;
+    const element = layer?.querySelector(".notation__playhead");
+    if (!layer || !element) return;
+    if (previous) {
+      const top = layer.getBoundingClientRect().top + previous.box.top;
+      if (top + previous.box.height <= 0 || top >= window.innerHeight) return;
+    }
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    element.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: reduce ? "auto" : "smooth",
+    });
+  }, [playingMeasure, playheadBoxes]);
+
   const flagged = marks.map((mark) => mark.measureNumber).join(", ");
   const label =
     boxes && marks.length > 0
@@ -153,10 +195,10 @@ export function ScoreView({
   return (
     <div className="notation" data-state={state.status}>
       <div className="notation__stage">
-        {boxes && (
+        {aligned && (
           <div className="notation__marks" ref={marksRef} aria-hidden="true">
             {marks.map((mark) => {
-              const box = boxes.get(mark.key);
+              const box = boxes?.get(mark.key);
               if (!box) return null;
               return (
                 <div
@@ -173,6 +215,14 @@ export function ScoreView({
                 </div>
               );
             })}
+            {playheadBoxes.map(({ key, box }) => (
+              // Cada compás nuevo monta su resaltado, para que entre con su barrido.
+              <div
+                key={`${String(playingMeasure)}:${key}`}
+                className="notation__playhead"
+                style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+              />
+            ))}
           </div>
         )}
         {/* Solo es una imagen con nombre cuando hay partitura dibujada. */}

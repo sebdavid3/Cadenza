@@ -11,6 +11,9 @@ import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
+import { buildPlayback, measureSlots } from "./playback";
+import { PlaybackBar } from "./PlaybackBar";
+import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
 import { ScoreView } from "./ScoreView";
 import {
@@ -18,6 +21,7 @@ import {
   sessionFindingsQuery,
   sessionFullImageQuery,
   sessionMusicXmlQuery,
+  sessionTimingQuery,
 } from "./session";
 import "./session.css";
 
@@ -66,6 +70,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const findings = useQuery({ ...sessionFindingsQuery(api, sessionId, seq), enabled: ready });
   const musicXml = useQuery({ ...sessionMusicXmlQuery(api, sessionId, seq), enabled: ready });
   const image = useQuery({ ...sessionFullImageQuery(api, sessionId), enabled: ready });
+  const timing = useQuery({ ...sessionTimingQuery(api, sessionId, seq), enabled: ready });
 
   const ownerId = detail.data?.owner_id ?? null;
   const foreign = isResearcher && ownerId !== null && ownerId !== user.id;
@@ -83,6 +88,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
     [score, active],
   );
   const expected = useMemo(() => (score ? measuresPerStaff(score) : []), [score]);
+  // Lo que suena: el mapa de tiempos con las alturas del mismo estado (ADR-0026).
+  const playback = useMemo(
+    () => (score && timing.data ? buildPlayback(score, timing.data) : null),
+    [score, timing.data],
+  );
+  const player = usePlayer(playback);
+  const playing = useMemo(
+    () =>
+      score && player.measure !== null
+        ? { measure: player.measure, slots: measureSlots(score, player.measure) }
+        : null,
+    [score, player.measure],
+  );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [placed, setPlaced] = useState(true);
 
@@ -156,6 +174,26 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onRetry={async () => (await musicXml.refetch()).data}
               />
             </div>
+            <div className="sheet__transport">
+              <PlaybackBar
+                status={player.status}
+                measure={player.measure}
+                announcement={player.announcement}
+                tempo={player.tempo}
+                totalBeats={playback ? playback.totalBeats : null}
+                measureCount={playback?.measures.length ?? 0}
+                silent={playback !== null && playback.notes.length === 0}
+                failure={timing.isError ? "timing" : player.loadFailed ? "load" : null}
+                onRetry={() => {
+                  if (timing.isError) void timing.refetch();
+                  else player.retryLoad();
+                }}
+                onPlay={player.play}
+                onPause={player.pause}
+                onStop={player.stop}
+                onTempo={player.setTempo}
+              />
+            </div>
             {musicXml.data ? (
               <ScoreView
                 key={seq}
@@ -164,6 +202,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 expectedMeasures={expected}
                 selectedKey={selectedKey}
                 onPlacement={setPlaced}
+                playing={playing}
               />
             ) : musicXml.isError ? (
               <div className="notation__failed" role="alert">

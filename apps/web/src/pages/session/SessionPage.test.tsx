@@ -1,8 +1,9 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { routes } from "../../router";
+import { engineLoader } from "./player";
 import {
   ANA,
   deferred,
@@ -12,7 +13,7 @@ import {
   resetAuth,
   signInAs,
 } from "../../test/auth-helpers";
-import type { FindingRead, SessionDetailRead, UserRead } from "../../types";
+import type { FindingRead, SessionDetailRead, TimingMapRead, UserRead } from "../../types";
 
 // OSMD no se puede dibujar en jsdom: un doble con la misma forma de lo que la vista lee.
 const osmd = vi.hoisted(() => ({
@@ -52,6 +53,74 @@ vi.mock("opensheetmusicdisplay", () => ({
     }
   },
 }));
+
+// Tone.js no suena en jsdom: un motor con reloj falso que avisa de cada compás al avanzar.
+const audio = vi.hoisted(() => {
+  interface Span {
+    number: number;
+    start: number;
+  }
+  interface Handlers {
+    onMeasure(measure: number): void;
+    onEnd(): void;
+  }
+  class FakeEngine {
+    position = 0;
+    playing = false;
+    disposed = false;
+    tempos: number[] = [];
+    constructor(
+      readonly playback: { notes: unknown[]; measures: Span[]; totalBeats: number },
+      readonly tempo: number,
+      private readonly handlers: Handlers,
+    ) {}
+    play() {
+      if (audio.failPlay) return Promise.reject(new Error("sin audio"));
+      this.playing = true;
+      return Promise.resolve();
+    }
+    pause() {
+      this.playing = false;
+    }
+    stop() {
+      this.playing = false;
+      this.position = 0;
+    }
+    setTempo(bpm: number) {
+      this.tempos.push(bpm);
+    }
+    dispose() {
+      this.disposed = true;
+      this.playing = false;
+    }
+    /** Avanza el reloj `beats` negras y avisa de los compases que empiezan en ese tramo. */
+    advance(beats: number) {
+      if (!this.playing) return;
+      const from = this.position;
+      this.position += beats;
+      for (const measure of this.playback.measures) {
+        if (measure.start >= from && measure.start < this.position) {
+          this.handlers.onMeasure(measure.number);
+        }
+      }
+      if (this.position >= this.playback.totalBeats) {
+        this.stop();
+        this.handlers.onEnd();
+      }
+    }
+  }
+  const audio = {
+    failPlay: false,
+    engines: [] as FakeEngine[],
+    create: (playback: FakeEngine["playback"], tempo: number, handlers: Handlers) => {
+      const engine = new FakeEngine(playback, tempo, handlers);
+      audio.engines.push(engine);
+      return engine;
+    },
+  };
+  return audio;
+});
+vi.mock("./toneEngine", () => ({ createToneEngine: audio.create }));
 
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
 const INVESTIGADORA: UserRead = {
@@ -131,6 +200,32 @@ function finding(id: number, measureNumber: number, changes: Partial<FindingRead
   } satisfies FindingRead;
 }
 
+function timingMap(numbers = [1, 2, 3], kind = "note"): TimingMapRead {
+  return {
+    session_id: ID,
+    total_beats: String(numbers.length * 3),
+    measure_offsets: Object.fromEntries(numbers.map((n, i) => [String(n), String(i * 3)])),
+    events: numbers.map((n, i) => ({
+      anchor: {
+        part: 0,
+        staff: 0,
+        measure: n,
+        voice: 0,
+        event_index: 0,
+        staff_id: "part-0-staff-0",
+        bbox: null,
+        confidence: null,
+      },
+      kind,
+      measure_number: n,
+      voice: 0,
+      offset_beats: String(i * 3),
+      duration_beats: "3",
+      measure_offset_beats: "0",
+    })),
+  };
+}
+
 const XML = "<score-partwise>…</score-partwise>";
 const png = () =>
   new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/png" } });
@@ -141,6 +236,7 @@ function api(
     findings?: FindingRead[] | (() => Response);
     exportStatus?: number;
     status?: number;
+    timing?: (init: RequestInit | undefined) => Response | Promise<Response>;
   } = {},
 ) {
   const findings = options.findings;
@@ -156,6 +252,7 @@ function api(
         ? jsonResponse({ detail: "fallo" }, options.exportStatus)
         : new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml" } }),
     [`GET /sessions/${ID}/image`]: png,
+    [`GET /sessions/${ID}/timing`]: options.timing ?? (() => jsonResponse(timingMap())),
     "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
   });
 }
@@ -177,6 +274,7 @@ function withExport(route: (init: RequestInit | undefined) => Response | Promise
     [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
     [`GET /sessions/${ID}/export`]: route,
     [`GET /sessions/${ID}/image`]: png,
+    [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
   });
 }
 
@@ -208,6 +306,8 @@ const scrollIntoView = vi.fn();
 beforeEach(() => {
   resetAuth();
   Object.assign(osmd, { measures: 3, fail: false, cleared: 0, zooms: [], loaded: [] });
+  audio.engines = [];
+  audio.failPlay = false;
   createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
   revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   scrollIntoView.mockClear();
@@ -618,5 +718,258 @@ describe("vista de una sesión", () => {
     });
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(osmd.cleared).toBeGreaterThan(0);
+  });
+});
+
+describe("reproducción de la partitura", () => {
+  const engine = () => {
+    const last = audio.engines.at(-1);
+    if (!last) throw new Error("no se creó el motor de audio");
+    return last;
+  };
+  const playButton = async () => {
+    const button = await screen.findByRole("button", { name: "Reproducir" });
+    await waitFor(() => {
+      expect(button).not.toHaveAttribute("aria-disabled", "true");
+    });
+    return button;
+  };
+  const playhead = () => document.querySelector<HTMLElement>(".notation__playhead");
+
+  it("reproduce con el compás que suena resaltado y anuncia cada cambio de estado", async () => {
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+
+    expect(screen.getByText("Reproduciendo.")).toBeInTheDocument();
+    expect(engine().tempo).toBe(120);
+    expect(engine().playback.notes).toHaveLength(3);
+    act(() => {
+      engine().advance(0.5);
+    });
+    // Compás 1 en la caja del primer compás de OSMD: x = 10 unidades × 10 px × 0,75.
+    expect(playhead()?.style.left).toBe("75px");
+    expect(screen.getByText("Compás 1")).toBeVisible();
+
+    act(() => {
+      engine().advance(3);
+    });
+    expect(playhead()?.style.left).toBe("225px");
+    expect(screen.getByText("Compás 2")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Pausa" }));
+    expect(screen.getByText("En pausa.")).toBeInTheDocument();
+    expect(screen.getByText("En pausa · Compás 2")).toBeVisible();
+    expect(playhead()?.style.left).toBe("225px");
+
+    await userEvent.click(screen.getByRole("button", { name: "Reproducir" }));
+    expect(audio.engines).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "Detener" }));
+    expect(screen.getByText("Detenido.")).toBeInTheDocument();
+    expect(playhead()).toBeNull();
+    expect(engine().position).toBe(0);
+  });
+
+  it("se maneja con el teclado y el foco sigue en el mismo botón", async () => {
+    api();
+    renderPage();
+    const button = await playButton();
+
+    button.focus();
+    await userEvent.keyboard("{Enter}");
+    expect(document.activeElement).toBe(button);
+    expect(button).toHaveTextContent("Pausa");
+    await userEvent.keyboard(" ");
+    expect(button).toHaveTextContent("Reproducir");
+    expect(screen.getByText("En pausa.")).toBeInTheDocument();
+  });
+
+  it("al terminar la partitura se detiene y lo dice", async () => {
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+
+    act(() => {
+      engine().advance(9);
+    });
+
+    expect(screen.getByText("Fin de la partitura.")).toBeInTheDocument();
+    expect(playhead()).toBeNull();
+    expect(screen.getByRole("button", { name: "Reproducir" })).toBeVisible();
+  });
+
+  it("cambia el tempo, también mientras suena, sin salir del rango", async () => {
+    api();
+    renderPage();
+    await playButton();
+    expect(screen.getByText("3 compases · 0:05")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Subir el tempo" }));
+    expect(screen.getByText(/^130/)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Reproducir" }));
+    expect(engine().tempo).toBe(130);
+    await userEvent.click(screen.getByRole("button", { name: "Bajar el tempo" }));
+    expect(engine().tempos).toEqual([120]);
+  });
+
+  it("se detiene al salir de la vista", async () => {
+    api();
+    const router = renderPage();
+    await userEvent.click(await playButton());
+    const first = engine();
+
+    await router.navigate("/transcripcion");
+
+    await waitFor(() => {
+      expect(first.disposed).toBe(true);
+    });
+  });
+
+  it("se detiene al cambiar de sesión y la nueva no hereda el compás", async () => {
+    api();
+    const router = renderPage();
+    await userEvent.click(await playButton());
+    const first = engine();
+    act(() => {
+      first.advance(0.5);
+    });
+    expect(playhead()).not.toBeNull();
+
+    const OTRA = "9c1d2e3f-4a5b-4c6d-8e7f-001122334455";
+    mockApi({
+      [`GET /sessions/${OTRA}`]: () => jsonResponse(detail({ session_id: OTRA })),
+      [`GET /sessions/${OTRA}/findings`]: () => jsonResponse([]),
+      [`GET /sessions/${OTRA}/export`]: () => new Response(XML),
+      [`GET /sessions/${OTRA}/image`]: png,
+      [`GET /sessions/${OTRA}/timing`]: () => jsonResponse(timingMap()),
+    });
+    await router.navigate(`/sesiones/${OTRA}`);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /sesión 9c1d2e3f/i }),
+    ).toBeVisible();
+    await waitFor(() => {
+      expect(first.disposed).toBe(true);
+    });
+    await playButton();
+    expect(screen.getByText("3 compases · 0:05")).toBeVisible();
+    expect(playhead()).toBeNull();
+  });
+
+  it("si no llega el audio (el trozo de Tone.js), lo dice y permite reintentar", async () => {
+    vi.spyOn(engineLoader, "load").mockRejectedValueOnce(new Error("404"));
+    api();
+    renderPage();
+
+    expect(
+      await screen.findByText("No se pudo cargar el audio.", { selector: "p.label" }),
+    ).toBeVisible();
+    const play = screen.getByRole("button", { name: "Reproducir" });
+    expect(play).toHaveAttribute("aria-disabled", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar el audio" }));
+
+    // El foco pasa a «Reproducir», que sigue ahí cuando el reintento desaparece.
+    expect(document.activeElement).toBe(play);
+    await waitFor(() => {
+      expect(play).not.toHaveAttribute("aria-disabled", "true");
+    });
+    await userEvent.click(play);
+    expect(engine().playing).toBe(true);
+  });
+
+  it("no devuelve a la partitura a quien se fue a mirar la imagen o la lista", async () => {
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+    act(() => {
+      engine().advance(0.5);
+    });
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    // La persona baja: la partitura (y el compás que sonaba) queda por encima de la ventana.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+      DOMRect.fromRect({ x: 0, y: -5000, width: 300, height: 200 }),
+    );
+    act(() => {
+      engine().advance(3);
+    });
+
+    expect(screen.getByText("Compás 2")).toBeVisible();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("se pausa si la página deja de verse", async () => {
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+
+    expect(engine().playing).toBe(false);
+    expect(screen.getByText("En pausa.")).toBeInTheDocument();
+  });
+
+  it("con movimiento reducido trae el compás a la vista sin desplazamiento suave", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }));
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+    scrollIntoView.mockClear();
+
+    act(() => {
+      engine().advance(0.5);
+    });
+
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+  });
+
+  it("mientras prepara el audio no reproduce y lo dice", async () => {
+    api({ timing: () => hangUntilAborted(undefined) });
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: "Reproducir" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Preparando el audio…")).toBeVisible();
+    await userEvent.click(button);
+    expect(audio.engines).toHaveLength(0);
+  });
+
+  it("si falla el mapa de tiempos lo dice y permite reintentar", async () => {
+    let fail = true;
+    api({
+      timing: () => (fail ? jsonResponse({ detail: "fallo" }, 500) : jsonResponse(timingMap())),
+    });
+    renderPage();
+
+    expect(await screen.findByText("No se pudo preparar el audio.")).toBeVisible();
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar el audio" }));
+    await playButton();
+  });
+
+  it("si la partitura no tiene notas que sonar, lo dice y no reproduce", async () => {
+    api({ timing: () => jsonResponse(timingMap([1, 2, 3], "rest")) });
+    renderPage();
+
+    expect(await screen.findByText("Sin notas que sonar.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Reproducir" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
+  it("si el audio no arranca en el navegador, lo dice", async () => {
+    audio.failPlay = true;
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+
+    expect(await screen.findByText("No se pudo iniciar el audio.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reproducir" })).toBeVisible();
   });
 });
