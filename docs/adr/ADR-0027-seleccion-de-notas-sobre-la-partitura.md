@@ -29,7 +29,7 @@ Restricciones:
 - **Hallazgos sobre OSMD y el exportador.**
   - OSMD ordena las notas de un acorde de grave a agudo, no en el orden del `ScoreIR`.
   - OSMD guarda aparte la parte entera de una duración: 11/8 de redonda es `WholeValue` 1 más 3/8.
-  - Un evento de duración cero se dibuja como una negra, porque music21 ignora `quarterLength=0` (13 notas en 7 de las 99 sesiones; D60).
+  - Un evento de duración cero se dibuja como una negra, porque music21 ignora `quarterLength=0` (13 notas en 7 de las 99 sesiones; D60). Una duración nula también sale como negra, pero porque el exportador la cambia por 1. En los dos casos el exportador no adelanta el instante (`offset += 0`): la nota siguiente se inserta en el mismo, y music21 y OSMD las ponen una detrás de otra.
   - La posición que OSMD da a una nota es el centro de su cabeza: en las 91 sesiones del manifiesto, con un desvío de 0,09 unidades o menos en horizontal y ninguno en vertical. Para un silencio da solo un punto de referencia, no la extensión de su glifo, que según la figura mide de 0,5 a 2,9 unidades de alto.
 - **Densidad.** A 340 px, entre figuras consecutivas de un mismo sistema hay una mediana de 26,2 px, un p10 de 16 px y un mínimo de 0 px (las superpuestas), sobre 1283 separaciones. 1117 (87 %) están por debajo de 44 px y 527 (41 %) por debajo de 24 px. 96 de las 99 sesiones ocupan más de un sistema.
 
@@ -39,16 +39,17 @@ Restricciones:
    - Cada compás del `ScoreIR` se empareja con su compás dibujado (el de ADR-0021), voz con voz por el orden de su número.
    - Dentro de una voz, los eventos se agrupan como los escribe el exportador: un silencio solo, y una nota con las que la siguen marcadas como acorde (`is_chord`).
    - Cada grupo consume, en orden, las figuras dibujadas cuya duración suma la suya: una, o varias si el exportador la partió. Han de ser de su misma clase (nota o silencio) y, en las notas, de las mismas alturas, comparadas por número MIDI y nombre de nota para distinguir enarmonías. Las notas de un acorde se emparejan por altura.
-   - Una duración nula o cero cuenta como una negra, que es como la escribe music21.
+   - Una duración nula o cero cuenta como una negra, que es como sale dibujada.
    - Ha de consumir todas las figuras de la voz, sin notas de adorno.
    - El ancla se construye como `compute_timing_map`: parte, pentagrama, número de compás, voz, `event_index` por voz y `staff_id`, con el `bbox` y la `confidence` del evento.
-2. **Todo o nada.** Si un compás no cuadra, o un evento no es nota ni silencio con altura, el mapa no se ofrece: no se elige ninguna nota y la vista dice cuántos eventos no coinciden con lo dibujado. Si OSMD dibuja otros compases que el `ScoreIR`, tampoco. Las marcas por compás y la reproducción siguen igual. Como en ADR-0021, no se ofrece una selección dudosa.
+2. **Todo o nada.** Si un compás no cuadra, o un evento no es nota ni silencio con altura, el mapa no se ofrece: no se elige ninguna nota y la vista dice cuántos eventos no coinciden con lo dibujado. Si OSMD dibuja otros compases que el `ScoreIR`, tampoco, ni si dos compases de un pentagrama tienen el mismo número (sus eventos tendrían la misma ancla). Una partitura sin notas ni silencios no se ofrece como control. Las marcas por compás y la reproducción siguen igual. Como en ADR-0021, no se ofrece una selección dudosa.
 3. **Geometría del SVG, recalculada en cada maquetación.**
    - La caja de una nota es la de su cabeza (`.vf-notehead`) dentro del elemento que da `getSVGGElement()` de VexFlow. En un acorde, es la cabeza más cercana a la altura en que OSMD sitúa la nota.
    - La de un silencio es la de su glifo entero.
-   - Una figura partida tiene una caja por figura y la que las abarca.
+   - Una figura partida tiene una caja por figura y la que las abarca. Se marca figura a figura, para no encerrar lo que hay entre medias.
+   - Cada evento guarda también dónde empieza en el dibujo, que es lo que usan ↑ y ↓, y si es de un acorde, también la nota que lo empieza.
    - Las cajas se miden relativas al contenedor de OSMD, el mismo origen que `measureBox`, y se recalculan cada vez que OSMD vuelve a maquetar (el contador `layout` de ADR-0021).
-4. **Elegir con el puntero.** Un clic o un toque elige, entre los eventos del compás tocado, el más cercano en horizontal y, a igual distancia (las notas de un acorde), el más cercano en vertical. Fuera de los compases no elige nada. No hay un objetivo de 44 px por nota: a 340 px las notas distan menos (87 %). La alternativa equivalente (WCAG 2.5.8) son los botones «Anterior» y «Siguiente» de la barra, de 44 px, que llegan a cualquier evento.
+4. **Elegir con el puntero.** Un clic o un toque elige, entre los eventos de los compases tocados, el más cercano en horizontal y, a igual distancia (las notas de un acorde), el más cercano en vertical. Un compás abarca su franja de ADR-0021 (el pentagrama y 2 espacios por encima y por debajo) y además lo que tiene dibujado, también las notas con líneas adicionales que salen de ella. La distancia a una figura partida es la de la más cercana de sus figuras. Fuera de los compases no elige nada. No hay un objetivo de 44 px por nota: a 340 px las notas distan menos (87 %). La alternativa equivalente (WCAG 2.5.8) son los botones «Anterior» y «Siguiente» de la barra, de 44 px, que llegan a cualquier evento.
 5. **Elegir con el teclado.** La partitura es un único elemento enfocable con el anillo de foco del sistema:
    - ← y → recorren la voz y pasan de compás.
    - Ctrl o ⌘ más ← y →, o Re Pág y Av Pág, saltan al compás anterior o siguiente.
@@ -62,7 +63,7 @@ Restricciones:
    - Lo elegido se anuncia en una región `aria-live` 300 ms después del último movimiento, con compás, voz, altura o silencio, duración y, si procede, pentagrama, «en acorde» y «ligada». Al moverse deprisa solo se anuncia dónde se detiene; al quitarla se anuncia «Sin nota elegida.».
    - Las alturas van en solfeo («Fa#5», dicho «Fa sostenido 5») y las duraciones con su nombre («corchea con puntillo», «negra de tresillo»).
 7. **Estado.** La selección vive en Zustand (`useSelectionStore`, ADR-0006) como `{ sessionId, seq, anchor }`: el ancla es relativa a un estado (ADR-0011) y la vista solo la muestra para su sesión y su `seq`. Se olvida al salir de la sesión. Es lo que #183 usará para editar.
-8. **Marca.** La nota elegida se marca con una caja de papel por detrás de su cabeza, un aro de papel y un filete violeta de 3 px, sin movimiento. Es violeta porque pide acción (`DESIGN.md`). Abre un hueco en la trama del compás dudoso y convive con el contorno de tinta del compás que suena (ADR-0026). Una franja propia entre el transporte y la partitura dice qué está elegido, con los pasos y la leyenda de teclas. En una pantalla táctil, la leyenda se oculta y, en una partitura estrecha, los pasos quedan como flechas.
+8. **Marca.** La nota elegida se marca con una caja de papel por detrás de su cabeza, un aro de papel y un filete violeta de 3 px, sin movimiento. Es violeta porque pide acción (`DESIGN.md`). Abre un hueco en la trama del compás dudoso y convive con el contorno de tinta del compás que suena (ADR-0026). Una franja propia entre el transporte y la partitura dice qué está elegido, con los pasos y la leyenda de teclas. En una pantalla táctil, la leyenda se oculta y, en una partitura estrecha, los pasos quedan como flechas. Con colores forzados, la marca pasa a un contorno con el color de selección del sistema.
 
 ## Consecuencias
 
@@ -71,7 +72,7 @@ Restricciones:
 - El emparejamiento no depende del orden en que OSMD guarda un acorde ni de cómo parte una duración.
 - La comprobación geométrica independiente sitúa todas las notas de las sesiones reales en su línea o espacio.
 - Si el exportador o OSMD cambian de forma que lo dibujado ya no cuadra, la vista deja de ofrecer la selección y lo dice, en lugar de elegir mal.
-- Se prueba con Vitest sobre un doble de OSMD con la misma forma que lo que se lee.
+- Se prueba con Vitest: el emparejamiento, sobre figuras construidas a mano, y la vista, sobre un doble de OSMD con la forma de lo que se lee, con acordes y varias voces.
 
 ### Negativas / Riesgos
 - Depende de la estructura interna de OSMD 2.2.1 (`staffEntries`, `graphicalVoiceEntries`, `sourceNote`, `GetExpandedNumerator`, `getHalfTone`) y del SVG de VexFlow (`getSVGGElement`, `.vf-notehead`). Subir de versión exige repetir la medición. La versión ya está fijada.
@@ -79,6 +80,7 @@ Restricciones:
 - En un compás sobrellenado y estrecho, OSMD puede superponer figuras. El mapa sigue siendo correcto, pero el toque elige la primera de las superpuestas; el teclado y los botones llegan a todas (1 de 1534 eventos a 340 px).
 - En un unísono dentro de un acorde, las dos notas tienen la misma caja: cuál es cuál es indiferente para el dibujo, pero el toque elige la primera.
 - La caja de una nota marca su cabeza, no la plica ni las alteraciones.
+- No está comprobado con un lector de pantalla táctil (VoiceOver o TalkBack): su doble toque sobre la partitura puede elegir la nota de su centro. Los pasos de la barra no dependen de eso.
 - Las sesiones reales no tienen acordes, ligaduras, voces ni varios pentagramas: esos casos están comprobados con el exportador y con pruebas, no medidos sobre transcripciones de HOMR.
 - Elegir una nota no la edita todavía: eso es #183.
 
