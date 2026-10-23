@@ -95,6 +95,13 @@ components:
   button-on-accent-hover:
     backgroundColor: "{colors.ink}"
     textColor: "{colors.paper}"
+  button-compact:
+    backgroundColor: "{colors.paper}"
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    rounded: "{rounded.none}"
+    padding: "8px 16px"
+    height: "44px"
   button-disabled:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink-muted}"
@@ -220,6 +227,7 @@ Bloques rotulados en Silkscreen, rectos y de filete grueso.
 - **On accent:** sobre el campo violeta, bloque de papel con doble filete de tinta.
 - **Hover / Focus:** todos pasan a bloque de tinta con texto de papel en 160 ms con salida exponencial; el icono de flecha avanza 2 px. Foco con anillo violeta de 3 px separado 3 px (de papel sobre el violeta).
 - **Disabled:** filete discontinuo, texto en tinta gastada, sin doble filete.
+- **Compact:** el secundario a la medida del conmutador (44 px de alto, relleno 8 × 16 px, 0.875rem, sin partir el rótulo), para las barras de herramientas. Es el «Descargar MusicXML» de la barra de la partitura.
 
 ### Toggle (conmutador segmentado)
 - **Style:** botones contiguos con filete de 3 px solapado, rótulo Silkscreen 700 a 0.875rem, alto de 44 px.
@@ -233,6 +241,9 @@ Cabecera de 96 px con filete inferior: la marca en display, el lema en rótulo (
 
 ### Finding Label
 Rótulo del hallazgo del validador: Silkscreen sobre bloque violeta macizo, relleno 4 × 8 px, anclado al borde del compás señalado y colgando sobre el pentagrama.
+
+### Barra de la partitura
+En la vista de una sesión, la figura de la notación lleva su barra en la misma franja que el pie: rótulo a la izquierda y acciones a la derecha, sobre un único filete. Si la partitura es estrecha (menos de 34rem), la barra baja a su propia franja bajo el pie. Lleva controles compactos con iconos de píxel.
 
 ### Partitura: escaneo y notación
 La pieza firma del sistema. La misma maqueta se dibuja dos veces: como escaneo, en canvas a un 20 % de resolución, umbralizado a un bit con los colores de papel y tinta leídos de los tokens y ampliado con `image-rendering: pixelated`; como notación, en SVG con pentagrama y barras de tinta de 3 px y glifos de Noto Music convertidos en rutas. El compás dudoso se marca con trama de puntos violeta y contorno violeta de 4 px; el compás ya corregido, con contorno de tinta de 4 px. Las dos vistas comparten proporción (1360 / 262) y se superponen exactamente.

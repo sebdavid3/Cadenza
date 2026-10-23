@@ -3,7 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { routes } from "../../router";
-import { ANA, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import {
+  ANA,
+  hangUntilAborted,
+  jsonResponse,
+  mockApi,
+  resetAuth,
+  signInAs,
+} from "../../test/auth-helpers";
 import type { FindingRead, SessionDetailRead, UserRead } from "../../types";
 
 // OSMD no se puede dibujar en jsdom: un doble con la misma forma de lo que la vista lee.
@@ -157,6 +164,27 @@ function renderPage(user: UserRead = ANA) {
   const router = createMemoryRouter(routes, { initialEntries: [`/sesiones/${ID}`] });
   render(<RouterProvider router={router} />);
   return router;
+}
+
+/** Nombres de los archivos que la vista descarga (jsdom no navega a una URL de Blob). */
+function captureDownloads() {
+  const names: string[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    names.push(this.download);
+  });
+  return { names };
+}
+
+/** Blobs de MusicXML entregados a `URL.createObjectURL` (la imagen original también pasa). */
+function musicXmlBlobs() {
+  return createObjectURL.mock.calls
+    .map(([value]) => value)
+    .filter(
+      (value): value is Blob =>
+        value instanceof Blob && value.type === "application/vnd.recordare.musicxml+xml",
+    );
 }
 
 let createObjectURL: MockInstance<typeof URL.createObjectURL>;
@@ -433,6 +461,71 @@ describe("vista de una sesión", () => {
 
     const owner = await screen.findByText("luis");
     expect(owner.closest("div")).toHaveTextContent("Propietario");
+  });
+
+  it("descarga el MusicXML que ya tiene, con un nombre determinista y sin pedirlo otra vez", async () => {
+    const { calls } = api();
+    const saved = captureDownloads();
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    await waitFor(() => {
+      expect(button).not.toHaveAttribute("aria-disabled", "true");
+    });
+    await userEvent.click(button);
+
+    expect(saved.names).toEqual(["cadenza-3e951fef.musicxml"]);
+    const blob = musicXmlBlobs()[0];
+    expect(blob?.type).toBe("application/vnd.recordare.musicxml+xml");
+    expect(await blob?.text()).toBe(XML);
+    expect(calls.filter((call) => call.key === `GET /sessions/${ID}/export`)).toHaveLength(1);
+  });
+
+  it("mientras prepara el MusicXML no descarga y lo dice", async () => {
+    mockApi({
+      [`GET /sessions/${ID}`]: () => jsonResponse(detail()),
+      [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
+      [`GET /sessions/${ID}/export`]: hangUntilAborted,
+      [`GET /sessions/${ID}/image`]: png,
+    });
+    const saved = captureDownloads();
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Preparando el MusicXML…")).toBeVisible();
+    await userEvent.click(button);
+    expect(saved.names).toEqual([]);
+  });
+
+  it("si la exportación falla lo dice y, al pulsar, la vuelve a pedir y descarga", async () => {
+    let fail = true;
+    const { calls } = mockApi({
+      [`GET /sessions/${ID}`]: () => jsonResponse(detail()),
+      [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
+      [`GET /sessions/${ID}/export`]: () =>
+        fail
+          ? jsonResponse({ detail: "fallo" }, 500)
+          : new Response(XML, {
+              headers: { "Content-Type": "application/vnd.recordare.musicxml" },
+            }),
+      [`GET /sessions/${ID}/image`]: png,
+    });
+    const saved = captureDownloads();
+    renderPage();
+
+    expect(await screen.findByText(/no se pudo preparar el musicxml/i)).toBeVisible();
+    const button = screen.getByRole("button", { name: "Descargar MusicXML" });
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+
+    fail = false;
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.musicxml"]);
+    });
+    expect(calls.filter((call) => call.key === `GET /sessions/${ID}/export`)).toHaveLength(2);
+    expect(screen.queryByText(/no se pudo preparar el musicxml/i)).toBeNull();
   });
 
   it("muestra la imagen original desde un Blob y revoca su URL al salir", async () => {

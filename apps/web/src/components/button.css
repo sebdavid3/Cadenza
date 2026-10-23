@@ -42,6 +42,15 @@
   color: var(--color-paper);
 }
 
+/* Compacto: el tamaño del conmutador (44 px), para las barras de herramientas. */
+.button--compact {
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
 .button:disabled,
 .button[aria-disabled="true"] {
   border-style: dashed;

@@ -37,7 +37,7 @@ No es un reconocimiento automático que entrega un resultado cerrado: la máquin
 - HOMR es el único motor y solo se ha evaluado sobre PrIMuS: incipits impresos y monofónicos. SMB y MUSCIMA++ no están evaluados (#102). No se prometen manuscritos ni polifonía densa.
 - HOMR no da coordenadas por nota: la interfaz no puede resaltar notas sobre la imagen original. La imagen es una referencia global.
 - La interfaz va en español.
-- Sin decidir: la vista de edición (OSMD, Tone.js), la gestión de usuarios y la exportación desde la interfaz llegan en tandas posteriores de la Fase 8.
+- La vista de una sesión descarga el MusicXML ([#176](https://github.com/sebdavid3/Cadenza/issues/176)). Sin decidir: la vista de edición (OSMD, Tone.js), la gestión de usuarios y la descarga del MIDI llegan en tandas posteriores de la Fase 8.
 
 ## Brand Commitments
 

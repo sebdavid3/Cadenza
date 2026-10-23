@@ -19,6 +19,16 @@ const GLYPHS = {
     "..#.....",
     "...#....",
   ],
+  download: [
+    "...##...",
+    "...##...",
+    "...##...",
+    "########",
+    ".######.",
+    "..####..",
+    "...##...",
+    "########",
+  ],
 } satisfies Record<string, string[]>;
 
 export type PixelIconName = keyof typeof GLYPHS;
