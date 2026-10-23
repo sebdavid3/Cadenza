@@ -75,7 +75,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | Vaciada en [#129](https://github.com/sebdavid3/Cadenza/issues/129) (solo quedan los tipos generados del contrato); se construye desde cero en la fase 8 |
+| Interfaz web en `apps/web` (fase 8) | En construcción desde cero: base con cliente HTTP tipado, proxy de desarrollo y sistema de diseño ([#144](https://github.com/sebdavid3/Cadenza/issues/144)); landing, acceso y vista de transcripción en [#145](https://github.com/sebdavid3/Cadenza/issues/145)–[#147](https://github.com/sebdavid3/Cadenza/issues/147); la corrección con OSMD y Tone.js, después |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
 
@@ -105,7 +105,7 @@ validación, la base de datos y la API son adaptadores intercambiables.
 | [`packages/persistence`](packages/persistence) | SQLAlchemy (PostgreSQL con JSONB o SQLite), repositorios, almacén de artefactos y migraciones Alembic |
 | [`packages/learning`](packages/learning) | Dataset desde la base de datos, estrategias de adquisición, métricas OMR-NED y SER, registro de modelos |
 | [`apps/api`](apps/api) | API REST FastAPI del plano online, autenticación JWT y CLI administrativa |
-| [`apps/web`](apps/web) | Interfaz web de corrección (fase 8); hoy solo contiene los tipos TypeScript generados del contrato |
+| [`apps/web`](apps/web) | Interfaz web (fase 8): cliente HTTP tipado con los tipos generados del contrato, vistas y sistema de diseño |
 | [`ml/`](ml) | CLI de jobs offline y experimentos de la tesis |
 
 Reglas que no se rompen (verificadas por tests y por revisión): el dominio solo usa la
@@ -121,6 +121,7 @@ guarda una edición inválida; el autor de una edición lo fija el servidor
 
 - **Python 3.12** (el proyecto exige `>=3.12,<3.13`).
 - **[uv](https://docs.astral.sh/uv/)**, que gestiona el workspace y el entorno virtual.
+- **Node.js 22.12 o posterior** (la CI usa Node 24) y npm, para la interfaz web.
 - Opcional: **GPU NVIDIA** para acelerar HOMR, con `onnxruntime-gpu` 1.26.0 (CUDA 12).
 - Opcional: **Docker** con Docker Compose para el despliegue con PostgreSQL.
 
@@ -265,15 +266,26 @@ uv run --no-sync python scripts/generate_openapi_and_types.py   # docs/api/opena
 
 ## Interfaz web
 
-`apps/web` está vacía a propósito desde [#129](https://github.com/sebdavid3/Cadenza/issues/129):
-la interfaz de corrección se construye desde cero en la fase 8. Solo contiene
-`apps/web/src/types.ts`, los tipos TypeScript generados desde el contrato OpenAPI, que no se
-editan a mano.
+La interfaz web vive en `apps/web` (React 18, TypeScript y Vite) y se construye desde cero en
+la fase 8 sobre la API v1. Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
+Las decisiones de la base están en
+[ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) y el sistema de diseño, en
+[`PRODUCT.md`](PRODUCT.md) y `.impeccable/`.
 
-La fase 8 implementará el inicio de sesión, la ingesta, la corrección con el renderizado de la
-partitura con OSMD y la reproducción con Tone.js
-([ADR-0006](docs/adr/ADR-0006-render-editor-osmd-verovio-zustand.md)) sobre la API v1.
-Punto de partida: [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md).
+Con la API arrancada en `http://127.0.0.1:8000` (ver [Arranque local](#arranque-local)):
+
+```bash
+cd apps/web
+npm ci
+npm run dev        # http://localhost:5173
+```
+
+El servidor de desarrollo reenvía a la API todo lo que empieza por `/api`, quitando el
+prefijo, así que no hace falta configurar CORS. Para apuntar a otro backend, copia
+`apps/web/.env.example` como `.env.local` y ajusta `CADENZA_API_PROXY_TARGET` (destino del
+proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
+
+`apps/web/src/types.ts` se genera desde el contrato OpenAPI y no se edita a mano.
 
 ---
 
@@ -288,11 +300,18 @@ uv run --no-sync ruff check .
 uv run --no-sync black --check .
 ```
 
-Cuando exista de nuevo una aplicación en `apps/web`, sus propias puertas (pruebas y build) se
-añadirán a esta lista y a la CI.
+Si se modificó `apps/web`, además:
+
+```bash
+cd apps/web
+npm run lint
+npm run format:check
+npm run test       # Vitest
+npm run build      # comprobación de tipos y empaquetado
+```
 
 La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
-mismo en cada PR hacia `dev`. Los tests de compatibilidad con PostgreSQL corren allí contra un
+mismo en cada PR hacia `dev`, con un job para el backend y otro para el frontend. Los tests de compatibilidad con PostgreSQL corren allí contra un
 PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala.
 
 ---
@@ -384,7 +403,7 @@ cada experimento en [`ml/README.md`](ml/README.md).
 Cadenza/
 ├── apps/
 │   ├── api/                 API REST (FastAPI) y CLI administrativa
-│   └── web/                 Tipos generados del contrato; la interfaz web es la fase 8
+│   └── web/                 Interfaz web (React + TypeScript + Vite), fase 8
 ├── packages/                Monolito modular: un paquete por módulo del workspace uv
 │   ├── domain/              Núcleo puro
 │   ├── application/         Casos de uso y puertos
@@ -411,7 +430,7 @@ Cadenza/
 |---|---|
 | [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
-| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0017) |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0019) |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
 | [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR) |

@@ -45,5 +45,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas | Aceptado | API, Plano Online |
 | [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md) | Validación del contenido de las ediciones y estado previo fijado por el servidor | Aceptado | Dominio, API, M3, M4 |
 | [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md) | HOMR como único motor OMR | Aceptado | M1, API |
+| [ADR-0019](ADR-0019-base-del-cliente-web.md) | Base del cliente web (Fase 8) | Aceptado | Web |
 
 
