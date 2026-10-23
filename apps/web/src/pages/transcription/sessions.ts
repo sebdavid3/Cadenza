@@ -1,14 +1,18 @@
 import type { ApiClient } from "../../api/client";
+import { ApiError } from "../../api/errors";
 import type { SessionSummaryRead, UserRead } from "../../types";
 
 export const SESSIONS_PAGE_SIZE = 20;
 export const SESSIONS_QUERY_KEY = ["sessions"] as const;
 
-export function listSessions(api: ApiClient, offset: number, signal?: AbortSignal) {
-  return api.request<SessionSummaryRead[]>("/sessions", {
+export async function listSessions(api: ApiClient, offset: number, signal?: AbortSignal) {
+  const page = await api.request("/sessions", {
     query: { limit: SESSIONS_PAGE_SIZE, offset },
     signal,
   });
+  // El contrato devuelve una lista; otra cosa se trata como respuesta inesperada, no se pinta.
+  if (!Array.isArray(page)) throw new ApiError("unexpected", 200);
+  return page as SessionSummaryRead[];
 }
 
 export function listUsers(api: ApiClient, signal?: AbortSignal) {

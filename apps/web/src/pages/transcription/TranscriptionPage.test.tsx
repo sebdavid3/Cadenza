@@ -2,9 +2,8 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
-import { ANA, fakeJwt, jsonResponse, mockApi, resetAuth } from "../../test/auth-helpers";
+import { ANA, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
 import type { SessionSummaryRead, UserRead } from "../../types";
 import { useQueueStore } from "./queue";
 
@@ -26,7 +25,7 @@ function session(id: string, overrides: Partial<SessionSummaryRead> = {}): Sessi
 }
 
 function renderPage(user: UserRead = ANA) {
-  useAuthStore.getState().signIn(fakeJwt(1_800_000, user.id), user);
+  signInAs(user);
   const router = createMemoryRouter(routes, { initialEntries: ["/transcripcion"] });
   render(<RouterProvider router={router} />);
   return router;
