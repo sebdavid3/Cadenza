@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -84,14 +85,81 @@ class JwtTokenService(TokenService):
             raise NotAuthenticated("Token inválido") from err
 
 
-class LoginRateLimiter:
-    """Control en memoria de intentos fallidos de inicio de sesión (#40)."""
+def client_network_key(host: str) -> str:
+    """Clave del límite por IP: la dirección IPv4, o la red /64 de una IPv6.
 
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 300) -> None:
+    Un mismo cliente IPv6 suele disponer de todo un /64; contar por dirección dejaría esquivar el
+    límite rotando direcciones (ADR-0022).
+    """
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
+
+
+class LoginRateLimiter:
+    """Control en memoria de intentos por clave en una ventana de tiempo (#40, ADR-0022).
+
+    El inicio de sesión cuenta solo los fallos (`check` + `record_failure`); el registro cuenta
+    cada intento con `hit`, que comprueba y anota bajo el mismo cerrojo.
+    """
+
+    # Por encima de este número de claves se purgan las que ya no tienen intentos en la ventana.
+    _PURGE_THRESHOLD = 10_000
+
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        window_seconds: int = 300,
+        *,
+        message: str = "Demasiados intentos fallidos. Reintente en {retry_after} segundos.",
+    ) -> None:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
+        self.message = message
         self._failures: dict[str, list[float]] = {}
         self._lock = threading.Lock()
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+        if failures:
+            self._failures[key] = failures
+        else:
+            self._failures.pop(key, None)
+        return failures
+
+    def _purge(self, now: float) -> None:
+        if len(self._failures) <= self._PURGE_THRESHOLD:
+            return
+        for key in list(self._failures):
+            self._recent(key, now)
+
+    def _raise_limited(self, failures: list[float], now: float) -> None:
+        retry_after = max(1, int(self.window_seconds - (now - failures[0])))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=self.message.format(retry_after=retry_after),
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    def hit(self, key: str) -> None:
+        """Anota un intento y lanza 429 si ya se había alcanzado el límite, de forma atómica."""
+        if self.max_attempts <= 0:
+            return
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            failures = self._recent(key, now)
+            if len(failures) >= self.max_attempts:
+                self._raise_limited(failures, now)
+            failures.append(now)
+            self._failures[key] = failures
 
     def check(self, key: str) -> None:
         """Verifica si la clave ha superado el límite de intentos permitidos."""
@@ -99,16 +167,9 @@ class LoginRateLimiter:
             return
         now = time.time()
         with self._lock:
-            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
-            self._failures[key] = failures
+            failures = self._recent(key, now)
             if len(failures) >= self.max_attempts:
-                oldest = failures[0]
-                retry_after = max(1, int(self.window_seconds - (now - oldest)))
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Demasiados intentos fallidos. Reintente en {retry_after} segundos.",
-                    headers={"Retry-After": str(retry_after)},
-                )
+                self._raise_limited(failures, now)
 
     def record_failure(self, key: str) -> None:
         """Registra un intento fallido para la clave especificada."""
@@ -116,7 +177,8 @@ class LoginRateLimiter:
             return
         now = time.time()
         with self._lock:
-            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+            self._purge(now)
+            failures = self._recent(key, now)
             failures.append(now)
             self._failures[key] = failures
 

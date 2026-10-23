@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
 from cadenza.api import Settings, create_app
+from cadenza.api.security import LoginRateLimiter, client_network_key
 from cadenza.application import Role, User
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -10,24 +12,47 @@ from cadenza.persistence import (
     create_schema,
     create_session_factory,
 )
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 SECRET = "test-jwt-signing-key-minimum-32-bytes-long"
+ORIGIN = "https://cadenza.test"
 
 
-def _client(
-    *, enabled: bool = True, max_attempts: int = 5, window_seconds: int = 3600
-) -> tuple[TestClient, FastAPI]:
+def _app(
+    *,
+    enabled: bool = True,
+    max_attempts: int = 5,
+    window_seconds: int = 3600,
+    max_pending: int = 50,
+) -> FastAPI:
     engine = create_memory_engine()
     create_schema(engine)
     settings = Settings(
         auth_secret_key=SECRET,
+        cors_origins=[ORIGIN],
         registration_enabled=enabled,
         registration_rate_limit_max_attempts=max_attempts,
         registration_rate_limit_window_seconds=window_seconds,
+        registration_max_pending=max_pending,
     )
-    app = create_app(create_session_factory(engine), settings=settings)
+    return create_app(create_session_factory(engine), settings=settings)
+
+
+def _client(
+    *,
+    enabled: bool = True,
+    max_attempts: int = 5,
+    window_seconds: int = 3600,
+    max_pending: int = 50,
+) -> tuple[TestClient, FastAPI]:
+    app = _app(
+        enabled=enabled,
+        max_attempts=max_attempts,
+        window_seconds=window_seconds,
+        max_pending=max_pending,
+    )
     return TestClient(app), app
 
 
@@ -46,6 +71,12 @@ def _add_investigator(app: FastAPI) -> str:
         db.commit()
     token: str = state.token_service.create_access_token(user_id=user.id, role=user.role)
     return token
+
+
+def _register(client: TestClient, username: str, password: str = "clave_larga_1") -> int:
+    response = client.post("/auth/register", json={"username": username, "password": password})
+    code: int = response.status_code
+    return code
 
 
 def test_register_creates_an_inactive_self_registered_transcriptor() -> None:
@@ -67,7 +98,7 @@ def test_self_registered_account_cannot_log_in_until_activated() -> None:
     created = client.post("/auth/register", json={"username": "ana", "password": "clave_larga_1"})
     form = {"username": "ana", "password": "clave_larga_1"}
 
-    # Igual que unas credenciales incorrectas: no revela si la cuenta existe.
+    # Igual que unas credenciales incorrectas.
     assert client.post("/auth/login", data=form).status_code == 401
 
     token = _add_investigator(app)
@@ -83,46 +114,93 @@ def test_self_registered_account_cannot_log_in_until_activated() -> None:
 
 def test_register_rejects_a_taken_username() -> None:
     client, _app = _client()
-    client.post("/auth/register", json={"username": "ana", "password": "clave_larga_1"})
+    _register(client, "ana")
 
-    response = client.post("/auth/register", json={"username": "ana", "password": "otra_clave_2"})
+    assert _register(client, "ana", "otra_clave_2") == 409
 
-    assert response.status_code == 409
+
+@pytest.mark.parametrize(
+    "username",
+    ["ab", " ", "Ana", "ana ", "a\nb", "\u200badmin", "investigadora\u00a0", "a\u00f1o", "_ana"],
+)
+def test_register_only_accepts_unambiguous_usernames(username: str) -> None:
+    client, _app = _client()
+
+    assert _register(client, username) == 422
 
 
 def test_register_validates_the_payload_and_forbids_choosing_a_role() -> None:
     client, _app = _client()
 
     short = client.post("/auth/register", json={"username": "ana", "password": "corta"})
-    empty = client.post("/auth/register", json={"username": "", "password": "clave_larga_1"})
     role = client.post(
         "/auth/register",
         json={"username": "ana", "password": "clave_larga_1", "role": "investigador"},
     )
 
     assert short.status_code == 422
-    assert empty.status_code == 422
     assert role.status_code == 422
     assert role.json()["detail"][0]["type"] == "extra_forbidden"
 
 
-def test_register_limits_attempts_per_ip_including_failed_ones() -> None:
+def test_register_limits_attempts_per_ip_including_taken_names() -> None:
     client, _app = _client(max_attempts=2, window_seconds=600)
-    client.post("/auth/register", json={"username": "a1", "password": "clave_larga_1"})
-    client.post("/auth/register", json={"username": "a1", "password": "clave_larga_1"})  # 409
+    _register(client, "aaa1")
+    _register(client, "aaa1")  # 409: también cuenta
 
-    response = client.post("/auth/register", json={"username": "a2", "password": "clave_larga_1"})
+    response = client.post("/auth/register", json={"username": "aaa2", "password": "clave_larga_1"})
 
     assert response.status_code == 429
-    assert int(response.headers["Retry-After"]) > 0
+    assert 0 < int(response.headers["Retry-After"]) <= 600
+    assert "registros" in response.json()["detail"]
 
 
-def test_register_is_not_found_when_disabled() -> None:
+def test_register_limit_is_per_ip() -> None:
+    app = _app(max_attempts=1)
+    first = TestClient(app, client=("203.0.113.1", 50000))
+    second = TestClient(app, client=("203.0.113.2", 50000))
+
+    assert _register(first, "aaa1") == 201
+    assert _register(first, "aaa2") == 429
+    assert _register(second, "aaa3") == 201
+
+
+def test_register_is_closed_while_too_many_accounts_await_activation() -> None:
+    client, app = _client(max_pending=2)
+    created = client.post("/auth/register", json={"username": "aaa1", "password": "clave_larga_1"})
+    _register(client, "aaa2")
+
+    closed = client.post("/auth/register", json={"username": "aaa3", "password": "clave_larga_1"})
+    assert closed.status_code == 503
+
+    token = _add_investigator(app)
+    client.patch(
+        f"/users/{created.json()['id']}",
+        json={"active": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert _register(client, "aaa3") == 201
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"username": "ana", "password": "clave_larga_1"},
+        {"username": "ana", "password": "corta"},
+        {"username": "ana", "password": "clave_larga_1", "role": "investigador"},
+    ],
+)
+def test_register_is_not_found_when_disabled_whatever_the_body(body: dict[str, str]) -> None:
     client, _app = _client(enabled=False)
 
-    response = client.post("/auth/register", json={"username": "ana", "password": "clave_larga_1"})
+    assert client.post("/auth/register", json=body).status_code == 404
 
-    assert response.status_code == 404
+
+def test_registration_requires_a_closed_cors_policy() -> None:
+    with pytest.raises(ValidationError, match="CADENZA_CORS_ORIGINS"):
+        Settings(auth_secret_key=SECRET, registration_enabled=True, cors_origins=["*"])
+
+    assert Settings(auth_secret_key=SECRET, registration_enabled=True, cors_origins=[ORIGIN])
 
 
 def test_accounts_created_by_an_investigator_are_not_self_registered() -> None:
@@ -138,3 +216,24 @@ def test_accounts_created_by_an_investigator_are_not_self_registered() -> None:
     assert created.status_code == 201
     assert created.json()["self_registered"] is False
     assert created.json()["active"] is True
+
+
+def test_rate_limiter_hit_checks_and_records_atomically() -> None:
+    limiter = LoginRateLimiter(max_attempts=2, window_seconds=60, message="espera {retry_after}")
+    limiter.hit("k")
+    limiter.hit("k")
+
+    with pytest.raises(HTTPException) as excinfo:
+        limiter.hit("k")
+
+    assert excinfo.value.status_code == 429
+    assert str(excinfo.value.detail).startswith("espera ")
+    limiter.hit("otra")  # otra clave no se ve afectada
+
+
+def test_client_network_key_groups_ipv6_by_64() -> None:
+    assert client_network_key("2001:db8:1:2:aaaa::1") == client_network_key("2001:db8:1:2:bbbb::9")
+    assert client_network_key("2001:db8:1:2::1") != client_network_key("2001:db8:1:3::1")
+    assert client_network_key("203.0.113.7") == "203.0.113.7"
+    assert client_network_key("::ffff:203.0.113.7") == "203.0.113.7"
+    assert client_network_key("testclient") == "testclient"

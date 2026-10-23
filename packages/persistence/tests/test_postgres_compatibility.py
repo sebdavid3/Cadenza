@@ -166,6 +166,17 @@ def test_postgres_live_migrations_and_jsonb_types(postgres_engine: Any) -> None:
     edits_cols = {c["name"]: c for c in inspector.get_columns("edit_events")}
     assert isinstance(edits_cols["anchor"]["type"], JSONB)
 
+    # 0012 (ADR-0022): marca de cuenta autorregistrada, falsa por defecto, y su vuelta atrás.
+    user_cols = {c["name"]: c for c in inspector.get_columns("users")}
+    assert "self_registered" in user_cols
+    assert user_cols["self_registered"]["nullable"] is False
+    command.downgrade(alembic_cfg, "0011_condition_and_test_score")
+    assert "self_registered" not in {
+        c["name"] for c in inspect(postgres_engine).get_columns("users")
+    }
+    command.upgrade(alembic_cfg, "head")
+    assert "self_registered" in {c["name"] for c in inspect(postgres_engine).get_columns("users")}
+
 
 def test_postgres_live_unique_constraint_and_restrict_delete(postgres_engine: Any) -> None:
     """Comprueba UNIQUE(session_id, seq) y ondelete='RESTRICT' sobre PostgreSQL real."""

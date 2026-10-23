@@ -227,6 +227,9 @@ Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proce
 | `CADENZA_CORS_ORIGINS` | `*` | Orígenes CORS: `*`, un origen, lista separada por comas o lista JSON. |
 | `CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` | `5` | Intentos de login fallidos antes del bloqueo temporal. |
 | `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS` | `300` | Ventana del límite de intentos de login. |
+| `CADENZA_REGISTRATION_ENABLED` | `false` | Abrir el registro público con activación ([ADR-0022](docs/adr/ADR-0022-registro-de-cuentas-con-activacion.md)); exige `CADENZA_CORS_ORIGINS` sin `*`. |
+| `CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` / `_WINDOW_SECONDS` | `5` / `3600` | Límite de registros por IP. |
+| `CADENZA_REGISTRATION_MAX_PENDING` | `50` | Cuentas pendientes de activación a partir de las cuales el registro se cierra (503). |
 | `CADENZA_OMR_PREPROCESS_ENABLED` | `false` | Activar el preprocesado de imagen antes del OMR. |
 | `CADENZA_OMR_PREPROCESS_DESKEW` / `_BINARIZE` / `_RESCALE` | `false` | Pasos del preprocesado: enderezado, binarización y reescalado. |
 | `CADENZA_OMR_PREPROCESS_TARGET_DPI` | `300` | Resolución objetivo del reescalado. |
@@ -239,14 +242,15 @@ Operación, registros, copias de seguridad y GPU:
 
 ## API v1
 
-Todas las rutas salvo `/health`, `/version` y `/auth/login` requieren un token Bearer JWT.
+Todas las rutas salvo `/health`, `/version`, `/auth/login` y `/auth/register` requieren un
+token Bearer JWT.
 Un transcriptor solo accede a sus sesiones; un investigador ve todas, edita solo las suyas
 y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)).
 
 | Área | Endpoints |
 |---|---|
 | Sistema | `GET /health` · `GET /version` |
-| Autenticación | `POST /auth/login` · `GET /auth/me` · `POST /auth/password` |
+| Autenticación | `POST /auth/login` · `POST /auth/register` · `GET /auth/me` · `POST /auth/password` |
 | Usuarios (investigador) | `GET /users` · `POST /users` · `PATCH /users/{user_id}` |
 | Transcripción | `POST /transcribe` |
 | Sesiones | `GET /sessions` · `GET /sessions/{id}` · `GET /sessions/{id}/image` · `GET /sessions/{id}/export?format=musicxml\|midi` · `GET /sessions/{id}/timing` |

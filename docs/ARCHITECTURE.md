@@ -573,6 +573,7 @@ de estado (existe / pendiente) están en la sección
 |---|---|---|
 | `authenticate` | usuario, contraseña → token | Verifica las credenciales y emite un token de acceso de vida corta. |
 | `create_user` | nombre, contraseña, rol → usuario | Da de alta una cuenta; solo lo puede hacer un investigador. |
+| `register_user` | nombre, contraseña → usuario | Registro público: crea un transcriptor inactivo y autorregistrado; se cierra si hay demasiadas cuentas pendientes ([ADR-0022](adr/ADR-0022-registro-de-cuentas-con-activacion.md)). |
 | `update_user` | id, cambios → usuario | Restablece la contraseña de una cuenta o la desactiva; solo investigador. |
 | `change_password` | contraseña actual, nueva → — | Cambia la contraseña del usuario actual. |
 | `transcribe_score` | imagen → sesión | Guarda la imagen en el `ArtifactStore`, ejecuta el `OMREngine`, valida el documento y persiste sesión y hallazgos. |
@@ -636,6 +637,7 @@ Reglas de la capa:
 | Método | Endpoint | Caso de uso |
 |---|---|---|
 | `POST` | `/auth/login` | `authenticate` |
+| `POST` | `/auth/register` | `register_user` (público si `CADENZA_REGISTRATION_ENABLED`; si no, 404) |
 | `GET` | `/auth/me` | usuario actual |
 | `POST` | `/auth/password` | `change_password` |
 | `GET` | `/users` | listado de cuentas (investigador) |
@@ -660,7 +662,7 @@ Reglas de la capa:
 
 
 Todos los endpoints exigen un token de acceso (`Authorization: Bearer`), salvo
-`/auth/login`. El contrato se publica como OpenAPI y de él se generan los tipos
+`/auth/login`, `/auth/register`, `/health` y `/version`. El contrato se publica como OpenAPI y de él se generan los tipos
 TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos.
 
 ### 6.5 Jobs del plano offline (CLI en `ml/`)
@@ -706,7 +708,7 @@ job `build-dataset` las deriva del log.
 
 | Tabla | Columnas principales | Contenido |
 |---|---|---|
-| `users` | `id`, `username`, `password_hash`, `role`, `active`, `created_at` | Cuentas de usuario. `role` es `transcriptor` o `investigador`; no se guardan datos personales. |
+| `users` | `id`, `username`, `password_hash`, `role`, `active`, `self_registered`, `created_at` | Cuentas de usuario. `role` es `transcriptor` o `investigador`; no se guardan datos personales. `self_registered` marca las cuentas del registro público, que quedan fuera del estudio (migración 0012, ADR-0022). |
 | `sessions` | `id`, `owner_id` → `users`, `document_id`, `omr_engine`, `model_version`, `status`, `validated_at_seq`, `condition`, `test_score_id`, `image_artifact` → `artifacts`, `document` (JSONB), `created_at` | Una transcripción. `condition` distingue la condición experimental (`assisted` con validador vs `unassisted` sin validador); `test_score_id` referencia la partitura de prueba del estudio. `document` guarda el `ScoreDocument` **crudo** del OMR y no se modifica. `status` sigue el ciclo transcrita → en corrección → finalizada (o fallida). |
 | `findings` | `id`, `session_id`, `at_seq`, `rule_id`, `severity`, `message`, `suggested_fix`, `anchor` (JSONB), `resolution` | Hallazgos de validación. `at_seq` indica sobre qué punto del log se calcularon (0 = documento crudo); `resolution` distingue los vigentes de los descartados por el usuario. |
 | `edit_events` | `id`, `session_id`, `seq`, `op`, `author`, `anchor`, `before`, `after` (JSONB), `created_at` | Log *append-only* de correcciones. `UNIQUE(session_id, seq)`; sin `UPDATE` ni `DELETE`. `author` lo fija el servidor con el usuario autenticado. |
@@ -811,8 +813,8 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | Dominio | `ScoreIR` con clave, armadura y ligaduras | Implementado: `Clef`, `KeySignature` y `Tie` en `ScoreIR` (ADR-0010), round-trip en `packages/interchange` | [#2](https://github.com/sebdavid3/Cadenza/issues/2) |
 | Dominio | Las siete operaciones de edición son proyectables | Implementado: proyección determinista de las siete operaciones de `EditOp` (incluyendo `SetClef`, `SetKey` y semántica propia de `SetAccidental`) | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
 | Datos | `ArtifactStore` direccionado por `sha256` y endpoint de imagen | Implementado: puerto `ArtifactStore`, adaptador `FilesystemArtifactStore` (`sha256/ab/cd/<hash>`), tabla `artifacts` (migración `0003`), persistencia activa en `transcribe_score` con deduplicación, validación HTTP 413/415 y endpoint `GET /sessions/{id}/image` con control de acceso ADR-0012 | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
-| Datos | Esquema de la sección 7.2 | Implementado: esquema relacional completo con `sessions` (`image_artifact` FK, `model_version`, `status`, `condition`, `test_score_id`), `findings` (`at_seq`, `status`, campos de descarte), `artifacts` (sha256), `users` (Argon2id, roles), `effort_metrics` (tiempo, intervenciones) y `model_versions` (ONNX en `artifacts`); migraciones Alembic 0001–0011 verificadas en SQLite y PostgreSQL | [#5](https://github.com/sebdavid3/Cadenza/issues/5), [#6](https://github.com/sebdavid3/Cadenza/issues/6), [#13](https://github.com/sebdavid3/Cadenza/issues/13), [#21](https://github.com/sebdavid3/Cadenza/issues/21), [#33](https://github.com/sebdavid3/Cadenza/issues/33), [#43](https://github.com/sebdavid3/Cadenza/issues/43) |
-| Datos | PostgreSQL como base de producción | Implementado: Dockerfile de producción (instala la API con HOMR desde `uv.lock`; hasta [#135](https://github.com/sebdavid3/Cadenza/issues/135) no instalaba ninguna dependencia) y docker-compose.yml (PostgreSQL 16 + API), migraciones Alembic (0001–0011) con tipos JSONB y restricciones UNIQUE/RESTRICT comprobadas, auto_create_schema desactivado en producción e instrucciones de despliegue | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
+| Datos | Esquema de la sección 7.2 | Implementado: esquema relacional completo con `sessions` (`image_artifact` FK, `model_version`, `status`, `condition`, `test_score_id`), `findings` (`at_seq`, `status`, campos de descarte), `artifacts` (sha256), `users` (Argon2id, roles), `effort_metrics` (tiempo, intervenciones) y `model_versions` (ONNX en `artifacts`); migraciones Alembic 0001–0012 verificadas en SQLite y PostgreSQL | [#5](https://github.com/sebdavid3/Cadenza/issues/5), [#6](https://github.com/sebdavid3/Cadenza/issues/6), [#13](https://github.com/sebdavid3/Cadenza/issues/13), [#21](https://github.com/sebdavid3/Cadenza/issues/21), [#33](https://github.com/sebdavid3/Cadenza/issues/33), [#43](https://github.com/sebdavid3/Cadenza/issues/43) |
+| Datos | PostgreSQL como base de producción | Implementado: Dockerfile de producción (instala la API con HOMR desde `uv.lock`; hasta [#135](https://github.com/sebdavid3/Cadenza/issues/135) no instalaba ninguna dependencia) y docker-compose.yml (PostgreSQL 16 + API), migraciones Alembic (0001–0012) con tipos JSONB y restricciones UNIQUE/RESTRICT comprobadas, auto_create_schema desactivado en producción e instrucciones de despliegue | [#6](https://github.com/sebdavid3/Cadenza/issues/6) |
 | Dominio | Anclas relativas a un estado y traducibles al documento crudo (ADR-0011) | Implementado: inserción al final de la voz, funciones puras `origin_anchor`/`translate_anchor`/`translate_finding` y herencia de `bbox`/`confidence` en `AnchorIndex` | [#28](https://github.com/sebdavid3/Cadenza/issues/28) |
 | API | Autenticación, sesiones privadas y autoría fijada por el servidor (ADR-0012) | Implementado: persistencia (#43), login JWT/Argon2id (#44), sesiones privadas por propietario con autor fijado por el servidor (#45), visor web con login (#47; retirado con la base de `apps/web` en [#129](https://github.com/sebdavid3/Cadenza/issues/129), pendiente de la Fase 8) y gestión de cuentas (#46: `create_user`, `update_user`, `change_password`, `list_users`, CLI `create-investigator`); registro público con la cuenta inactiva hasta que un investigador la active, marcada como autorregistrada y limitado por IP ([#154](https://github.com/sebdavid3/Cadenza/issues/154), [ADR-0022](adr/ADR-0022-registro-de-cuentas-con-activacion.md)) | [#39](https://github.com/sebdavid3/Cadenza/issues/39) ([#43](https://github.com/sebdavid3/Cadenza/issues/43), [#44](https://github.com/sebdavid3/Cadenza/issues/44), [#45](https://github.com/sebdavid3/Cadenza/issues/45), [#46](https://github.com/sebdavid3/Cadenza/issues/46), [#47](https://github.com/sebdavid3/Cadenza/issues/47)) |
 | API | El cliente conoce el estado sobre el que trabaja y las ediciones declaran su `base_seq` (ADR-0011) | Implementado: `get_session` expone `current_seq`, `ScoreIR` materializado y `anchor_index` enriquecido; `POST /sessions/{id}/edits` exige `base_seq` y responde HTTP 409 ante desajustes | [#48](https://github.com/sebdavid3/Cadenza/issues/48) |

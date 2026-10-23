@@ -321,6 +321,7 @@ export interface ProvenancePayload {
  * Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
  */
 export interface RegisterRequest {
+  /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
   username: string;
   password: string;
 }

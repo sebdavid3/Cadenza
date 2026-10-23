@@ -23,14 +23,18 @@ Restricciones:
 
 Se **enmienda ADR-0012 §1**: además de las cuentas que crea un investigador, cualquiera puede registrarse, pero la cuenta nace **inactiva** hasta que un investigador la active.
 
-1. **Endpoint público** `POST /auth/register` con `{username, password}` (las mismas reglas que `POST /users`: nombre de 1 a 64 caracteres y contraseña de al menos 8). Responde 201 con el perfil (`UserRead`), 409 si el nombre está ocupado, 422 por validación y 429 con `Retry-After` al superar el límite.
+1. **Endpoint público** `POST /auth/register` con `{username, password}`. La contraseña sigue la regla de `POST /users` (al menos 8 caracteres); el nombre, más estricta por ser público: de 3 a 64 caracteres entre minúsculas sin tilde, cifras, punto, guion y guion bajo, empezando por letra o cifra, para que nadie imite visualmente otra cuenta con mayúsculas, espacios o caracteres invisibles. Responde 201 con el perfil (`UserRead`), 409 si el nombre está ocupado, 422 por validación, 429 con `Retry-After` al superar el límite y 503 si hay demasiadas cuentas pendientes (punto 9).
 2. **Rol fijo `transcriptor`.** El cuerpo no admite rol; un campo extra se rechaza con 422.
 3. **Solo usuario y contraseña**, sin correo ni recuperación, como en ADR-0012.
-4. **Cuenta inactiva hasta su activación.** Una cuenta autorregistrada no inicia sesión ni transcribe hasta que un investigador la active con `PATCH /users/{id}`. El inicio de sesión de una cuenta inactiva responde igual que unas credenciales incorrectas (401), para no revelar qué nombres existen; la interfaz lo explica.
-5. **Marca de origen.** La columna `users.self_registered` (booleano, falso por defecto; migración 0012) distingue las cuentas autorregistradas, y `UserRead` la expone. El análisis del estudio excluye las sesiones cuyo propietario tiene `self_registered = true`.
-6. **Protección contra abuso.** Límite de registros por IP en memoria (`CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` intentos en `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS`), con la IP que da uvicorn; detrás del proxy de producción, uvicorn toma la IP real de `X-Forwarded-For` solo si viene del proxy de confianza ([#156](https://github.com/sebdavid3/Cadenza/issues/156)). Cuentan todos los intentos, también los fallidos, para no permitir sondear nombres sin límite.
+4. **Cuenta inactiva hasta su activación.** Una cuenta autorregistrada no inicia sesión ni transcribe hasta que un investigador la active con `PATCH /users/{id}`. El inicio de sesión de una cuenta inactiva responde igual que unas credenciales incorrectas (401), como ya hacía `authenticate`; la interfaz lo explica. Esto no oculta qué nombres existen, porque el registro responde 409 a un nombre ocupado: lo que frena el sondeo es el límite por IP.
+5. **Marca de origen.** La columna `users.self_registered` (booleano, falso por defecto; migración 0012) distingue las cuentas autorregistradas, y `UserRead` la expone. La exportación del estudio de esfuerzo (`exp_10`, `ml export-effort`) excluye las sesiones cuyo propietario tiene `self_registered = true`; el `DatasetBuilder` del aprendizaje activo todavía no (D55).
+6. **Protección contra abuso.**
+   - Límite de registros por IP en memoria (`CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` intentos en `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS`), agrupando las IPv6 por su red /64. Comprobar y anotar es una sola operación. Cuentan todos los intentos que llegan a procesarse, también los que acaban en 409, para no permitir sondear nombres sin límite; un cuerpo que no supera el esquema (422) no cuenta porque no toca la base de datos.
+   - La IP es la que da uvicorn: detrás del proxy de producción, la real de `X-Forwarded-For` solo si viene del proxy de confianza ([#156](https://github.com/sebdavid3/Cadenza/issues/156)). **Sin ese proxy no conviene abrir el registro**: todas las peticiones llegarían con la misma IP y el límite sería uno solo para todo el servicio.
+   - Con el registro abierto, `CADENZA_CORS_ORIGINS` no puede ser `*` (la API no arranca): si lo fuera, cualquier web podría registrar cuentas desde el navegador de sus visitantes y repartir el límite entre todas sus IP.
 7. **Ruta pública.** `POST /auth/register` se suma al inicio de sesión y a la comprobación de salud como rutas sin autenticación (ADR-0012 §2).
-8. **Desactivable.** `CADENZA_REGISTRATION_ENABLED` (falso por defecto) enciende el registro; apagado, `POST /auth/register` responde 404, como una ruta que no existe. Se enciende en el despliegue público.
+8. **Desactivable.** `CADENZA_REGISTRATION_ENABLED` (falso por defecto) enciende el registro; apagado, `POST /auth/register` responde 404 antes de leer el cuerpo, sea cual sea. Se enciende en el despliegue público.
+9. **Tope de cuentas pendientes.** Con `CADENZA_REGISTRATION_MAX_PENDING` (50 por defecto) cuentas autorregistradas sin activar, el registro responde 503 hasta que un investigador las revise: una avalancha desde muchas IP no llena la lista sin fin.
 
 ## Consecuencias
 
@@ -41,9 +45,10 @@ Se **enmienda ADR-0012 §1**: además de las cuentas que crea un investigador, c
 
 ### Negativas / Riesgos
 - Un investigador debe revisar y activar cada cuenta; sin notificaciones, la persona no sabe cuándo ocurre.
-- El límite por IP vive en memoria y por réplica (como el del login, ADR-0015) y se pierde al reiniciar.
+- El límite por IP vive en memoria y por réplica (como el del login, ADR-0015) y se pierde al reiniciar; las claves sin intentos en la ventana se purgan cuando hay muchas.
+- El tope de pendientes también lo puede alcanzar alguien que quiera cerrar el registro a los demás; se reabre en cuanto un investigador activa o revisa cuentas.
 - Las filas de cuentas inactivas pueden acumularse; un investigador puede dejarlas inactivas (no hay borrado de cuentas).
-- El plano offline (`DatasetBuilder`) todavía no excluye las sesiones de cuentas autorregistradas; queda como deuda (D55).
+- El `DatasetBuilder` del plano offline todavía no excluye las sesiones de cuentas autorregistradas; queda como deuda (D55).
 - Un cuerpo que no supera la validación del esquema (422) no llega al límite por IP: no toca la base de datos.
 
 ## Alternativas consideradas

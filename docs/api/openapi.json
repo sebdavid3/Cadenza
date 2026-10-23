@@ -111,7 +111,7 @@
           "Auth"
         ],
         "summary": "Registro de una cuenta por la propia persona",
-        "description": "Crea una cuenta de transcriptor marcada como autorregistrada e inactiva: no puede iniciar sesión hasta que un investigador la active con PATCH /users/{id} (ADR-0022). Solo usuario y contraseña. Limitado por IP; si el registro está desactivado en la configuración, responde 404.",
+        "description": "Crea una cuenta de transcriptor marcada como autorregistrada e inactiva: no puede iniciar sesión hasta que un investigador la active con PATCH /users/{id} (ADR-0022). Solo usuario y contraseña. Limitado por IP (red /64 en IPv6) y cerrado con 503 mientras haya demasiadas cuentas pendientes; si el registro está desactivado en la configuración, responde 404.",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -166,6 +166,16 @@
           },
           "422": {
             "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Demasiadas cuentas pendientes de activación: el registro está cerrado por ahora",
             "content": {
               "application/json": {
                 "schema": {
@@ -2994,8 +3004,10 @@
           "username": {
             "type": "string",
             "maxLength": 64,
-            "minLength": 1,
-            "title": "Username"
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Username",
+            "description": "De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo."
           },
           "password": {
             "type": "string",

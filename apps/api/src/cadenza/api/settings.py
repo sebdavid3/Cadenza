@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
@@ -95,6 +95,21 @@ class Settings(BaseSettings):
                 )
         return origins
 
+    @model_validator(mode="after")
+    def _registration_needs_closed_cors(self) -> Settings:
+        """Con el registro abierto, CORS no puede ser `*` (ADR-0022).
+
+        Si lo fuera, cualquier web podría registrar cuentas desde el navegador de sus visitantes,
+        repartiendo el límite por IP entre todas sus direcciones.
+        """
+
+        if self.registration_enabled and "*" in self.cors_origins:
+            raise ValueError(
+                "CADENZA_REGISTRATION_ENABLED exige CADENZA_CORS_ORIGINS con el origen público "
+                "de la interfaz, no '*'"
+            )
+        return self
+
     login_rate_limit_max_attempts: int = Field(
         default=5,
         description="Máximo de intentos fallidos antes de bloquear temporalmente el login (#40).",
@@ -112,11 +127,24 @@ class Settings(BaseSettings):
     )
     registration_rate_limit_max_attempts: int = Field(
         default=5,
-        description="Intentos de registro por IP en la ventana, también los fallidos (ADR-0022).",
+        ge=1,
+        description=(
+            "Intentos de registro por IP (o red /64 en IPv6) en la ventana, también los que acaban "
+            "en 409 (ADR-0022)."
+        ),
     )
     registration_rate_limit_window_seconds: int = Field(
         default=3600,
+        ge=1,
         description="Ventana en segundos del límite de intentos de registro por IP (ADR-0022).",
+    )
+    registration_max_pending: int = Field(
+        default=50,
+        ge=1,
+        description=(
+            "Cuentas autorregistradas pendientes de activación a partir de las cuales el registro "
+            "responde 503 hasta que un investigador revise las que hay (ADR-0022)."
+        ),
     )
     omr_preprocess_enabled: bool = Field(
         default=False,

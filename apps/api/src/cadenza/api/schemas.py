@@ -453,7 +453,16 @@ class RegisterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    username: str = Field(min_length=1, max_length=64)
+    # Solo letras ASCII, cifras, punto, guion y guion bajo: sin espacios, mayúsculas que se
+    # confundan con un nombre existente ni caracteres invisibles que imiten a otra cuenta.
+    username: str = Field(
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+        description=(
+            "De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo."
+        ),
+    )
     password: str = Field(min_length=8)
 
 
