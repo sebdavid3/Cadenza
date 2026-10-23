@@ -29,7 +29,7 @@ No es un reconocimiento automático que entrega un resultado cerrado: la máquin
 ## Operating Context
 
 - La transcripción es síncrona: una imagen por petición, de unos segundos en el peor caso documentado, con imágenes PNG o JPEG de hasta 20 MB.
-- Cada imagen crea una sesión de trabajo con hallazgos del validador; la corrección de la sesión se hace en una vista de edición que todavía no existe.
+- Cada imagen crea una sesión de trabajo con hallazgos del validador. Hoy la sesión se revisa, se descarga y se escucha; la corrección sobre la partitura está planificada ([#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186)).
 - Cualquiera puede crear una cuenta en `/registro` (solo usuario y contraseña) y entra en el momento; un investigador puede desactivarla en `/cuentas`. Los investigadores también crean cuentas para el estudio, que no se mezclan con las del registro (ADR-0022, ADR-0025). No hay recuperación de contraseña por correo. La sesión del navegador dura 30 minutos y no se renueva.
 
 ## Capabilities and Constraints
@@ -37,7 +37,7 @@ No es un reconocimiento automático que entrega un resultado cerrado: la máquin
 - HOMR es el único motor y solo se ha evaluado sobre PrIMuS: incipits impresos y monofónicos. SMB y MUSCIMA++ no están evaluados (#102). No se prometen manuscritos ni polifonía densa.
 - HOMR no da coordenadas por nota: la interfaz no puede resaltar notas sobre la imagen original. La imagen es una referencia global.
 - La interfaz va en español.
-- La vista de una sesión descarga el MusicXML ([#176](https://github.com/sebdavid3/Cadenza/issues/176)) y la reproduce con el compás que suena resaltado ([#177](https://github.com/sebdavid3/Cadenza/issues/177)). Sin decidir: la vista de edición, el cambio de contraseña y la descarga del MIDI llegan en tandas posteriores de la Fase 8.
+- La vista de una sesión descarga el MusicXML ([#176](https://github.com/sebdavid3/Cadenza/issues/176)) y la reproduce con el compás que suena resaltado ([#177](https://github.com/sebdavid3/Cadenza/issues/177)). Planificados en la Fase 8: la corrección ([#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186)), el cierre y la descarga del MIDI ([#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189)) y el cambio de contraseña ([#190](https://github.com/sebdavid3/Cadenza/issues/190)); el detalle está en `docs/phases/phase_8_web_interface/README.md`.
 
 ## Brand Commitments
 

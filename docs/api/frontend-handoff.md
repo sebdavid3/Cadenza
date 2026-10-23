@@ -9,7 +9,7 @@
 
 ## 1. Guía de Arranque Rápido del Entorno Local
 
-Esta guía describe los pasos mínimos y reproducibles para levantar el backend en el entorno de desarrollo local. El frontend de `apps/web` se construye desde cero en la Fase 8 y se arranca como indica §6.
+Esta guía describe los pasos mínimos y reproducibles para levantar el backend en el entorno de desarrollo local. El frontend de `apps/web` (Fase 8) se arranca como indica §6.
 
 ### 1.1. Dependencias y Entorno Python
 
@@ -361,7 +361,7 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 
 ## 6. Estado Actual de `apps/web` (Fase 8)
 
-`apps/web` se construye desde cero en la Fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129) retiró la base anterior). La base ([#144](https://github.com/sebdavid3/Cadenza/issues/144), [ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)) aporta:
+`apps/web` se construyó desde cero en la Fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129) retiró la base anterior); el plan de la fase y su criterio de cierre están en [`docs/phases/phase_8_web_interface/README.md`](../phases/phase_8_web_interface/README.md). La base ([#144](https://github.com/sebdavid3/Cadenza/issues/144), [ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)) aporta:
 
 - **Stack:** React 18 + TypeScript estricto + Vite, con React Router, ESLint, Prettier y Vitest.
 - **Cliente HTTP** (`apps/web/src/api/client.ts`), tipado con `apps/web/src/types.ts`: URL base configurable (`VITE_API_BASE_URL`, `/api` por defecto), `Authorization: Bearer` cuando hay sesión, timeout por petición (15 s por defecto; la constante `TRANSCRIBE_TIMEOUT_MS`, 30 s, es la que usa `POST /transcribe`, §5.7) y errores tipados por código de estado con mensajes propios en español. El `detail` del backend nunca se muestra.
@@ -383,10 +383,11 @@ npm run dev        # http://localhost:5173 ; la API queda en http://localhost:51
 
 Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `npm run build` (también en la CI).
 
-Queda por construir sobre la API v1:
-- **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Queda el cambio de contraseña; la gestión de cuentas se limita a activar y desactivar ([#155](https://github.com/sebdavid3/Cadenza/issues/155)), sin roles ni restablecer contraseñas.
-- **Corrección:** sobre la partitura ya dibujada con OSMD (la vista de solo lectura marca compases; corregir exige seleccionar cualquier símbolo sobre la notación, sin depender de las coordenadas del motor OMR, porque HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.
-- **Cierre:** métricas de esfuerzo (`POST /sessions/{id}/effort`), finalización, reapertura y descarga del MIDI (la del MusicXML ya existe, [#176](https://github.com/sebdavid3/Cadenza/issues/176)).
+Queda por construir sobre la API v1, planificado en issues del milestone de la Fase 8:
+- **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Queda el cambio de contraseña ([#190](https://github.com/sebdavid3/Cadenza/issues/190)); la gestión de cuentas se limita a activar y desactivar ([#155](https://github.com/sebdavid3/Cadenza/issues/155)), sin roles ni restablecer contraseñas.
+- **Corrección:** sobre la partitura ya dibujada con OSMD (la vista de solo lectura marca compases; corregir exige seleccionar cualquier símbolo sobre la notación, sin depender de las coordenadas del motor OMR, porque HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos. Planificado en [#182](https://github.com/sebdavid3/Cadenza/issues/182) (seleccionar una nota: mapa ancla→SVG por evento), [#183](https://github.com/sebdavid3/Cadenza/issues/183) (altura, duración y alteración), [#184](https://github.com/sebdavid3/Cadenza/issues/184) (insertar, borrar, clave y armadura), [#185](https://github.com/sebdavid3/Cadenza/issues/185) (deshacer) y [#186](https://github.com/sebdavid3/Cadenza/issues/186) (posibles errores).
+- **Cierre:** finalización y reapertura ([#187](https://github.com/sebdavid3/Cadenza/issues/187)), métricas de esfuerzo (`POST /sessions/{id}/effort`, [#188](https://github.com/sebdavid3/Cadenza/issues/188)) y descarga del MIDI ([#189](https://github.com/sebdavid3/Cadenza/issues/189); la del MusicXML ya existe, [#176](https://github.com/sebdavid3/Cadenza/issues/176)).
+- **Cuenta:** cambio de contraseña ([#190](https://github.com/sebdavid3/Cadenza/issues/190)).
 
 ---
 

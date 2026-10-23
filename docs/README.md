@@ -16,7 +16,9 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Documento arquitectónico oficial** (v1.2): filosofía de diseño, `ScoreDocument`, separación de planos, stack justificado, módulos de investigación, capa de aplicación y funciones, organización de los datos y brechas frente a la implementación. |
 | [`PROJECT_STATE.md`](PROJECT_STATE.md) | Estado vivo del proyecto: fase actual, deuda técnica y bitácora de hitos. |
-| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase (la vigente es la [Fase 7](phases/phase_7_architecture_alignment/README.md)). |
+| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase (la vigente es la [Fase 8](phases/phase_8_web_interface/README.md): interfaz web, con lo hecho y las siguientes etapas). |
+| [`api/`](api/) | Contrato congelado de la API v1 (`openapi.json`) y guía de integración del frontend (`frontend-handoff.md`). |
+| [`infra/`](infra/) | Operación: despliegue local y público, salud, registros, copias de seguridad y GPU. |
 | [`adr/`](adr/) | Registro de decisiones arquitectónicas (ADR): contexto, decisión, consecuencias y alternativas de cada elección de diseño. |
 | [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
 | [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques alineada con `ARCHITECTURE.md` v1.2, que es el diseño técnico vigente. |
