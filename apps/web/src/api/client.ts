@@ -52,6 +52,12 @@ function buildQuery(query: Record<string, QueryValue> | undefined): string {
   return text ? `?${text}` : "";
 }
 
+/** `Retry-After` en segundos (la API lo envía así en los 429), o null si falta o no es válido. */
+function retryAfterSeconds(response: Response): number | null {
+  const value = Number(response.headers.get("Retry-After"));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 /** `detail` del cuerpo de error o, si no lo hay (p. ej. el 503 de `/health`), el cuerpo entero. */
 async function readDetail(response: Response): Promise<unknown> {
   try {
@@ -119,7 +125,12 @@ export function createApiClient(options: ApiClientOptions = {}) {
         if (response.status === 401 && token && req.notifyUnauthorized !== false) {
           options.onUnauthorized?.(token);
         }
-        throw new ApiError(kindForStatus(response.status), response.status, detail);
+        throw new ApiError(
+          kindForStatus(response.status),
+          response.status,
+          detail,
+          retryAfterSeconds(response),
+        );
       }
 
       try {

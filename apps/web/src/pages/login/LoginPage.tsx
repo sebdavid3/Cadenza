@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router";
+import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { api } from "../../api/instance";
 import { loginErrorMessage, logIn } from "../../auth/session";
 import { useAuthStore } from "../../auth/store";
@@ -147,8 +147,9 @@ export function LoginPage() {
             {!submitting && !checking && <PixelIcon name="arrow-right" />}
           </button>
           <p className="login__help">
-            No hay registro abierto ni recuperación de contraseña por correo. Las cuentas las crea
-            un investigador del proyecto: pídele la tuya o una contraseña nueva.
+            ¿No tienes cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que un
+            investigador del proyecto la active. No hay recuperación de contraseña por correo: si la
+            olvidas, pide una nueva a un investigador.
           </p>
         </form>
       </main>

@@ -92,11 +92,14 @@ describe("landing", () => {
     expect(router.state.location.pathname).toBe("/entrar");
   });
 
-  it("no ofrece registro ni recuperación de contraseña y explica quién crea las cuentas", () => {
+  it("enlaza al registro, dice que la cuenta queda pendiente y no ofrece recuperación", () => {
     renderLanding();
 
-    expect(screen.queryByText(/regístrate|crear cuenta|olvidaste/i)).not.toBeInTheDocument();
-    expect(screen.getAllByText(/las cuentas las crea/i).length).toBeGreaterThan(0);
+    const links = screen.getAllByRole("link", { name: /créala|crear una cuenta/i });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) expect(link).toHaveAttribute("href", "/registro");
+    expect(screen.getAllByText(/queda pendiente hasta que/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/olvidaste/i)).not.toBeInTheDocument();
   });
 
   it("enlaza al repositorio público", () => {

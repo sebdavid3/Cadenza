@@ -95,10 +95,35 @@
   outline-offset: 2px;
 }
 
-.login__help {
+.login__help,
+.login__hint {
   max-width: 44ch;
   color: var(--color-ink-muted);
   font-size: var(--text-small);
+}
+
+.login__help a {
+  color: var(--color-ink);
+}
+
+/* Cuenta creada: el titular de la confirmación, en la voz de los rótulos de sección. */
+.login__done-title {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+/* El foco llega aquí por programa, para anunciar el resultado: sin anillo. */
+.login__done-title:focus {
+  outline: none;
+}
+
+/* El usuario se lee tal cual: los nombres son en minúsculas y no deben parecer otros. */
+.login__done-user strong {
+  overflow-wrap: anywhere;
+  font-weight: 700;
 }
 
 @media (max-width: 860px) {
