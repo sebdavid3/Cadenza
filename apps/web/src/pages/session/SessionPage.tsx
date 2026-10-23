@@ -8,6 +8,7 @@ import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { listUsers, statusLabel } from "../transcription/sessions";
+import { DownloadButton } from "./DownloadButton";
 import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
 import { ScanFigure } from "./ScanFigure";
@@ -145,6 +146,16 @@ function SessionView({ sessionId }: { sessionId: string }) {
         <section className="session__sheets" aria-label="Transcripción e imagen original">
           <figure className="sheet sheet--notation">
             <figcaption className="label sheet__caption">Transcripción</figcaption>
+            <div className="sheet__bar">
+              <DownloadButton
+                sessionId={sessionId}
+                xml={musicXml.data}
+                status={
+                  musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
+                }
+                onRetry={async () => (await musicXml.refetch()).data}
+              />
+            </div>
             {musicXml.data ? (
               <ScoreView
                 key={seq}

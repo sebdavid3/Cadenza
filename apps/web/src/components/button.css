@@ -42,6 +42,15 @@
   color: var(--color-paper);
 }
 
+/* Compacto: el tamaño del conmutador (44 px), para las barras de herramientas. */
+.button--compact {
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
 .button:disabled,
 .button[aria-disabled="true"] {
   border-style: dashed;
@@ -58,6 +67,17 @@
 
 .button:hover svg {
   transform: translateX(2px);
+}
+
+/* Un icono que apunta hacia abajo (descargar) baja en vez de avanzar. */
+.button:hover .button__icon--down {
+  transform: translateY(2px);
+}
+
+/* Deshabilitado no responde al paso del ratón. */
+.button:disabled:hover svg,
+.button[aria-disabled="true"]:hover svg {
+  transform: none;
 }
 
 /* Acción secundaria en línea (reintentar, cargar más): rótulo subrayado sin caja. */
