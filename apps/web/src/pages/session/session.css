@@ -153,9 +153,10 @@
 }
 
 /* Conmutador segmentado: botones contiguos con el filete solapado. Mientras suena, «Pausa» es
-   un bloque de tinta (el estado pulsado del sistema). */
+   un bloque de tinta (el estado pulsado del sistema). Los pasos de la selección son iguales. */
 .playback__button,
-.playback__step {
+.playback__step,
+.selection__button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -183,19 +184,22 @@
   padding: var(--space-2);
 }
 
-.playback__button + .playback__button {
+.playback__button + .playback__button,
+.selection__button + .selection__button {
   margin-left: calc(var(--rule-width) * -1);
 }
 
 .playback__button:hover,
 .playback__step:hover,
-.playback__button[data-active="true"] {
+.playback__button[data-active="true"],
+.selection__button:hover {
   background: var(--color-ink);
   color: var(--color-paper);
 }
 
 .playback__button[aria-disabled="true"],
-.playback__step[aria-disabled="true"] {
+.playback__step[aria-disabled="true"],
+.selection__button[aria-disabled="true"] {
   border-style: dashed;
   background: var(--color-paper);
   color: var(--color-ink-muted);
@@ -204,7 +208,8 @@
 
 /* El foco queda por encima del filete del vecino. */
 .playback__button:focus-visible,
-.playback__step:focus-visible {
+.playback__step:focus-visible,
+.selection__button:focus-visible {
   position: relative;
   z-index: 1;
 }
@@ -228,6 +233,107 @@
 .playback__readout {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* Selección de notas: su propia franja entre el transporte y la partitura. A la izquierda, dónde
+   está y qué es el evento elegido; a la derecha, los pasos, que en una pantalla táctil afinan lo
+   que el dedo no alcanza (las notas distan menos de 44 px). Debajo, las teclas. */
+.selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.selection__readout {
+  display: flex;
+  flex: 1 1 18rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  min-height: 44px;
+  align-content: center;
+}
+
+.selection__place {
+  color: var(--color-ink-muted);
+}
+
+.selection__what {
+  font-weight: 500;
+}
+
+/* La lectura lleva en pequeño la marca de la nota elegida, para unir una con otra. */
+.selection[data-selected="true"] .selection__readout::before {
+  content: "";
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  margin-inline: var(--rule-width);
+  background: var(--color-paper);
+  box-shadow: 0 0 0 var(--rule-width) var(--color-accent);
+}
+
+.selection__hint,
+.selection__note {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.selection__note {
+  max-width: 62ch;
+  padding-block: var(--space-2);
+}
+
+.selection__steps {
+  display: flex;
+  align-items: center;
+}
+
+.selection__keys {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.selection__keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+/* Teclas como bloques de tinta macizos, del grano de los rótulos. */
+.selection__key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 var(--space-1);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.selection__key svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+/* Sin teclado físico la leyenda solo estorba: quedan el toque y los pasos. */
+@media (hover: none) and (pointer: coarse) {
+  .selection__keys {
+    display: none;
+  }
 }
 
 .score-download {
@@ -260,6 +366,24 @@
   .playback__readout {
     flex-basis: 100%;
     margin-left: 0;
+  }
+
+  /* Los pasos de la selección ocupan la fila entera: flechas solas y «Quitar». */
+  .selection__steps {
+    flex: 1 1 100%;
+  }
+
+  .selection__button {
+    flex: 1 1 0;
+  }
+
+  .selection__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .score-download__hint {
@@ -374,6 +498,26 @@
   .notation__playhead::after {
     animation: none;
   }
+}
+
+/* Con notas que elegir, la partitura responde al toque sin esperar al doble toque ni seleccionar
+   el texto del SVG; el foco del teclado es el anillo violeta del sistema. */
+.notation__stage[role="application"] {
+  cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+/* Nota elegida: una caja de papel por detrás de su cabeza (o de su silencio), con un aro de papel
+   y un filete violeta de 3 px. Abre un hueco limpio en la trama del compás dudoso y convive con el
+   contorno de tinta del compás que suena. Sin movimiento: aparece donde se elige. */
+.notation__selection {
+  position: absolute;
+  background: var(--color-paper);
+  box-shadow:
+    0 0 0 var(--rule-width) var(--color-paper),
+    0 0 0 calc(var(--rule-width) * 2) var(--color-accent);
+  pointer-events: none;
 }
 
 @container notation (max-width: 36rem) {
