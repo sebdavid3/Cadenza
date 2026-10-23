@@ -60,6 +60,8 @@ services:
       CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS:-5}
       CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS: ${CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS:-3600}
       CADENZA_REGISTRATION_MAX_PENDING: ${CADENZA_REGISTRATION_MAX_PENDING:-50}
+      # Transcripciones en curso a la vez; sin hueco, 503 (ADR-0024).
+      CADENZA_TRANSCRIBE_MAX_CONCURRENCY: ${CADENZA_TRANSCRIBE_MAX_CONCURRENCY:-2}
       # Uvicorn solo cree X-Forwarded-For si la petición viene del servicio web, el único cliente
       # que la reescribe con la IP real (dirección fija más abajo).
       CADENZA_FORWARDED_ALLOW_IPS: 10.77.0.10

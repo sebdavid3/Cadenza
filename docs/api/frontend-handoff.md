@@ -328,7 +328,7 @@ La API escucha en `http://127.0.0.1:8000` (§1.4) y sus rutas no llevan prefijo 
 
 ### 5.7. Tiempos de Transcripción y Timeout Recomendado (#106, #118)
 
-El endpoint `POST /transcribe` es **síncrono**: procesa la imagen e inicializa la sesión en base de datos. Devuelve únicamente los identificadores principales de la sesión y el conteo inicial de hallazgos (`{session_id, document_id, omr_engine, findings_count, condition, test_score_id}`). No devuelve la partitura (`current_score`), ni el índice de anclas (`anchor_index`), ni el estado: estos se obtienen a continuación mediante `GET /sessions/{id}`.
+El endpoint `POST /transcribe` es **síncrono**: procesa la imagen e inicializa la sesión en base de datos. Devuelve únicamente los identificadores principales de la sesión y el conteo inicial de hallazgos (`{session_id, document_id, omr_engine, findings_count, condition, test_score_id}`). Con demasiadas transcripciones en curso responde **503** con `Retry-After` y un `detail` en español: HOMR calcula de una en una y la API admite `CADENZA_TRANSCRIBE_MAX_CONCURRENCY` a la vez ([ADR-0024](../adr/ADR-0024-transcripciones-simultaneas.md)); la vista de transcripción ya trata el 503 como servidor no disponible y pausa la cola. No devuelve la partitura (`current_score`), ni el índice de anclas (`anchor_index`), ni el estado: estos se obtienen a continuación mediante `GET /sessions/{id}`.
 
 Con la eliminación de la detección de título por RapidOCR y la desactivación explícita de la limitación de energía de Windows 11 (EcoQoS / Power Throttling, issue #106), las mediciones del benchmark del motor (`results/latency_benchmark_summary.json`) son:
 - **Incipits / fragmentos de 1 pentagrama (motor directo):**

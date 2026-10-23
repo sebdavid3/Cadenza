@@ -606,6 +606,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After (ADR-0024)",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
           }
         }
       }
