@@ -42,7 +42,7 @@ El `try/catch` no se entera, y el transporte de Tone se quedaría parado sin avi
 4. **Reloj y CSP: la CSP no cambia.**
    - Contexto propio con el reloj por `setTimeout`: `new Context({ clockSource: "timeout", latencyHint: "interactive", lookAhead: 0.1 })`, registrado con `setContext`.
    - Tone.js se importa por sus módulos (`tone/build/esm/classes.js` y `tone/build/esm/core/Global.js`), no por `tone`, para que no cree al importarse el contexto con el Worker. Por esas rutas internas, la versión queda fijada (`"tone": "15.1.22"`).
-   - Se carga bajo demanda, en su propio trozo, cuando la vista tiene notas que sonar. Mide 234,94 kB, o 59,23 kB con gzip.
+   - Se carga bajo demanda, en su propio trozo, cuando la vista tiene notas que sonar. Mide 235,23 kB, o 59,35 kB con gzip.
    - Se le pide que no escriba su versión en la consola (`TONE_SILENCE_LOGGING`).
 5. **Sincronización.**
    - Las notas y los cambios de compás se programan en el transporte en pulsos (ticks). Así, un cambio de tempo los recoloca sin volver a programar.
