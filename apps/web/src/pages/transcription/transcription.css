@@ -1,0 +1,473 @@
+/* Vista de transcripción: modo de trabajo. Misma retícula de filetes; los estados se leen por
+   patrón (contorno, trama, macizo, rayado) y el violeta solo marca lo que pide atención. */
+
+.transcription__intake {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 560px);
+  gap: var(--space-4) var(--space-7);
+  align-items: end;
+  padding: var(--space-6) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.transcription__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.transcription__lead {
+  grid-column: 1;
+  max-width: 60ch;
+  color: var(--color-ink-muted);
+}
+
+.upload {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--rule);
+  transition: background-color var(--duration-quick) var(--ease-out);
+}
+
+.upload[data-dragging="true"] {
+  border-style: solid;
+  border-color: var(--color-accent);
+  background: var(--halftone-accent);
+}
+
+.upload[data-dragging="true"] .upload__hint {
+  background: var(--color-paper);
+}
+
+.upload__hint {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* La tabla de sesiones pide más ancho que la cola (unos 670 px, 790 con el propietario). */
+.transcription__panels {
+  display: grid;
+  grid-template-columns: minmax(22rem, 4fr) minmax(0, 8fr);
+}
+
+.panel {
+  padding: var(--space-6) var(--gutter) var(--space-8);
+}
+
+.panel + .panel {
+  border-left: var(--rule);
+}
+
+.panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.panel__title {
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.panel__count {
+  color: var(--color-ink-muted);
+}
+
+.panel__empty {
+  padding: var(--space-5) 0;
+  color: var(--color-ink-muted);
+}
+
+.panel__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule-width) solid var(--color-accent);
+}
+
+.link-button {
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* Estados por patrón */
+.chip {
+  display: inline-block;
+  padding: 6px var(--space-2);
+  border: var(--rule);
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip > span {
+  padding: 0 2px;
+  background: var(--color-paper);
+}
+
+.chip--queued,
+.chip--status {
+  background: var(--color-paper);
+}
+
+.chip--running {
+  background: var(--halftone-ink);
+  animation: chip-running 1.2s steps(5) infinite;
+}
+
+/* Terminada: contorno, como «Transcrita» en el listado. El único macizo es la imagen en curso. */
+.chip--done {
+  background: var(--color-paper);
+}
+
+/* Con hallazgos: rótulo violeta, el turno de la persona. */
+.chip--finding {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.chip--error {
+  border-color: var(--color-accent);
+  background: var(--hatch-accent);
+}
+
+@keyframes chip-running {
+  to {
+    background-position: 5px 0;
+  }
+}
+
+/* Cola */
+.queue__list {
+  padding: 0;
+  list-style: none;
+}
+
+.queue__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding: var(--space-4) 0;
+  border-bottom: var(--rule-width) solid var(--color-ink);
+}
+
+/* La imagen en curso es el bloque de más tinta. */
+.queue__item[data-status="transcribing"] {
+  margin-inline: calc(var(--space-3) * -1);
+  padding-inline: var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.queue__item[data-status="transcribing"]::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--color-accent);
+  animation: queue-reading 2.4s steps(24, end) infinite;
+}
+
+@keyframes queue-reading {
+  to {
+    left: calc(100% - 4px);
+  }
+}
+
+.queue__item[data-status="transcribing"] .chip {
+  border-color: var(--color-paper);
+  background: var(--halftone-ink), var(--color-paper);
+  color: var(--color-ink);
+}
+
+.queue__item[data-status="transcribing"] .queue__size {
+  color: inherit;
+}
+
+.queue__file {
+  display: grid;
+  min-width: 0;
+}
+
+.queue__name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue__size,
+.queue__session {
+  color: var(--color-ink-muted);
+}
+
+.queue__state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: end;
+}
+
+.queue__elapsed {
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5ch;
+  text-align: right;
+}
+
+.queue__error {
+  grid-column: 1 / -1;
+  font-size: var(--text-small);
+}
+
+.queue__session {
+  grid-column: 1;
+}
+
+.queue__actions {
+  grid-column: 2;
+  justify-self: end;
+}
+
+.queue__actions:empty {
+  display: none;
+}
+
+.queue__clear {
+  margin-top: var(--space-3);
+}
+
+/* Sesiones */
+.sessions__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions__table th {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--rule);
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.sessions__table td {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--color-ink);
+  vertical-align: middle;
+}
+
+.sessions__table .num {
+  text-align: right;
+}
+
+/* La tabla pasa a fichas según el ancho de su panel, no el de la ventana: el panel cambia de
+   ancho con la retícula. El desplazamiento solo queda de reserva para nombres muy largos. */
+.sessions__frame {
+  container: sessions / inline-size;
+  overflow-x: auto;
+}
+
+.sessions__table time span {
+  display: block;
+  white-space: nowrap;
+}
+
+.sessions__id {
+  padding: 2px var(--space-1);
+  border: 1px solid var(--color-ink);
+}
+
+.thumb {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 48px;
+  overflow: hidden;
+  border: 1px solid var(--color-ink);
+  background: var(--halftone-ink);
+}
+
+.thumb[data-state="ready"] {
+  background: #fff;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: left center;
+}
+
+.thumb .label {
+  padding: 0 2px;
+  background: var(--color-paper);
+  font-size: 0.625rem;
+}
+
+.sessions__more {
+  margin-top: var(--space-5);
+}
+
+@media (max-width: 960px) {
+  .transcription__intake,
+  .transcription__panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .upload {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .panel + .panel {
+    border-top: var(--rule);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .queue__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .queue__state,
+  .queue__actions {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .queue__name {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+
+/* Sin ancho para la tabla, cada sesión es una ficha: miniatura a la izquierda y datos en tres
+   líneas (cuatro con el propietario). Los roles ARIA explícitos conservan la tabla. */
+@container sessions (max-width: 50rem) {
+  .sessions__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .sessions__table,
+  .sessions__table tbody {
+    display: block;
+  }
+
+  .sessions__table tr {
+    display: grid;
+    grid-template-columns: 96px auto minmax(0, 1fr);
+    grid-template-areas:
+      "thumb id date"
+      "thumb status status"
+      "thumb findings edits";
+    gap: var(--space-2) var(--space-3);
+    align-items: center;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-ink);
+  }
+
+  .sessions--owner .sessions__table tr {
+    grid-template-areas:
+      "thumb id date"
+      "thumb status status"
+      "thumb findings edits"
+      "thumb owner owner";
+  }
+
+  .sessions__table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .sessions__table .sessions__thumb {
+    grid-area: thumb;
+    align-self: start;
+  }
+
+  .sessions__table .sessions__key {
+    grid-area: id;
+  }
+
+  .sessions__table .sessions__date {
+    grid-area: date;
+    justify-self: end;
+    font-size: var(--text-small);
+  }
+
+  .sessions__table .sessions__status {
+    grid-area: status;
+  }
+
+  .sessions__table .sessions__findings {
+    grid-area: findings;
+  }
+
+  .sessions__table .sessions__edits {
+    grid-area: edits;
+  }
+
+  .sessions__table .sessions__owner {
+    grid-area: owner;
+  }
+
+  .sessions__table td.num {
+    text-align: left;
+  }
+
+  /* El rótulo es visual: la cabecera de la columna ya lo da a los lectores de pantalla. */
+  .sessions__table td[data-label]::before {
+    content: attr(data-label) " " / "";
+    font-family: var(--font-label);
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-muted);
+  }
+}

@@ -12,3 +12,14 @@ Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
   configurable: true,
   writable: true,
 });
+
+// jsdom tampoco implementa las URL de Blob: se definen para que las pruebas puedan espiarlas.
+for (const name of ["createObjectURL", "revokeObjectURL"] as const) {
+  if (!(name in URL)) {
+    Object.defineProperty(URL, name, {
+      value: name === "createObjectURL" ? () => "blob:prueba" : () => undefined,
+      configurable: true,
+      writable: true,
+    });
+  }
+}

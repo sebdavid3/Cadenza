@@ -75,7 +75,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 24 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | En construcción desde cero: base con cliente HTTP tipado, proxy de desarrollo y sistema de diseño ([#144](https://github.com/sebdavid3/Cadenza/issues/144)); landing, acceso y vista de transcripción en [#145](https://github.com/sebdavid3/Cadenza/issues/145)–[#147](https://github.com/sebdavid3/Cadenza/issues/147); la corrección con OSMD y Tone.js, después |
+| Interfaz web en `apps/web` (fase 8) | En construcción desde cero: landing, inicio de sesión y vista de transcripción (subir imágenes y ver las sesiones) listos ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#147](https://github.com/sebdavid3/Cadenza/issues/147)); la corrección con OSMD y Tone.js, después |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
 

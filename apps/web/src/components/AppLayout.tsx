@@ -1,5 +1,6 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router";
 import { useAuthStore } from "../auth/store";
+import { pendingWorkWarning } from "../pendingWork";
 import "./app-layout.css";
 import "./button.css";
 
@@ -35,6 +36,8 @@ export function AppLayout() {
           type="button"
           className="button app-header__exit"
           onClick={() => {
+            const warning = pendingWorkWarning();
+            if (warning && !window.confirm(warning)) return;
             signOut("signed-out");
             void navigate("/entrar", { replace: true });
           }}

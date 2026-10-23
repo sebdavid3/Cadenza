@@ -39,17 +39,39 @@ export function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+/** Promesa que el test resuelve o rechaza cuando quiere (una respuesta «en vuelo»). */
+export function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Respuesta que no llega nunca: solo termina, como fetch, si se cancela la petición. */
+export function hangUntilAborted(init: RequestInit | undefined): Promise<Response> {
+  return new Promise((_resolve, reject) => {
+    const abort = () => {
+      reject(new DOMException("La petición se canceló.", "AbortError"));
+    };
+    if (init?.signal?.aborted) abort();
+    init?.signal?.addEventListener("abort", abort);
+  });
+}
+
 type Route = (init: RequestInit | undefined) => Response | Promise<Response>;
 
 /** Sustituye `fetch` por un enrutador de respuestas por «MÉTODO /ruta» (sin el prefijo /api). */
 export function mockApi(routes: Record<string, Route>) {
-  const calls: { key: string; init: RequestInit | undefined }[] = [];
+  const calls: { key: string; url: URL; init: RequestInit | undefined }[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const href = input instanceof Request ? input.url : input instanceof URL ? input.href : input;
     const url = new URL(href, "http://localhost");
     const path = url.pathname.replace(/^\/api/, "");
     const key = `${init?.method ?? "GET"} ${path}`;
-    calls.push({ key, init });
+    calls.push({ key, url, init });
     const route = routes[key];
     if (!route) return Promise.resolve(jsonResponse({ detail: `sin ruta: ${key}` }, 404));
     return Promise.resolve(route(init));

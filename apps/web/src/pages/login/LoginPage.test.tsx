@@ -201,9 +201,12 @@ describe("rutas privadas y caducidad", () => {
     let online = false;
     vi.stubGlobal(
       "fetch",
-      vi.fn(() =>
-        online ? Promise.resolve(jsonResponse(ANA)) : Promise.reject(new TypeError("offline")),
-      ),
+      vi.fn((input: RequestInfo | URL) => {
+        if (!online) return Promise.reject(new TypeError("offline"));
+        const href =
+          input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+        return Promise.resolve(jsonResponse(href.includes("/auth/me") ? ANA : []));
+      }),
     );
     const router = renderUrl("/transcripcion");
 
