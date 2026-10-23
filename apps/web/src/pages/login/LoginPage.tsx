@@ -149,8 +149,7 @@ export function LoginPage() {
           <p className="login__help">
             {registrationEnabled() ? (
               <>
-                ¿No tienes cuenta? <Link to="/registro">Créala</Link>: queda pendiente hasta que un
-                investigador del proyecto decida activarla.{" "}
+                ¿No tienes cuenta? <Link to="/registro">Créala</Link> y entra en el momento.{" "}
               </>
             ) : (
               "Las cuentas las crea un investigador del proyecto. "

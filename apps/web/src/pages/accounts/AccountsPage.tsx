@@ -25,52 +25,18 @@ function setActive(userId: string, active: boolean) {
 }
 
 /**
- * Del registro y sin activar: espera una decisión del investigador. Desactivar una cuenta
- * autorregistrada la deja igual (la API no distingue «rechazada»), y por eso no se llama
- * «pendiente».
+ * Por fecha de alta, la más reciente arriba. Activar o desactivar no cambia la fecha, así que la
+ * fila que tiene el foco no salta de sitio.
  */
-const awaitsDecision = (user: UserRead) => !user.active && user.self_registered === true;
-
-/** Sin activar primero; después, por fecha de alta, la más reciente arriba. */
-function sortedIds(users: readonly UserRead[]): string[] {
-  return [...users]
-    .sort((a, b) => {
-      if (awaitsDecision(a) !== awaitsDecision(b)) return awaitsDecision(a) ? -1 : 1;
-      return (b.created_at ?? "").localeCompare(a.created_at ?? "");
-    })
-    .map((user) => user.id);
+function byNewest(users: readonly UserRead[]): UserRead[] {
+  return [...users].sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
 }
 
 /**
- * El orden se fija al cargar (o al actualizar a mano) y no cambia al activar una cuenta: la fila
- * que tiene el foco no salta de sitio. Las cuentas que no estaban se añaden al final.
- */
-function useStableOrder(users: readonly UserRead[] | undefined) {
-  const [order, setOrder] = useState<string[]>([]);
-  const [source, setSource] = useState<readonly UserRead[] | undefined>(undefined);
-  if (users !== source) {
-    setSource(users);
-    const known = new Set(order);
-    const ids = users ? sortedIds(users) : [];
-    setOrder(
-      order.length === 0
-        ? ids
-        : [...order.filter((id) => ids.includes(id)), ...ids.filter((id) => !known.has(id))],
-    );
-  }
-  const byId = new Map((users ?? []).map((user) => [user.id, user]));
-  return {
-    rows: order.flatMap((id) => byId.get(id) ?? []),
-    resort: () => {
-      setOrder(users ? sortedIds(users) : []);
-    },
-  };
-}
-
-/**
- * Gestión mínima de cuentas para investigadores (ADR-0022): ver quién se registró y activar o
- * desactivar cuentas. Las autorregistradas se distinguen de las del estudio. Para un
- * transcriptor la ruta no existe (la API le respondería 403 de todos modos).
+ * Gestión mínima de cuentas para investigadores (ADR-0022, ADR-0025): ver quién se registró y
+ * desactivar una cuenta que se use mal, o volver a activarla. Las del registro entran en el
+ * momento y se distinguen de las del estudio. Para un transcriptor la ruta no existe (la API le
+ * respondería 403 de todos modos).
  */
 export function AccountsPage() {
   const role = useAuthStore((state) => state.user?.role);
@@ -99,8 +65,8 @@ function AccountsView() {
       setAnnouncement(`Cuenta ${updated.username} ${updated.active ? "activada" : "desactivada"}.`);
     },
   });
-  const { rows, resort } = useStableOrder(users.data);
-  const waiting = rows.filter(awaitsDecision).length;
+  const rows = byNewest(users.data ?? []);
+  const fromRegistration = rows.filter((user) => user.self_registered === true).length;
   // Un cambio cada vez: el resultado de cada uno se ve y se anuncia.
   const busy = toggle.isPending;
 
@@ -109,10 +75,9 @@ function AccountsView() {
       <header className="accounts__head">
         <h1 className="accounts__title">Cuentas</h1>
         <p className="accounts__lead">
-          Las cuentas creadas desde el registro nacen sin activar: actívalas para que puedan entrar
-          y transcribir. No forman parte del estudio; las del estudio las crea un investigador. Una
-          cuenta del registro que desactives vuelve a contar como sin activar, también para el
-          límite de cuentas en espera del registro.
+          Cualquiera puede crear una cuenta desde el registro y entra en el momento. Esas cuentas no
+          forman parte del estudio; las del estudio las crea un investigador. Desactiva una cuenta
+          para que no pueda entrar, por ejemplo si se usa mal.
         </p>
       </header>
 
@@ -123,9 +88,7 @@ function AccountsView() {
           </h2>
           {users.isSuccess && (
             <p className="label accounts__count">
-              {waiting === 0
-                ? "Ninguna del registro sin activar"
-                : `${String(waiting)} del registro sin activar`}
+              {`${String(rows.length)} ${rows.length === 1 ? "cuenta" : "cuentas"}, ${String(fromRegistration)} del registro`}
             </p>
           )}
           <button
@@ -134,9 +97,7 @@ function AccountsView() {
             aria-disabled={users.isFetching}
             onClick={() => {
               if (users.isFetching) return;
-              void users.refetch().then(() => {
-                resort();
-              });
+              void users.refetch();
             }}
           >
             {users.isFetching && users.isSuccess ? "Actualizando…" : "Actualizar"}
@@ -172,7 +133,7 @@ function AccountsView() {
             {rows.map((user) => {
               const own = user.id === me?.id;
               const saving = busy && toggle.variables.user.id === user.id;
-              const state = user.active ? "active" : awaitsDecision(user) ? "waiting" : "inactive";
+              const state = user.active ? "active" : "inactive";
               return (
                 <li key={user.id} className="accounts__item" data-state={state}>
                   <div className="accounts__who">
@@ -184,7 +145,7 @@ function AccountsView() {
                     </span>
                   </div>
                   <span className="label accounts__state">
-                    {state === "active" ? "Activa" : "Sin activar"}
+                    {user.active ? "Activa" : "Desactivada"}
                   </span>
                   {own ? (
                     <span className="label accounts__own">Tu cuenta</span>

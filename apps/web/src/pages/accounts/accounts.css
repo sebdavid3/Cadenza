@@ -1,5 +1,5 @@
-/* Cuentas (solo investigadores): una lista de filas separadas por filetes. Lo que espera una
-   decisión (una cuenta del registro sin activar) es lo único en violeta. */
+/* Cuentas (solo investigadores): una lista de filas separadas por filetes. Una cuenta
+   desactivada lleva el rótulo con filete discontinuo. */
 
 .accounts__head {
   display: grid;
@@ -103,14 +103,7 @@
   white-space: nowrap;
 }
 
-/* Del registro y sin activar: rótulo violeta, espera una decisión del investigador. */
-.accounts__item[data-state="waiting"] .accounts__state {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-/* Inactiva: filete discontinuo, lo que no está en uso. */
+/* Desactivada: filete discontinuo, lo que no está en uso. */
 .accounts__item[data-state="inactive"] .accounts__state {
   border-style: dashed;
   color: var(--color-ink-muted);

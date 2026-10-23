@@ -100,14 +100,15 @@ describe("landing", () => {
     expect(screen.getAllByText(/las cuentas las crea/i).length).toBeGreaterThan(0);
   });
 
-  it("con registro abierto, lo enlaza, dice que la cuenta queda pendiente y no ofrece recuperación", () => {
+  it("con registro abierto, lo enlaza, dice que se entra en el momento y no ofrece recuperación", () => {
     vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
     renderLanding();
 
     const links = screen.getAllByRole("link", { name: /créala|crear una cuenta/i });
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toHaveAttribute("href", "/registro");
-    expect(screen.getAllByText(/queda pendiente hasta que/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/en el momento/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.queryByText(/olvidaste/i)).not.toBeInTheDocument();
   });
 

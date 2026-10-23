@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate } from "react-router";
+import { ApiError } from "../../api/errors";
 import { api } from "../../api/instance";
+import { logIn } from "../../auth/session";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
@@ -20,9 +22,18 @@ import {
   type RegisterField,
 } from "./register";
 
+/** Por qué no se pudo entrar con la cuenta recién creada; la cuenta existe en cualquier caso. */
+function autoLoginNotice(error: unknown): string {
+  if (error instanceof ApiError && error.kind === "rate-limited") {
+    return "No se pudo entrar con ella ahora: hay demasiados intentos de acceso desde tu conexión. Entra con tu usuario y tu contraseña dentro de unos minutos.";
+  }
+  return "No se pudo entrar con ella automáticamente. Entra con tu usuario y tu contraseña.";
+}
+
 /**
- * Registro de una cuenta (ADR-0022): solo usuario y contraseña, sin correo. La cuenta nace
- * inactiva hasta que un investigador decide activarla, y la vista lo dice antes y después.
+ * Registro de una cuenta (ADR-0022, ADR-0025): solo usuario y contraseña, sin correo. La cuenta
+ * nace activa: tras crearla, la vista entra con ella y lleva a la zona privada. Si ese acceso
+ * falla, dice que la cuenta existe y enlaza a la página de entrar.
  */
 export function RegisterPage() {
   useDocumentTitle("Crear una cuenta");
@@ -32,7 +43,7 @@ export function RegisterPage() {
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState<RegisterError | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [created, setCreated] = useState<UserRead | null>(null);
+  const [created, setCreated] = useState<{ user: UserRead; notice: string } | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
@@ -73,16 +84,24 @@ export function RegisterPage() {
     }
     setSubmitting(true);
     setError(null);
+    let user: UserRead;
     try {
-      const user = await registerUser(api, name, password);
-      // La contraseña ya no hace falta en la vista.
-      setPassword("");
-      setConfirmation("");
-      setCreated(user);
+      user = await registerUser(api, name, password);
     } catch (caught) {
       // Los fallos pasajeros (límite, red, servidor) no obligan a escribirla de nuevo.
       setError(registerErrorMessage(caught));
-    } finally {
+      setSubmitting(false);
+      return;
+    }
+    try {
+      // Al entrar, el estado pasa a autenticado y el <Navigate> de arriba lleva a la zona privada.
+      await logIn(api, name, password);
+    } catch (caught) {
+      // La cuenta existe aunque no se haya podido entrar con ella: se dice por qué y se enlaza a
+      // entrar. Si falla `/auth/me`, `logIn` no deja una sesión a medias.
+      setPassword("");
+      setConfirmation("");
+      setCreated({ user, notice: autoLoginNotice(caught) });
       setSubmitting(false);
     }
   };
@@ -98,17 +117,25 @@ export function RegisterPage() {
           <span>Crear cuenta</span>
         </h1>
         {created ? (
-          <section className="login__form" aria-labelledby="register-done">
-            <h2 className="login__done-title" id="register-done" ref={doneRef} tabIndex={-1}>
+          <section
+            className="login__form"
+            aria-labelledby="register-done"
+            aria-describedby="register-done-notice"
+          >
+            <h2
+              className="login__done-title"
+              id="register-done"
+              ref={doneRef}
+              tabIndex={-1}
+              aria-describedby="register-done-notice"
+            >
               Cuenta creada
             </h2>
             <p className="login__done-user">
-              Tu usuario es <strong>{created.username}</strong>.
+              Tu usuario es <strong>{created.user.username}</strong>.
             </p>
-            <p className="login__notice">
-              Queda pendiente: un investigador del proyecto decidirá si la activa, y hasta entonces
-              no podrás entrar. No guardamos ningún correo, así que no te llegará aviso: vuelve a
-              probar más tarde.
+            <p className="login__notice" id="register-done-notice">
+              {created.notice}
             </p>
             <Link className="button login__submit" to="/entrar">
               Ir a entrar
@@ -201,11 +228,11 @@ export function RegisterPage() {
               type="submit"
               disabled={submitting}
             >
-              {submitting ? "Creando la cuenta…" : "Crear cuenta"}
+              {submitting ? "Creando la cuenta…" : "Crear cuenta y entrar"}
               {!submitting && <PixelIcon name="arrow-right" />}
             </button>
             <p className="login__help">
-              La cuenta queda pendiente hasta que un investigador del proyecto decida activarla.{" "}
+              Entras en el momento, sin esperar a nadie.{" "}
               <Link to="/entrar">¿Ya tienes cuenta? Entra</Link>.
             </p>
           </form>
