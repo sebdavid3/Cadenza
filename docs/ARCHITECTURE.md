@@ -900,6 +900,7 @@ queda fuera de esta fase.
 | [ADR-0017](adr/ADR-0017-validacion-del-contenido-de-las-ediciones.md) | Validación del contenido de las ediciones y estado previo fijado por el servidor |
 | [ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md) | HOMR como único motor OMR (reemplaza el punto 3 de ADR-0005 y precisa el 4) |
 | [ADR-0019](adr/ADR-0019-base-del-cliente-web.md) | Base del cliente web: versiones, cliente HTTP, proxy de desarrollo y sistema de diseño |
+| [ADR-0020](adr/ADR-0020-sesion-del-cliente-web.md) | Sesión del cliente web: token en `sessionStorage`, recuperación y caducidad |
 
 
 ---

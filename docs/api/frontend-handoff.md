@@ -379,7 +379,7 @@ npm run dev        # http://localhost:5173 ; la API queda en http://localhost:51
 Puertas del frontend: `npm run lint`, `npm run format:check`, `npm run test` y `npm run build` (también en la CI).
 
 Queda por construir sobre la API v1:
-- **Acceso:** inicio de sesión ([#146](https://github.com/sebdavid3/Cadenza/issues/146)); cambio de contraseña y gestión de cuentas del investigador (`/users`), más adelante.
+- **Acceso:** el inicio de sesión ya existe ([#146](https://github.com/sebdavid3/Cadenza/issues/146), [ADR-0020](../adr/ADR-0020-sesion-del-cliente-web.md)): vista `/entrar`, token en `sessionStorage`, recuperación al recargar, cierre al vencer el `exp` o ante un 401 y rutas privadas. Quedan el cambio de contraseña y la gestión de cuentas del investigador (`/users`).
 - **Ingesta:** envío de imágenes a `POST /transcribe` con el indicador de progreso de §5.7 y listado de sesiones ([#147](https://github.com/sebdavid3/Cadenza/issues/147)).
 - **Página pública** ([#145](https://github.com/sebdavid3/Cadenza/issues/145)).
 - **Corrección:** render de la partitura con OpenSheetMusicDisplay (OSMD) para seleccionar cualquier símbolo sobre la notación, independientemente del motor OMR (HOMR devuelve `bbox: null`, INV-0001); las siete operaciones de `EditOp` con `base_seq` y manejo del 409 (§5.1); deshacer en el servidor (`POST /undo`, §5.3); descarte, restauración y revalidación de hallazgos.

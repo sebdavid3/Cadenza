@@ -430,7 +430,7 @@ Cadenza/
 |---|---|
 | [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
-| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0019) |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0020) |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
 | [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR) |
