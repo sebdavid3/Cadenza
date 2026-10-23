@@ -1,5 +1,6 @@
 import { vi } from "vitest";
 import { useAuthStore } from "../auth/store";
+import { localExpiry } from "../auth/token";
 import type { UserRead } from "../types";
 
 export const ANA: UserRead = {
@@ -14,10 +15,21 @@ function base64url(value: unknown): string {
   return btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-/** JWT de prueba (sin firma válida) que caduca dentro de `ms` milisegundos. */
-export function fakeJwt(ms: number, sub = ANA.id): string {
-  const exp = Math.floor((Date.now() + ms) / 1000);
-  return `${base64url({ alg: "HS256", typ: "JWT" })}.${base64url({ sub, exp })}.firma`;
+/**
+ * JWT de prueba (sin firma válida) que dura `ms` milisegundos, emitido como la API (`iat` y
+ * `exp`). `serverSkewMs` simula un servidor con el reloj desplazado respecto al del equipo.
+ */
+export function fakeJwt(ms: number, sub = ANA.id, serverSkewMs = 0): string {
+  const iat = Math.floor((Date.now() + serverSkewMs) / 1000);
+  const exp = iat + Math.floor(ms / 1000);
+  return `${base64url({ alg: "HS256", typ: "JWT" })}.${base64url({ sub, iat, exp })}.firma`;
+}
+
+/** Abre una sesión en el almacén como lo haría el inicio de sesión. */
+export function signInAs(user: UserRead, ms = 1_800_000): string {
+  const token = fakeJwt(ms, user.id);
+  useAuthStore.getState().signIn(token, user, localExpiry(token));
+  return token;
 }
 
 export function jsonResponse(body: unknown, status = 200): Response {
@@ -48,5 +60,11 @@ export function mockApi(routes: Record<string, Route>) {
 
 export function resetAuth() {
   sessionStorage.clear();
-  useAuthStore.setState({ status: "anonymous", token: null, user: null, endReason: null });
+  useAuthStore.setState({
+    status: "anonymous",
+    token: null,
+    user: null,
+    expiresAt: null,
+    endReason: null,
+  });
 }

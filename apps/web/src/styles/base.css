@@ -100,3 +100,11 @@ p {
     scroll-behavior: auto !important;
   }
 }
+
+/* Comprobación de la sesión antes de mostrar una ruta privada */
+.auth-pending {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--gutter);
+}

@@ -132,7 +132,7 @@ describe("autenticación", () => {
     const error = await caught(client.request("/sessions"));
 
     expect(error.kind).toBe("unauthorized");
-    expect(onUnauthorized).toHaveBeenCalledOnce();
+    expect(onUnauthorized).toHaveBeenCalledExactlyOnceWith("caducado");
   });
 
   it("no avisa de un 401 cuando la ruta le da otro sentido (contraseña actual equivocada)", async () => {

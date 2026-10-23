@@ -12,8 +12,11 @@ export interface ApiClientOptions {
   baseUrl?: string;
   /** Token Bearer vigente, o null si no hay sesión. */
   getToken?: () => string | null;
-  /** Se llama cuando una petición autenticada recibe un 401 (token caducado o revocado). */
-  onUnauthorized?: () => void;
+  /**
+   * Se llama cuando una petición autenticada recibe un 401 (token caducado o revocado), con el
+   * token que llevaba la petición, para no cerrar una sesión más reciente.
+   */
+  onUnauthorized?: (token: string) => void;
   fetch?: typeof fetch;
   timeoutMs?: number;
 }
@@ -114,7 +117,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
         // Cancelado o vencido mientras se leía el cuerpo del error.
         if (controller.signal.aborted) throw failure();
         if (response.status === 401 && token && req.notifyUnauthorized !== false) {
-          options.onUnauthorized?.();
+          options.onUnauthorized?.(token);
         }
         throw new ApiError(kindForStatus(response.status), response.status, detail);
       }

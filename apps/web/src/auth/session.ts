@@ -1,8 +1,8 @@
 import type { ApiClient } from "../api/client";
 import { ApiError } from "../api/errors";
 import type { TokenResponse, UserRead } from "../types";
-import { readStoredToken, useAuthStore } from "./store";
-import { msUntilExpiry } from "./token";
+import { readStoredSession, useAuthStore } from "./store";
+import { localExpiry, msUntil } from "./token";
 
 /** Mensajes del inicio de sesión: aquí un 401 significa credenciales inválidas, no sesión caducada. */
 export function loginErrorMessage(error: unknown): string {
@@ -26,8 +26,9 @@ export async function logIn(api: ApiClient, username: string, password: string) 
     body: new URLSearchParams({ username, password }),
     auth: false,
   });
+  const expiresAt = localExpiry(token);
   const user = await api.request<UserRead>("/auth/me", { token });
-  useAuthStore.getState().signIn(token, user);
+  useAuthStore.getState().signIn(token, user, expiresAt);
   return user;
 }
 
@@ -44,20 +45,37 @@ export function restoreSession(api: ApiClient): Promise<void> {
   return restoring;
 }
 
+/** Vuelve a comprobar una sesión guardada que no se pudo comprobar por falta de conexión. */
+export function retryRestore(api: ApiClient): Promise<void> {
+  useAuthStore.getState().startRestoring();
+  return restoreSession(api);
+}
+
 async function doRestore(api: ApiClient) {
   const store = useAuthStore.getState();
-  const token = readStoredToken();
-  if (!token || msUntilExpiry(token) <= 0) {
-    if (token) store.signOut("expired");
-    else store.finishRestoring();
+  const stored = readStoredSession();
+  if (!stored) {
+    store.finishRestoring();
     return;
   }
+  const expiresAt = stored.expiresAt ?? localExpiry(stored.token);
+  if (msUntil(expiresAt) <= 0) {
+    store.signOut("expired");
+    return;
+  }
+  // Mientras tanto la persona puede haber entrado o salido: el resultado solo se aplica
+  // si la sesión sigue en comprobación.
+  const stillRestoring = () => useAuthStore.getState().status === "restoring";
   try {
-    const user = await api.request<UserRead>("/auth/me", { token });
-    store.signIn(token, user);
+    const user = await api.request<UserRead>("/auth/me", { token: stored.token });
+    if (stillRestoring()) useAuthStore.getState().signIn(stored.token, user, expiresAt);
   } catch (error) {
-    store.signOut(
-      error instanceof ApiError && error.kind === "unauthorized" ? "expired" : undefined,
-    );
+    if (!stillRestoring()) return;
+    if (error instanceof ApiError && error.kind === "unauthorized") {
+      useAuthStore.getState().signOut("expired");
+    } else {
+      // Sin conexión o error del servidor: no se descarta un token que puede seguir valiendo.
+      useAuthStore.getState().markUnreachable();
+    }
   }
 }

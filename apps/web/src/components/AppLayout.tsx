@@ -35,7 +35,7 @@ export function AppLayout() {
           type="button"
           className="button app-header__exit"
           onClick={() => {
-            signOut();
+            signOut("signed-out");
             void navigate("/entrar", { replace: true });
           }}
         >

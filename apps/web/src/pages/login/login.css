@@ -49,9 +49,13 @@
   outline-offset: 0;
 }
 
-.field input:disabled {
+.field input:read-only {
   border-style: dashed;
   color: var(--color-ink-muted);
+}
+
+.field input[aria-invalid="true"] {
+  border-color: var(--color-accent);
 }
 
 .login__submit {
@@ -66,17 +70,29 @@
   font-weight: 500;
 }
 
-/* El error es turno del visitante: marco rayado en el acento, texto sobre papel. */
+/* El error es turno del visitante: franja rayada en el acento sobre un recuadro de papel. */
 .login__error {
+  position: relative;
+  padding-top: calc(var(--space-3) + 10px);
   border-color: var(--color-accent);
-  box-shadow:
-    inset 0 0 0 4px var(--color-paper),
-    inset 0 0 0 12px var(--color-accent);
-  padding: calc(var(--space-3) + 12px) calc(var(--space-4) + 12px);
+}
+
+.login__error::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 10px;
+  background: var(--hatch-accent);
 }
 
 .login__notice {
   background: var(--color-paper);
+}
+
+.login__notice:focus-visible {
+  outline-offset: 2px;
 }
 
 .login__help {

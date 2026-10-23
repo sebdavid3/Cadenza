@@ -41,12 +41,15 @@
 .app-header__user {
   display: grid;
   justify-items: end;
+  min-width: 0;
   margin-left: auto;
   line-height: 1.2;
+  text-align: right;
 }
 
 .app-header__name {
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .app-header__role {
