@@ -12,7 +12,15 @@ import {
 } from "../../test/auth-helpers";
 import type { UserRead } from "../../types";
 import { MAX_UPLOAD_BYTES, precheck, useQueueStore } from "./queue";
-import { createLimiter, formatDate, isoUtc, parseUtc, statusLabel } from "./sessions";
+import {
+  createLimiter,
+  formatDay,
+  formatTime,
+  isoUtc,
+  parseUtc,
+  statusLabel,
+  thumbnailSize,
+} from "./sessions";
 
 // Sin getToken: la cola manda en cada envío el token de quien la llenó.
 const api = createApiClient({ baseUrl: "/api" });
@@ -187,7 +195,7 @@ describe("cola secuencial", () => {
       "POST /transcribe": () => {
         n += 1;
         return n === 1
-          ? jsonResponse({ detail: "x" }, 503)
+          ? jsonResponse({ detail: "x" }, 500)
           : jsonResponse(transcribed(`s${String(n)}`), 201);
       },
     });
@@ -240,6 +248,52 @@ describe("cola secuencial", () => {
       expect(good).toMatchObject({ status: "done" });
     },
   );
+
+  it.each([
+    ["un fallo de red", () => Promise.reject(new TypeError("Failed to fetch"))],
+    ["un 503", () => jsonResponse({ detail: "x" }, 503)],
+    ["un 502", () => jsonResponse({ detail: "x" }, 502)],
+  ])("con %s se pausa, deja el resto en cola y sigue al reanudar", async (_label, failure) => {
+    let n = 0;
+    const { calls } = mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1 ? failure() : jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    await store.run(api);
+    expect(statuses()).toEqual(["error", "queued"]);
+    expect(useQueueStore.getState().paused).toBe(true);
+    await store.run(api);
+    expect(calls).toHaveLength(1);
+
+    useQueueStore.getState().resume();
+    await store.run(api);
+    expect(statuses()).toEqual(["error", "done"]);
+    expect(useQueueStore.getState().paused).toBe(false);
+  });
+
+  it("un 500 de una imagen no pausa la cola", async () => {
+    let n = 0;
+    mockApi({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1
+          ? jsonResponse({ detail: "x" }, 500)
+          : jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    await store.run(api);
+
+    expect(statuses()).toEqual(["error", "done"]);
+    expect(useQueueStore.getState().paused).toBe(false);
+  });
 
   it("ante un 401 se detiene y deja el resto en cola", async () => {
     const { calls } = mockApi({
@@ -410,13 +464,24 @@ describe("datos de sesiones", () => {
     expect(parseUtc("2026-10-22T20:15:00+02:00").toISOString()).toBe("2026-10-22T18:15:00.000Z");
   });
 
+  it("reduce la miniatura lo justo para cubrir el hueco de 96 × 48 a doble densidad", () => {
+    // Un incipit apaisado manda la altura; una página escaneada, la anchura.
+    expect(thumbnailSize(1200, 200)).toEqual({ width: 576, height: 96 });
+    expect(thumbnailSize(2480, 3508)).toEqual({ width: 192, height: 272 });
+    // Lo que ya es pequeño no se toca (ni se amplía).
+    expect(thumbnailSize(180, 90)).toBeNull();
+    expect(thumbnailSize(192, 96)).toBeNull();
+  });
+
   it("da a <time> la fecha en ISO con zona y no falla con una fecha ilegible", () => {
     expect(isoUtc("2026-10-22T20:15:00")).toBe("2026-10-22T20:15:00.000Z");
     expect(isoUtc("no-es-fecha")).toBe("no-es-fecha");
   });
 
-  it("formatea la fecha en español y traduce el estado", () => {
-    expect(formatDate("2026-10-22T20:15:00")).toMatch(/2026/);
+  it("formatea la fecha en la hora local y en español, y traduce el estado", () => {
+    // Las pruebas corren con TZ=America/Bogota (UTC-5, vite.config.ts).
+    expect(formatTime("2026-10-22T20:15:00")).toBe("15:15");
+    expect(formatDay("2026-10-23T02:00:00")).toBe("22 oct 2026");
     expect(statusLabel("transcribed")).toBe("Transcrita");
     expect(statusLabel("finalized")).toBe("Finalizada");
   });

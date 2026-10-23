@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
@@ -111,6 +111,9 @@ describe("vista de transcripción", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(within(table).getByText("aaaaaaaa")).toBeVisible();
     expect(table.querySelector("time")).toHaveAttribute("datetime", "2026-10-22T20:15:00.000Z");
+    // 20:15 UTC es 15:15 en Bogotá (TZ de las pruebas).
+    expect(within(table).getAllByText("15:15")).toHaveLength(2);
+    expect(screen.queryByText(/assisted/i)).toBeNull();
     expect(within(table).getAllByText("Transcrita")).toHaveLength(2);
     expect(within(table).queryByRole("columnheader", { name: /propietario/i })).toBeNull();
     await waitFor(() => {
@@ -121,21 +124,26 @@ describe("vista de transcripción", () => {
     }
   });
 
-  it("revoca las URL de las miniaturas al salir de la vista", async () => {
+  it("revoca cada URL de miniatura creada al salir de la vista", async () => {
+    let n = 0;
+    createObjectURL.mockImplementation(() => `blob:miniatura-${String(++n)}`);
     mockApi({
-      "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111")]),
-      "GET /sessions/aaaaaaaa-1111/image": () => new Response(new Uint8Array([1])),
+      "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111"), session("bbbbbbbb-2222")]),
+      "GET /sessions/aaaaaaaa-1111/image": image,
+      "GET /sessions/bbbbbbbb-2222/image": image,
     });
     const router = renderPage();
     await waitFor(() => {
-      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(createObjectURL).toHaveBeenCalledTimes(2);
     });
+    expect(revokeObjectURL).not.toHaveBeenCalled();
 
-    await router.navigate("/");
+    await act(() => router.navigate("/"));
 
-    await waitFor(() => {
-      expect(revokeObjectURL).toHaveBeenCalledWith("blob:miniatura");
-    });
+    const created = createObjectURL.mock.results.map((result) => result.value as string);
+    const revoked = revokeObjectURL.mock.calls.map(([url]) => url);
+    expect(new Set(revoked)).toEqual(new Set(created));
+    expect(revoked).toHaveLength(2);
   });
 
   it("pagina con «Cargar más»", async () => {
@@ -218,11 +226,30 @@ describe("vista de transcripción", () => {
   });
 
   it("muestra un error del listado con reintento", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse({ detail: "boom" }, 500) });
+    let fail = true;
+    mockApi({
+      "GET /sessions": () =>
+        fail ? jsonResponse({ detail: "boom" }, 500) : jsonResponse([session("aaaaaaaa-1")]),
+    });
     renderPage();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/servidor/i);
-    expect(screen.getByRole("button", { name: "Reintentar" })).toBeVisible();
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+
+    expect(await screen.findByRole("table")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("muestra el estado de carga mientras llega el listado", async () => {
+    const response = deferred<Response>();
+    mockApi({ "GET /sessions": () => response.promise });
+    renderPage();
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/cargando sesiones/i);
+    response.resolve(jsonResponse([]));
+    expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
+    expect(screen.queryByText(/cargando sesiones/i)).not.toBeInTheDocument();
   });
 
   it("sube varias imágenes, las transcribe en cola y las sesiones nuevas aparecen en el listado", async () => {
@@ -314,6 +341,7 @@ describe("vista de transcripción", () => {
     const queue = screen.getByRole("region", { name: "Cola" });
     expect(within(queue).getByText("Rechazada")).toBeVisible();
     expect(within(queue).getByText(/no es una imagen png o jpeg/i)).toBeVisible();
+    expect(within(queue).queryByRole("button", { name: /reintentar/i })).toBeNull();
     expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
   });
 
@@ -420,7 +448,11 @@ describe("vista de transcripción", () => {
 
     setQueue([item("a", "a.png", { status: "transcribing", startedAt: Date.now() - 12_000 })]);
 
-    expect(within(screen.getByRole("region", { name: "Cola" })).getByText("12 s")).toBeVisible();
+    const queue = screen.getByRole("region", { name: "Cola" });
+    expect(within(queue).getByText("12 s")).toBeVisible();
+    expect(
+      within(queue).getByText("0 en cola · 1 en curso · 0 transcritas · 0 con error"),
+    ).toBeVisible();
   });
 
   it("mantiene el foco en la cola tras reintentar, quitar y limpiar", async () => {
@@ -520,5 +552,226 @@ describe("vista de transcripción", () => {
     expect(calls.filter((call) => call.key.endsWith("/image"))).toHaveLength(1);
     const img = document.querySelector(".thumb img");
     expect(img).toHaveAttribute("decoding", "async");
+  });
+
+  it("si una transcripción termina durante «Cargar más», no se pierden ni la página ni la sesión nueva", async () => {
+    const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
+    const created: SessionSummaryRead[] = [];
+    const all = () => [...[...created].reverse(), ...first, session("ultima-0000")];
+    const nextPage = deferred<undefined>();
+    const post = deferred<Response>();
+    let secondPages = 0;
+    const { calls } = mockApi({
+      "GET /sessions": () => {
+        const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
+        const page = () => jsonResponse(all().slice(offset, offset + 20));
+        if (offset === 0) return page();
+        secondPages += 1;
+        return secondPages === 1 ? nextPage.promise.then(page) : page();
+      },
+      "POST /transcribe": () => post.promise,
+    });
+    renderPage();
+    const table = await screen.findByRole("table");
+    act(() => {
+      useQueueStore.getState().add([png("uno.png")]);
+    });
+    await waitFor(() => {
+      expect(calls.some((call) => call.key === "POST /transcribe")).toBe(true);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
+    created.push(session("nueva000-1"));
+    post.resolve(jsonResponse(transcribed("nueva000-1"), 201));
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Cola" })).toHaveTextContent(/1 transcrita/);
+    });
+    nextPage.resolve(undefined);
+
+    await waitFor(() => {
+      expect(within(table).getByText("nueva000")).toBeVisible();
+    });
+    expect(within(table).getByText("ultima-0")).toBeVisible();
+    expect(within(table).getAllByRole("row")).toHaveLength(1 + 22);
+    const offsets = calls
+      .filter((call) => call.key === "GET /sessions")
+      .map((call) => call.url.searchParams.get("offset"));
+    expect(offsets).toEqual(["0", "20", "0", "20"]);
+  });
+
+  it("con el listado actualizándose, «Cargar más» espera y la sesión nueva aparece", async () => {
+    const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
+    const created: SessionSummaryRead[] = [];
+    const all = () => [...[...created].reverse(), ...first, session("ultima-0000")];
+    const refresh = deferred<undefined>();
+    let firstPages = 0;
+    const { calls } = mockApi({
+      "GET /sessions": () => {
+        const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
+        const page = () => jsonResponse(all().slice(offset, offset + 20));
+        if (offset !== 0) return page();
+        firstPages += 1;
+        return firstPages === 2 ? refresh.promise.then(page) : page();
+      },
+      "POST /transcribe": () => {
+        created.push(session("nueva000-1"));
+        return jsonResponse(transcribed("nueva000-1"), 201);
+      },
+    });
+    renderPage();
+    const table = await screen.findByRole("table");
+    act(() => {
+      useQueueStore.getState().add([png("uno.png")]);
+    });
+    await waitFor(() => {
+      expect(firstPages).toBe(2);
+    });
+
+    const more = screen.getByRole("button", { name: "Cargar más" });
+    expect(more).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(more);
+    const offsets = () =>
+      calls
+        .filter((call) => call.key === "GET /sessions")
+        .map((call) => call.url.searchParams.get("offset"));
+    expect(offsets()).toEqual(["0", "0"]);
+
+    refresh.resolve(undefined);
+    await waitFor(() => {
+      expect(within(table).getByText("nueva000")).toBeVisible();
+    });
+    await waitFor(() => {
+      expect(more).toHaveAttribute("aria-disabled", "false");
+    });
+    await userEvent.click(more);
+
+    await waitFor(() => {
+      expect(within(table).getByText("ultima-0")).toBeVisible();
+    });
+    expect(offsets()).toEqual(["0", "0", "20"]);
+  });
+
+  it("tras «Cargar más» el foco pasa a la primera sesión nueva", async () => {
+    const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
+    let page = 0;
+    mockApi({
+      "GET /sessions": () => {
+        page += 1;
+        return jsonResponse(page === 1 ? first : [session("ultima-0000")]);
+      },
+    });
+    renderPage();
+    const table = await screen.findByRole("table");
+
+    await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
+
+    await waitFor(() => {
+      expect(within(table).getByText("ultima-0").closest("tr")).toHaveFocus();
+    });
+    expect(screen.queryByRole("button", { name: "Cargar más" })).not.toBeInTheDocument();
+  });
+
+  it("si la imagen cuyo «Quitar» tiene el foco empieza a transcribirse, el foco sigue en ella", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    setQueue([
+      item("a", "a.png", { status: "transcribing", startedAt: Date.now() }),
+      item("b", "b.png"),
+    ]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+    within(queue).getByRole("button", { name: "Quitar b.png" }).focus();
+
+    act(() => {
+      useQueueStore.setState((state) => ({
+        items: state.items.map((entry) =>
+          entry.id === "a"
+            ? { ...entry, status: "done", result: transcribed("s1", 0) }
+            : { ...entry, status: "transcribing", startedAt: Date.now() },
+        ),
+      }));
+    });
+
+    expect(within(queue).getByText("b.png").closest("li")).toHaveFocus();
+  });
+
+  it("si se pierde la conexión, la cola se pausa y se reanuda a petición", async () => {
+    let posts = 0;
+    mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => {
+        posts += 1;
+        return posts === 1
+          ? Promise.reject(new TypeError("Failed to fetch"))
+          : jsonResponse(transcribed(`s${String(posts)}`), 201);
+      },
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    expect(await within(queue).findByText(/la cola está en pausa/i)).toBeVisible();
+    expect(within(queue).getByText(/no se pudo conectar con el servidor/i)).toBeVisible();
+    expect(within(queue).getByText("En cola")).toBeVisible();
+    expect(posts).toBe(1);
+
+    await userEvent.click(within(queue).getByRole("button", { name: "Reanudar" }));
+
+    await waitFor(() => {
+      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+    });
+    expect(posts).toBe(2);
+    expect(within(queue).queryByText(/la cola está en pausa/i)).not.toBeInTheDocument();
+    expect(within(queue).getByRole("heading", { name: "Cola" })).toHaveFocus();
+  });
+
+  it("acepta imágenes soltadas sobre la zona de subida", async () => {
+    mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => jsonResponse(transcribed("soltada0-1"), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    const zone = screen.getByText(/o arrástralas aquí/i).parentElement;
+    if (!zone) throw new Error("falta la zona de subida");
+
+    fireEvent.drop(zone, { dataTransfer: { files: [png("soltada.png")], types: ["Files"] } });
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    expect(within(queue).getByText("soltada.png")).toBeVisible();
+    await waitFor(() => {
+      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+    });
+  });
+
+  it("no enseña a la siguiente persona de la pestaña las sesiones que vio la anterior", async () => {
+    const bruno: UserRead = {
+      ...ANA,
+      id: "b7c1a3f0-0000-4000-8000-000000000002",
+      username: "bruno",
+    };
+    const brunoPage = deferred<Response>();
+    let listed = 0;
+    mockApi({
+      "GET /sessions": () => {
+        listed += 1;
+        return listed === 1 ? jsonResponse([session("deana000-1")]) : brunoPage.promise;
+      },
+    });
+    const router = renderPage();
+    expect(await screen.findByText("deana000")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("button", { name: "Salir" }));
+    act(() => {
+      signInAs(bruno);
+    });
+    await act(() => router.navigate("/transcripcion"));
+
+    expect(await screen.findByText(/cargando sesiones/i)).toBeVisible();
+    expect(screen.queryByText("deana000")).not.toBeInTheDocument();
+    brunoPage.resolve(jsonResponse([]));
+    expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
   });
 });

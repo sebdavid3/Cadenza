@@ -1,4 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
@@ -57,13 +58,31 @@ export function SessionsPanel() {
 
   const rows = uniqueSessions(sessions.data?.pages ?? []);
 
+  // «Cargar más» no se ofrece mientras el listado pide algo: pedir otra página cancelaría la
+  // actualización en curso (y al revés), y la sesión recién creada podría no aparecer.
+  const busy = sessions.isFetching;
+
+  // Tras cargar otra página, el foco pasa a la primera sesión nueva: el botón puede desaparecer.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const bodyRef = useRef<HTMLTableSectionElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  const focusRowAfterLoad = useRef<number | null>(null);
+  useEffect(() => {
+    const index = focusRowAfterLoad.current;
+    if (index === null || sessions.isFetchingNextPage) return;
+    focusRowAfterLoad.current = null;
+    const row = bodyRef.current?.rows[index];
+    if (row) row.focus();
+    else if (!moreRef.current) headingRef.current?.focus();
+  });
+
   return (
     <section
       className={isResearcher ? "panel sessions sessions--owner" : "panel sessions"}
       aria-labelledby="sessions-title"
     >
       <div className="panel__head">
-        <h2 id="sessions-title" className="panel__title">
+        <h2 id="sessions-title" className="panel__title" ref={headingRef} tabIndex={-1}>
           Sesiones
         </h2>
         <p className="label panel__count">
@@ -124,9 +143,9 @@ export function SessionsPanel() {
                 )}
               </tr>
             </thead>
-            <tbody role="rowgroup">
+            <tbody role="rowgroup" ref={bodyRef}>
               {rows.map((session) => (
-                <tr key={session.session_id} role="row">
+                <tr key={session.session_id} role="row" tabIndex={-1}>
                   <td role="cell" className="sessions__thumb">
                     <SessionThumb sessionId={session.session_id} />
                   </td>
@@ -182,11 +201,17 @@ export function SessionsPanel() {
       )}
 
       {sessions.hasNextPage && (
+        // aria-disabled y no disabled: el botón conserva el foco mientras espera.
         <button
+          ref={moreRef}
           type="button"
           className="button sessions__more"
-          disabled={sessions.isFetchingNextPage}
-          onClick={() => void sessions.fetchNextPage()}
+          aria-disabled={busy}
+          onClick={() => {
+            if (busy) return;
+            focusRowAfterLoad.current = rows.length;
+            void sessions.fetchNextPage({ cancelRefetch: false });
+          }}
         >
           {sessions.isFetchingNextPage ? "Cargando…" : "Cargar más"}
         </button>

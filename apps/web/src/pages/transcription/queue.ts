@@ -35,6 +35,12 @@ export function precheck(file: File): string | null {
   return null;
 }
 
+/** Sin conexión o con el servidor caído no tiene sentido seguir enviando: la cola se pausa. */
+function serverUnreachable(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  return error.kind === "network" || [502, 503, 504].includes(error.status ?? 0);
+}
+
 /** Mensajes de la transcripción: aquí un 422 es una imagen sin partitura reconocible. */
 export function transcribeErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return "No se pudo transcribir. Inténtalo de nuevo.";
@@ -57,6 +63,8 @@ const newId = () => `img-${String(++nextId)}`;
 interface QueueState {
   items: QueueItem[];
   running: boolean;
+  /** Pausada tras perder el servidor: lo pendiente espera hasta que la persona la reanude. */
+  paused: boolean;
   /** Persona dueña de la cola: solo se envía con su sesión, y si entra otra, la cola se vacía. */
   ownerId: string | null;
   claim: (ownerId: string) => void;
@@ -65,6 +73,7 @@ interface QueueState {
   remove: (id: string) => void;
   retry: (id: string) => void;
   clearFinished: () => void;
+  resume: () => void;
   /**
    * Envía los pendientes de uno en uno; termina cuando no queda ninguno en cola o cuando la
    * sesión de la dueña ya no está. `onSettled` se llama tras cada envío, salga bien o mal.
@@ -92,15 +101,17 @@ export const useQueueStore = create<QueueState>()((set, get) => {
   return {
     items: [],
     running: false,
-    ownerId: null,
+    paused: false,
+    // Si este módulo se carga con la sesión ya abierta, la cola es de quien está dentro.
+    ownerId: useAuthStore.getState().user?.id ?? null,
     claim: (ownerId) => {
       if (get().ownerId === ownerId) return;
       cancel();
-      set({ items: [], running: false, ownerId });
+      set({ items: [], running: false, paused: false, ownerId });
     },
     reset: () => {
       cancel();
-      set({ items: [], running: false, ownerId: null });
+      set({ items: [], running: false, paused: false, ownerId: null });
     },
     add: (files) => {
       const added = [...files].map((file): QueueItem => {
@@ -129,8 +140,11 @@ export const useQueueStore = create<QueueState>()((set, get) => {
         ),
       }));
     },
+    resume: () => {
+      set({ paused: false });
+    },
     run: async (api, onSettled) => {
-      if (get().running) return;
+      if (get().running || get().paused) return;
       const runGeneration = generation;
       const current = () => runGeneration === generation;
       set({ running: true });
@@ -163,6 +177,11 @@ export const useQueueStore = create<QueueState>()((set, get) => {
             patch(next.id, { status: "error", error: transcribeErrorMessage(error) });
             // Sin sesión no tiene sentido seguir: el resto espera a que se vuelva a entrar.
             if (error instanceof ApiError && error.kind === "unauthorized") break;
+            // Sin servidor, el resto fallaría en cadena: espera a que la persona reanude.
+            if (serverUnreachable(error)) {
+              set({ paused: true });
+              break;
+            }
           } finally {
             if (inFlight === controller) inFlight = null;
             // Tras un timeout, un fallo de red o un 5xx la sesión puede existir igualmente.
@@ -182,7 +201,7 @@ export function hasPendingWork(items: QueueItem[]): boolean {
 }
 
 export const LEAVE_WARNING =
-  "Hay imágenes en cola o transcribiéndose. Si sales, la cola se pierde. ¿Salir igualmente?";
+  "Hay imágenes en cola o transcribiéndose. Si sales, la cola se pierde, aunque la imagen en curso puede llegar a crear su sesión. ¿Salir igualmente?";
 
 registerPendingWork(() => (hasPendingWork(useQueueStore.getState().items) ? LEAVE_WARNING : null));
 

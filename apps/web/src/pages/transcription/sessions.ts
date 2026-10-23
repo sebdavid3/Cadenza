@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type { SessionSummaryRead, UserRead } from "../../types";
@@ -14,6 +14,34 @@ export async function listSessions(api: ApiClient, offset: number, signal?: Abor
   // El contrato devuelve una lista; otra cosa se trata como respuesta inesperada, no se pinta.
   if (!Array.isArray(page)) throw new ApiError("unexpected", 200);
   return page as SessionSummaryRead[];
+}
+
+const pendingRefresh = new WeakSet<QueryClient>();
+
+/**
+ * Actualiza el listado tras un envío. Si ya está pidiendo algo (otra página o una actualización
+ * anterior), espera a que termine: invalidar en ese momento cancelaría esa petición, y la que
+ * llegara después podría no traer la sesión nueva.
+ */
+export function refreshSessions(queryClient: QueryClient) {
+  const cache = queryClient.getQueryCache();
+  const busy = () =>
+    cache.find({ queryKey: SESSIONS_QUERY_KEY, exact: true })?.state.fetchStatus === "fetching";
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+  };
+  if (!busy()) {
+    invalidate();
+    return;
+  }
+  if (pendingRefresh.has(queryClient)) return;
+  pendingRefresh.add(queryClient);
+  const unsubscribe = cache.subscribe(() => {
+    if (busy()) return;
+    unsubscribe();
+    pendingRefresh.delete(queryClient);
+    invalidate();
+  });
 }
 
 export function listUsers(api: ApiClient, signal?: AbortSignal) {
@@ -66,16 +94,61 @@ export function createLimiter(max: number) {
   };
 }
 
+/** Hueco de la miniatura (96 × 48 px) a doble densidad, que `object-fit: cover` debe cubrir. */
+const THUMBNAIL_BOX = { width: 192, height: 96 };
+
+/** Tamaño reducido que aún cubre el hueco, o null si la imagen ya es igual o más pequeña. */
+export function thumbnailSize(width: number, height: number) {
+  const scale = Math.max(THUMBNAIL_BOX.width / width, THUMBNAIL_BOX.height / height);
+  if (!(scale < 1)) return null;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
 /**
- * La API solo sirve la imagen original, sin miniaturas: se descargan de pocas en pocas y el Blob
- * se guarda en la caché de consultas, que se vacía al cerrar la sesión.
+ * Reduce la imagen al tamaño de la miniatura para no guardar ni decodificar escaneos enteros en
+ * un hueco de 96 × 48. Si el navegador no puede, se queda la original.
+ */
+async function shrinkForThumbnail(blob: Blob): Promise<Blob> {
+  if (!("createImageBitmap" in globalThis) || !("OffscreenCanvas" in globalThis)) return blob;
+  try {
+    const full = await createImageBitmap(blob);
+    const size = thumbnailSize(full.width, full.height);
+    if (!size) {
+      full.close();
+      return blob;
+    }
+    const small = await createImageBitmap(full, {
+      resizeWidth: size.width,
+      resizeHeight: size.height,
+      resizeQuality: "high",
+    });
+    full.close();
+    const canvas = new OffscreenCanvas(size.width, size.height);
+    canvas.getContext("2d")?.drawImage(small, 0, 0);
+    small.close();
+    return await canvas.convertToBlob({ type: "image/png" });
+  } catch {
+    return blob;
+  }
+}
+
+/**
+ * La API solo sirve la imagen original, sin miniaturas: se descargan de pocas en pocas, se
+ * reducen y el Blob pequeño se guarda en la caché de consultas, que se vacía al cerrar la sesión.
  */
 const thumbnailSlots = createLimiter(3);
 
 export const sessionImageQuery = (api: ApiClient, sessionId: string) =>
   queryOptions({
     queryKey: ["session-image", sessionId],
-    queryFn: ({ signal }) => thumbnailSlots(() => sessionImage(api, sessionId, signal), signal),
+    queryFn: ({ signal }) =>
+      thumbnailSlots(
+        async () => shrinkForThumbnail(await sessionImage(api, sessionId, signal)),
+        signal,
+      ),
     // La imagen de una sesión no cambia.
     staleTime: Infinity,
   });
@@ -90,19 +163,6 @@ export function parseUtc(value: string): Date {
 export function isoUtc(value: string): string {
   const date = parseUtc(value);
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
-}
-
-const DATE_FORMAT = new Intl.DateTimeFormat("es", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-export function formatDate(value: string): string {
-  const date = parseUtc(value);
-  return Number.isNaN(date.getTime()) ? value : DATE_FORMAT.format(date);
 }
 
 const DAY_FORMAT = new Intl.DateTimeFormat("es", {

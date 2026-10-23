@@ -1,10 +1,11 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { api } from "../../api/instance";
+import { useAuthStore } from "../../auth/store";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useQueueStore } from "./queue";
 import { QueuePanel } from "./QueuePanel";
-import { SESSIONS_QUERY_KEY } from "./sessions";
+import { refreshSessions } from "./sessions";
 import { SessionsPanel } from "./SessionsPanel";
 import "./transcription.css";
 import { UploadZone } from "./UploadZone";
@@ -14,16 +15,18 @@ export function TranscriptionPage() {
   const queryClient = useQueryClient();
   const add = useQueueStore((state) => state.add);
   const running = useQueueStore((state) => state.running);
+  const paused = useQueueStore((state) => state.paused);
   const hasQueued = useQueueStore((state) => state.items.some((item) => item.status === "queued"));
 
   // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto. Tras
   // cada envío se actualiza el listado, también si falló: la sesión puede haberse creado.
   useEffect(() => {
-    if (!hasQueued || running) return;
+    if (!hasQueued || running || paused) return;
     void useQueueStore.getState().run(api, () => {
-      void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
+      // Sin sesión no se pide nada: la caché de datos se vacía al cerrarla.
+      if (useAuthStore.getState().token) refreshSessions(queryClient);
     });
-  }, [hasQueued, running, queryClient]);
+  }, [hasQueued, running, paused, queryClient]);
 
   return (
     <main className="transcription">

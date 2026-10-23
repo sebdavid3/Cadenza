@@ -11,13 +11,15 @@ function findingsLabel(count: number): string {
   return count === 1 ? "1 hallazgo" : `${String(count)} hallazgos`;
 }
 
-/** Recuento de la región viva: lo pendiente, lo transcrito y lo fallido, por separado. */
+/** Recuento de la región viva: lo pendiente, lo que está en curso, lo transcrito y lo fallido. */
 function summary(items: QueueItem[]): string {
   const count = (status: QueueItem["status"]) =>
     items.filter((item) => item.status === status).length;
   const done = count("done");
+  const running = count("transcribing");
   return [
     `${String(count("queued"))} en cola`,
+    ...(running > 0 ? [`${String(running)} en curso`] : []),
     `${String(done)} ${done === 1 ? "transcrita" : "transcritas"}`,
     `${String(count("error"))} con error`,
   ].join(" · ");
@@ -76,18 +78,41 @@ export function QueuePanel() {
   const remove = useQueueStore((state) => state.remove);
   const retry = useQueueStore((state) => state.retry);
   const clearFinished = useQueueStore((state) => state.clearFinished);
+  const paused = useQueueStore((state) => state.paused);
+  const resume = useQueueStore((state) => state.resume);
   const finished = items.filter((item) => item.status === "done" || item.status === "error").length;
 
   // Las acciones hacen desaparecer su propio botón: el foco pasa a un elemento de la cola
-  // (o al título, si ya no queda ninguno) en lugar de perderse en el documento.
+  // (o al título, si ya no queda ninguno) en lugar de perderse en el documento. Lo mismo si el
+  // botón desaparece solo, como «Quitar» cuando la imagen empieza a transcribirse.
   const headingRef = useRef<HTMLHeadingElement>(null);
   const itemRefs = useRef(new Map<string, HTMLLIElement>());
   const focusAfterUpdate = useRef<string | null>(null);
+  const focusIfLost = useRef<string | null>(null);
+  useEffect(
+    () =>
+      useQueueStore.subscribe(() => {
+        // Antes de que React pinte el cambio: ¿qué elemento de la cola tiene el foco?
+        const active = document.activeElement;
+        for (const [id, element] of itemRefs.current) {
+          if (element.contains(active)) focusIfLost.current = id;
+        }
+      }),
+    [],
+  );
   useEffect(() => {
     const target = focusAfterUpdate.current;
-    if (target === null) return;
+    const owner = focusIfLost.current;
     focusAfterUpdate.current = null;
-    (itemRefs.current.get(target) ?? headingRef.current)?.focus();
+    focusIfLost.current = null;
+    if (target !== null) {
+      (itemRefs.current.get(target) ?? headingRef.current)?.focus();
+    } else if (
+      owner !== null &&
+      (!document.activeElement || document.activeElement === document.body)
+    ) {
+      (itemRefs.current.get(owner) ?? headingRef.current)?.focus();
+    }
   });
 
   const removeItem = (index: number, id: string) => {
@@ -106,13 +131,29 @@ export function QueuePanel() {
           {items.length === 0 ? "Vacía" : summary(items)}
         </p>
       </div>
+      {paused && (
+        <div className="panel__error" role="alert">
+          <p>Se perdió la conexión con el servidor: la cola está en pausa.</p>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => {
+              focusAfterUpdate.current = "";
+              resume();
+            }}
+          >
+            Reanudar
+          </button>
+        </div>
+      )}
       {items.length === 0 ? (
         <p className="panel__empty">
           Las imágenes que elijas aparecerán aquí y se transcribirán de una en una.
         </p>
       ) : (
         <>
-          <ol className="queue__list">
+          {/* role="list": sin viñetas, Safari y VoiceOver dejan de tratarla como lista. */}
+          <ol className="queue__list" role="list">
             {items.map((item, index) => (
               <li
                 key={item.id}

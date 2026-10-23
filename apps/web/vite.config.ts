@@ -35,6 +35,8 @@ export default defineConfig(({ mode }) => {
       setupFiles: ["./src/test/setup.ts"],
       css: false,
       restoreMocks: true,
+      // Zona fija y distinta de UTC: las pruebas de fechas comprueban la conversión a hora local.
+      env: { TZ: "America/Bogota" },
     },
   };
 });

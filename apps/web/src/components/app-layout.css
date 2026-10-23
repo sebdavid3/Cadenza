@@ -61,14 +61,31 @@
   padding-block: var(--space-2);
 }
 
-/* En móvil: marca y persona arriba; secciones y «Salir» en la segunda fila. */
-@media (max-width: 600px) {
+/* Sin ancho para una fila (unos 620 px): marca y persona arriba; secciones y «Salir» debajo. */
+@media (max-width: 640px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand user"
+      "nav exit";
+  }
+
+  .app-header__brand {
+    grid-area: brand;
+    justify-self: start;
+  }
+
+  .app-header__user {
+    grid-area: user;
+    margin-left: 0;
+  }
+
   .app-header__nav {
-    order: 1;
-    flex: 1;
+    grid-area: nav;
   }
 
   .app-header__exit {
-    order: 2;
+    grid-area: exit;
   }
 }

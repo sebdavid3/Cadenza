@@ -17,12 +17,16 @@ function createQueryClient() {
 export function AppRoot() {
   useSessionLifecycle();
   const [queryClient] = useState(createQueryClient);
-  const token = useAuthStore((state) => state.token);
 
-  // Lo que una persona vio no debe quedar en caché para la siguiente sesión de la pestaña.
-  useEffect(() => {
-    if (!token) queryClient.clear();
-  }, [token, queryClient]);
+  // Lo que una persona vio no debe quedar en caché para la siguiente sesión de la pestaña: se
+  // vacía en el mismo momento en que la sesión se cierra o cambia, sin esperar a pintar.
+  useEffect(
+    () =>
+      useAuthStore.subscribe((state, previous) => {
+        if (previous.token !== null && state.token !== previous.token) queryClient.clear();
+      }),
+    [queryClient],
+  );
 
   // Cerrar o recargar la pestaña con trabajo pendiente lo perdería: el navegador pide
   // confirmación, también fuera de la vista que lo creó.

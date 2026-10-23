@@ -53,9 +53,11 @@ export function deferred<T>() {
 /** Respuesta que no llega nunca: solo termina, como fetch, si se cancela la petición. */
 export function hangUntilAborted(init: RequestInit | undefined): Promise<Response> {
   return new Promise((_resolve, reject) => {
-    init?.signal?.addEventListener("abort", () => {
+    const abort = () => {
       reject(new DOMException("La petición se canceló.", "AbortError"));
-    });
+    };
+    if (init?.signal?.aborted) abort();
+    init?.signal?.addEventListener("abort", abort);
   });
 }
 
