@@ -174,7 +174,6 @@ export function IncipitDemo() {
         </div>
       </div>
       <nav className="demo__index" aria-label="Pasos">
-        <span className="label demo__index-title">Cómo funciona</span>
         <ol role="list">
           {STEPS.map((step, index) => (
             <li key={step.title}>

@@ -187,14 +187,6 @@
   border: var(--rule);
 }
 
-.demo__index-title {
-  display: flex;
-  align-items: center;
-  padding: var(--space-2) var(--space-4);
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
 .demo__index ol {
   display: flex;
   flex: 1;
@@ -206,6 +198,9 @@
 
 .demo__index li {
   flex: 1 1 12rem;
+}
+
+.demo__index li + li {
   border-left: var(--rule);
 }
 
@@ -507,10 +502,13 @@
 
   .demo__index li {
     flex-basis: 50%;
+  }
+
+  .demo__index li:nth-child(n + 3) {
     border-top: var(--rule);
   }
 
-  .demo__index li:nth-child(odd) {
+  .demo__index li:nth-child(3) {
     border-left: 0;
   }
 
