@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useQueueStore, type QueueItem } from "./queue";
 
 function formatSize(bytes: number): string {
@@ -11,18 +11,30 @@ function findingsLabel(count: number): string {
   return count === 1 ? "1 hallazgo" : `${String(count)} hallazgos`;
 }
 
+/** Recuento de la región viva: lo pendiente, lo transcrito y lo fallido, por separado. */
+function summary(items: QueueItem[]): string {
+  const count = (status: QueueItem["status"]) =>
+    items.filter((item) => item.status === status).length;
+  const done = count("done");
+  return [
+    `${String(count("queued"))} en cola`,
+    `${String(done)} ${done === 1 ? "transcrita" : "transcritas"}`,
+    `${String(count("error"))} con error`,
+  ].join(" · ");
+}
+
+function subscribeToClock(onTick: () => void) {
+  const timer = setInterval(onTick, 1000);
+  return () => {
+    clearInterval(timer);
+  };
+}
+
 /** Segundos desde que empezó la transcripción en curso: progreso visible sin bloquear. */
-function Elapsed() {
-  const [seconds, setSeconds] = useState(0);
-  useEffect(() => {
-    const started = Date.now();
-    const timer = setInterval(() => {
-      setSeconds(Math.floor((Date.now() - started) / 1000));
-    }, 1000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
+function Elapsed({ since }: { since: number }) {
+  const seconds = useSyncExternalStore(subscribeToClock, () =>
+    Math.max(0, Math.floor((Date.now() - since) / 1000)),
+  );
   return (
     <span className="queue__elapsed" aria-hidden="true">
       {seconds} s
@@ -64,19 +76,34 @@ export function QueuePanel() {
   const remove = useQueueStore((state) => state.remove);
   const retry = useQueueStore((state) => state.retry);
   const clearFinished = useQueueStore((state) => state.clearFinished);
-  const pending = items.filter((item) => item.status === "queued").length;
   const finished = items.filter((item) => item.status === "done" || item.status === "error").length;
+
+  // Las acciones hacen desaparecer su propio botón: el foco pasa a un elemento de la cola
+  // (o al título, si ya no queda ninguno) en lugar de perderse en el documento.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const itemRefs = useRef(new Map<string, HTMLLIElement>());
+  const focusAfterUpdate = useRef<string | null>(null);
+  useEffect(() => {
+    const target = focusAfterUpdate.current;
+    if (target === null) return;
+    focusAfterUpdate.current = null;
+    (itemRefs.current.get(target) ?? headingRef.current)?.focus();
+  });
+
+  const removeItem = (index: number, id: string) => {
+    const neighbour = items[index + 1] ?? items[index - 1];
+    focusAfterUpdate.current = neighbour?.id ?? "";
+    remove(id);
+  };
 
   return (
     <section className="panel queue" aria-labelledby="queue-title">
       <div className="panel__head">
-        <h2 id="queue-title" className="panel__title">
+        <h2 id="queue-title" className="panel__title" ref={headingRef} tabIndex={-1}>
           Cola
         </h2>
         <p className="label panel__count" aria-live="polite">
-          {items.length === 0
-            ? "Vacía"
-            : `${String(pending)} en cola · ${String(finished)} terminadas`}
+          {items.length === 0 ? "Vacía" : summary(items)}
         </p>
       </div>
       {items.length === 0 ? (
@@ -86,15 +113,26 @@ export function QueuePanel() {
       ) : (
         <>
           <ol className="queue__list">
-            {items.map((item) => (
-              <li key={item.id} className="queue__item" data-status={item.status}>
+            {items.map((item, index) => (
+              <li
+                key={item.id}
+                ref={(node) => {
+                  if (node) itemRefs.current.set(item.id, node);
+                  else itemRefs.current.delete(item.id);
+                }}
+                tabIndex={-1}
+                className="queue__item"
+                data-status={item.status}
+              >
                 <div className="queue__file">
                   <span className="queue__name">{item.file.name}</span>
                   <span className="label queue__size">{formatSize(item.file.size)}</span>
                 </div>
                 <div className="queue__state">
                   <StatusChip item={item} />
-                  {item.status === "transcribing" && <Elapsed />}
+                  {item.status === "transcribing" && item.startedAt !== undefined && (
+                    <Elapsed since={item.startedAt} />
+                  )}
                 </div>
                 {item.error && <p className="queue__error">{item.error}</p>}
                 {item.status === "done" && item.result && (
@@ -107,22 +145,25 @@ export function QueuePanel() {
                     <button
                       type="button"
                       className="link-button"
+                      aria-label={`Quitar ${item.file.name}`}
                       onClick={() => {
-                        remove(item.id);
+                        removeItem(index, item.id);
                       }}
                     >
-                      Quitar<span className="visually-hidden"> {item.file.name}</span>
+                      Quitar
                     </button>
                   )}
                   {item.status === "error" && !item.rejected && (
                     <button
                       type="button"
                       className="link-button"
+                      aria-label={`Reintentar ${item.file.name}`}
                       onClick={() => {
+                        focusAfterUpdate.current = item.id;
                         retry(item.id);
                       }}
                     >
-                      Reintentar<span className="visually-hidden"> {item.file.name}</span>
+                      Reintentar
                     </button>
                   )}
                 </div>
@@ -130,7 +171,14 @@ export function QueuePanel() {
             ))}
           </ol>
           {finished > 0 && (
-            <button type="button" className="link-button queue__clear" onClick={clearFinished}>
+            <button
+              type="button"
+              className="link-button queue__clear"
+              onClick={() => {
+                focusAfterUpdate.current = "";
+                clearFinished();
+              }}
+            >
               Limpiar terminadas
             </button>
           )}

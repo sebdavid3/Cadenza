@@ -1,18 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../../api/instance";
-import { sessionImage } from "./sessions";
-
-type ThumbState = { kind: "waiting" } | { kind: "ready"; url: string } | { kind: "failed" };
+import { sessionImageQuery } from "./sessions";
 
 /**
  * Miniatura de la imagen de una sesión. `GET /sessions/{id}/image` exige Bearer, así que la
  * imagen se descarga con el cliente autenticado y se muestra desde un Blob (handoff §5.6).
- * Se pide al acercarse a la pantalla y la URL del Blob se revoca al desmontar.
+ * Se pide al acercarse a la pantalla; la URL del Blob se crea al montar y se revoca al desmontar.
  */
 export function SessionThumb({ sessionId }: { sessionId: string }) {
   const frameRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const [visible, setVisible] = useState(() => !("IntersectionObserver" in window));
-  const [state, setState] = useState<ThumbState>({ kind: "waiting" });
+  const image = useQuery({ ...sessionImageQuery(api, sessionId), enabled: visible });
+  const blob = image.data;
 
   useEffect(() => {
     if (visible) return;
@@ -33,30 +34,24 @@ export function SessionThumb({ sessionId }: { sessionId: string }) {
     };
   }, [visible]);
 
-  useEffect(() => {
-    if (!visible) return;
-    const controller = new AbortController();
-    let url: string | null = null;
-    sessionImage(api, sessionId, controller.signal)
-      .then((blob) => {
-        // Si la vista ya se desmontó, no se crea una URL que nadie revocaría.
-        if (controller.signal.aborted) return;
-        url = URL.createObjectURL(blob);
-        setState({ kind: "ready", url });
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setState({ kind: "failed" });
-      });
+  // La URL se asigna al <img> antes de pintar: cada montaje crea la suya y la revoca al irse,
+  // también con el doble montaje de StrictMode, sin pasar por el estado.
+  useLayoutEffect(() => {
+    const element = imageRef.current;
+    if (!blob || !element) return;
+    const url = URL.createObjectURL(blob);
+    element.src = url;
     return () => {
-      controller.abort();
-      if (url) URL.revokeObjectURL(url);
+      element.removeAttribute("src");
+      URL.revokeObjectURL(url);
     };
-  }, [visible, sessionId]);
+  }, [blob]);
 
+  const state = blob ? "ready" : image.isError ? "failed" : "waiting";
   return (
-    <div className="thumb" ref={frameRef} data-state={state.kind}>
-      {state.kind === "ready" && <img src={state.url} alt="" />}
-      {state.kind === "failed" && <span className="label">Sin imagen</span>}
+    <div className="thumb" ref={frameRef} data-state={state}>
+      {blob && <img ref={imageRef} alt="" decoding="async" />}
+      {state === "failed" && <span className="label">Sin imagen</span>}
     </div>
   );
 }

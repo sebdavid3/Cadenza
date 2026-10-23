@@ -1,15 +1,35 @@
-import { useId, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import "../../components/button.css";
 
 interface UploadZoneProps {
   onFiles: (files: File[]) => void;
 }
 
+/**
+ * Mientras la vista está montada, soltar archivos fuera de la zona no hace nada: el navegador
+ * los abriría en la pestaña y la cola se perdería. La zona cancela antes el suyo.
+ */
+function useBlockStrayDrops() {
+  useEffect(() => {
+    const block = (event: globalThis.DragEvent) => {
+      if (event.defaultPrevented || !event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "none";
+    };
+    window.addEventListener("dragover", block);
+    window.addEventListener("drop", block);
+    return () => {
+      window.removeEventListener("dragover", block);
+      window.removeEventListener("drop", block);
+    };
+  }, []);
+}
+
 /** Zona para elegir o soltar imágenes. Acepta varias a la vez. */
 export function UploadZone({ onFiles }: UploadZoneProps) {
-  const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  useBlockStrayDrops();
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -34,13 +54,15 @@ export function UploadZone({ onFiles }: UploadZoneProps) {
       }}
       onDrop={handleDrop}
     >
+      {/* Lo abre el botón: el campo no es una parada de foco ni se anuncia por separado. */}
       <input
         ref={inputRef}
-        id={inputId}
         className="visually-hidden"
         type="file"
         accept="image/png,image/jpeg"
         multiple
+        tabIndex={-1}
+        aria-hidden="true"
         onChange={(event) => {
           const files = [...(event.target.files ?? [])];
           if (files.length > 0) onFiles(files);
