@@ -20,8 +20,9 @@ const MESSAGES: Record<ApiErrorKind, string> = {
   forbidden: "No tienes permiso para hacer esto.",
   "not-found": "No se encontró lo que buscabas.",
   conflict: "Algo cambió mientras tanto. Recarga e inténtalo de nuevo.",
-  "payload-too-large": "El archivo supera el tamaño máximo de 20 MB.",
-  "unsupported-media-type": "El archivo no es una imagen PNG o JPEG.",
+  "payload-too-large": "El archivo supera el tamaño máximo que admite el servidor.",
+  "unsupported-media-type":
+    "El servidor no acepta ese tipo de archivo. Sube una imagen PNG o JPEG.",
   validation: "Los datos enviados no son válidos.",
   "rate-limited": "Demasiados intentos. Espera unos minutos antes de volver a probar.",
   server: "El servidor tuvo un problema. Inténtalo de nuevo en un momento.",

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "./client";
+import { resolveBaseUrl, TRANSCRIBE_TIMEOUT_MS } from "./config";
 import { ApiError, type ApiErrorKind } from "./errors";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -45,16 +46,37 @@ async function caught(promise: Promise<unknown>): Promise<ApiError> {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe("URL base", () => {
   it("usa /api por defecto", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "");
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ status: "healthy" })));
     const client = createApiClient({ fetch: fetchMock });
 
     await client.request("/health");
 
     expect(calledUrl(fetchMock)).toBe("/api/health");
+  });
+
+  it("toma VITE_API_BASE_URL cuando está configurada", async () => {
+    vi.stubEnv("VITE_API_BASE_URL", "http://127.0.0.1:8000");
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ status: "healthy" })));
+    const client = createApiClient({ fetch: fetchMock });
+
+    await client.request("/health");
+
+    expect(calledUrl(fetchMock)).toBe("http://127.0.0.1:8000/health");
+  });
+
+  it.each([
+    [undefined, "/api"],
+    ["", "/api"],
+    ["   ", "/api"],
+    [" https://api.ejemplo.org ", "https://api.ejemplo.org"],
+  ])("resolveBaseUrl(%j) devuelve %s", (configured, expected) => {
+    expect(resolveBaseUrl(configured)).toBe(expected);
   });
 
   it("acepta una URL base configurada y quita la barra final", async () => {
@@ -78,7 +100,16 @@ describe("autenticación", () => {
     expect(headers.get("Authorization")).toBe("Bearer abc.def.ghi");
   });
 
-  it("no envía Authorization sin token ni en peticiones públicas", async () => {
+  it("no envía Authorization sin sesión", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
+    const client = createApiClient({ fetch: fetchMock, getToken: () => null });
+
+    await client.request("/sessions");
+
+    expect(new Headers(calledInit(fetchMock).headers).has("Authorization")).toBe(false);
+  });
+
+  it("no envía Authorization en peticiones públicas aunque haya sesión", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
     const client = createApiClient({ fetch: fetchMock, getToken: () => "abc" });
 
@@ -102,6 +133,21 @@ describe("autenticación", () => {
 
     expect(error.kind).toBe("unauthorized");
     expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
+
+  it("no avisa de un 401 cuando la ruta le da otro sentido (contraseña actual equivocada)", async () => {
+    const onUnauthorized = vi.fn();
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(jsonResponse({ detail: "La contraseña actual es incorrecta" }, 401)),
+    );
+    const client = createApiClient({ fetch: fetchMock, getToken: () => "vigente", onUnauthorized });
+
+    const error = await caught(
+      client.request("/auth/password", { method: "POST", json: {}, notifyUnauthorized: false }),
+    );
+
+    expect(error.kind).toBe("unauthorized");
+    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
   it("no avisa de un 401 de una petición sin token (p. ej. credenciales inválidas)", async () => {
@@ -131,12 +177,14 @@ describe("cuerpos y respuestas", () => {
     expect(new Headers(init.headers).get("Content-Type")).toBe("application/json");
   });
 
-  it("envía FormData y URLSearchParams sin forzar Content-Type", async () => {
+  it.each([
+    ["URLSearchParams", new URLSearchParams({ username: "ana", password: "x" })],
+    ["FormData", new FormData()],
+  ])("envía %s sin forzar Content-Type", async (_name, form) => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
     const client = createApiClient({ fetch: fetchMock });
-    const form = new URLSearchParams({ username: "ana", password: "x" });
 
-    await client.request("/auth/login", { method: "POST", body: form, auth: false });
+    await client.request("/x", { method: "POST", body: form, auth: false });
 
     const init = calledInit(fetchMock);
     expect(init.body).toBe(form);
@@ -163,6 +211,17 @@ describe("cuerpos y respuestas", () => {
     await expect(client.request("/x", { method: "DELETE" })).resolves.toBeUndefined();
   });
 
+  it("conserva el diagnóstico del 503 de /health", async () => {
+    const report = { status: "unhealthy", database: "disconnected" };
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(report, 503)));
+    const client = createApiClient({ fetch: fetchMock });
+
+    const error = await caught(client.health());
+
+    expect(error.kind).toBe("server");
+    expect(error.detail).toEqual(report);
+  });
+
   it("consulta la salud de la API sin token", async () => {
     const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ status: "healthy" })));
     const client = createApiClient({ fetch: fetchMock, getToken: () => "abc" });
@@ -178,7 +237,7 @@ describe("errores por código de estado", () => {
     [403, "forbidden", /permiso/i],
     [404, "not-found", /no se encontró/i],
     [409, "conflict", /cambió/i],
-    [413, "payload-too-large", /20 MB/],
+    [413, "payload-too-large", /tamaño máximo/i],
     [415, "unsupported-media-type", /PNG o JPEG/],
     [422, "validation", /no son válidos/i],
     [429, "rate-limited", /demasiados intentos/i],
@@ -241,7 +300,9 @@ describe("red, timeout y cancelación", () => {
     vi.useFakeTimers();
     const client = createApiClient({ fetch: hangingFetch(), timeoutMs: 15_000 });
 
-    const pending = caught(client.request("/transcribe", { method: "POST", timeoutMs: 30_000 }));
+    const pending = caught(
+      client.request("/transcribe", { method: "POST", timeoutMs: TRANSCRIBE_TIMEOUT_MS }),
+    );
     await vi.advanceTimersByTimeAsync(15_000);
     let settled = false;
     void pending.then(() => (settled = true));
@@ -260,5 +321,53 @@ describe("red, timeout y cancelación", () => {
     controller.abort();
 
     expect((await pending).kind).toBe("aborted");
+  });
+
+  it("clasifica como cancelación lo que se cancela mientras se lee un cuerpo de error", async () => {
+    const controller = new AbortController();
+    const slowErrorBody = {
+      ok: false,
+      status: 500,
+      json: () =>
+        new Promise((_resolve, reject) => {
+          controller.signal.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted.", "AbortError"));
+          });
+        }),
+    } as unknown as Response;
+    const client = createApiClient({ fetch: vi.fn(() => Promise.resolve(slowErrorBody)) });
+
+    const pending = caught(client.request("/x", { signal: controller.signal }));
+    await Promise.resolve();
+    controller.abort();
+
+    expect((await pending).kind).toBe("aborted");
+  });
+});
+
+describe("limpieza", () => {
+  it("no deja temporizadores ni oyentes pendientes al terminar", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const removeListener = vi.spyOn(controller.signal, "removeEventListener");
+    const client = createApiClient({ fetch: vi.fn(() => Promise.resolve(jsonResponse({}))) });
+
+    await client.request("/x", { signal: controller.signal });
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(removeListener).toHaveBeenCalledWith("abort", expect.any(Function));
+  });
+
+  it("no deja temporizadores si la preparación falla", async () => {
+    vi.useFakeTimers();
+    const client = createApiClient({
+      fetch: vi.fn(),
+      getToken: () => {
+        throw new Error("almacenamiento bloqueado");
+      },
+    });
+
+    await expect(client.request("/x")).rejects.toThrow("almacenamiento bloqueado");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

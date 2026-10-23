@@ -13,7 +13,7 @@ describe("enrutado", () => {
   it("sirve la página pública en /", () => {
     renderAt("/");
 
-    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /cadenza/i })).toBeVisible();
     expect(document.title).toBe("Cadenza");
   });
 
