@@ -1,8 +1,10 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { Link } from "react-router";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
+import { PixelIcon } from "../../components/PixelIcon";
 import type { SessionSummaryRead } from "../../types";
 import {
   formatDay,
@@ -154,7 +156,14 @@ export function SessionsPanel() {
                     <SessionThumb sessionId={session.session_id} />
                   </td>
                   <td role="cell" className="sessions__key">
-                    <span className="label sessions__id">{session.session_id.slice(0, 8)}</span>
+                    <Link
+                      className="label sessions__id"
+                      to={`/sesiones/${encodeURIComponent(session.session_id)}`}
+                      aria-label={`Ver la sesión ${session.session_id.slice(0, 8)}`}
+                    >
+                      {session.session_id.slice(0, 8)}
+                      <PixelIcon name="arrow-right" />
+                    </Link>
                   </td>
                   <td role="cell" className="sessions__date">
                     <time dateTime={isoUtc(session.created_at)}>
