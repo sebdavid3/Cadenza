@@ -6,9 +6,11 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import type { ScoreIRPayload } from "../../types";
-import { slotKey, type MeasureMark, type MeasureSlot } from "./findings";
+import { measureSlot, slotKey, type MeasureMark, type MeasureSlot } from "./findings";
+import { editCommand, eventAt, type EditCommand, type EditTarget } from "./edits";
 import {
   anchorKey,
   buildNoteMap,
@@ -22,20 +24,32 @@ import { renderScore, type Box, type RenderedScore } from "./osmd";
 import { useSelectionStore } from "./selection";
 import { SelectionBar, type SelectionStatus } from "./SelectionBar";
 
-type RenderState =
-  | { status: "rendering" }
-  // `layout` cambia cada vez que OSMD vuelve a maquetar, para recolocar las marcas.
-  | { status: "ready"; score: RenderedScore; layout: number }
-  | { status: "failed" };
+/** Un estado de la sesión, tal como se dibuja: su MusicXML, su `ScoreIR` y su `seq`. */
+export interface ScoreSnapshot {
+  xml: string;
+  transcription: ScoreIRPayload;
+  seq: number;
+}
+
+/** Dibujo de OSMD de un estado. `layout` cambia cada vez que se vuelve a maquetar. */
+interface Drawing {
+  score: RenderedScore;
+  snapshot: ScoreSnapshot;
+  layout: number;
+}
+
+interface RenderState {
+  /** Lo que está a la vista; mientras se dibuja otro estado, sigue siendo el anterior. */
+  drawing: Drawing | null;
+  /** Estado que no se pudo dibujar. */
+  failed: ScoreSnapshot | null;
+}
 
 interface ScoreViewProps {
-  /** MusicXML de un estado de la sesión: la vista se monta de nuevo si cambia. */
-  xml: string;
-  /** `ScoreIR` del mismo estado: de él salen las anclas de las notas que se eligen. */
-  transcription: ScoreIRPayload;
-  /** Sesión y estado (`seq`) de los que es la partitura: la selección vale solo para ellos. */
+  /** Estado que se dibuja: al cambiar, se dibuja el nuevo sin quitar el anterior hasta tenerlo. */
+  snapshot: ScoreSnapshot;
+  /** Sesión de la partitura: la selección vale solo para ella y para el `seq` de su estado. */
   sessionId: string;
-  seq: number;
   marks: readonly MeasureMark[];
   /** Compases de cada pentagrama en el `ScoreIR`: si OSMD dibuja otros, no se marca nada. */
   expectedMeasures: readonly number[];
@@ -44,6 +58,20 @@ interface ScoreViewProps {
   onPlacement?: (placed: boolean) => void;
   /** Compás que suena y dónde se dibuja en cada pentagrama; null si no suena nada. */
   playing?: { measure: number; slots: readonly MeasureSlot[] } | null;
+  /**
+   * Barra de corrección (ADR-0030), entre la de la selección y la partitura: recibe el evento
+   * elegido en el estado actual (o null si no hay ninguno que se pueda corregir), si se pueden
+   * elegir notas y cómo llevar el foco a la partitura. Sigue aunque la partitura no se pueda
+   * dibujar, para que se vea qué pasó con la última corrección.
+   */
+  editor?: (
+    target: EditTarget | null,
+    context: { available: boolean; focusScore: () => boolean },
+  ) => ReactNode;
+  /** Órdenes de corrección con el teclado sobre la partitura; sin ella, las teclas no editan. */
+  onCommand?: (command: EditCommand, target: EditTarget | null) => void;
+  /** Leyenda de las teclas de corrección, que también describe la partitura. */
+  editKeysId?: string;
 }
 
 /** Tecla pulsada sobre la partitura: un movimiento, quitar la selección o nada. */
@@ -95,82 +123,124 @@ function placeMarks(score: RenderedScore, marks: readonly MeasureMark[]): Map<st
 
 const RELAYOUT_DELAY_MS = 150;
 
+/** Dibujo que está en la página: su contenedor, su partitura y lo que lo vuelve a maquetar. */
+interface Shown {
+  target: HTMLDivElement;
+  score: RenderedScore;
+  observer: ResizeObserver | null;
+  timer: ReturnType<typeof setTimeout> | undefined;
+}
+
+function release(shown: Shown | null) {
+  if (!shown) return;
+  clearTimeout(shown.timer);
+  shown.observer?.disconnect();
+  shown.score.dispose();
+  shown.target.remove();
+}
+
 /**
  * Notación dibujada con OSMD y, detrás, la trama violeta de los compases con posibles errores.
  * Se vuelve a maquetar cuando cambia el ancho. Si OSMD falla, lo dice sin arrastrar al resto de
  * la vista: la imagen y la lista siguen disponibles.
  */
 export function ScoreView({
-  xml,
-  transcription,
+  snapshot,
   sessionId,
-  seq,
   marks,
   expectedMeasures,
   selectedKey,
   onPlacement,
   playing = null,
+  editor,
+  onCommand,
+  editKeysId,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<RenderState>({ status: "rendering" });
+  const [state, setState] = useState<RenderState>({ drawing: null, failed: null });
+  const shownRef = useRef<Shown | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    // Cada montaje dibuja en su propio contenedor y cancela su dibujo al irse: con el doble
-    // montaje de StrictMode, o al salir mientras OSMD carga, el dibujo descartado no pisa al que
-    // se queda y se libera.
+    // Cada estado se dibuja en su propio contenedor y cancela su dibujo si deja de hacer falta:
+    // con el doble montaje de StrictMode, al salir mientras OSMD carga o si llega otro estado,
+    // el dibujo descartado no pisa al que se queda y se libera. Mientras haya uno a la vista, el
+    // nuevo se prepara oculto encima de él y lo sustituye al terminar: la página no salta ni la
+    // partitura pierde el foco al editar (ADR-0030).
     const target = document.createElement("div");
+    if (shownRef.current) target.className = "notation__next";
     host.appendChild(target);
     const controller = new AbortController();
-    let rendered: RenderedScore | null = null;
-    let observer: ResizeObserver | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
 
-    renderScore(target, xml, controller.signal)
+    renderScore(target, snapshot.xml, controller.signal)
       .then((score) => {
         if (controller.signal.aborted) {
           score.dispose();
           return;
         }
-        rendered = score;
-        setState({ status: "ready", score, layout: 0 });
+        release(shownRef.current);
+        target.removeAttribute("class");
+        const shown: Shown = { target, score, observer: null, timer: undefined };
+        shownRef.current = shown;
+        setState({ drawing: { score, snapshot, layout: 0 }, failed: null });
         if (!("ResizeObserver" in window)) return;
         let width = target.clientWidth;
-        observer = new ResizeObserver(() => {
+        shown.observer = new ResizeObserver(() => {
           if (target.clientWidth === width) return;
           width = target.clientWidth;
-          clearTimeout(timer);
-          timer = setTimeout(() => {
+          clearTimeout(shown.timer);
+          shown.timer = setTimeout(() => {
             try {
               score.relayout(width);
               setState((previous) =>
-                previous.status === "ready"
-                  ? { ...previous, layout: previous.layout + 1 }
+                previous.drawing?.score === score
+                  ? {
+                      ...previous,
+                      drawing: { ...previous.drawing, layout: previous.drawing.layout + 1 },
+                    }
                   : previous,
               );
             } catch {
-              setState({ status: "failed" });
+              if (shownRef.current === shown) shownRef.current = null;
+              release(shown);
+              setState({ drawing: null, failed: snapshot });
             }
           }, RELAYOUT_DELAY_MS);
         });
-        observer.observe(target);
+        shown.observer.observe(target);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setState({ status: "failed" });
+        if (controller.signal.aborted) return;
+        // Lo que quedaba a la vista es de otro estado: no se deja como si fuera este.
+        release(shownRef.current);
+        shownRef.current = null;
+        target.remove();
+        setState({ drawing: null, failed: snapshot });
       });
 
     return () => {
       controller.abort();
-      clearTimeout(timer);
-      observer?.disconnect();
-      rendered?.dispose();
-      target.remove();
+      // El dibujo a la vista se queda hasta que llegue el siguiente o se salga de la vista.
+      if (shownRef.current?.target !== target) target.remove();
     };
-  }, [xml]);
+  }, [snapshot]);
 
-  const layout = state.status === "ready" ? state.layout : -1;
-  const score = state.status === "ready" ? state.score : null;
+  useEffect(
+    () => () => {
+      release(shownRef.current);
+      shownRef.current = null;
+    },
+    [],
+  );
+
+  const { drawing } = state;
+  const status = drawing ? "ready" : state.failed === snapshot ? "failed" : "rendering";
+  // Se está dibujando otro estado: lo que se ve sigue siendo el anterior.
+  const redrawing = drawing !== null && drawing.snapshot !== snapshot;
+  const layout = drawing ? drawing.layout : -1;
+  const score = drawing?.score ?? null;
+  const drawn = drawing?.snapshot ?? null;
   // Solo se dibuja sobre la partitura si OSMD dibujó los mismos compases que el `ScoreIR`.
   const aligned = useMemo(
     () => score !== null && layout >= 0 && sameCounts(score.measuresPerStaff(), expectedMeasures),
@@ -190,55 +260,79 @@ export function ScoreView({
     });
   }, [score, aligned, layout, playing]);
 
-  // Mapa ancla→caja por evento (ADR-0027), con la geometría de cada maquetación.
+  // Mapa ancla→caja por evento (ADR-0027), del estado dibujado y con la geometría de cada
+  // maquetación.
   const noteMap = useMemo(
     () =>
-      score && aligned && layout >= 0
-        ? buildNoteMap(transcription, (slot) => score.measureFigures(slot))
+      score && drawn && aligned && layout >= 0
+        ? buildNoteMap(drawn.transcription, (slot) => score.measureFigures(slot))
         : null,
-    [score, aligned, layout, transcription],
+    [score, drawn, aligned, layout],
   );
   // Sin notas ni silencios no hay nada que elegir: la partitura sigue siendo una imagen.
   const selectable =
     noteMap?.status === "complete" && noteMap.events.length > 0 ? noteMap.events : null;
 
-  // La nota elegida vale para esta sesión y este estado: las anclas son relativas a un estado.
+  // La nota elegida vale para esta sesión y un estado: las anclas son relativas a un estado.
   const stored = useSelectionStore((store) => store.selection);
   const select = useSelectionStore((store) => store.select);
   const clearSelection = useSelectionStore((store) => store.clear);
-  const noteKey =
-    stored !== null && stored.sessionId === sessionId && stored.seq === seq
-      ? anchorKey(stored.anchor)
-      : null;
+  const ours = stored !== null && stored.sessionId === sessionId ? stored : null;
+  // Sobre el dibujo: la marca y los movimientos, con el estado que se ve.
+  const noteKey = ours && ours.seq === drawn?.seq ? anchorKey(ours.anchor) : null;
   const chosen = selectable?.find((candidate) => candidate.key === noteKey) ?? null;
+  // Lo que es la nota elegida sale del estado actual, también mientras se dibuja: tras corregirla
+  // se lee su valor nuevo sin esperar al dibujo.
+  const found =
+    selectable && ours?.seq === snapshot.seq ? eventAt(snapshot.transcription, ours.anchor) : null;
+  const target: EditTarget | null = ours && found ? { anchor: ours.anchor, ...found } : null;
   const multiStaff = expectedMeasures.length > 1;
-  const description = chosen
-    ? describeEvent(chosen.event, {
-        measure: chosen.anchor.measure,
-        staff: chosen.slot.staff,
+  const description = target
+    ? describeEvent(target.event, {
+        measure: target.anchor.measure,
+        staff: measureSlot(snapshot.transcription, target.anchor)?.staff ?? target.anchor.staff,
         multiStaff,
-        chord: chosen.chord,
+        chord: target.chord,
       })
     : null;
 
   const stageRef = useRef<HTMLDivElement>(null);
+  // Por su id y no por el ref: se entrega a la barra de corrección durante el render.
+  const stageId = useId();
+  /** Lleva el foco a la partitura, si es un control (con notas que elegir). */
+  const focusScore = () => {
+    const stage = document.getElementById(stageId);
+    if (stage?.getAttribute("role") !== "application") return false;
+    stage.focus({ preventScroll: true });
+    return true;
+  };
   const selectionRef = useRef<HTMLDivElement>(null);
   // Al moverse con el teclado o los botones, la nota elegida se trae a la vista; al tocarla, no.
   const revealRef = useRef(false);
-  const choose = (target: SelectableEvent | null, reveal: boolean) => {
-    if (!target) return;
+  const choose = (candidate: SelectableEvent | null, reveal: boolean) => {
+    if (!candidate || !drawn) return;
     // Si la tecla no movió la selección (un borde), no queda nada pendiente de traer a la vista.
-    revealRef.current = reveal && target.key !== noteKey;
-    select({ sessionId, seq, anchor: target.anchor });
+    revealRef.current = reveal && candidate.key !== noteKey;
+    select({ sessionId, seq: drawn.seq, anchor: candidate.anchor });
   };
+  // Mientras se dibuja otro estado no se elige sobre el anterior.
   const move = (how: Move) => {
-    if (selectable) choose(moveSelection(selectable, noteKey, how), true);
+    if (selectable && !redrawing) choose(moveSelection(selectable, noteKey, how), true);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!selectable) return;
+    const command = onCommand ? editCommand(event) : null;
+    if (command) {
+      event.preventDefault();
+      // Mantener la tecla pulsada no encadena ediciones: cuántas salieran dependería de lo que
+      // tarde cada una en guardarse, y cada una cuenta en el log (D38).
+      if (!event.repeat) onCommand?.(command, target);
+      return;
+    }
     const action = keyAction(event);
-    if (!selectable || !action) return;
+    if (!action) return;
     if (action === "clear") {
-      if (!chosen) return;
+      if (!target) return;
       event.preventDefault();
       clearSelection();
       return;
@@ -247,17 +341,17 @@ export function ScoreView({
     move(action);
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!selectable || !score) return;
+    if (!selectable || !score || redrawing) return;
     const stage = event.currentTarget;
     const origin = stage.getBoundingClientRect();
-    const target = nearestEvent(
+    const candidate = nearestEvent(
       selectable,
       event.clientX - origin.left,
       event.clientY - origin.top,
       (slot) => score.measureBox(slot),
     );
-    if (!target) return;
-    choose(target, false);
+    if (!candidate) return;
+    choose(candidate, false);
     stage.focus({ preventScroll: true });
   };
 
@@ -272,9 +366,10 @@ export function ScoreView({
     });
   }, [chosen]);
 
-  // Se anuncia dónde se detiene la selección, no cada paso intermedio.
+  // Se anuncia dónde se detiene la selección, no cada paso intermedio. Si la nota elegida cambia
+  // de valor (se corrigió), no se vuelve a anunciar: lo dice la barra de corrección.
   const spoken = description?.spoken ?? null;
-  const chosenKey = chosen?.key ?? null;
+  const chosenKey = target ? anchorKey(target.anchor) : null;
   const [announcement, setAnnouncement] = useState("");
   const lastAnnounced = useRef<string | null>(null);
   useEffect(() => {
@@ -293,13 +388,13 @@ export function ScoreView({
 
   const keysId = useId();
   let selectionStatus: SelectionStatus;
-  if (state.status !== "ready") selectionStatus = { kind: "pending" };
+  if (status !== "ready") selectionStatus = { kind: "pending" };
   else if (!aligned) selectionStatus = { kind: "unavailable" };
   else if (noteMap?.status === "incomplete") {
     selectionStatus = { kind: "unavailable", total: noteMap.total, unmatched: noteMap.unmatched };
   } else selectionStatus = { kind: "ready", empty: selectable === null };
 
-  const placed = state.status === "ready" ? boxes !== null : null;
+  const placed = status === "ready" ? boxes !== null : null;
   useEffect(() => {
     if (placed !== null) onPlacement?.(placed);
   }, [placed, onPlacement]);
@@ -368,8 +463,11 @@ export function ScoreView({
         role: "application",
         tabIndex: 0,
         "aria-roledescription": "partitura",
-        "aria-label": `${label} Elige una nota o un silencio con las flechas.`,
-        "aria-describedby": keysId,
+        "aria-label": onCommand
+          ? `${label} Elige una nota o un silencio con las flechas y corrígelo con las teclas de la leyenda.`
+          : `${label} Elige una nota o un silencio con las flechas.`,
+        "aria-describedby": editKeysId ? `${keysId} ${editKeysId}` : keysId,
+        "aria-busy": redrawing || undefined,
         onKeyDown,
         onClick,
       }
@@ -377,7 +475,7 @@ export function ScoreView({
 
   return (
     <>
-      {state.status !== "failed" && (
+      {status !== "failed" && (
         <SelectionBar
           status={selectionStatus}
           description={description}
@@ -395,8 +493,9 @@ export function ScoreView({
           }}
         />
       )}
-      <div className="notation" data-state={state.status}>
-        <div className="notation__stage" ref={stageRef} {...stageProps}>
+      {editor?.(target, { available: selectable !== null, focusScore })}
+      <div className="notation" data-state={status}>
+        <div className="notation__stage" id={stageId} ref={stageRef} {...stageProps}>
           {aligned && (
             <div className="notation__marks" ref={marksRef} aria-hidden="true">
               {marks.map((mark) => {
@@ -440,16 +539,16 @@ export function ScoreView({
           <div
             className="notation__host"
             ref={hostRef}
-            role={state.status === "ready" && !selectable ? "img" : undefined}
-            aria-label={state.status === "ready" && !selectable ? label : undefined}
+            role={status === "ready" && !selectable ? "img" : undefined}
+            aria-label={status === "ready" && !selectable ? label : undefined}
           />
         </div>
-        {state.status === "rendering" && (
+        {status === "rendering" && (
           <p className="label notation__status" role="status">
             Dibujando la partitura…
           </p>
         )}
-        {state.status === "failed" && (
+        {status === "failed" && (
           <div className="notation__failed" role="alert">
             <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
             <p>
@@ -458,7 +557,7 @@ export function ScoreView({
             </p>
           </div>
         )}
-        {state.status === "ready" && !boxes && marks.length > 0 && (
+        {status === "ready" && !boxes && marks.length > 0 && (
           <p className="notation__note">
             No se pudieron situar los posibles errores sobre la partitura dibujada: están en la
             lista.

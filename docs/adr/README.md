@@ -56,5 +56,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md) | Selección de notas sobre la partitura dibujada: mapa ancla→caja por evento emparejado con OSMD, puntero, teclado y estado en Zustand | Aceptado, enmendado por ADR-0028 | Web |
 | [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md) | Notas sin duración como notas de adorno en el MusicXML | Aceptado | Interchange, Web |
 | [ADR-0029](ADR-0029-api-con-usuario-sin-privilegios.md) | La API corre con un usuario sin privilegios (UID 10001), con la migración de los volúmenes anteriores | Aceptado | Infra, API |
+| [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md) | Corrección de la altura, la duración y la alteración de la nota elegida: controles, teclado, `base_seq` sin envío optimista y el 409 recargado | Aceptado | Web |
 
 

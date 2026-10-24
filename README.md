@@ -77,7 +77,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 25 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML, la reproducción (Tone.js) y la selección de notas, y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#182](https://github.com/sebdavid3/Cadenza/issues/182)). Falta la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
+| Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML, la reproducción (Tone.js), la selección de notas y la corrección de su altura, su duración y su alteración, y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#183](https://github.com/sebdavid3/Cadenza/issues/183)). Falta el resto de la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
 | Despliegue público | En **https://r2d2.tailcacb19.ts.net**, en el homelab ([ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)) |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
@@ -99,7 +99,7 @@ detalle, las dependencias y el criterio de cierre están en
 
 | Etapa | Issues | Contenido |
 |---|---|---|
-| Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Corregir altura, duración y alteración de la nota elegida, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182), D11 resuelta) |
+| Corrección sobre la partitura | [#184](https://github.com/sebdavid3/Cadenza/issues/184)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota y corregir su altura, su duración y su alteración ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182) y [#183](https://github.com/sebdavid3/Cadenza/issues/183), D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
 | Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto (D59, alcance por decidir). Ya están hechas la longitud mínima de la clave de firma (D58), el dataset sin las cuentas del registro (D55) y la API sin root (D57) |
@@ -295,13 +295,15 @@ La interfaz web vive en `apps/web` (React 18, TypeScript y Vite), sobre la API v
 - `/transcripcion`: subir imágenes por lotes y ver las sesiones.
 - `/sesiones/:id`: la partitura dibujada con OSMD junto a la imagen original, los posibles
   errores marcados por compás, la descarga del MusicXML, la reproducción con Tone.js con el
-  compás que suena resaltado y la selección de una nota o un silencio con el ratón, el dedo o el
-  teclado (flechas, Ctrl más flechas, Inicio, Fin y Esc).
+  compás que suena resaltado, la selección de una nota o un silencio con el ratón, el dedo o el
+  teclado (flechas, Ctrl más flechas, Inicio, Fin y Esc) y, para quien la transcribió, la
+  corrección de su altura, su alteración y su figura con botones o con el teclado (Mayús más
+  flechas o Re Pág y Av Pág, + − =, del 1 al 7 y el punto).
 - `/cuentas`: moderación de cuentas, solo para investigadores.
 
 Las decisiones están en los ADR del
 [ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) al
-[ADR-0027](docs/adr/ADR-0027-seleccion-de-notas-sobre-la-partitura.md). El estado y lo que
+[ADR-0030](docs/adr/ADR-0030-correccion-de-altura-duracion-y-alteracion.md). El estado y lo que
 falta están en [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) §6 y en
 [`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md). El
 producto está en [`PRODUCT.md`](PRODUCT.md) y el sistema de diseño, en [`DESIGN.md`](DESIGN.md) y

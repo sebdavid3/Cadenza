@@ -15,6 +15,8 @@ import {
   signInAs,
 } from "../../test/auth-helpers";
 import type {
+  EditEventCreate,
+  EditEventRead,
   FindingRead,
   ScoreEventPayload,
   SessionDetailRead,
@@ -32,6 +34,8 @@ const osmd = vi.hoisted(() => ({
   cleared: 0,
   zooms: [] as number[],
   loaded: [] as string[],
+  /** Si no es null, OSMD no termina de cargar hasta que se cumple: un dibujo «en curso». */
+  gate: null as Promise<void> | null,
   /**
    * Figuras de cada compás: altura (null, silencio), duración en redondas como OSMD, las otras
    * notas si es un acorde, el número de voz de OSMD (1 si no se dice), la nota de adorno que la
@@ -136,7 +140,8 @@ vi.mock("opensheetmusicdisplay", () => {
       constructor(readonly host: HTMLElement) {}
       load(document: Document) {
         osmd.loaded.push(document.documentElement.nodeName);
-        return osmd.fail ? Promise.reject(new Error("MusicXML no válido")) : Promise.resolve({});
+        if (osmd.fail) return Promise.reject(new Error("MusicXML no válido"));
+        return (osmd.gate ?? Promise.resolve()).then(() => ({}));
       }
       render() {
         osmd.zooms.push(this.zoom);
@@ -426,6 +431,7 @@ beforeEach(() => {
     cleared: 0,
     zooms: [],
     loaded: [],
+    gate: null,
     figures: null,
   });
   useSelectionStore.getState().clear();
@@ -1590,5 +1596,794 @@ describe("elegir una nota sobre la partitura", () => {
     await waitFor(() => {
       expect(useSelectionStore.getState().selection).toBeNull();
     });
+  });
+});
+
+describe("corregir la nota elegida", () => {
+  const findScore = () => screen.findByRole("application", { name: /partitura transcrita/i });
+  const selection = () => document.querySelector<HTMLElement>(".notation__selection");
+  const editor = () => screen.getByRole("region", { name: "Corregir la nota elegida" });
+  const editStatus = () => document.querySelector(".editor__status");
+  const button = (name: string) => within(editor()).getByRole("button", { name });
+  /** Centro de la cabeza de la primera figura de un compás (1, 2 o 3), con el zoom de jsdom. */
+  const head = (measure: number) => ({
+    clientX: (15 + (measure - 1) * 20) * 7.5,
+    clientY: 7 * 7.5,
+  });
+  const anchorOf = (measureNumber: number) => ({
+    part: 0,
+    staff: 0,
+    measure: measureNumber,
+    voice: 0,
+    event_index: 0,
+    staff_id: "part-0-staff-0",
+    bbox: null,
+    confidence: null,
+  });
+
+  /** Duración en negras («3/2») como la da OSMD: fracción de redonda. */
+  function whole(beats: string): [number, number] {
+    const [numerator = "0", denominator = "1"] = beats.split("/");
+    return [Number(numerator), Number(denominator) * 4];
+  }
+
+  /** Lo que dibujaría OSMD para un detalle: una figura por evento de cada compás. */
+  function draw(current: SessionDetailRead) {
+    osmd.figures =
+      current.current_score?.parts[0]?.staves[0]?.measures.map((measure) =>
+        measure.events.map((event) => ({
+          pitch: event.pitch,
+          whole: whole(event.duration_beats ?? "0"),
+        })),
+      ) ?? null;
+  }
+
+  /** Aplica una edición al detalle como lo haría el servidor y devuelve el evento guardado. */
+  function apply(current: SessionDetailRead, body: EditEventCreate) {
+    const next = structuredClone(current);
+    const seq = (current.current_seq ?? 0) + 1;
+    const measureNumber = body.anchor.measure;
+    const event = next.current_score?.parts[0]?.staves[0]?.measures.find(
+      (candidate) => candidate.number === measureNumber,
+    )?.events[body.anchor.event_index];
+    if (!event) throw new Error("ancla sin evento");
+    const after = body.after ?? {};
+    if (body.op === "SetPitch") event.pitch = String(after.pitch);
+    if (body.op === "SetDuration") event.duration_beats = String(after.duration_beats);
+    if (body.op === "SetAccidental") {
+      const accidental = after.accidental === "natural" ? "" : String(after.accidental);
+      event.pitch = (event.pitch ?? "").replace(/^([A-G])[#b]*(\d)$/, `$1${accidental}$2`);
+    }
+    const saved: EditEventRead = {
+      id: `edit-${String(seq)}`,
+      session_id: ID,
+      seq,
+      op: body.op,
+      author: "ana",
+      anchor: body.anchor,
+      before: null,
+      after: body.after ?? null,
+      created_at: "2026-10-24T10:00:00Z",
+    };
+    next.current_seq = seq;
+    next.edits = [...next.edits, saved];
+    next.status = "correcting";
+    return { next, saved };
+  }
+
+  type EditRoute = (body: EditEventCreate) => Response | Promise<Response>;
+
+  /**
+   * API de una sesión editable: guarda los cuerpos de las ediciones y, por defecto, las acepta
+   * con un 201 y cambia el detalle y el dibujo. `respond` cambia la respuesta de la siguiente.
+   */
+  function editableApi(start: SessionDetailRead = detail()) {
+    let current = start;
+    draw(current);
+    const bodies: EditEventCreate[] = [];
+    const queue: EditRoute[] = [];
+    const accept = (body: EditEventCreate) => {
+      const { next, saved } = apply(current, body);
+      current = next;
+      draw(current);
+      return jsonResponse(saved, 201);
+    };
+    let detailRoute: (() => Response | Promise<Response>) | null = null;
+    const server = mockApi({
+      [`GET /sessions/${ID}`]: () => (detailRoute ? detailRoute() : jsonResponse(current)),
+      [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
+      [`GET /sessions/${ID}/export`]: () =>
+        new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml" } }),
+      [`GET /sessions/${ID}/image`]: png,
+      [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
+      "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
+      [`POST /sessions/${ID}/edits`]: (init) => {
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as EditEventCreate;
+        bodies.push(body);
+        return (queue.shift() ?? accept)(body);
+      },
+    });
+    return {
+      ...server,
+      bodies,
+      accept,
+      respond(route: EditRoute) {
+        queue.push(route);
+      },
+      /** Cambia el estado del servidor, como si se hubiera editado en otra pestaña. */
+      replace(next: SessionDetailRead) {
+        current = next;
+        draw(current);
+      },
+      current: () => current,
+      detailRoute(route: (() => Response | Promise<Response>) | null) {
+        detailRoute = route;
+      },
+      count: (key: string) => server.calls.filter((call) => call.key === key).length,
+    };
+  }
+
+  async function chooseMeasure(measure: number) {
+    const region = await findScore();
+    fireEvent.click(region, head(measure));
+    return region;
+  }
+
+  it("guarda la altura con el base_seq del estado, sin darla por guardada antes del 201", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+
+    expect(server.bodies).toEqual([
+      {
+        base_seq: 0,
+        op: "SetPitch",
+        anchor: anchorOf(2),
+        before: null,
+        after: { pitch: "D4" },
+      },
+    ]);
+    // Sin el 201 no se da nada por guardado: la nota sigue como estaba y los controles esperan.
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    expect(editStatus()).toHaveTextContent("Guardando…");
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    // Otra orden mientras tanto no sale: su base_seq ya no sería el del estado.
+    fireEvent.click(button("Bajar un paso"));
+    expect(server.bodies).toHaveLength(1);
+
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
+
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
+    expect(screen.getByText("Estado").nextElementSibling).toHaveTextContent(/corrección/i);
+  });
+
+  it("tras el 201 muestra el estado nuevo: partitura, posibles errores y tiempos de ese estado", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+
+    // Cada consulta del estado se pidió dos veces: la del estado 0 y la del estado 1.
+    expect(server.count(`GET /sessions/${ID}`)).toBe(2);
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
+    expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
+    expect(server.count(`GET /sessions/${ID}/timing`)).toBe(2);
+    // La selección sigue en la misma ancla, ya en el estado nuevo, y se marca sobre la nota.
+    expect(useSelectionStore.getState().selection).toEqual({
+      sessionId: ID,
+      seq: 1,
+      anchor: anchorOf(2),
+    });
+    await waitFor(() => {
+      expect(selection()).not.toBeNull();
+    });
+    // La descarga es la del estado nuevo, sin pedirla otra vez.
+    captureDownloads();
+    fireEvent.click(screen.getByRole("button", { name: /descargar musicxml/i }));
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
+  });
+
+  it("mientras dibuja el estado nuevo deja a la vista el anterior y no pierde el foco", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    region.focus();
+    const gate = deferred<undefined>();
+    osmd.gate = gate.promise;
+
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+
+    // El dibujo anterior sigue mientras OSMD prepara el nuevo; la marca, que es de otro estado,
+    // espera a que llegue.
+    expect(document.querySelectorAll(".notation__host svg")).toHaveLength(1);
+    expect(selection()).toBeNull();
+    expect(document.activeElement).toBe(region);
+
+    gate.resolve(undefined);
+    await waitFor(() => {
+      expect(selection()).not.toBeNull();
+    });
+    expect(document.querySelectorAll(".notation__host svg")).toHaveLength(1);
+    expect(document.activeElement).toBe(region);
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("con el teclado: Mayús y flechas la altura, 1 a 7 la figura y + − = la alteración", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+    fireEvent.keyDown(region, { key: "4" });
+    expect(await screen.findByText("Re4 · corchea con puntillo")).toBeVisible();
+    fireEvent.keyDown(region, { key: "." });
+    expect(await screen.findByText("Re4 · corchea")).toBeVisible();
+    fireEvent.keyDown(region, { key: "+", shiftKey: true });
+    expect(await screen.findByText("Re#4 · corchea")).toBeVisible();
+    fireEvent.keyDown(region, { key: "PageDown", shiftKey: true });
+    expect(await screen.findByText("Re#3 · corchea")).toBeVisible();
+
+    expect(server.bodies.map(({ base_seq, op, after }) => ({ base_seq, op, after }))).toEqual([
+      { base_seq: 0, op: "SetPitch", after: { pitch: "D4" } },
+      { base_seq: 1, op: "SetDuration", after: { duration_beats: "3/4" } },
+      { base_seq: 2, op: "SetDuration", after: { duration_beats: "1/2" } },
+      { base_seq: 3, op: "SetAccidental", after: { accidental: "#" } },
+      { base_seq: 4, op: "SetPitch", after: { pitch: "D#3" } },
+    ]);
+    // La partitura no se volvió a montar: el foco sigue en ella y las flechas solas navegan.
+    expect(document.activeElement).toBe(region);
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Compás 3 · Voz 1")).toBeVisible();
+    expect(server.bodies).toHaveLength(5);
+  });
+
+  it("los botones de figura y alteración muestran el valor de la nota elegida", async () => {
+    editableApi();
+    renderPage();
+    await chooseMeasure(2);
+
+    expect(button("Blanca")).toHaveAttribute("aria-pressed", "true");
+    expect(button("Puntillo")).toHaveAttribute("aria-pressed", "true");
+    expect(button("Negra")).toHaveAttribute("aria-pressed", "false");
+    expect(button("Becuadro")).toHaveAttribute("aria-pressed", "true");
+    expect(button("Sostenido")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("sin nota elegida los controles esperan y lo dicen", async () => {
+    const server = editableApi();
+    renderPage();
+    await findScore();
+
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    expect(
+      within(editor()).getByText("Elige una nota o un silencio para corregirlo."),
+    ).toBeVisible();
+    fireEvent.click(button("Negra"));
+    expect(server.bodies).toHaveLength(0);
+  });
+
+  it("un silencio solo admite cambiar su figura", async () => {
+    const start = detail();
+    const rest = start.current_score?.parts[0]?.staves[0]?.measures[1]?.events[0];
+    if (!rest) throw new Error("sin evento");
+    Object.assign(rest, { kind: "rest", pitch: null });
+    const server = editableApi(start);
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    expect(button("Sostenido")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Un silencio no tiene altura ni alteración: solo se puede cambiar su figura.",
+      );
+    });
+    expect(server.bodies).toHaveLength(0);
+
+    fireEvent.click(button("Negra"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: figura negra con puntillo.");
+    });
+    expect(server.bodies[0]).toMatchObject({
+      op: "SetDuration",
+      after: { duration_beats: "3/2" },
+    });
+  });
+
+  it("ante un 409 recarga la sesión y avisa sin reintentar, con lo que se quería hacer", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      // Otra pestaña cambió el compás 1 mientras tanto.
+      server.replace(
+        apply(server.current(), {
+          base_seq: 0,
+          op: "SetPitch",
+          anchor: anchorOf(1),
+          before: null,
+          after: { pitch: "E4" },
+        }).next,
+      );
+      return jsonResponse({ detail: "Conflicto de secuencia: base_seq=0 …" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: altura Re 4 (compás 2, voz 1). La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.",
+      );
+    });
+    expect(server.bodies).toHaveLength(1);
+    expect(server.count(`GET /sessions/${ID}`)).toBe(2);
+    expect(screen.queryByText(/Conflicto de secuencia/)).toBeNull();
+    // Se ve el estado nuevo y la nota elegida sigue elegida en él.
+    expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
+    expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+
+    // Volver a aplicarlo es otra edición, sobre el estado nuevo, y solo si la persona lo pide.
+    fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    expect(server.bodies[1]).toMatchObject({
+      base_seq: 1,
+      op: "SetPitch",
+      anchor: anchorOf(2),
+      after: { pitch: "D4" },
+    });
+  });
+
+  it("no ofrece volver a aplicar lo que la nota ya tiene tras recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond((body) => {
+      server.replace(apply(server.current(), body).next);
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/No se guardó: altura Re 4/);
+    });
+    expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    expect(editStatus()).toHaveTextContent("La nota ya tiene ese valor.");
+  });
+
+  it("si el 409 es porque la sesión está finalizada, lo dice y la deja en solo lectura", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      server.replace({ ...server.current(), status: "finalized" });
+      return jsonResponse({ detail: "La sesión está cerrada" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: altura Re 4 (compás 2, voz 1). La sesión está finalizada y ya no admite correcciones.",
+      );
+    });
+    expect(within(editor()).queryByRole("button", { name: "Subir un paso" })).toBeNull();
+    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("un 422 no guarda nada y lo dice con un mensaje propio, sin el detail", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() =>
+      jsonResponse({ detail: "Contenido de 'after' no válido para SetPitch: …" }, 422),
+    );
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "El servidor no aceptó el cambio (altura Re 4, compás 2, voz 1): no se guardó nada.",
+      );
+    });
+    expect(screen.queryByText(/Contenido de 'after'/)).toBeNull();
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+    // Se puede seguir corrigiendo sobre el mismo estado.
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("un 403 lo dice sin guardar nada", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "Un investigador solo puede editar…" }, 403));
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: solo la persona que hizo la transcripción puede corregirla.",
+      );
+    });
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+  });
+
+  it("sin respuesta del servidor no da nada por guardado y pide recargar antes de seguir", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => Promise.reject(new TypeError("Failed to fetch")));
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No hubo respuesta del servidor: puede que el cambio (altura Re 4, compás 2, voz 1) no se guardara. Recarga la sesión para comprobarlo.",
+      );
+    });
+    // Sin saber en qué estado quedó, no se edita encima.
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button("Bajar un paso"));
+    expect(server.bodies).toHaveLength(1);
+
+    fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Sesión recargada.");
+    });
+    expect(server.count(`GET /sessions/${ID}`)).toBe(2);
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("si se guarda pero no se puede cargar el estado nuevo, lo dice y pide recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond((body) => {
+      const response = server.accept(body);
+      server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
+      return response;
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Se guardó el cambio (altura Re 4, compás 2, voz 1), pero no se pudo cargar la partitura nueva. Recarga la sesión para seguir corrigiendo.",
+      );
+    });
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+
+    server.detailRoute(null);
+    fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+  });
+
+  it("un investigador ve en solo lectura una sesión ajena", async () => {
+    const server = editableApi(detail({ owner_id: LUIS.id }));
+    renderPage(INVESTIGADORA);
+    const region = await chooseMeasure(2);
+
+    expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+    expect(screen.getByText(/solo lectura/i)).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    fireEvent.keyDown(region, { key: "4" });
+    expect(server.bodies).toHaveLength(0);
+  });
+
+  it("un investigador corrige sus propias sesiones", async () => {
+    editableApi(detail({ owner_id: INVESTIGADORA.id }));
+    renderPage(INVESTIGADORA);
+    await chooseMeasure(2);
+
+    expect(editor()).toBeVisible();
+    expect(screen.queryByText(/solo lectura/i)).toBeNull();
+  });
+
+  it("una sesión finalizada es de solo lectura", async () => {
+    const server = editableApi(detail({ status: "finalized" }));
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    expect(server.bodies).toHaveLength(0);
+  });
+
+  it("tras «Volver a aplicar», que desaparece al enviarse, el foco pasa a la partitura", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    server.respond((body) => {
+      server.replace(
+        apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+      );
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+    fireEvent.click(button("Subir un paso"));
+    const again = await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+    again.focus();
+
+    fireEvent.click(again);
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("si el 409 deja la sesión finalizada, el foco del botón que se va pasa a la partitura", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    server.respond(() => {
+      server.replace({ ...server.current(), status: "finalized" });
+      return jsonResponse({ detail: "cerrada" }, 409);
+    });
+    const up = button("Subir un paso");
+    up.focus();
+
+    fireEvent.click(up);
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/está finalizada/);
+    });
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("un rechazo no borra el aviso de un 409 ni lo que se puede volver a aplicar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond((body) => {
+      server.replace(
+        apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+      );
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+    fireEvent.click(button("Subir un paso"));
+    await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+
+    // La nota ya es blanca con puntillo: pulsar «Blanca» no envía nada y lo dice aparte.
+    fireEvent.click(button("Blanca"));
+
+    expect(document.querySelector(".editor__refusal")).toHaveTextContent(
+      "La nota ya tiene ese valor.",
+    );
+    expect(editStatus()).toHaveTextContent(/No se guardó: altura Re 4/);
+    expect(within(editor()).getByRole("button", { name: "Volver a aplicar" })).toBeVisible();
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("un rechazo repetido se vuelve a anunciar", async () => {
+    editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    fireEvent.click(button("Blanca"));
+    const first = editStatus()?.textContent;
+    fireEvent.keyDown(region, { key: "6" });
+    const second = editStatus()?.textContent;
+
+    expect(first?.trim()).toBe("La nota ya tiene ese valor.");
+    expect(second?.trim()).toBe("La nota ya tiene ese valor.");
+    expect(second).not.toBe(first);
+  });
+
+  it("mantener una tecla pulsada no encadena ediciones", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true, repeat: true });
+    expect(server.bodies).toHaveLength(0);
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    expect(server.bodies).toHaveLength(1);
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+  });
+
+  it("un 5xx dice que el servidor no confirmó el cambio y pide recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "fallo interno" }, 500));
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "El servidor no confirmó el cambio (altura Re 4, compás 2, voz 1): puede que no se guardara. Recarga la sesión para comprobarlo.",
+      );
+    });
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    expect(within(editor()).getByRole("button", { name: "Recargar la sesión" })).toBeVisible();
+  });
+
+  it("tras un 403 no deja seguir enviando ediciones", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "no" }, 403));
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/solo la persona que hizo la transcripción/);
+    });
+
+    expect(button("Bajar un paso")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button("Bajar un paso"));
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("un 404 lleva a la sesión no encontrada", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      server.detailRoute(() => jsonResponse({ detail: "Sesión no encontrada" }, 404));
+      return jsonResponse({ detail: "Sesión no encontrada" }, 404);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    expect(await screen.findByRole("heading", { name: "Sesión no encontrada" })).toBeVisible();
+  });
+
+  it("si tras un 409 no se puede cargar el estado actual, lo dice y pide recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      server.detailRoute(() => Promise.reject(new TypeError("Failed to fetch")));
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: altura Re 4 (compás 2, voz 1). La sesión cambió antes de guardarlo y no se pudo cargar su estado actual: recárgala para seguir.",
+      );
+    });
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+
+    // La recarga vuelve a fallar: lo dice y el botón sigue.
+    fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se pudo recargar la sesión. Comprueba la conexión e inténtalo de nuevo.",
+      );
+    });
+    expect(within(editor()).getByRole("button", { name: "Recargar la sesión" })).toBeVisible();
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("tras un 409 por una inserción delante, vuelve a aplicar sobre el ancla desplazada", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      // Otra pestaña insertó una nota delante de la elegida (ADR-0011 §2: la retrasa una).
+      const next = structuredClone(server.current());
+      next.current_score?.parts[0]?.staves[0]?.measures[1]?.events.unshift({
+        kind: "note",
+        voice: 0,
+        pitch: "E4",
+        duration_beats: "1",
+        tie: null,
+        is_chord: false,
+        bbox: null,
+        confidence: null,
+        ir_handle: null,
+      });
+      next.current_seq = 1;
+      next.edits = [
+        {
+          id: "otra",
+          session_id: ID,
+          seq: 1,
+          op: "InsertEvent",
+          author: "ana",
+          anchor: anchorOf(2),
+          before: null,
+          after: { kind: "note", pitch: "E4", duration_beats: "1" },
+          created_at: "2026-10-24T10:00:00Z",
+        },
+      ];
+      server.replace(next);
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(await within(editor()).findByRole("button", { name: "Volver a aplicar" }));
+
+    await waitFor(() => {
+      expect(server.bodies).toHaveLength(2);
+    });
+    expect(server.bodies[1]).toMatchObject({
+      base_seq: 1,
+      anchor: { measure: 2, event_index: 1 },
+      after: { pitch: "D4" },
+    });
+  });
+
+  it("tras un 409 que borró la nota elegida, lo dice y no ofrece volver a aplicar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      const next = structuredClone(server.current());
+      const measure = next.current_score?.parts[0]?.staves[0]?.measures[1];
+      if (measure) measure.events = [];
+      next.current_seq = 1;
+      next.edits = [
+        {
+          id: "otra",
+          session_id: ID,
+          seq: 1,
+          op: "DeleteEvent",
+          author: "ana",
+          anchor: anchorOf(2),
+          before: null,
+          after: null,
+          created_at: "2026-10-24T10:00:00Z",
+        },
+      ];
+      server.replace(next);
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "La nota que elegiste ya no está en el mismo sitio: elígela de nuevo si sigue haciendo falta.",
+      );
+    });
+    expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    expect(useSelectionStore.getState().selection).toBeNull();
+  });
+
+  it("al salir de la vista con una edición en curso, la cancela y no pide nada más", async () => {
+    const server = editableApi();
+    const router = renderPage();
+    await chooseMeasure(2);
+    let signal: AbortSignal | null | undefined;
+    server.respond(() => {
+      const call = server.calls.at(-1);
+      signal = call?.init?.signal;
+      return hangUntilAborted(call?.init);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+    await router.navigate("/transcripcion");
+
+    await waitFor(() => {
+      expect(signal?.aborted).toBe(true);
+    });
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
   });
 });

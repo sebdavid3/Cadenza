@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
@@ -9,13 +9,16 @@ import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
+import { EditBar } from "./EditBar";
+import { useEditor } from "./editor";
+import { activeFifths, carryAnchor } from "./edits";
 import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
 import { buildPlayback, measureSlots } from "./playback";
 import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
-import { ScoreView } from "./ScoreView";
+import { ScoreView, type ScoreSnapshot } from "./ScoreView";
 import { useSelectionStore } from "./selection";
 import {
   sessionDetailQuery,
@@ -50,9 +53,10 @@ function SessionNotFound() {
 }
 
 /**
- * Vista de solo lectura de una sesión: la imagen original sobre la partitura transcrita y los
- * posibles errores que señala el validador, marcados por compás (ADR-0021). No edita nada. Cada
- * sesión monta su propia vista, para que la selección no pase de una a otra.
+ * Vista de una sesión: la imagen original sobre la partitura transcrita y los posibles errores
+ * que señala el validador, marcados por compás (ADR-0021). Quien la transcribió corrige la nota
+ * elegida mientras la sesión no esté finalizada (ADR-0030); para los demás es de solo lectura.
+ * Cada sesión monta su propia vista, para que la selección no pase de una a otra.
  */
 export function SessionPage() {
   const { sessionId = "" } = useParams();
@@ -75,6 +79,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
 
   const ownerId = detail.data?.owner_id ?? null;
   const foreign = isResearcher && ownerId !== null && ownerId !== user.id;
+  const finalized = detail.data?.status === "finalized";
+  // Solo edita quien la transcribió; a un investigador, una sesión ajena le responde 403 (ADR-0012).
+  const editable = user !== null && ownerId === user.id && !finalized;
   const users = useQuery({
     queryKey: ["users"],
     queryFn: ({ signal }) => listUsers(api, signal),
@@ -89,6 +96,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
     [score, active],
   );
   const expected = useMemo(() => (score ? measuresPerStaff(score) : []), [score]);
+  // Lo que se dibuja es siempre un estado entero: el MusicXML, el `ScoreIR` y el `seq` del mismo.
+  const snapshot = useMemo<ScoreSnapshot | null>(
+    () =>
+      musicXml.data !== undefined && score
+        ? { xml: musicXml.data, transcription: score, seq }
+        : null,
+    [musicXml.data, score, seq],
+  );
   // Lo que suena: el mapa de tiempos con las alturas del mismo estado (ADR-0026).
   const playback = useMemo(
     () => (score && timing.data ? buildPlayback(score, timing.data) : null),
@@ -106,7 +121,24 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const [placed, setPlaced] = useState(true);
   // La nota elegida es de esta sesión: se olvida al salir de ella (ADR-0027).
   const clearSelection = useSelectionStore((state) => state.clear);
+  const select = useSelectionStore((state) => state.select);
   useEffect(() => clearSelection, [clearSelection]);
+  // Cuando la vista pasa a un estado posterior (una corrección guardada o una recarga), la nota
+  // elegida sigue elegida con su ancla en ese estado (ADR-0011 §2); si su evento ya no está, se
+  // olvida. Antes de pintar, para que no parpadee. Se lee del almacén sin suscribirse: cada
+  // movimiento de la selección no tiene por qué volver a pintar toda la vista.
+  useLayoutEffect(() => {
+    const { selection } = useSelectionStore.getState();
+    if (!detail.data || selection?.sessionId !== sessionId || selection.seq >= seq) return;
+    const anchor = carryAnchor(selection.anchor, selection.seq, detail.data);
+    if (anchor) select({ sessionId, seq, anchor });
+    else clearSelection();
+  }, [detail.data, sessionId, seq, select, clearSelection]);
+
+  const editor = useEditor(api, sessionId, detail.data);
+  const editKeysId = useId();
+  // Sin controles, la barra sigue si tiene algo que decir (un 409 que dejó la sesión cerrada).
+  const showEditor = editable || editor.status.kind !== "idle";
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -158,8 +190,15 @@ function SessionView({ sessionId }: { sessionId: string }) {
           </dl>
         )}
         <p className="session__lead">
-          Solo lectura. Compara la imagen original con la transcripción de HOMR; los compases
-          tramados en violeta son posibles errores que conviene revisar.
+          {editable
+            ? "Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura. Los compases tramados en violeta son posibles errores que conviene revisar."
+            : `${
+                foreign
+                  ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
+                  : finalized
+                    ? "Sesión finalizada: solo lectura."
+                    : "Solo lectura."
+              } Compara la imagen original con la transcripción de HOMR; los compases tramados en violeta son posibles errores que conviene revisar.`}
         </p>
       </header>
 
@@ -198,31 +237,60 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onTempo={player.setTempo}
               />
             </div>
-            {musicXml.data && score ? (
+            {snapshot ? (
               <ScoreView
-                key={seq}
-                xml={musicXml.data}
-                transcription={score}
+                snapshot={snapshot}
                 sessionId={sessionId}
-                seq={seq}
                 marks={marks}
                 expectedMeasures={expected}
                 selectedKey={selectedKey}
                 onPlacement={setPlaced}
                 playing={playing}
+                onCommand={editable ? editor.run : undefined}
+                editKeysId={editable ? editKeysId : undefined}
+                editor={
+                  showEditor
+                    ? (target, { available, focusScore }) => (
+                        <EditBar
+                          editor={editor}
+                          editable={editable}
+                          target={target}
+                          available={available}
+                          fifths={target && score ? activeFifths(score, target.anchor) : 0}
+                          multiStaff={expected.length > 1}
+                          keysId={editKeysId}
+                          focusScore={focusScore}
+                        />
+                      )
+                    : undefined
+                }
               />
             ) : musicXml.isError ? (
-              <div className="notation__failed" role="alert">
-                <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
-                <p>{errorMessage(musicXml.error)}</p>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => void musicXml.refetch()}
-                >
-                  Reintentar
-                </button>
-              </div>
+              <>
+                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo. */}
+                {editor.status.kind !== "idle" && (
+                  <EditBar
+                    editor={editor}
+                    editable={false}
+                    target={null}
+                    available={false}
+                    fifths={0}
+                    multiStaff={expected.length > 1}
+                    keysId={editKeysId}
+                  />
+                )}
+                <div className="notation__failed" role="alert">
+                  <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
+                  <p>{errorMessage(musicXml.error)}</p>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => void musicXml.refetch()}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="notation notation--placeholder" aria-hidden="true" />
             )}
