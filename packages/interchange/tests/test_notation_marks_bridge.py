@@ -455,6 +455,111 @@ def test_slurs_whose_start_is_written_after_their_end_are_reversed() -> None:
     assert len(_span_ends(again)[0]) == 5
 
 
+def test_more_than_sixteen_slurs_touching_a_measure_keep_their_pairs() -> None:
+    """Los números se liberan en cuanto se escribe el fin: 17 ligaduras que tocan un compás,
+    pero nunca más de dos abiertas a la vez, no reutilizan un número abierto."""
+
+    def sixteenths(pitch: str, base: int, last: tuple[Slur, ...] = ()) -> tuple[Event, ...]:
+        events = []
+        for index in range(16):
+            ends = (Slur(SlurType.START if index % 2 == 0 else SlurType.STOP, base + index // 2),)
+            events.append(_note(pitch, "1/4", slurs=ends + (last if index == 15 else ())))
+        return tuple(events)
+
+    four = TimeSignature(4, 4)
+    score = ScoreIR(
+        parts=(
+            Part(
+                id="part-0",
+                staves=(
+                    Staff(
+                        id="part-0-staff-0",
+                        measures=(
+                            Measure(number=1, time_signature=four, events=(_note("C5", "4"),)),
+                            Measure(number=2, time_signature=four, events=sixteenths("E5", 10)),
+                        ),
+                    ),
+                    Staff(
+                        id="part-0-staff-1",
+                        measures=(
+                            Measure(
+                                number=1,
+                                time_signature=four,
+                                events=(_note("C3", "4", slurs=(Slur(SlurType.START, 1),)),),
+                            ),
+                            Measure(
+                                number=2,
+                                time_signature=four,
+                                events=sixteenths("E3", 20, (Slur(SlurType.STOP, 1),)),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+    xml_text = score_ir_to_musicxml(score)
+    assert _unambiguous(ET.fromstring(xml_text.encode("utf-8")), "slur")
+    again = musicxml_to_score_ir(xml_text)
+    assert _unordered(_span_ends(again)[0]) == _unordered(_span_ends(score)[0])
+    assert len(_span_ends(again)[0]) == 17
+
+
+def test_a_wedge_from_a_lower_to_an_upper_staff_in_one_measure_is_kept() -> None:
+    """music21 escribe antes el pentagrama superior: el fin del regulador quedaría delante de
+    su inicio. Se escribe en el pentagrama del inicio, en su misma posición."""
+
+    def direction(kind: str, staff: int) -> str:
+        return (
+            f'<direction><direction-type><wedge type="{kind}" number="1"/></direction-type>'
+            f"<staff>{staff}</staff></direction>"
+        )
+
+    def note(step: str, octave: int, beats: int, kind: str, staff: int, voice: int) -> str:
+        return (
+            f"<note><pitch><step>{step}</step><octave>{octave}</octave></pitch>"
+            f"<duration>{beats}</duration><voice>{voice}</voice><type>{kind}</type>"
+            f"<staff>{staff}</staff></note>"
+        )
+
+    xml_text = (
+        '<?xml version="1.0" encoding="UTF-8"?><score-partwise version="4.0"><part-list>'
+        '<score-part id="P1"><part-name>Piano</part-name></score-part></part-list><part id="P1">'
+        '<measure number="1"><attributes><divisions>1</divisions>'
+        "<time><beats>4</beats><beat-type>4</beat-type></time><staves>2</staves>"
+        '<clef number="1"><sign>G</sign><line>2</line></clef>'
+        '<clef number="2"><sign>F</sign><line>4</line></clef></attributes>'
+        + direction("crescendo", 2)
+        + note("C", 5, 1, "quarter", 1, 1)
+        + note("D", 5, 1, "quarter", 1, 1)
+        + direction("stop", 1)
+        + note("E", 5, 2, "half", 1, 1)
+        + "<backup><duration>4</duration></backup>"
+        + note("C", 3, 4, "whole", 2, 5)
+        + '</measure><measure number="2">'
+        + direction("diminuendo", 1)
+        + note("F", 5, 2, "half", 1, 1)
+        + direction("stop", 1)
+        + note("G", 5, 2, "half", 1, 1)
+        + "<backup><duration>4</duration></backup>"
+        + note("D", 3, 4, "whole", 2, 5)
+        + "</measure></part></score-partwise>"
+    )
+    score = musicxml_to_score_ir(xml_text)
+    assert _positioned_marks(score) == {
+        (0, 1): ([], ["stop 1@2"]),
+        (1, 1): ([], ["crescendo 1@0"]),
+        (0, 2): ([], ["diminuendo 2@0", "stop 2@2"]),
+    }
+    exported = score_ir_to_musicxml(score)
+    assert _unambiguous(ET.fromstring(exported.encode("utf-8")), "wedge")
+    # El fin pasa al pentagrama del inicio, con su compás y su posición.
+    assert _positioned_marks(musicxml_to_score_ir(exported)) == {
+        (1, 1): ([], ["crescendo 1@0", "stop 1@2"]),
+        (0, 2): ([], ["diminuendo 2@0", "stop 2@2"]),
+    }
+
+
 def _unordered(pairs: list[tuple[Any, Any]]) -> list[tuple[Any, Any]]:
     return sorted(tuple(sorted(pair)) for pair in pairs)
 

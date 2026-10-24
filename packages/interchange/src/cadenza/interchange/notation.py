@@ -75,6 +75,10 @@ _DYNAMIC_MARKS: Final[frozenset[str]] = frozenset(mark.value for mark in Dynamic
 # MusicXML numera las ligaduras y los reguladores del 1 al 16 (`number-level`).
 _MUSICXML_NUMBERS: Final[range] = range(1, 17)
 _SPANNER_NUMBERS_LOCK: Final[threading.Lock] = threading.Lock()
+# Lugar de un extremo de ligadura o de regulador en el orden en que music21 escribe la parte.
+_WriteKey = tuple[int | Fraction, ...]
+# La de un ancla de regulador: (compás, pentagrama, posición en negras).
+_AnchorKey = tuple[int, int, Fraction]
 
 
 class InterchangeError(ValueError):
@@ -775,21 +779,22 @@ def _build_staff_measures(
     return built
 
 
-def _musicxml_numbers(spans: Sequence[tuple[int, int]]) -> list[int]:
-    """Número de MusicXML (del 1 al 16) para cada marca que abarca los compases dados.
+def _musicxml_numbers(spans: Sequence[tuple[_WriteKey, _WriteKey]]) -> list[int]:
+    """Número de MusicXML (del 1 al 16) para cada marca, dada la clave de escritura de sus
+    extremos: su lugar en el orden en que music21 escribe la parte.
 
     En MusicXML, y en OSMD, los extremos de una ligadura o de un regulador se emparejan por
-    `number` en orden de lectura: dos marcas abiertas a la vez no pueden compartirlo. Dentro de
-    un compás ese orden depende de cómo music21 escribe las voces y los pentagramas, así que
-    dos marcas que tocan algún compás en común llevan números distintos. Por orden de inicio,
-    cada una toma el número libre más bajo; si los 16 están ocupados, el que antes se libera.
+    `number` en orden de lectura: dos marcas abiertas a la vez no pueden compartirlo. Por orden
+    de inicio, cada marca toma el número libre más bajo, y un número se libera cuando ya se ha
+    escrito el fin de su marca (con clave igual, no: no se sabe cuál de los dos va antes). Si
+    los 16 están abiertos, se toma el que antes se libera.
     """
 
-    busy_until: dict[int, int] = {}
+    busy_until: dict[int, _WriteKey] = {}
     numbers = [0] * len(spans)
-    for index in sorted(range(len(spans)), key=lambda i: (min(spans[i]), max(spans[i]))):
-        first, last = min(spans[index]), max(spans[index])
-        free = [n for n in _MUSICXML_NUMBERS if busy_until.get(n, -1) < first]
+    for index in sorted(range(len(spans)), key=lambda i: spans[i]):
+        first, last = spans[index]
+        free = [n for n in _MUSICXML_NUMBERS if n not in busy_until or busy_until[n] < first]
         number = free[0] if free else min(_MUSICXML_NUMBERS, key=busy_until.__getitem__)
         busy_until[number] = last
         numbers[index] = number
@@ -799,10 +804,10 @@ def _musicxml_numbers(spans: Sequence[tuple[int, int]]) -> list[int]:
 def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
     """Ligaduras de expresión completas de la parte (ADR-0031): un extremo huérfano no se dibuja."""
 
-    # Cada extremo con su elemento, su compás y su lugar en el orden en que music21 escribe el
-    # compás de la parte: pentagrama a pentagrama y, en cada uno, voz a voz.
-    starts: dict[int, tuple[Any, int, tuple[int, ...]]] = {}
-    stops: dict[int, tuple[Any, int, tuple[int, ...]]] = {}
+    # Cada extremo con su elemento y su clave de escritura: music21 escribe la parte compás a
+    # compás, cada compás pentagrama a pentagrama y cada pentagrama voz a voz.
+    starts: dict[int, tuple[Any, _WriteKey]] = {}
+    stops: dict[int, tuple[Any, _WriteKey]] = {}
     for staff_index, (staff, built) in enumerate(zip(part.staves, built_staves, strict=True)):
         for measure_index, (measure, (_built_measure, owners)) in enumerate(
             zip(staff.measures, built, strict=True)
@@ -815,7 +820,7 @@ def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence
                 written = (measure_index, staff_index, voices.index(event.voice), position)
                 for slur in event.slurs:
                     ends = starts if slur.type is SlurType.START else stops
-                    ends.setdefault(slur.number, (owner, measure_index, written))
+                    ends.setdefault(slur.number, (owner, written))
     pairs = []
     for number, first in starts.items():
         last = stops.get(number)
@@ -824,7 +829,7 @@ def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence
         # Si el inicio se escribiría detrás del fin (de un pentagrama o una voz posterior a otra
         # anterior del mismo compás), al leerlo se emparejaría con el fin de otra ligadura: se
         # intercambian sus papeles, y la ligadura une las mismas notas.
-        pairs.append((first, last) if first[2] <= last[2] else (last, first))
+        pairs.append((first, last) if first[1] <= last[1] else (last, first))
     numbers = _musicxml_numbers([(first[1], last[1]) for first, last in pairs])
     for (first, last), number in zip(pairs, numbers, strict=True):
         slur = spanner.Slur(first[0], last[0])
@@ -834,36 +839,43 @@ def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence
 
 def _attach_wedges(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
     """Reguladores completos de la parte (ADR-0031), entre dos anclas en su posición exacta del
-    compás, que el exportador sitúa con `<forward>`. Un extremo huérfano no se dibuja."""
+    compás, que el exportador sitúa con `<forward>`. Un extremo huérfano no se dibuja.
 
-    starts: dict[int, tuple[WedgeType, Any, Fraction, int]] = {}
-    stops: dict[int, tuple[Any, Fraction, int]] = {}
-    for staff, built in zip(part.staves, built_staves, strict=True):
-        for measure_index, (measure, (built_measure, _owners)) in enumerate(
-            zip(staff.measures, built, strict=True)
-        ):
+    Las anclas van en el compás, fuera de las voces, y music21 las escribe por compás, por
+    pentagrama y por posición: esa es su clave de escritura (compás, pentagrama, posición).
+    """
+
+    starts: dict[int, tuple[WedgeType, _AnchorKey]] = {}
+    stops: dict[int, _AnchorKey] = {}
+    for staff_index, staff in enumerate(part.staves):
+        for measure_index, measure in enumerate(staff.measures):
             for wedge in measure.wedges:
+                written = (measure_index, staff_index, wedge.offset_beats)
                 if wedge.type is WedgeType.STOP:
-                    stops.setdefault(
-                        wedge.number, (built_measure, wedge.offset_beats, measure_index)
-                    )
+                    stops.setdefault(wedge.number, written)
                 else:
-                    starts.setdefault(
-                        wedge.number, (wedge.type, built_measure, wedge.offset_beats, measure_index)
-                    )
-    pairs = [(start, stops[number]) for number, start in starts.items() if number in stops]
-    numbers = _musicxml_numbers([(start[3], stop[2]) for start, stop in pairs])
-    for (start, stop), number in zip(pairs, numbers, strict=True):
-        wedge_type, start_measure, start_offset, _ = start
-        stop_measure, stop_offset, _ = stop
-        first = spanner.SpannerAnchor()
-        start_measure.insert(start_offset, first)
-        last = spanner.SpannerAnchor()
-        stop_measure.insert(stop_offset, last)
+                    starts.setdefault(wedge.number, (wedge.type, written))
+    pairs: list[tuple[WedgeType, _AnchorKey, _AnchorKey]] = []
+    for number, (wedge_type, start) in starts.items():
+        stop = stops.get(number)
+        if stop is None:
+            continue
+        if stop[0] == start[0] and stop[1] < start[1]:
+            # De un pentagrama inferior a uno superior en el mismo compás: music21 escribiría el
+            # fin delante del inicio. Se escribe en el pentagrama del inicio, en su posición.
+            stop = (stop[0], start[1], stop[2])
+        pairs.append((wedge_type, start, stop))
+    numbers = _musicxml_numbers([(start, stop) for _wedge_type, start, stop in pairs])
+    for (wedge_type, start, stop), number in zip(pairs, numbers, strict=True):
+        anchors = []
+        for measure_index, staff_index, offset in (start, stop):
+            anchor = spanner.SpannerAnchor()
+            built_staves[staff_index][measure_index][0].insert(offset, anchor)
+            anchors.append(anchor)
         wedge_class = (
             dynamics.Crescendo if wedge_type is WedgeType.CRESCENDO else dynamics.Diminuendo
         )
-        built_wedge = wedge_class(first, last)
+        built_wedge = wedge_class(*anchors)
         built_wedge.idLocal = number
         out.insert(0, built_wedge)
 
@@ -872,7 +884,9 @@ def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
     """Convierte un `ScoreIR` a un objeto `music21.stream.Score` estructurado.
 
     Con ``marks`` (por defecto) lleva las marcas de notación (ADR-0031); sin ellas, solo las
-    notas, los silencios y los atributos de compás.
+    notas, los silencios y los atributos de compás. Los números de las ligaduras y de los
+    reguladores solo los respeta `score_ir_to_musicxml`: otro exportador de music21 los vuelve a
+    numerar del 1 al 6 en ciclo.
     """
 
     out = stream.Score()
