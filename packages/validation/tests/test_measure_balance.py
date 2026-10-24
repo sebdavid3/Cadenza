@@ -111,24 +111,50 @@ def test_piano_unbalanced_bass_staff_reports_finding_on_staff_1() -> None:
     assert "suma 2 negras y su métrica 4/4 exige 4" in findings[0].message
 
 
-def test_piano_unbalanced_voice_in_polyphonic_measure() -> None:
+def _with_second_voice_lasting(beats: int, first_voice_beats: int = 2) -> ScoreDocument:
+    """El piano con la segunda voz del compás 2 (una redonda) cambiada a ``beats`` negras y las
+    dos blancas de la primera voz, a ``first_voice_beats`` negras cada una."""
+
     from fractions import Fraction
 
     doc = _piano_document()
     part = doc.score.parts[0]
     staff_0 = part.staves[0]
-    m2_events = list(staff_0.measures[1].events)
-    m2_events[-1] = replace(m2_events[-1], duration_beats=Fraction(2))
+    m2_events = [
+        replace(
+            event,
+            duration_beats=Fraction(beats if event.voice == 1 else first_voice_beats),
+        )
+        for event in staff_0.measures[1].events
+    ]
     broken_m2 = replace(staff_0.measures[1], events=tuple(m2_events))
     new_staff_0 = replace(staff_0, measures=(staff_0.measures[0], broken_m2))
     new_part = replace(part, staves=(new_staff_0, part.staves[1]))
     new_score = replace(doc.score, parts=(new_part,))
-    broken_doc = replace(doc, score=new_score, anchors=build_anchor_index(new_score))
+    return replace(doc, score=new_score, anchors=build_anchor_index(new_score))
 
-    engine = ValidationEngine([MeasureBalanceRule()])
-    findings = engine.validate(broken_doc)
+
+def test_piano_voice_that_overflows_a_polyphonic_measure() -> None:
+    findings = ValidationEngine([MeasureBalanceRule()]).validate(_with_second_voice_lasting(6))
     assert len(findings) == 1
     assert findings[0].anchor.staff == 0
     assert findings[0].anchor.measure == 2
     assert findings[0].anchor.voice == 1
     assert "voz 1" in findings[0].message
+    assert "suma 6 negras" in findings[0].message
+
+
+def test_a_voice_may_end_before_the_measure_if_another_completes_it() -> None:
+    """Una voz que sale a mitad del compás no es un error si otra lo completa (ADR-0032, #218):
+    MusicXML no obliga a rellenarla, y las transcripciones hechas a mano no lo hacen."""
+
+    engine = ValidationEngine([MeasureBalanceRule()])
+    assert engine.validate(_with_second_voice_lasting(2)) == []
+
+
+def test_short_voices_are_errors_if_no_voice_completes_the_measure() -> None:
+    findings = ValidationEngine([MeasureBalanceRule()]).validate(
+        _with_second_voice_lasting(2, first_voice_beats=1)
+    )
+    assert [(f.anchor.measure, f.anchor.voice) for f in findings] == [(2, 0), (2, 1)]
+    assert all("suma 2 negras y su métrica 4/4 exige 4" in f.message for f in findings)
