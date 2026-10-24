@@ -72,6 +72,16 @@ export interface DismissFindingRequest {
 }
 
 /**
+ * Dinámica en una posición del compás; rige su pentagrama (ADR-0031).
+ */
+export interface DynamicPayload {
+  /** Indicación dinámica */
+  mark: "ppp" | "pp" | "p" | "mp" | "mf" | "f" | "ff" | "fff" | "sf" | "sfz" | "fp" | "fz";
+  /** Ataque en negras desde el inicio del compás, como fracción ('0', '3/2') */
+  offset_beats: string;
+}
+
+/**
  * Payload de una corrección humana (el servidor asigna id, seq y fecha).
  * 
  * Exige `base_seq`, que identifica el estado sobre el cual se construyó la
@@ -283,6 +293,10 @@ export interface MeasurePayload {
   clef?: ClefPayload | null;
   /** Armadura de clave activa */
   key_signature?: KeySignaturePayload | null;
+  /** Dinámicas del compás, por su posición (ADR-0031) */
+  dynamics?: DynamicPayload[];
+  /** Extremos de regulador del compás, por su posición (ADR-0031) */
+  wedges?: WedgePayload[];
 }
 
 /**
@@ -383,6 +397,12 @@ export interface ScoreEventPayload {
   confidence: number | null;
   /** Manejador de referencia interna */
   ir_handle: string | null;
+  /** Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031) */
+  articulations?: ("staccato" | "staccatissimo" | "accent" | "marcato" | "tenuto")[];
+  /** Indica si el evento lleva calderón */
+  fermata?: boolean;
+  /** Extremos de ligadura de expresión que empiezan o acaban en el evento */
+  slurs?: SlurPayload[];
 }
 
 /**
@@ -434,6 +454,16 @@ export interface SessionSummaryRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+}
+
+/**
+ * Extremo de una ligadura de expresión en un evento (ADR-0031).
+ */
+export interface SlurPayload {
+  /** Inicio ('start') o fin ('stop') */
+  type: "start" | "stop";
+  /** Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, que no se reutiliza */
+  number: number;
 }
 
 /**
@@ -563,6 +593,18 @@ export interface VersionResponse {
   api_version?: string;
   /** Versión de la aplicación Cadenza */
   app_version?: string;
+}
+
+/**
+ * Extremo de un regulador en una posición del compás (ADR-0031).
+ */
+export interface WedgePayload {
+  /** El inicio dice si es de crescendo o de diminuendo; el fin es 'stop' */
+  type: "crescendo" | "diminuendo" | "stop";
+  /** Identifica el regulador dentro de su parte: su inicio y su fin comparten número, que no se reutiliza */
+  number: number;
+  /** Posición en negras desde el inicio del compás, como fracción ('0', '3/2') */
+  offset_beats: string;
 }
 
 // --- Alias ergonómicos de compatibilidad para el Frontend ---

@@ -17,6 +17,7 @@ from .anchor import Anchor, EventKind
 from .clef import Clef
 from .edit import EditEvent, EditOp
 from .key_signature import KeySignature
+from .notation_marks import Articulation, Slur
 from .score import Event, Measure, ScoreIR
 from .tie import Tie
 
@@ -166,6 +167,7 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         tie_val = Tie(str(tie_raw)) if tie_raw is not None else None
         is_chord_val = bool(_value(edit.after, "is_chord") or False)
 
+        # Marcas de la nota (ADR-0031): el inverso de un borrado las devuelve exactas.
         events.insert(
             insert_pos,
             Event(
@@ -177,6 +179,11 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
                 is_chord=is_chord_val,
                 bbox=bbox,
                 confidence=confidence,
+                articulations=tuple(
+                    Articulation(str(a)) for a in _value(edit.after, "articulations") or ()
+                ),
+                fermata=bool(_value(edit.after, "fermata") or False),
+                slurs=tuple(Slur.from_primitive(s) for s in _value(edit.after, "slurs") or ()),
             ),
         )
         return replace(measure, events=tuple(events))

@@ -23,6 +23,7 @@ from .anchor import Anchor, EventKind
 from .clef import Clef
 from .edit import EditEvent, EditOp
 from .key_signature import KeySignature
+from .notation_marks import Articulation, SlurType
 from .projection import _ACCIDENTAL_MAP, _PITCH_RE, _apply_accidental
 from .score import Event, Measure, ScoreIR
 from .tie import Tie
@@ -60,10 +61,27 @@ _CLEF_NAMES: Final[frozenset[str]] = frozenset(
 )
 _KEY_MODES: Final[frozenset[str | None]] = frozenset({None, "major", "minor"})
 
+# Marcas de la nota (ADR-0031): las admite `InsertEvent` y las guarda la instantánea de
+# `DeleteEvent`, para que deshacer un borrado devuelva la nota con ellas.
+_EVENT_MARK_KEYS: Final[tuple[str, ...]] = ("articulations", "fermata", "slurs")
 _INSERT_KEYS: Final[frozenset[str]] = frozenset(
-    {"kind", "pitch", "duration_beats", "tie", "is_chord", "bbox", "confidence", "voice"}
+    {
+        "kind",
+        "pitch",
+        "duration_beats",
+        "tie",
+        "is_chord",
+        "bbox",
+        "confidence",
+        "voice",
+        *_EVENT_MARK_KEYS,
+    }
 )
+# Sin marcas, la instantánea no las lleva: su ausencia es «sin marcas», como en las
+# instantáneas guardadas antes de ADR-0031.
 _DELETE_SNAPSHOT_KEYS: Final[frozenset[str]] = frozenset({"kind", "pitch", "duration_beats"})
+_ARTICULATIONS: Final[frozenset[str]] = frozenset(a.value for a in Articulation)
+_SLUR_TYPES: Final[frozenset[str]] = frozenset(t.value for t in SlurType)
 
 
 class InvalidEditPayload(ValueError):
@@ -275,6 +293,63 @@ def _check_insert(op: EditOp, anchor: Anchor, after: Mapping[str, Any]) -> None:
         not _is_finite_number(confidence) or not 0.0 <= confidence <= 1.0
     ):
         raise InvalidEditPayload(f"'confidence' debe estar entre 0 y 1: {confidence!r}")
+    _check_event_marks(after)
+
+
+def _check_event_marks(after: Mapping[str, Any]) -> None:
+    """Marcas de la nota de un `InsertEvent` (ADR-0031), en la forma de la instantánea."""
+
+    articulations = after.get("articulations")
+    if articulations is not None and not (
+        isinstance(articulations, list | tuple)
+        and all(isinstance(a, str) and a in _ARTICULATIONS for a in articulations)
+    ):
+        raise InvalidEditPayload(
+            f"'articulations' debe ser una lista de {', '.join(sorted(_ARTICULATIONS))}: "
+            f"{articulations!r}"
+        )
+    fermata = after.get("fermata")
+    if fermata is not None and not isinstance(fermata, bool):
+        raise InvalidEditPayload(f"'fermata' debe ser booleano: {fermata!r}")
+    slurs = after.get("slurs")
+    if slurs is None:
+        return
+    if not isinstance(slurs, list | tuple):
+        raise InvalidEditPayload(f"'slurs' debe ser una lista: {slurs!r}")
+    for slur in slurs:
+        if not (
+            isinstance(slur, Mapping)
+            and set(slur.keys()) == {"type", "number"}
+            and isinstance(slur["type"], str)
+            and slur["type"] in _SLUR_TYPES
+            and not isinstance(slur["number"], bool)
+            and isinstance(slur["number"], int)
+            and slur["number"] >= 1
+        ):
+            raise InvalidEditPayload(
+                "cada extremo de 'slurs' es {'type': 'start' o 'stop', 'number': entero >= 1}: "
+                f"{slur!r}"
+            )
+
+
+def _check_slur_ends_free(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> None:
+    """Un extremo de ligadura insertado no puede repetir uno de la parte: el `number` identifica
+    la ligadura dentro de su parte (ADR-0031), y dos inicios iguales no se sabría emparejarlos."""
+
+    wanted = {(slur["type"], slur["number"]) for slur in after.get("slurs") or ()}
+    if not wanted:
+        return
+    taken = {
+        (slur.type.value, slur.number)
+        for staff in score.parts[anchor.part].staves
+        for measure in staff.measures
+        for event in measure.events
+        for slur in event.slurs
+    }
+    repeated = sorted(wanted & taken)
+    if repeated:
+        ends = ", ".join(f"{kind} {number}" for kind, number in repeated)
+        raise InvalidEditPayload(f"la parte ya tiene esos extremos de ligadura: {ends}")
 
 
 def _is_finite_number(value: object) -> bool:
@@ -313,6 +388,7 @@ def validate_after(
             _check_key(op, payload)
         else:
             _check_insert(op, anchor, payload)
+            _check_slur_ends_free(score, anchor, payload)
         return
 
     target = _locate_event(score, anchor)
@@ -382,10 +458,12 @@ def _accidental_of(pitch: str | None) -> str | None:
 
 def _event_snapshot(event: Event) -> dict[str, Any]:
     primitive = event.to_primitive()
-    return {
+    snapshot = {
         key: primitive[key]
         for key in ("kind", "pitch", "duration_beats", "tie", "is_chord", "bbox", "confidence")
     }
+    snapshot.update({key: primitive[key] for key in _EVENT_MARK_KEYS if key in primitive})
+    return snapshot
 
 
 def snapshot_before(score: ScoreIR, anchor: Anchor, op: EditOp) -> dict[str, Any] | None:

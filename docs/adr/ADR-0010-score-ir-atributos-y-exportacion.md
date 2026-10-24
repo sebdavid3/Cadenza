@@ -1,6 +1,6 @@
 # ADR-0010: Atributos de compás en el `ScoreIR` y exportación en `interchange`
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md): el `ScoreIR` guarda ya articulaciones, calderones, ligaduras de expresión, dinámicas y reguladores; el texto sigue fuera)
 - **Fecha:** 2026-10-03
 - **Decisores:** Arquitecto de Software, Dirección del proyecto Cadenza
 - **Relacionado:** [ADR-0002](ADR-0002-score-document-anchor-index.md), [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0007](ADR-0007-edit-events-inmutables.md)
