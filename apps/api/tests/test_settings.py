@@ -144,6 +144,8 @@ def test_env_example_builds_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings()
     assert settings.cors_origins == ["*"]
     assert settings.login_rate_limit_max_attempts == 5
+    # El ejemplo no trae una clave usable: hay que generarla, o la API no arranca (D58).
+    assert settings.auth_secret_key == ""
 
 
 @pytest.mark.parametrize(

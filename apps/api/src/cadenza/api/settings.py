@@ -13,7 +13,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
 _ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
 
-# Longitud mínima de la clave de firma de los JWT, en bytes: los de `openssl rand -hex 16`.
+# Longitud mínima de la clave de firma de los JWT, en bytes. El despliegue usa
+# `openssl rand -hex 32`, que da 64.
 MIN_AUTH_SECRET_KEY_BYTES = 32
 
 

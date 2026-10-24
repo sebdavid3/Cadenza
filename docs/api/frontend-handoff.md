@@ -38,7 +38,7 @@ Definir las variables mínimas en la sesión de terminal antes del arranque:
 
 **PowerShell (Windows):**
 ```powershell
-$env:CADENZA_AUTH_SECRET_KEY = "clave_secreta_local_min_32_caracteres_aleatorios"
+$env:CADENZA_AUTH_SECRET_KEY = "<clave de openssl rand -hex 32>"   # al menos 32 bytes
 $env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
 $env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
 $env:CADENZA_OMR_USE_GPU     = "false"     # o "true" para HOMR en GPU
@@ -47,7 +47,7 @@ $env:CADENZA_DISABLE_POWER_THROTTLING = "true"
 
 **Bash (Linux / macOS):**
 ```bash
-export CADENZA_AUTH_SECRET_KEY="clave_secreta_local_min_32_caracteres_aleatorios"
+export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"         # o "true" para HOMR en GPU

@@ -192,7 +192,7 @@ proceso. Para desarrollo basta con SQLite y HOMR instalado.
 **PowerShell (Windows):**
 
 ```powershell
-$env:CADENZA_AUTH_SECRET_KEY = "<cadena aleatoria de 32 bytes o más>"
+$env:CADENZA_AUTH_SECRET_KEY = "<clave de openssl rand -hex 32>"
 $env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
 $env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
 $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
@@ -201,7 +201,7 @@ $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
 **Bash (Linux, macOS):**
 
 ```bash
-export CADENZA_AUTH_SECRET_KEY="<cadena aleatoria de 32 bytes o más>"
+export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"        # "true" para HOMR en GPU
@@ -357,7 +357,7 @@ PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala
 API aplica las migraciones de Alembic y sirve en el puerto 8000.
 
 ```bash
-cp .env.example .env      # cambia la contraseña de PostgreSQL y la clave JWT
+cp .env.example .env      # cambia la contraseña de PostgreSQL y genera la clave JWT
 docker compose up --build
 ```
 
