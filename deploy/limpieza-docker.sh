@@ -15,8 +15,10 @@ usage() { docker system df --format '{{.Type}}: {{.Size}}' | tr '\n' ' '; }
 trap 'echo "$(stamp) ERROR: la limpieza no se completó"' EXIT
 
 echo "$(stamp) antes: $(usage)"
-docker builder prune --force --max-used-space "$max" >/dev/null
+# Primero las imágenes: la caché que respalda una imagen colgante solo se libera cuando la imagen
+# ya no está.
 docker image prune --force >/dev/null
+docker builder prune --force --max-used-space "$max" >/dev/null
 
 trap - EXIT
 echo "$(stamp) después: $(usage)"
