@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { musicXmlFile, saveFile } from "./download";
@@ -27,7 +27,10 @@ interface DownloadButtonProps {
 export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButtonProps) {
   const hintId = useId();
   const mounted = useRef(true);
-  useEffect(() => {
+  // Con un efecto de diseño, y no uno pasivo: su limpieza corre al quitar el botón de la página,
+  // en la misma confirmación. La de un efecto pasivo puede llegar en otra tarea, y una respuesta
+  // que se resuelva en medio (#212) descargaría cuando la vista ya no está.
+  useLayoutEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
