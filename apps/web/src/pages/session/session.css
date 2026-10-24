@@ -389,6 +389,40 @@
   padding-right: var(--space-1);
 }
 
+/* Palabra que se ve también en una barra estrecha: «Nota», «Borrar», «Sol», «Cambiar». */
+.editor__text {
+  padding-inline: var(--space-1);
+}
+
+/* Armadura: un desplegable con el filete y la altura del conmutador, pegado a «Cambiar». Solo
+   propone: enviarla es «Cambiar». A 1rem, para que un móvil no amplíe la página al tocarlo. */
+.editor__select {
+  min-width: 11rem;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  border-radius: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-text);
+  font-size: 1rem;
+}
+
+.editor__select:disabled {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+  cursor: not-allowed;
+}
+
+.editor__select:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.editor__select + .editor__button {
+  margin-left: calc(var(--rule-width) * -1);
+}
+
 .editor__hint {
   flex-basis: 100%;
   color: var(--color-ink-muted);

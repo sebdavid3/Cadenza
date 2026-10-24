@@ -9,6 +9,11 @@ export interface NoteSelection {
   sessionId: string;
   seq: number;
   anchor: AnchorPayload;
+  /**
+   * `seq` de la inserción o el borrado que dejó elegido este evento (ADR-0033): con la misma ancla
+   * puede ser otro evento, y la vista lo vuelve a anunciar. Se conserva al llevarla a otro estado.
+   */
+  placedBy?: number;
 }
 
 interface SelectionState {

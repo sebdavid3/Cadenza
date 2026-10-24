@@ -174,6 +174,78 @@ function parseMusicXml(xml: string): Document {
   if (document.getElementsByTagName("parsererror").length > 0) {
     throw new Error("El MusicXML no es XML válido");
   }
+  return withInitialAttributes(document);
+}
+
+/** Hijos de `<attributes>` que van antes que la armadura, y los que van después de la clave. */
+const BEFORE_KEY = new Set(["footnote", "level", "divisions"]);
+const AFTER_CLEF = new Set([
+  "staff-details",
+  "transpose",
+  "for-part",
+  "directive",
+  "measure-style",
+]);
+
+const childrenNamed = (parent: Element, name: string) =>
+  [...parent.children].filter((child) => child.localName === name);
+
+/** Pentagrama de una clave: el de su `number`, o el primero (MusicXML). */
+const clefStaff = (clef: Element) => clef.getAttribute("number") ?? "1";
+
+/**
+ * Escribe en el primer compás de cada parte la armadura y la clave que el MusicXML deja sin
+ * escribir cuando otro compás las cambia. Sin ellas, OSMD 2.2.1 toma la primera que encuentra y
+ * la dibuja desde el principio: un cambio de armadura en el compás 2 de una partitura sin
+ * armadura salía en el compás 1, y sus notas con becuadros (ADR-0033). Sin armadura es «sin
+ * alteraciones» y sin clave, la de sol, como las entiende la vista (`activeFifths`, `activeClef`).
+ * Solo cambia lo que se dibuja: la descarga es el MusicXML exportado tal cual.
+ */
+export function withInitialAttributes(document: Document): Document {
+  const namespace = document.documentElement.namespaceURI;
+  const create = (name: string, children: Record<string, string>) => {
+    const element = document.createElementNS(namespace, name);
+    for (const [child, text] of Object.entries(children)) {
+      const node = document.createElementNS(namespace, child);
+      node.textContent = text;
+      element.appendChild(node);
+    }
+    return element;
+  };
+  for (const part of [...document.getElementsByTagName("part")]) {
+    const [first, ...later] = childrenNamed(part, "measure");
+    if (!first) continue;
+    const attributesOf = (measure: Element) => childrenNamed(measure, "attributes");
+    const laterAttributes = later.flatMap(attributesOf);
+    const firstAttributes = attributesOf(first);
+    const has = (name: string, attributes: Element[]) =>
+      attributes.flatMap((element) => childrenNamed(element, name));
+    const missingKey =
+      has("key", firstAttributes).length === 0 && has("key", laterAttributes).length > 0;
+    const firstClefs = new Set(has("clef", firstAttributes).map(clefStaff));
+    const missingClefs = [...new Set(has("clef", laterAttributes).map(clefStaff))].filter(
+      (staff) => !firstClefs.has(staff),
+    );
+    if (!missingKey && missingClefs.length === 0) continue;
+
+    let attributes = firstAttributes[0];
+    if (!attributes) {
+      attributes = document.createElementNS(namespace, "attributes");
+      const print = childrenNamed(first, "print")[0];
+      first.insertBefore(attributes, print ? print.nextSibling : first.firstChild);
+    }
+    if (missingKey) {
+      const after = [...attributes.children].find((child) => !BEFORE_KEY.has(child.localName));
+      attributes.insertBefore(create("key", { fifths: "0" }), after ?? null);
+    }
+    const staves = Number(childrenNamed(attributes, "staves")[0]?.textContent ?? "1");
+    for (const staff of missingClefs) {
+      const clef = create("clef", { sign: "G", line: "2" });
+      if (staves > 1) clef.setAttribute("number", staff);
+      const before = [...attributes.children].find((child) => AFTER_CLEF.has(child.localName));
+      attributes.insertBefore(clef, before ?? null);
+    }
+  }
   return document;
 }
 

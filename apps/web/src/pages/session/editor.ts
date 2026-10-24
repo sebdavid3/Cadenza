@@ -4,16 +4,16 @@ import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type { AnchorPayload, SessionDetailRead } from "../../types";
 import {
-  activeFifths,
   carryAnchor,
-  eventAt,
-  planAgain,
-  planEdit,
-  type DecidedEdit,
+  planCommand,
+  replan,
   type EditCommand,
   type EditPlan,
+  type EditRequestLike,
   type EditTarget,
 } from "./edits";
+import { anchorKey } from "./noteMap";
+import { useSelectionStore } from "./selection";
 import {
   fetchSessionDetail,
   postEdit,
@@ -23,13 +23,22 @@ import {
   sessionTimingQuery,
 } from "./session";
 
-/** Edición enviada: qué se pidió, sobre qué evento y en qué estado (ADR-0011). */
-export interface EditRequest extends DecidedEdit {
-  anchor: AnchorPayload;
-  baseSeq: number;
-  /** Qué cambia, dicho: «altura Re 4». */
-  change: string;
-}
+/**
+ * Edición enviada: lo que se pidió (con qué se dice y qué queda elegido al guardarla), sobre qué
+ * ancla y en qué estado (ADR-0011).
+ */
+export type EditRequest = Extract<EditPlan, { kind: "edit" }> &
+  EditRequestLike & {
+    /** Evento elegido cuando se dio la orden, en el estado `baseSeq`. */
+    target: AnchorPayload;
+  };
+
+/** La edición que pide un plan sobre el evento elegido, en el estado `baseSeq`. */
+const requestOf = (
+  plan: Extract<EditPlan, { kind: "edit" }>,
+  target: AnchorPayload,
+  baseSeq: number,
+): EditRequest => ({ ...plan, anchor: plan.anchor ?? target, baseSeq, target });
 
 /**
  * Qué pasó con la última orden. Mientras se guarda o si no se sabe en qué estado quedó la sesión
@@ -139,6 +148,8 @@ export function useEditor(
   // Último estado que se sabe que tiene el servidor: hasta que la vista lo muestre no se edita.
   const [knownSeq, setKnownSeq] = useState<number | null>(null);
   const inFlight = useRef(false);
+  // Una edición guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
+  const pendingPlacement = useRef<{ request: EditRequest; seq: number } | null>(null);
   const nonce = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(
@@ -150,8 +161,30 @@ export function useEditor(
 
   const detailKey = sessionDetailQuery(api, sessionId).queryKey;
 
-  /** Carga el estado actual del servidor con todo lo que la vista pide de él, y lo muestra. */
-  async function refresh(signal: AbortSignal) {
+  /**
+   * Tras guardar una inserción o un borrado, elige el evento que dice la edición en el estado
+   * `seq` que acaba de crear (ADR-0033), si sigue elegido el evento sobre el que se dio la orden:
+   * lo que la persona eligiera mientras se guardaba se respeta. Lo demás lo lleva la vista.
+   */
+  function place(request: EditRequest, seq: number) {
+    if (request.select === undefined) return;
+    const { selection, select, clear } = useSelectionStore.getState();
+    if (
+      selection?.sessionId !== sessionId ||
+      selection.seq !== request.baseSeq ||
+      anchorKey(selection.anchor) !== anchorKey(request.target)
+    ) {
+      return;
+    }
+    if (request.select === null) clear();
+    else select({ sessionId, seq, anchor: request.select, placedBy: seq });
+  }
+
+  /**
+   * Carga el estado actual del servidor con todo lo que la vista pide de él, y lo muestra.
+   * `beforeShow` se hace justo antes de mostrarlo, en el mismo paso.
+   */
+  async function refresh(signal: AbortSignal, beforeShow?: () => void) {
     const fresh = await fetchSessionDetail(api, sessionId, signal);
     const seq = fresh.current_seq ?? 0;
     // Si algo no llega, no se deja de mostrar el estado: la vista lo pide y lo dice como siempre.
@@ -166,6 +199,7 @@ export function useEditor(
     await queryClient.cancelQueries({ queryKey: detailKey });
     if (signal.aborted) return null;
     setKnownSeq(seq);
+    beforeShow?.();
     queryClient.setQueryData(detailKey, fresh);
     return fresh;
   }
@@ -188,8 +222,9 @@ export function useEditor(
     const cancelled = () => signal.aborted;
     setStatus({ kind: "saving", request });
     try {
+      let saved: number;
       try {
-        await postEdit(
+        const edit = await postEdit(
           api,
           sessionId,
           {
@@ -202,6 +237,7 @@ export function useEditor(
           },
           signal,
         );
+        saved = edit.seq;
       } catch (error) {
         if (cancelled()) return;
         if (!(error instanceof ApiError && error.kind === "conflict")) {
@@ -218,8 +254,11 @@ export function useEditor(
         else setStatus({ kind: fresh.status === "finalized" ? "closed" : "conflict", request });
         return;
       }
-      const fresh = await refresh(signal).catch(() => null);
+      const fresh = await refresh(signal, () => {
+        place(request, saved);
+      }).catch(() => null);
       if (cancelled()) return;
+      if (!fresh) pendingPlacement.current = { request, seq: saved };
       setStatus(fresh ? { kind: "saved", request } : { kind: "unsynced", request });
     } finally {
       inFlight.current = false;
@@ -231,7 +270,12 @@ export function useEditor(
     if (!controller) return;
     setStatus({ kind: "reloading" });
     try {
-      const fresh = await refresh(controller.signal).catch(() => null);
+      // Si se guardó una edición sin poder mostrar su estado, la recarga deja elegido lo que ella dejaba.
+      const fresh = await refresh(controller.signal, () => {
+        const pending = pendingPlacement.current;
+        pendingPlacement.current = null;
+        if (pending) place(pending.request, pending.seq);
+      }).catch(() => null);
       if (controller.signal.aborted) return;
       setStatus({ kind: fresh ? "reloaded" : "reload-failed" });
     } finally {
@@ -246,7 +290,7 @@ export function useEditor(
   /** Una orden sobre el evento elegido: se envía o se dice por qué no. */
   function run(command: EditCommand, target: EditTarget | null) {
     if (blocked || !score) return;
-    const plan = planEdit(command, target, target ? activeFifths(score, target.anchor) : 0);
+    const plan = planCommand(command, target, score);
     if (plan.kind === "refused") {
       nonce.current += 1;
       const refused = { message: plan.message, nonce: nonce.current };
@@ -255,28 +299,26 @@ export function useEditor(
       return;
     }
     if (!target) return;
-    const { op, after, change } = plan;
-    void send({ op, after, anchor: target.anchor, baseSeq: seq, change });
+    void send(requestOf(plan, target.anchor, seq));
   }
 
   /**
    * Tras un 409, la misma edición sobre el estado recargado, si el ancla sigue designando el
-   * mismo evento y no lo tiene ya. Solo se envía si la persona lo pide.
+   * mismo evento (o el mismo compás, la clave y la armadura) y no tiene ya ese valor. Solo se
+   * envía si la persona lo pide.
    */
-  let retry: { plan: EditPlan; anchor: AnchorPayload | null } | null = null;
-  if (status.kind === "conflict" && detail && score) {
-    const anchor = carryAnchor(status.request.anchor, status.request.baseSeq, detail);
-    const found = anchor ? eventAt(score, anchor) : null;
-    retry = {
-      plan: planAgain(status.request, anchor && found ? { anchor, ...found } : null),
-      anchor,
-    };
-  }
+  const retry: { plan: EditPlan; anchor: AnchorPayload | null } | null =
+    status.kind === "conflict" && detail && score ? replan(status.request, detail) : null;
 
   function reapply() {
     if (blocked || retry?.plan.kind !== "edit" || !retry.anchor) return;
-    const { op, after, change } = retry.plan;
-    void send({ op, after, anchor: retry.anchor, baseSeq: seq, change });
+    // El evento elegido, llevado al estado recargado: en un acorde no es el ancla de la inserción,
+    // y es el que tiene que seguir elegido para que la edición deje elegido el evento nuevo.
+    const chosen =
+      status.kind === "conflict" && detail
+        ? carryAnchor(status.request.target, status.request.baseSeq, detail)
+        : null;
+    void send(requestOf(retry.plan, chosen ?? retry.anchor, seq));
   }
 
   return { status, refusal, blocked, run, reload, retry, reapply };
