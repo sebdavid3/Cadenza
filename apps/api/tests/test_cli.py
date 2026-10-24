@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import cli
+from cadenza.api.security import Argon2PasswordHasher
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -71,19 +72,24 @@ def test_create_investigator_still_accepts_the_password_argument(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = _database(tmp_path, monkeypatch)
+    # Hexadecimal y no `token_urlsafe`: una contraseña que empieza por «-» (una de cada 64 de
+    # `token_urlsafe`) argparse la toma por otra opción y la prueba fallaba al azar (#223).
+    password = secrets.token_hex(12)
+
+    def no_prompt(_prompt: str) -> str:
+        raise AssertionError("con --password la CLI no pide la contraseña")
+
+    monkeypatch.setattr("getpass.getpass", no_prompt)
     monkeypatch.setattr(
         sys,
         "argv",
-        [
-            "cli",
-            "create-investigator",
-            "--username",
-            "admin",
-            "--password",
-            secrets.token_urlsafe(12),
-        ],
+        ["cli", "create-investigator", "--username", "admin", "--password", password],
     )
 
     cli.main()
 
     assert _usernames(url) == ["admin"]
+    # La cuenta guarda la contraseña que se pasó, no otra.
+    with create_session_factory(create_engine_for_url(url))() as db:
+        (user,) = SqlAlchemyUserRepository(db).list()
+    assert Argon2PasswordHasher().verify(password, user.password_hash)
