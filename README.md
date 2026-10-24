@@ -102,7 +102,7 @@ detalle, las dependencias y el criterio de cierre están en
 | Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Corregir altura, duración y alteración de la nota elegida, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182), D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Dataset sin cuentas del registro (D55), API sin root (D57), clave de firma con longitud mínima (D58) y límites del registro abierto (D59, alcance por decidir) |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Dataset sin cuentas del registro (D55), API sin root (D57) y límites del registro abierto (D59, alcance por decidir). La longitud mínima de la clave de firma (D58) ya está hecha |
 | Después de la fase 8 | — | Estudio de esfuerzo con participantes (D38) |
 
 ---
@@ -192,7 +192,7 @@ proceso. Para desarrollo basta con SQLite y HOMR instalado.
 **PowerShell (Windows):**
 
 ```powershell
-$env:CADENZA_AUTH_SECRET_KEY = "<cadena aleatoria de 32 caracteres o más>"
+$env:CADENZA_AUTH_SECRET_KEY = "<cadena aleatoria de 32 bytes o más>"
 $env:CADENZA_DATABASE_URL    = "sqlite+pysqlite:///C:/ruta/fuera/del/repo/cadenza.db"
 $env:CADENZA_ARTIFACTS_DIR   = "C:\ruta\fuera\del\repo\artifacts"
 $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
@@ -201,7 +201,7 @@ $env:CADENZA_OMR_USE_GPU     = "false"    # "true" para HOMR en GPU
 **Bash (Linux, macOS):**
 
 ```bash
-export CADENZA_AUTH_SECRET_KEY="<cadena aleatoria de 32 caracteres o más>"
+export CADENZA_AUTH_SECRET_KEY="<cadena aleatoria de 32 bytes o más>"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"        # "true" para HOMR en GPU
@@ -236,7 +236,7 @@ Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proce
 
 | Variable | Por defecto | Uso |
 |---|---|---|
-| `CADENZA_AUTH_SECRET_KEY` | *(vacía)* | Clave de firma de los tokens JWT. **Obligatoria**: sin ella la API no arranca. |
+| `CADENZA_AUTH_SECRET_KEY` | *(vacía)* | Clave de firma de los tokens JWT. **Obligatoria y de 32 bytes como mínimo** (por ejemplo, `openssl rand -hex 32`): sin ella, o con una más corta, la API no arranca. |
 | `CADENZA_DATABASE_URL` | `sqlite+pysqlite:///./cadenza.db` | URL de SQLAlchemy: SQLite en local, PostgreSQL en despliegue. |
 | `CADENZA_ARTIFACTS_DIR` | `./data/artifacts` | Directorio del almacén de artefactos (imágenes y exportaciones). |
 | `CADENZA_OMR_USE_GPU` | `false` | Intentar la inferencia de HOMR en GPU. |

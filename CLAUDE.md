@@ -30,7 +30,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 - **Fase 8, trabajo siguiente, por orden de dependencias:**
   1. Corrección sobre la partitura, sobre la nota elegida de #182: #183 (altura, duración y alteración) → #184 (insertar, borrar, clave y armadura), #185 (deshacer y rehacer) y #186 (descartar, restaurar y revalidar).
   2. Cierre: #191 (D55: el dataset sin las cuentas del registro) → #187 (finalizar y reabrir) → #188 (métricas de esfuerzo).
-  - Sin dependencias, en cualquier momento: #189 (descargar el MIDI), #190 (cambiar la contraseña) y, en el milestone del despliegue, #192 (D57) y #193 (D58).
+  - Sin dependencias, en cualquier momento: #189 (descargar el MIDI), #190 (cambiar la contraseña) y, en el milestone del despliegue, #192 (D57); #193 (D58) ya está hecho.
 - **Alcance por decidir (no implementar sin consultar):** #102 (evaluación real sobre SMB y MUSCIMA++) y #103 (ajuste fino real del modelo OMR), que no forman parte de la Fase 8, y #194 (límites del registro abierto, D59), que espera una decisión de política.
 - **Después de la Fase 8:** el estudio de esfuerzo con participantes (D38, `docs/experimentos/protocolo_medicion_esfuerzo.md`), que necesita la corrección y las métricas de esfuerzo.
 
