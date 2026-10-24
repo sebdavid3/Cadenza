@@ -22,16 +22,17 @@ En ninguno de los dos casos la figura suma tiempo para el `ScoreIR`: el mapa de 
 
 - Con `getGrace()`, music21 escribe `<grace slash="yes"/>`, sin `<duration>`.
 - La importación devuelve duración 0, también para la que era nula.
-- El MIDI se sigue generando.
+- El MIDI se genera, pero music21 escribe el note-off de una nota de duración 0 antes que su note-on, en el mismo instante: la nota de adorno se queda sonando sin fin. Con un acorde de adorno, quedan todas sus notas.
 - OSMD dibuja la nota de adorno en la columna de la nota siguiente, antes de ella, con `IsGrace`. Si va al final del compás, la dibuja después de la última nota.
 - VexFlow anida el SVG de la nota de adorno en los modificadores de la nota a la que adorna.
 
 ## Decisión
 
 1. **Una nota o un acorde de duración cero o nula se escribe como nota de adorno.** Se usa music21 `getGrace()`, que da `<grace/>` con la figura por defecto y la barra. La nota no adelanta el instante de la siguiente, así que lo dibujado suma lo mismo que el `ScoreIR`, el mapa de tiempos y el validador.
-2. **Un silencio de duración cero o nula sigue saliendo como silencio de negra.** MusicXML no tiene silencios de adorno, y HOMR no los da en el corpus medido.
-3. **La selección de notas (ADR-0027) lo sigue.** A una nota sin duración le corresponde exactamente una figura de adorno, con sus alturas y sin sumar tiempo; a un silencio sin duración, un silencio de negra. La caja de cada nota es la de su cabeza propia: no la de las notas de adorno que VexFlow anida en ella ni la de sus puntillos.
-4. **Dibujar ahora la negra de antes es un desajuste.** Si una nota sin duración aparece dibujada como negra (un exportador anterior), el emparejamiento la da por no coincidente y la selección no se ofrece.
+2. **Un silencio de duración cero o nula sigue saliendo como silencio de negra.** MusicXML no tiene silencios de adorno, y HOMR no los da en el corpus medido. Ocupa el tiempo de la negra que se escribe, de modo que una nota de adorno que lo siga no se adelanta a él.
+3. **El MIDI deja fuera las notas de adorno.** No ocupan tiempo y la vista no las reproduce (ADR-0026); dentro del MIDI quedarían sonando sin fin.
+4. **La selección de notas (ADR-0027) lo sigue.** A una nota sin duración le corresponde exactamente una figura de adorno, con sus alturas y sin sumar tiempo; a un silencio sin duración, un silencio de negra. La caja de cada nota es la de su cabeza propia: no la de las notas de adorno que VexFlow anida en ella ni la de sus puntillos.
+5. **Dibujar ahora la negra de antes es un desajuste.** Si una nota sin duración aparece dibujada como negra (un exportador anterior), el emparejamiento la da por no coincidente y la selección no se ofrece.
 
 ## Consecuencias
 
@@ -46,7 +47,8 @@ En ninguno de los dos casos la figura suma tiempo para el `ScoreIR`: el mapa de 
 ### Negativas / Riesgos
 - **Figura y barra de adorno.** El `ScoreIR` no guarda la figura ni si la nota de adorno lleva barra. Se escribe con la de music21 (negra con barra), que puede no ser la del original.
 - **Duración nula.** Una duración nula, que no es lo mismo que cero, también se dibuja como nota de adorno, y al reimportarla queda en 0.
-- **MIDI.** Lo que hace music21 con una nota de adorno al escribir el MIDI no se ha escuchado. La reproducción de la vista no usa el MIDI (ADR-0026).
+- **MIDI.** Las notas de adorno no suenan en el MIDI exportado, tampoco en su descarga (#189). Se comprueba leyendo el MIDI de vuelta: ninguna nota se queda sin soltar. Nadie lo ha escuchado.
+- **Navegación.** Una nota de adorno empieza en el mismo instante que la nota a la que adorna: al pasar de voz o de pentagrama con ↑ y ↓, el empate se resuelve a favor de la nota.
 - **Silencio de duración cero.** Sigue dibujándose como negra, sin correspondencia exacta.
 
 ## Alternativas consideradas
