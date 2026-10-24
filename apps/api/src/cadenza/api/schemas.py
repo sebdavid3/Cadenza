@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from cadenza.application import EffortMetricsData, PersistedFinding, User
 from cadenza.domain import Anchor, EditEvent, EditOp
@@ -88,6 +88,50 @@ class KeySignaturePayload(BaseModel):
     mode: str | None = Field(default=None, description="Modo armónico opcional ('major', 'minor')")
 
 
+ArticulationName = Literal["staccato", "staccatissimo", "accent", "marcato", "tenuto"]
+DynamicName = Literal["ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "sf", "sfz", "fp", "fz"]
+
+
+class SlurPayload(BaseModel):
+    """Extremo de una ligadura de expresión en un evento (ADR-0031)."""
+
+    type: Literal["start", "stop"] = Field(description="Inicio ('start') o fin ('stop')")
+    number: int = Field(
+        ge=1,
+        description=(
+            "Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, "
+            "que no se reutiliza"
+        ),
+    )
+
+
+class DynamicPayload(BaseModel):
+    """Dinámica en una posición del compás; rige su pentagrama (ADR-0031)."""
+
+    mark: DynamicName = Field(description="Indicación dinámica")
+    offset_beats: str = Field(
+        description="Ataque en negras desde el inicio del compás, como fracción ('0', '3/2')"
+    )
+
+
+class WedgePayload(BaseModel):
+    """Extremo de un regulador en una posición del compás (ADR-0031)."""
+
+    type: Literal["crescendo", "diminuendo", "stop"] = Field(
+        description="El inicio dice si es de crescendo o de diminuendo; el fin es 'stop'"
+    )
+    number: int = Field(
+        ge=1,
+        description=(
+            "Identifica el regulador dentro de su parte: su inicio y su fin comparten número, "
+            "que no se reutiliza"
+        ),
+    )
+    offset_beats: str = Field(
+        description="Posición en negras desde el inicio del compás, como fracción ('0', '3/2')"
+    )
+
+
 class ScoreEventPayload(BaseModel):
     """Evento musical individual en un compás (nota, silencio, etc.)."""
 
@@ -110,6 +154,15 @@ class ScoreEventPayload(BaseModel):
         default=None, description="Puntuación de confianza del reconocimiento"
     )
     ir_handle: str | None = Field(default=None, description="Manejador de referencia interna")
+    articulations: list[ArticulationName] = Field(
+        default_factory=list,
+        description="Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031)",
+    )
+    fermata: bool = Field(default=False, description="Indica si el evento lleva calderón")
+    slurs: list[SlurPayload] = Field(
+        default_factory=list,
+        description="Extremos de ligadura de expresión que empiezan o acaban en el evento",
+    )
 
 
 class MeasurePayload(BaseModel):
@@ -123,6 +176,13 @@ class MeasurePayload(BaseModel):
     clef: ClefPayload | None = Field(default=None, description="Clave musical activa en el compás")
     key_signature: KeySignaturePayload | None = Field(
         default=None, description="Armadura de clave activa"
+    )
+    dynamics: list[DynamicPayload] = Field(
+        default_factory=list, description="Dinámicas del compás, por su posición (ADR-0031)"
+    )
+    wedges: list[WedgePayload] = Field(
+        default_factory=list,
+        description="Extremos de regulador del compás, por su posición (ADR-0031)",
     )
 
 

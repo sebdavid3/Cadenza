@@ -2277,6 +2277,41 @@
         "title": "DismissFindingRequest",
         "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
       },
+      "DynamicPayload": {
+        "properties": {
+          "mark": {
+            "type": "string",
+            "enum": [
+              "ppp",
+              "pp",
+              "p",
+              "mp",
+              "mf",
+              "f",
+              "ff",
+              "fff",
+              "sf",
+              "sfz",
+              "fp",
+              "fz"
+            ],
+            "title": "Mark",
+            "description": "Indicación dinámica"
+          },
+          "offset_beats": {
+            "type": "string",
+            "title": "Offset Beats",
+            "description": "Ataque en negras desde el inicio del compás, como fracción ('0', '3/2')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mark",
+          "offset_beats"
+        ],
+        "title": "DynamicPayload",
+        "description": "Dinámica en una posición del compás; rige su pentagrama (ADR-0031)."
+      },
       "EditEventCreate": {
         "properties": {
           "base_seq": {
@@ -2885,6 +2920,22 @@
               }
             ],
             "description": "Armadura de clave activa"
+          },
+          "dynamics": {
+            "items": {
+              "$ref": "#/components/schemas/DynamicPayload"
+            },
+            "type": "array",
+            "title": "Dynamics",
+            "description": "Dinámicas del compás, por su posición (ADR-0031)"
+          },
+          "wedges": {
+            "items": {
+              "$ref": "#/components/schemas/WedgePayload"
+            },
+            "type": "array",
+            "title": "Wedges",
+            "description": "Extremos de regulador del compás, por su posición (ADR-0031)"
           }
         },
         "type": "object",
@@ -3207,6 +3258,35 @@
             ],
             "title": "Ir Handle",
             "description": "Manejador de referencia interna"
+          },
+          "articulations": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "staccato",
+                "staccatissimo",
+                "accent",
+                "marcato",
+                "tenuto"
+              ]
+            },
+            "type": "array",
+            "title": "Articulations",
+            "description": "Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031)"
+          },
+          "fermata": {
+            "type": "boolean",
+            "title": "Fermata",
+            "description": "Indica si el evento lleva calderón",
+            "default": false
+          },
+          "slurs": {
+            "items": {
+              "$ref": "#/components/schemas/SlurPayload"
+            },
+            "type": "array",
+            "title": "Slurs",
+            "description": "Extremos de ligadura de expresión que empiezan o acaban en el evento"
           }
         },
         "type": "object",
@@ -3439,6 +3519,32 @@
         ],
         "title": "SessionSummaryRead",
         "description": "Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."
+      },
+      "SlurPayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ],
+            "title": "Type",
+            "description": "Inicio ('start') o fin ('stop')"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Number",
+            "description": "Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, que no se reutiliza"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "number"
+        ],
+        "title": "SlurPayload",
+        "description": "Extremo de una ligadura de expresión en un evento (ADR-0031)."
       },
       "StaffPayload": {
         "properties": {
@@ -3866,6 +3972,39 @@
         "type": "object",
         "title": "VersionResponse",
         "description": "Versión de la API y del servicio."
+      },
+      "WedgePayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "crescendo",
+              "diminuendo",
+              "stop"
+            ],
+            "title": "Type",
+            "description": "El inicio dice si es de crescendo o de diminuendo; el fin es 'stop'"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Number",
+            "description": "Identifica el regulador dentro de su parte: su inicio y su fin comparten número, que no se reutiliza"
+          },
+          "offset_beats": {
+            "type": "string",
+            "title": "Offset Beats",
+            "description": "Posición en negras desde el inicio del compás, como fracción ('0', '3/2')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "number",
+          "offset_beats"
+        ],
+        "title": "WedgePayload",
+        "description": "Extremo de un regulador en una posición del compás (ADR-0031)."
       }
     },
     "securitySchemes": {
