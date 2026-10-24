@@ -204,10 +204,16 @@ El 2026-10-23 la caché llegó a 42,43 GB (231 entradas, todas de Cadenza), con 
 **Tope.** `deploy/limpieza-docker.sh` deja la caché de construcción en `CADENZA_BUILD_CACHE_MAX` como mucho (10 GB por defecto), quedándose con lo usado más recientemente, y borra las imágenes colgantes.
 - No toca volúmenes, contenedores ni imágenes con nombre, tampoco las de otros proyectos del servidor. La caché de construcción y las imágenes colgantes sí son de todo el servidor.
 - El tope es un objetivo: la caché que respalda imágenes existentes no se libera. Con 3 GB, la prueba dejó 4,9 GB, y la reconstrucción siguiente tardó 9 s.
-- Corre después de cada actualización (el procedimiento de arriba) y, con esta línea en el cron de `papoi`, cada domingo después de la copia diaria. La línea se añade a `~/scripts/crontab-papoi.txt` y se instala con `crontab ~/scripts/crontab-papoi.txt`; la instala el responsable:
+- Corre después de cada actualización (el procedimiento de arriba) y cada domingo desde el cron de `papoi`, después de la copia diaria. El servidor está en `Etc/UTC`. La línea está también en `~/scripts/crontab-papoi.txt`, desde el que se instala ese crontab. Se instaló el 2026-10-24 ([#207](https://github.com/sebdavid3/Cadenza/issues/207)); la versión anterior del archivo quedó en `crontab-papoi.txt.antes-205`:
 
 ```cron
 45 4 * * 0 /bin/sh /opt/docker/cadenza/deploy/limpieza-docker.sh >> /opt/docker/cadenza/backups/limpieza-docker.log 2>&1
+```
+
+Comprobado al instalarla: la orden de la línea, con el entorno mínimo de cron (`env -i` con `PATH=/usr/bin:/bin`), termina con 0 y deja en `limpieza-docker.log` las líneas «antes» y «después». La primera ejecución programada es el domingo 2026-10-25 a las 04:45 UTC. Para ver cómo va:
+
+```bash
+tail -n 4 /opt/docker/cadenza/backups/limpieza-docker.log
 ```
 
 Quedan fuera, a decisión del responsable:
