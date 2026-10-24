@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
@@ -7,12 +7,21 @@ import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import type { FindingRead } from "../../types";
 import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
-import { useEditor } from "./editor";
+import { useEditor, type Editor } from "./editor";
 import { carryAnchor } from "./edits";
-import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
+import { useFindingActions } from "./findingActions";
+import {
+  findingLabel,
+  findingPlace,
+  measureMarks,
+  measuresPerStaff,
+  splitFindings,
+  validationState,
+} from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
 import { historyKey, isTextField } from "./history";
 import { HistoryPanel } from "./HistoryPanel";
@@ -28,6 +37,7 @@ import {
   sessionFullImageQuery,
   sessionMusicXmlQuery,
   sessionTimingQuery,
+  validatedSeqQuery,
 } from "./session";
 import "./session.css";
 
@@ -78,6 +88,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const musicXml = useQuery({ ...sessionMusicXmlQuery(api, sessionId, seq), enabled: ready });
   const image = useQuery({ ...sessionFullImageQuery(api, sessionId), enabled: ready });
   const timing = useQuery({ ...sessionTimingQuery(api, sessionId, seq), enabled: ready });
+  // La última validación que se sabe hecha desde esta pestaña (ADR-0035).
+  const knownValidated = useQuery(validatedSeqQuery(sessionId)).data ?? null;
 
   const ownerId = detail.data?.owner_id ?? null;
   const foreign = isResearcher && ownerId !== null && ownerId !== user.id;
@@ -98,6 +110,15 @@ function SessionView({ sessionId }: { sessionId: string }) {
     [score, active],
   );
   const expected = useMemo(() => (score ? measuresPerStaff(score) : []), [score]);
+  const multiStaff = expected.length > 1;
+  const validation = useMemo(
+    () => validationState(findings.data ?? [], seq, knownValidated),
+    [findings.data, seq, knownValidated],
+  );
+  const placeOf = useCallback(
+    (finding: FindingRead) => findingPlace(score, finding, multiStaff),
+    [score, multiStaff],
+  );
   // Lo que se dibuja es siempre un estado entero: el MusicXML, el `ScoreIR` y el `seq` del mismo.
   const snapshot = useMemo<ScoreSnapshot | null>(
     () =>
@@ -137,14 +158,22 @@ function SessionView({ sessionId }: { sessionId: string }) {
     else clearSelection();
   }, [detail.data, sessionId, seq, select, clearSelection]);
 
-  const editor = useEditor(api, sessionId, detail.data);
+  // El editor del último render: lo usan las órdenes que llegan después (el teclado, una
+  // revalidación que encuentra el servidor por delante).
+  const editorRef = useRef<Editor | null>(null);
+  const findingActions = useFindingActions(api, sessionId, {
+    seq,
+    labelOf: (finding) => findingLabel(score, finding, multiStaff),
+    reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
+  });
+  // Mientras se revalida, las correcciones esperan: cambiarían el estado validado (ADR-0035).
+  const editor = useEditor(api, sessionId, detail.data, findingActions.revalidating);
   const editKeysId = useId();
   // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y
   // rehacer (con la partitura dibujada o sin poder dibujarse, no mientras carga), salvo en un
   // campo de texto, que tiene su propio deshacer (ADR-0034). La escucha lee el editor del último
   // render.
   const undoShown = editable && (snapshot !== null || musicXml.isError);
-  const editorRef = useRef(editor);
   useLayoutEffect(() => {
     editorRef.current = editor;
   });
@@ -156,8 +185,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
       event.preventDefault();
       // Mantener la tecla pulsada no encadena órdenes: cada una es una edición del log (D38).
       if (event.repeat) return;
-      if (action === "undo") editorRef.current.undo();
-      else editorRef.current.redo();
+      if (action === "undo") editorRef.current?.undo();
+      else editorRef.current?.redo();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -287,7 +316,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           target={target}
                           available={available}
                           score={snapshot.transcription}
-                          multiStaff={expected.length > 1}
+                          multiStaff={multiStaff}
                           keysId={editKeysId}
                           focusScore={focusScore}
                           focusMemoryRef={editorFocusRef}
@@ -308,7 +337,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     target={null}
                     available={false}
                     score={score}
-                    multiStaff={expected.length > 1}
+                    multiStaff={multiStaff}
                     keysId={editKeysId}
                     focusMemoryRef={editorFocusRef}
                   />
@@ -343,21 +372,37 @@ function SessionView({ sessionId }: { sessionId: string }) {
             marks={marks}
             unplaced={unplaced}
             dismissed={dismissed}
-            staleSeq={staleValidationSeq(findings.data ?? [], seq)}
+            validation={validation}
             edits={edits}
-            multiStaff={expected.length > 1}
+            multiStaff={multiStaff}
             selectable={placed && musicXml.isSuccess}
             selectedKey={selectedKey}
             onSelect={setSelectedKey}
             status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
             errorText={findings.isError ? errorMessage(findings.error) : undefined}
             onRetry={() => void findings.refetch()}
+            placeOf={placeOf}
+            message={findingActions.message}
+            actions={
+              editable
+                ? {
+                    busy: findingActions.busy,
+                    editorBusy:
+                      editor.status.kind === "saving" || editor.status.kind === "reloading",
+                    pendingId: findingActions.pendingId,
+                    onDismiss: findingActions.dismiss,
+                    onRestore: findingActions.restore,
+                    onRevalidate: findingActions.revalidate,
+                    onReload: editor.reload,
+                  }
+                : undefined
+            }
           />
           {detail.data && (
             <HistoryPanel
               edits={detail.data.edits}
               score={detail.data.current_score ?? null}
-              multiStaff={expected.length > 1}
+              multiStaff={multiStaff}
             />
           )}
         </div>

@@ -800,6 +800,11 @@
   text-transform: uppercase;
 }
 
+/* El título recibe el foco cuando lo que lo tenía desaparece (un descarte, una revalidación). */
+.findings__title:focus-visible {
+  outline-offset: 3px;
+}
+
 .findings__count {
   min-width: 2.5rem;
   padding: 6px var(--space-2);
@@ -819,10 +824,33 @@
 }
 
 .findings__stale {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   border: var(--rule);
   font-size: var(--text-small);
   font-weight: 500;
+}
+
+/* Lo que pasó con la última orden sobre los posibles errores; vacío, no ocupa sitio. */
+.findings__status {
+  max-width: 48ch;
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+.findings__status:empty {
+  margin-top: calc(var(--space-4) * -1);
+}
+
+/* Con algo que decir, la lista no sube a pegarse a él como hace bajo el título. */
+.findings__status:not(:empty) + .findings__list {
+  margin-top: 0;
+}
+
+.findings__revalidate {
+  justify-self: start;
 }
 
 .findings__error {
@@ -841,6 +869,11 @@
   list-style: none;
 }
 
+/* Cada compás de la lista, con sus acciones debajo, cierra con un filete. */
+.findings__entry {
+  border-bottom: var(--rule);
+}
+
 /* Cada compás es un conmutador: al pulsarlo se resalta y se trae a la vista en la partitura. */
 .findings__item {
   display: grid;
@@ -849,7 +882,6 @@
   width: 100%;
   padding: var(--space-4) var(--space-3);
   border: 0;
-  border-bottom: var(--rule);
   background: var(--color-paper);
   text-align: left;
   cursor: pointer;
@@ -901,6 +933,79 @@ button.findings__item:hover {
 
 .findings__message {
   max-width: 48ch;
+}
+
+/* Acciones sobre los posibles errores de un compás: enlaces de rótulo bajo su texto. */
+.findings__actions {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-3);
+}
+
+.findings__control {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+}
+
+.findings__action[aria-disabled="true"] {
+  color: var(--color-ink-muted);
+  text-decoration-style: dashed;
+  cursor: not-allowed;
+}
+
+/* El formulario del descarte, enmarcado bajo el botón que lo abre. */
+.findings__dismiss {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: var(--rule);
+}
+
+.findings__dismiss-note {
+  max-width: 48ch;
+  font-size: var(--text-small);
+}
+
+.findings__field {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.findings__input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  border-radius: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 1rem;
+}
+
+.findings__input:focus-visible {
+  outline-offset: 0;
+}
+
+.findings__dismiss-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+/* A 390 px el rótulo no cabe en una línea: se parte en lugar de desbordar el formulario. */
+.findings__dismiss-actions .button {
+  white-space: normal;
+  text-align: center;
+}
+
+.findings__dismiss-actions .link-button[aria-disabled="true"] {
+  color: var(--color-ink-muted);
+  cursor: not-allowed;
 }
 
 /* Descartados: filete discontinuo, el patrón de lo que ya no pide acción. */

@@ -168,12 +168,14 @@ interface Outcome {
  * es una edición con el `base_seq` del estado que se ve; nada se da por guardado sin el 201 (o el
  * 200 de `POST /undo`). Tras él, o tras un 409, se pide el detalle de la sesión y, antes de
  * mostrarlo, el MusicXML, los posibles errores y los tiempos de ese estado: la vista pasa de un
- * estado al otro de una vez. Un 409 nunca se reintenta solo.
+ * estado al otro de una vez. Un 409 nunca se reintenta solo. Con `held`, las órdenes esperan: se
+ * está revalidando y una edición cambiaría el estado validado (ADR-0035).
  */
 export function useEditor(
   api: ApiClient,
   sessionId: string,
   detail: SessionDetailRead | undefined,
+  held = false,
 ) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<EditorStatus>({ kind: "idle" });
@@ -323,9 +325,10 @@ export function useEditor(
     });
   }
 
-  async function reload() {
+  /** Recarga el estado actual de la sesión y lo muestra; devuelve su `seq`, o null si no lo cargó. */
+  async function reload(): Promise<number | null> {
     const controller = begin();
-    if (!controller) return;
+    if (!controller) return null;
     setStatus({ kind: "reloading" });
     try {
       // Si se guardó una edición sin poder mostrar su estado, la recarga deja elegido lo que ella dejaba.
@@ -334,8 +337,9 @@ export function useEditor(
         pendingPlacement.current = null;
         if (pending) place(pending.request, pending.seq);
       }).catch(() => null);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) return null;
       setStatus({ kind: fresh ? "reloaded" : "reload-failed" });
+      return fresh ? (fresh.current_seq ?? 0) : null;
     } finally {
       inFlight.current = false;
     }
@@ -343,7 +347,7 @@ export function useEditor(
 
   const score = detail?.current_score ?? null;
   const seq = detail?.current_seq ?? 0;
-  const blocked = BLOCKING.has(status.kind) || (knownSeq !== null && seq < knownSeq);
+  const blocked = held || BLOCKING.has(status.kind) || (knownSeq !== null && seq < knownSeq);
 
   /** Dice por qué una orden no sale, sin borrar un aviso que hay que conservar. */
   function refuse(message: string) {
@@ -476,7 +480,7 @@ export function useEditor(
     void send(requestOf(retry.plan, chosen ?? retry.anchor, seq));
   }
 
-  return { status, refusal, blocked, run, reload, retry, reapply, log, undo, redo };
+  return { status, refusal, blocked, held, run, reload, retry, reapply, log, undo, redo };
 }
 
 export type Editor = ReturnType<typeof useEditor>;

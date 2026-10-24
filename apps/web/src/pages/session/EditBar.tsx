@@ -669,9 +669,10 @@ export function EditBar({
           <button
             type="button"
             className="link-button"
-            aria-disabled={busy}
+            aria-disabled={busy || editor.held}
             onClick={() => {
-              if (!busy) void editor.reload();
+              // Mientras se revalida, la recarga la hace la revalidación si hace falta (ADR-0035).
+              if (!busy && !editor.held) void editor.reload();
             }}
           >
             Recargar la sesión

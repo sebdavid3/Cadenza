@@ -61,5 +61,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md) | Varias voces: el hueco de una voz como silencio invisible (`Event.hidden`), plicas por altura y voces numeradas por pentagrama al exportar, y una voz que sale antes no es un error de balance | Aceptado | Dominio, Interchange, Validación, Web |
 | [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md) | Insertar y borrar eventos y cambiar la clave y la armadura desde la vista: antes del evento elegido, qué queda elegido tras guardar, el acorde, las ligaduras huérfanas, los huecos y el primer compás para OSMD | Aceptado | Web |
 | [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md) | Deshacer y rehacer desde la vista: `POST /undo`, rehacer como la misma edición otra vez, las pilas leídas del log, el teclado fuera de los campos de texto, qué queda elegido y la historia de ediciones | Aceptado | Web |
+| [ADR-0035](ADR-0035-descartar-restaurar-y-revalidar-desde-la-vista.md) | Descartar, restaurar y revalidar los posibles errores desde la vista: cada posible error con su motivo opcional, el lenguaje honesto, la revalidación explícita con el `current_seq` que devuelve, quién puede hacerlo y que una revalidación solo herede los descartes de la validación vigente | Aceptado | Web, Aplicación |
 
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
@@ -48,6 +49,8 @@ ANCHOR_M1 = {
     "event_index": 0,
     "staff_id": "part-0-staff-0",
 }
+
+ANCHOR_M2 = {**ANCHOR_M1, "measure": 2}
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -303,6 +306,83 @@ def test_revalidation_reactivates_finding_if_event_modified_after_dismissal(tmp_
     measures_with_findings = [f["anchor"]["measure"] for f in active_findings]
     assert 1 in measures_with_findings
     assert 2 in measures_with_findings
+
+
+def _edit_m2(client: TestClient, session_id: str, base_seq: int, pitch: str) -> None:
+    resp = client.post(
+        f"/sessions/{session_id}/edits",
+        json={
+            "base_seq": base_seq,
+            "op": "SetPitch",
+            "anchor": ANCHOR_M2,
+            "before": None,
+            "after": {"pitch": pitch},
+        },
+    )
+    assert resp.status_code == 201
+
+
+def _m1(findings: list[dict[str, Any]]) -> dict[str, Any]:
+    return next(f for f in findings if f["anchor"]["measure"] == 1)
+
+
+def test_restoring_a_carried_dismissal_survives_the_next_revalidation(tmp_path: Path) -> None:
+    """Restaurar el hallazgo vigente no se pierde al revalidar otra vez (#186).
+
+    El descarte original (de una validación anterior) sigue en el historial como `dismissed`;
+    la revalidación solo debe heredar los descartes de la validación vigente.
+    """
+    client, tokens = _setup_environment(tmp_path)
+    client.headers["Authorization"] = f"Bearer {tokens['owner']}"
+    resp = client.post("/transcribe", files={"file": ("score.png", PNG_BYTES, "image/png")})
+    session_id = resp.json()["session_id"]
+
+    # 1. Descartar el hallazgo del compás 1 en la validación de la transcripción.
+    original = _m1(client.get(f"/sessions/{session_id}/findings").json())
+    client.post(f"/sessions/{session_id}/findings/{original['id']}/dismiss", json={"reason": "FP"})
+
+    # 2. Editar otro compás y revalidar: el descarte pasa al hallazgo nuevo del compás 1.
+    _edit_m2(client, session_id, base_seq=0, pitch="G4")
+    assert client.post(f"/sessions/{session_id}/validate").status_code == 200
+    carried = _m1(client.get(f"/sessions/{session_id}/findings?include_dismissed=true").json())
+    assert carried["id"] != original["id"]
+    assert carried["status"] == "dismissed"
+
+    # 3. Restaurar el hallazgo vigente.
+    restored = client.post(f"/sessions/{session_id}/findings/{carried['id']}/restore")
+    assert restored.status_code == 200
+
+    # 4. Editar otra vez y revalidar: el compás 1 sigue señalado.
+    _edit_m2(client, session_id, base_seq=1, pitch="A4")
+    val_resp = client.post(f"/sessions/{session_id}/validate")
+    assert val_resp.status_code == 200
+    assert 1 in [f["anchor"]["measure"] for f in val_resp.json()["findings"]]
+    latest = _m1(client.get(f"/sessions/{session_id}/findings?include_dismissed=true").json())
+    assert latest["status"] == "active"
+    assert latest["dismissal_reason"] is None
+
+
+def test_a_dismissal_of_an_older_validation_is_not_carried(tmp_path: Path) -> None:
+    """Descartar un hallazgo que ya no es de la última validación no cambia la siguiente (#186)."""
+    client, tokens = _setup_environment(tmp_path)
+    client.headers["Authorization"] = f"Bearer {tokens['owner']}"
+    resp = client.post("/transcribe", files={"file": ("score.png", PNG_BYTES, "image/png")})
+    session_id = resp.json()["session_id"]
+    original = _m1(client.get(f"/sessions/{session_id}/findings").json())
+
+    # Otra pestaña edita y revalida: el hallazgo de la transcripción queda como historia.
+    _edit_m2(client, session_id, base_seq=0, pitch="G4")
+    assert client.post(f"/sessions/{session_id}/validate").status_code == 200
+
+    # Una pestaña con la lista vieja descarta el hallazgo histórico: el servidor lo acepta.
+    stale = client.post(f"/sessions/{session_id}/findings/{original['id']}/dismiss", json={})
+    assert stale.status_code == 200
+
+    # La validación vigente no cambia, y la siguiente tampoco hereda ese descarte.
+    _edit_m2(client, session_id, base_seq=1, pitch="A4")
+    assert client.post(f"/sessions/{session_id}/validate").status_code == 200
+    latest = _m1(client.get(f"/sessions/{session_id}/findings?include_dismissed=true").json())
+    assert latest["status"] == "active"
 
 
 def test_authorization_controls_for_dismiss_and_restore(tmp_path: Path) -> None:
