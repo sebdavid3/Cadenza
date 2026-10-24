@@ -1516,7 +1516,7 @@ describe("elegir una nota sobre la partitura", () => {
     expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
   });
 
-  it("no cuenta como figura el silencio invisible que OSMD guarda, y la voz empieza tras él (ADR-0032)", async () => {
+  it("no cuenta como figura el silencio invisible que OSMD guarda ni lo ofrece para elegir (ADR-0032)", async () => {
     osmd.figures = [
       [
         { pitch: "E5", whole: [3, 4], voice: 1 },

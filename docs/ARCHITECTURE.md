@@ -727,8 +727,10 @@ principio en MusicXML) es un **silencio invisible**, `Event.hidden`: un silencio
 que ocupa su tiempo, tiene ancla y cuenta en `event_index`, pero no se dibuja, no
 suena ni se elige. Solo un silencio puede serlo y, si no lo es, no se serializa.
 Lo que falta tras la última nota de una voz no es un evento. Las voces se numeran
-desde 0 en cada compás de cada pentagrama, en el orden de su número de MusicXML;
-al exportar, la voz `v` del pentagrama `s` es la `4s + v + 1`, y en un compás con
+desde 0 en cada compás de cada pentagrama, en el orden de su número de MusicXML
+(o en el del compás si no lo tienen, como las de MEI); al exportar, la voz `v` del
+pentagrama `s` es la `s · paso + v + 1`, con un paso de 4 (o mayor si un pentagrama
+tiene más voces), y en un compás con
 varias voces con notas la de mayor altura media lleva la plica hacia arriba y las
 demás hacia abajo (el `ScoreIR` no guarda la plica).
 
