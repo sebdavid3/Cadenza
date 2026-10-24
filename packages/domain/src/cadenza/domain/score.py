@@ -18,6 +18,16 @@ if TYPE_CHECKING:
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
 from .key_signature import KeySignature
+from .notation_marks import (
+    Articulation,
+    Dynamic,
+    Slur,
+    Wedge,
+    normalize_articulations,
+    normalize_slurs,
+    sort_dynamics,
+    sort_wedges,
+)
 from .provenance import Provenance
 from .tie import Tie
 from .time_signature import TimeSignature
@@ -25,7 +35,12 @@ from .time_signature import TimeSignature
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """Evento musical neutral del `ScoreIR`."""
+    """Evento musical neutral del `ScoreIR`.
+
+    Las marcas de la nota (ADR-0031) son atributos: articulaciones, calderón y extremos de
+    ligadura de expresión. Se normalizan (sin repetir y en orden canónico) y, vacías, no se
+    serializan, para que un documento sin marcas se guarde igual que antes de #213.
+    """
 
     kind: EventKind
     voice: int = 0
@@ -36,9 +51,18 @@ class Event:
     bbox: BBox | None = None
     confidence: float | None = None
     ir_handle: str | None = None
+    articulations: tuple[Articulation, ...] = ()
+    fermata: bool = False
+    slurs: tuple[Slur, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.articulations:
+            object.__setattr__(self, "articulations", normalize_articulations(self.articulations))
+        if self.slurs:
+            object.__setattr__(self, "slurs", normalize_slurs(self.slurs))
 
     def to_primitive(self) -> dict[str, Any]:
-        return {
+        primitive: dict[str, Any] = {
             "kind": self.kind.value,
             "voice": self.voice,
             "pitch": self.pitch,
@@ -49,6 +73,13 @@ class Event:
             "confidence": self.confidence,
             "ir_handle": self.ir_handle,
         }
+        if self.articulations:
+            primitive["articulations"] = [a.value for a in self.articulations]
+        if self.fermata:
+            primitive["fermata"] = True
+        if self.slurs:
+            primitive["slurs"] = [slur.to_primitive() for slur in self.slurs]
+        return primitive
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Event:
@@ -69,19 +100,36 @@ class Event:
             ),
             confidence=None if data.get("confidence") is None else float(data["confidence"]),
             ir_handle=None if data.get("ir_handle") is None else str(data["ir_handle"]),
+            articulations=tuple(Articulation(str(a)) for a in data.get("articulations") or ()),
+            fermata=bool(data.get("fermata", False)),
+            slurs=tuple(Slur.from_primitive(item) for item in data.get("slurs") or ()),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class Measure:
+    """Compás de un pentagrama con sus atributos (ADR-0010) y sus marcas de posición (ADR-0031).
+
+    `dynamics` y `wedges` son posiciones del compás, no eventos: van ordenadas por su posición
+    y, vacías, no se serializan.
+    """
+
     number: int
     events: tuple[Event, ...] = ()
     time_signature: TimeSignature | None = None
     clef: Clef | None = None
     key_signature: KeySignature | None = None
+    dynamics: tuple[Dynamic, ...] = ()
+    wedges: tuple[Wedge, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.dynamics:
+            object.__setattr__(self, "dynamics", sort_dynamics(self.dynamics))
+        if self.wedges:
+            object.__setattr__(self, "wedges", sort_wedges(self.wedges))
 
     def to_primitive(self) -> dict[str, Any]:
-        return {
+        primitive: dict[str, Any] = {
             "number": self.number,
             "events": [event.to_primitive() for event in self.events],
             "time_signature": (
@@ -92,6 +140,11 @@ class Measure:
                 None if self.key_signature is None else self.key_signature.to_primitive()
             ),
         }
+        if self.dynamics:
+            primitive["dynamics"] = [dynamic.to_primitive() for dynamic in self.dynamics]
+        if self.wedges:
+            primitive["wedges"] = [wedge.to_primitive() for wedge in self.wedges]
+        return primitive
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Measure:
@@ -104,6 +157,8 @@ class Measure:
             time_signature=(None if signature is None else TimeSignature.from_primitive(signature)),
             clef=None if clef_data is None else Clef.from_primitive(clef_data),
             key_signature=None if key_data is None else KeySignature.from_primitive(key_data),
+            dynamics=tuple(Dynamic.from_primitive(item) for item in data.get("dynamics") or ()),
+            wedges=tuple(Wedge.from_primitive(item) for item in data.get("wedges") or ()),
         )
 
 

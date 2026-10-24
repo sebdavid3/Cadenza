@@ -20,6 +20,15 @@ from .edit_payload import (
 )
 from .finding import Finding, Severity, translate_finding
 from .key_signature import KeySignature
+from .notation_marks import (
+    Articulation,
+    Dynamic,
+    DynamicMark,
+    Slur,
+    SlurType,
+    Wedge,
+    WedgeType,
+)
 from .projection import (
     UnsupportedEditOpError,
     apply_edit,
@@ -44,8 +53,11 @@ from .timing import EventTiming, TimingMap, compute_timing_map
 __all__ = [
     "Anchor",
     "AnchorIndex",
+    "Articulation",
     "BBox",
     "Clef",
+    "Dynamic",
+    "DynamicMark",
     "EditEvent",
     "EditOp",
     "Event",
@@ -61,11 +73,15 @@ __all__ = [
     "ScoreDocument",
     "ScoreIR",
     "Severity",
+    "Slur",
+    "SlurType",
     "Staff",
     "Tie",
     "TimeSignature",
     "TimingMap",
     "UnsupportedEditOpError",
+    "Wedge",
+    "WedgeType",
     "apply_edit",
     "build_anchor_index",
     "compute_timing_map",
