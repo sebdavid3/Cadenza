@@ -65,7 +65,7 @@ El despliegue público ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailsc
 | Servicio | Imagen | Puertos | Función |
 |---|---|---|---|
 | `postgres` | `postgres:16.15-alpine3.24` | ninguno | Base de datos, volumen `postgres_data` |
-| `api` | `Dockerfile` (`cadenza-api:prod`) | ninguno | FastAPI con HOMR en CPU; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
+| `api` | `Dockerfile` (`cadenza-api:prod`) | ninguno | FastAPI con HOMR en CPU, con el usuario `cadenza` (UID 10001), sin root; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
 | `web` | `Dockerfile.web` (`cadenza-web:prod`) | `127.0.0.1:${CADENZA_WEB_PORT:-8380}` | Nginx sin privilegios: sirve `apps/web/dist` (con `index.html` para las rutas de la interfaz) y reenvía `/api/*` a `api:8000` quitando el prefijo (`deploy/nginx/`) |
 
 Puesta en marcha en el servidor:
@@ -82,7 +82,7 @@ sudo tailscale funnel --bg 8380
 - **IP real.** La red de Compose tiene una subred fija (`10.77.0.0/24`): lo que Funnel reenvía a `127.0.0.1` entra por la pasarela `10.77.0.1`, y `web` tiene la dirección `10.77.0.10` (las dinámicas salen de `10.77.0.128/25`, así que ningún otro contenedor puede ocuparla). Nginx cree `X-Forwarded-For` solo si viene de la pasarela, toma su última dirección y la reenvía a la API **sustituyendo** la cabecera; uvicorn la acepta solo de `web` (`CADENZA_FORWARDED_ALLOW_IPS`, `--proxy-headers`). Así, los límites del login y del registro cuentan por visitante. Si se cambia la subred, hay que cambiar también `deploy/nginx/cadenza.conf`.
 - **Límites en Nginx**, además de los de la API y por visitante (la IPv4, o la red /64 de una IPv6, como en la API): 10 peticiones por minuto a `/api/auth/login` y otras 10 a `/api/auth/register`, con ráfagas de 10 y cuerpos de hasta 16 KB, y 4 transcripciones abiertas a la vez; por encima, 429. Las rutas con caracteres de control responden 400 antes de elegir la `location`: `/api/auth/login%0A` esquivaría el límite exacto y la API la atendería como su login. Varias personas tras una misma IP (una sala, un campus) comparten estos límites.
 - **Cabeceras**: política de seguridad de contenido (`script-src 'self'`; `style-src` con `'unsafe-inline'` porque OSMD dibuja con atributos `style`), `nosniff`, `X-Frame-Options: DENY` y `Referrer-Policy: same-origin`; gzip para JavaScript, CSS, JSON y SVG. `/api/docs`, `/api/redoc` y `/api/openapi.json` responden 404: el contrato está en el repositorio.
-- **Contenedores**: registros con rotación (5 archivos de 10 MB), `no-new-privileges` en los tres y, en `api` y `web`, sin capacidades de Linux. La interfaz no espera a que la API esté sana: con la API caída, `/` sigue respondiendo y `/api/*` da 502.
+- **Contenedores**: registros con rotación (5 archivos de 10 MB), `no-new-privileges` en los tres y, en `api` y `web`, sin capacidades de Linux. Ni la API ni Nginx corren como root; la API, con el usuario `cadenza` ([ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)). La interfaz no espera a que la API esté sana: con la API caída, `/` sigue respondiendo y `/api/*` da 502.
 - **CORS** limitado a `CADENZA_PUBLIC_ORIGIN`; el navegador llama a la API en el mismo origen, bajo `/api`.
 - **Registro** abierto, sin aprobación (ADR-0025): `CADENZA_REGISTRATION_ENABLED` enciende la ruta de la API y, como argumento del build de `web`, los enlaces de la interfaz. Solo admite `true` o `false`: la API aceptaría también `1`, `yes` u `on`, pero el build compara con `true` y dejaría ocultos los enlaces.
 - **Secretos** solo en el `.env` del servidor (`chmod 600`), a partir de `deploy/.env.example`; nunca salen del servidor. `docker compose config` imprime el compose con los secretos ya sustituidos: no se pega su salida en ningún sitio.
@@ -103,6 +103,27 @@ La primera cuenta de investigador se crea dentro del contenedor; sin `--password
 ```bash
 docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli create-investigator --username <usuario>
 ```
+
+#### Usuario de la API y volúmenes anteriores ([#192](https://github.com/sebdavid3/Cadenza/issues/192), [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md))
+
+La API corre con el usuario `cadenza` (UID y GID 10001), dueño de `/app/data/artifacts`; un volumen nuevo hereda ese dueño. Un volumen creado con una imagen anterior a #192 es de root: la API lo lee, pero no escribe en él, y `/health` responde 503 con `artifact_store: "error"` y deja en el registro «la API no puede escribir en /app/data/artifacts». Se migra una sola vez, con la imagen nueva construida y antes de arrancarla:
+
+```bash
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+$DC build api
+$DC stop api
+docker run --rm --user 0 --entrypoint chown -v cadenza-prod_artifacts_data:/app/data/artifacts cadenza-api:prod -R 10001:10001 /app/data/artifacts
+$DC up -d
+```
+
+- El volumen se llama `<proyecto>_artifacts_data`; con el compose de producción, `cadenza-prod_artifacts_data` (`docker volume ls`).
+- El contenedor de la migración es desechable y corre como root, sin las restricciones del servicio: `chown` necesita la capacidad `CHOWN`, que el servicio no tiene.
+- Las restauraciones (§4.2) dan los artefactos al dueño de su carpeta: después de restaurar no hace falta repetirla.
+
+Comprobado el 2026-10-23 en el servidor del despliegue, con una imagen de prueba, volúmenes y contenedores desechables que se retiraron después, y las restricciones del despliegue (`cap_drop: ALL`, `no-new-privileges`):
+- HOMR transcribe sin root un incipit de PrIMuS (22 notas) y el íncipit de la CI (sus 14 alturas). Solo escribe en `/tmp` y en `~/.cache` (el identificador de dispositivo de ONNX Runtime); los pesos de la imagen no se tocan.
+- Con un volumen de root sin migrar, la API lee los artefactos y no puede escribir (`Permission denied`); `/health`, 503. Tras la migración, escribe y crea carpetas, y `/health` da 200.
+- Una copia restaurada como root en un volumen de la API deja los artefactos y sus carpetas con UID 10001, y la API escribe en ellas.
 
 #### Despliegue en el homelab ([#157](https://github.com/sebdavid3/Cadenza/issues/157), 2026-10-23)
 
@@ -131,6 +152,7 @@ sudo tailscale funnel --https=443 off
 sudo tailscale funnel --bg 8380
 ```
 
+- La primera actualización a una versión con #192 necesita además, una sola vez, la migración del volumen de artefactos (sección anterior).
 - Para restaurar una copia, ver la §4.2.
 - `down -v` borra los volúmenes con la base de datos y los artefactos: no se usa.
 - Una prueba desechable de esta configuración en el mismo servidor necesita otra subred, porque dos redes con `10.77.0.0/24` no pueden coexistir.
@@ -190,7 +212,7 @@ curl -i http://localhost:8000/health
 }
 ```
 
-En caso de fallo en la base de datos o en el almacenamiento de artefactos, el endpoint responde con **HTTP 503 Service Unavailable** y `"status": "unhealthy"`.
+En caso de fallo en la base de datos o en el almacenamiento de artefactos, el endpoint responde con **HTTP 503 Service Unavailable** y `"status": "unhealthy"`. El almacenamiento falla también si la API no puede escribir en su carpeta, como un volumen de root sin migrar (§2.2, [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)). Antes de #192, en producción no se comprobaba esa carpeta: el almacén no se inyecta y `/health` solo miraba el inyectado.
 
 ### 3.2 Trazabilidad con `X-Request-ID` y Logs Estructurados
 
@@ -236,7 +258,7 @@ uv run --no-sync python scripts/backup_restore.py restore --archive backup-2026-
 
 ### 4.2 En el despliegue público (`docker-compose.prod.yml`)
 
-El servicio `backup` (perfil `backup`, `Dockerfile.backup`) lleva el `pg_dump` 16 de la imagen de PostgreSQL. Monta el volumen de artefactos y el directorio de copias del host, `${CADENZA_BACKUP_DIR:-./backups}`, en `/backups`. Solo se ejecuta a petición. Las copias contienen todos los datos: el directorio debe tener permisos 700 y no salir del servidor sin cifrar. El contenedor corre como root, así que las copias pertenecen a root.
+El servicio `backup` (perfil `backup`, `Dockerfile.backup`) lleva el `pg_dump` 16 de la imagen de PostgreSQL. Monta el volumen de artefactos y el directorio de copias del host, `${CADENZA_BACKUP_DIR:-./backups}`, en `/backups`. Solo se ejecuta a petición. Las copias contienen todos los datos: el directorio debe tener permisos 700 y no salir del servidor sin cifrar. El contenedor corre como root, así que las copias pertenecen a root. Al restaurar, da los artefactos al dueño de su carpeta, el usuario de la API: así la API puede seguir escribiendo en las carpetas que crea la restauración (ADR-0029).
 
 ```bash
 cd /opt/docker/cadenza
