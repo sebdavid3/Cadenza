@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any, Final
 
-from cadenza.application.ports import EditEventRepository, SessionRepository
+from cadenza.application.ports import EditEventRepository, SessionRepository, UserRepository
 from cadenza.domain import (
     Anchor,
     EditEvent,
@@ -359,15 +359,19 @@ class DatasetBuilder:
         session_repository: SessionRepository,
         edit_event_repository: EditEventRepository,
         *,
+        user_repository: UserRepository | None,
         status: str = "finalized",
         owner_id: str | None = None,
+        include_self_registered: bool = False,
     ) -> tuple[TrainingSample, ...]:
         """Conveniencia para invocar RepositoryDatasetReader sobre este builder."""
         return RepositoryDatasetReader(self).read_dataset(
             session_repository=session_repository,
             edit_event_repository=edit_event_repository,
+            user_repository=user_repository,
             status=status,
             owner_id=owner_id,
+            include_self_registered=include_self_registered,
         )
 
 
@@ -387,14 +391,32 @@ class RepositoryDatasetReader:
         session_repository: SessionRepository,
         edit_event_repository: EditEventRepository,
         *,
+        user_repository: UserRepository | None,
         status: str = "finalized",
         owner_id: str | None = None,
+        include_self_registered: bool = False,
     ) -> tuple[TrainingSample, ...]:
+        """Muestras de las sesiones con `status`, opcionalmente de un solo propietario.
+
+        Las sesiones de cuentas del registro público (`self_registered`) no forman parte del
+        estudio (ADR-0022) y quedan fuera salvo que se pida `include_self_registered` (D55,
+        #191). Para saber cuáles son hace falta `user_repository`; sin él, solo se admite
+        incluirlas, para no adivinar. Un propietario que no figura entre los usuarios no se
+        excluye: no consta que se registrara solo.
+        """
+        if user_repository is None and not include_self_registered:
+            raise ValueError(
+                "Hace falta el repositorio de usuarios para dejar fuera las cuentas del registro "
+                "público, o pedir include_self_registered=True"
+            )
+        excluded: set[str] = set()
+        if not include_self_registered and user_repository is not None:
+            excluded = {user.id for user in user_repository.list() if user.self_registered}
         sessions = session_repository.list(owner_id=owner_id, status=status)
         all_samples: list[TrainingSample] = []
 
         for s in sessions:
-            if s.status != status:
+            if s.status != status or s.owner_id in excluded:
                 continue
             document = ScoreDocument.from_primitive(s.document)
             persisted_findings = session_repository.list_findings(

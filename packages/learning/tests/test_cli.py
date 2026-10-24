@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from pathlib import Path
 
 import pytest
@@ -776,3 +777,66 @@ def test_cli_promote_marks_artifact_without_flag_as_simulated(tmp_path: Path) ->
     result = json.loads(output.read_text(encoding="utf-8"))
     assert result["simulated"] is True
     assert "simulation_warning" in result
+
+
+def test_cli_build_dataset_leaves_out_self_registered_accounts(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    # Una cuenta del registro público con una sesión finalizada y editada (ADR-0022, D55, #191).
+    factory = create_session_factory(create_engine_for_url(populated_db_url))
+    visitor = User(
+        id="user-registro",
+        username="visita",
+        password_hash=secrets.token_hex(8),
+        role=Role.TRANSCRIPTOR,
+        self_registered=True,
+    )
+    img_path = tmp_path / "otra.png"
+    img_path.write_bytes(b"\x89PNG\r\n\x1a\notraimagen")
+    with session_scope(factory) as db:
+        SqlAlchemyUserRepository(db).add(visitor)
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        transcribe_score(
+            img_path,
+            omr_engine=FakeOMREngine(),
+            validator=ValidationEngine([]),
+            session_repository=session_repo,
+            current_user=visitor,
+            session_id="sess-registro",
+        )
+        append_edit(
+            session_id="sess-registro",
+            op=EditOp.SET_PITCH,
+            anchor=Anchor(
+                part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="part-0-staff-0"
+            ),
+            before={"pitch": "C4"},
+            after={"pitch": "D4"},
+            base_seq=0,
+            current_user=visitor,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+        )
+        finalize_session(
+            session_id="sess-registro",
+            current_user=visitor,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            validator=ValidationEngine([]),
+        )
+
+    default_path = tmp_path / "sin_registro.json"
+    included_path = tmp_path / "con_registro.json"
+    base = ["build-dataset", "--db-url", populated_db_url, "--output"]
+    assert main([*base, str(default_path)]) == 0
+    assert main([*base, str(included_path), "--include-self-registered"]) == 0
+
+    default = json.loads(default_path.read_text(encoding="utf-8"))
+    included = json.loads(included_path.read_text(encoding="utf-8"))
+    # Solo la sesión del estudio (dos ediciones), salvo que se pida la del registro (una más).
+    assert default["count"] == 2
+    assert default["self_registered_included"] is False
+    assert included["count"] == 3
+    assert included["self_registered_included"] is True
+    assert included["dataset_hash"] != default["dataset_hash"]

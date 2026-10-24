@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import UTC, datetime
 from fractions import Fraction
 
+import pytest
+from cadenza.application import Role, User
 from cadenza.application.ports import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
+    InMemoryUserRepository,
     SessionData,
 )
 from cadenza.domain import (
@@ -25,6 +29,7 @@ from cadenza.persistence import (
     ArtifactRecord,
     SqlAlchemyEditEventRepository,
     SqlAlchemySessionRepository,
+    SqlAlchemyUserRepository,
     create_memory_engine,
     create_schema,
     create_session_factory,
@@ -137,9 +142,15 @@ def test_read_dataset_with_in_memory_repositories() -> None:
     )
 
     reader = RepositoryDatasetReader()
+    # Cuentas del estudio: ninguna viene del registro público (D55).
+    users = InMemoryUserRepository(
+        [_user("user-a", self_registered=False), _user("user-b", self_registered=False)]
+    )
 
     # 1. Lectura de todas las sesiones finalizadas
-    samples = reader.read_dataset(session_repo, edit_repo, status="finalized")
+    samples = reader.read_dataset(
+        session_repo, edit_repo, user_repository=users, status="finalized"
+    )
     assert len(samples) == 3
     assert [s.document_id for s in samples] == ["doc-1", "doc-1", "doc-3"]
     assert samples[0].image_sha256 == "image_sha_1111"
@@ -151,7 +162,7 @@ def test_read_dataset_with_in_memory_repositories() -> None:
 
     # 2. Lectura filtrando por propietario user-a
     samples_user_a = reader.read_dataset(
-        session_repo, edit_repo, status="finalized", owner_id="user-a"
+        session_repo, edit_repo, user_repository=users, status="finalized", owner_id="user-a"
     )
     assert len(samples_user_a) == 2
     assert all(s.document_id == "doc-1" for s in samples_user_a)
@@ -262,8 +273,12 @@ def test_read_dataset_with_real_database() -> None:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
 
+        # El propietario no figura entre los usuarios: no consta que se registrara solo.
+        users = SqlAlchemyUserRepository(db)
         reader = RepositoryDatasetReader()
-        samples = reader.read_dataset(session_repo, edit_repo, status="finalized")
+        samples = reader.read_dataset(
+            session_repo, edit_repo, user_repository=users, status="finalized"
+        )
 
         # Edit 1 y Edit 2 se anulan mutuamente (#35), solo queda Edit 3
         assert len(samples) == 1
@@ -281,6 +296,104 @@ def test_read_dataset_with_real_database() -> None:
 
         # El método de conveniencia en DatasetBuilder produce exactamente lo mismo
         builder_samples = DatasetBuilder().read_from_repositories(
-            session_repo, edit_repo, status="finalized"
+            session_repo, edit_repo, user_repository=users, status="finalized"
         )
         assert builder_samples == samples
+
+
+def _user(user_id: str, *, self_registered: bool) -> User:
+    return User(
+        id=user_id,
+        username=user_id,
+        password_hash=secrets.token_hex(8),
+        role=Role.TRANSCRIPTOR,
+        self_registered=self_registered,
+    )
+
+
+def _finalized_session(session_id: str, owner_id: str) -> tuple[SessionData, EditEvent]:
+    document = make_document(f"doc-{session_id}")
+    session = SessionData(
+        id=session_id,
+        document_id=document.id,
+        omr_engine="fake",
+        document=document.to_primitive(),
+        image_artifact=f"image-{session_id}",
+        status="finalized",
+        owner_id=owner_id,
+    )
+    edit = EditEvent(
+        id=f"edit-{session_id}",
+        document_id=document.id,
+        seq=1,
+        anchor=make_anchor(0),
+        op=EditOp.SET_PITCH,
+        author=owner_id,
+        created_at=datetime(2026, 10, 23, tzinfo=UTC),
+        before={"pitch": "C4"},
+        after={"pitch": "D4"},
+    )
+    return session, edit
+
+
+def _repositories() -> (
+    tuple[InMemorySessionRepository, InMemoryEditEventRepository, InMemoryUserRepository]
+):
+    """Una sesión finalizada de una cuenta del estudio, otra del registro público y otra de un
+    propietario que no figura entre los usuarios."""
+    session_repo = InMemorySessionRepository()
+    edit_repo = InMemoryEditEventRepository()
+    for session_id, owner in [
+        ("estudio", "ana"),
+        ("registro", "visita"),
+        ("antigua", "sin-cuenta"),
+    ]:
+        session, edit = _finalized_session(session_id, owner)
+        session_repo.add(session, [])
+        edit_repo.append(session_id, edit)
+    users = InMemoryUserRepository(
+        [_user("ana", self_registered=False), _user("visita", self_registered=True)]
+    )
+    return session_repo, edit_repo, users
+
+
+def test_self_registered_sessions_are_left_out_of_the_dataset() -> None:
+    # Las cuentas del registro público no forman parte del estudio (ADR-0022, D55, #191). Hasta
+    # este cambio entraban en el dataset como cualquier otra.
+    session_repo, edit_repo, users = _repositories()
+
+    samples = RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=users)
+
+    assert sorted({sample.document_id for sample in samples}) == ["doc-antigua", "doc-estudio"]
+
+
+def test_self_registered_sessions_only_enter_when_asked() -> None:
+    session_repo, edit_repo, users = _repositories()
+
+    samples = RepositoryDatasetReader().read_dataset(
+        session_repo, edit_repo, user_repository=users, include_self_registered=True
+    )
+
+    assert sorted({sample.document_id for sample in samples}) == [
+        "doc-antigua",
+        "doc-estudio",
+        "doc-registro",
+    ]
+
+
+def test_without_users_the_reader_does_not_guess() -> None:
+    # Sin el repositorio de usuarios no se sabe quién se registró solo: no se adivina.
+    session_repo, edit_repo, _users = _repositories()
+
+    with pytest.raises(ValueError, match="repositorio de usuarios"):
+        RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=None)
+
+
+def test_leaving_out_self_registered_keeps_the_hash_deterministic() -> None:
+    session_repo, edit_repo, users = _repositories()
+    reader = RepositoryDatasetReader()
+
+    first = reader.read_dataset(session_repo, edit_repo, user_repository=users)
+    second = DatasetBuilder().read_from_repositories(session_repo, edit_repo, user_repository=users)
+
+    assert dataset_hash(first) == dataset_hash(second)
