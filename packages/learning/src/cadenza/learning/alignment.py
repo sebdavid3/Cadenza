@@ -110,6 +110,9 @@ def _substitution_cost(p: Event, g: Event) -> float:
         return float("inf")
 
     if p.kind is EventKind.REST:
+        # Un silencio que se ve y uno invisible (ADR-0032) no se sustituyen: Delete + Insert.
+        if p.hidden != g.hidden:
+            return float("inf")
         return 1.0 if p.duration_beats != g.duration_beats else 0.0
 
     # Ambas son notas (EventKind.NOTE)
@@ -325,6 +328,9 @@ def _derive_voice_edits(
                 "tie": g.tie.value if g.tie is not None else None,
                 "is_chord": g.is_chord,
             }
+            if g.hidden:
+                # Solo si lo es: sin silencios invisibles, las ediciones son las de antes.
+                after_dict["hidden"] = True
             edits.append(
                 _make_edit(
                     document_id=document_id,
@@ -489,6 +495,7 @@ def is_structurally_equal(
                         or ev_a.duration_beats != ev_b.duration_beats
                         or ev_a.tie != ev_b.tie
                         or ev_a.is_chord != ev_b.is_chord
+                        or ev_a.hidden != ev_b.hidden
                     ):
                         return False
     return True
