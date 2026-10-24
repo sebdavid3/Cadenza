@@ -53,6 +53,7 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0024](ADR-0024-transcripciones-simultaneas.md) | Transcripciones simultáneas: HOMR de una en una y tope de admisión en la API | Aceptado | OMR, API |
 | [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md) | Registro abierto: la cuenta queda activa al crearse (enmienda ADR-0022 §4 y §9) | Aceptado | API, Web |
 | [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md) | Reproducción de la partitura en el navegador: notas del mapa de tiempos, Tone.js con reloj por `setTimeout` y la CSP sin cambios | Aceptado | Web |
-| [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md) | Selección de notas sobre la partitura dibujada: mapa ancla→caja por evento emparejado con OSMD, puntero, teclado y estado en Zustand | Aceptado | Web |
+| [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md) | Selección de notas sobre la partitura dibujada: mapa ancla→caja por evento emparejado con OSMD, puntero, teclado y estado en Zustand | Aceptado, enmendado por ADR-0028 | Web |
+| [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md) | Notas sin duración como notas de adorno en el MusicXML | Aceptado | Interchange, Web |
 
 

@@ -929,6 +929,7 @@ con el alcance por decidir.
 | [ADR-0025](adr/ADR-0025-registro-abierto-sin-aprobacion.md) | Registro abierto: la cuenta queda activa al crearse (enmienda ADR-0022) |
 | [ADR-0026](adr/ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md) | Reproducción de la partitura en el navegador: notas del mapa de tiempos, Tone.js con reloj por `setTimeout` y la CSP sin cambios |
 | [ADR-0027](adr/ADR-0027-seleccion-de-notas-sobre-la-partitura.md) | Selección de notas sobre la partitura dibujada: mapa ancla→caja por evento emparejado con OSMD, puntero, teclado y estado en Zustand |
+| [ADR-0028](adr/ADR-0028-notas-sin-duracion-como-notas-de-adorno.md) | Notas sin duración como notas de adorno en el MusicXML |
 
 
 ---

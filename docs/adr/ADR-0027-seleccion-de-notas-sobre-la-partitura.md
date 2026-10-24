@@ -3,6 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-23
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006, ADR-0011 y ADR-0021, CLAUDE.md §9)
+- **Enmendado por:** [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), que dibuja como notas de adorno las notas sin duración (§1 y §3)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md), [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), D11, [#152](https://github.com/sebdavid3/Cadenza/issues/152), [#182](https://github.com/sebdavid3/Cadenza/issues/182)
 
 ---
@@ -29,7 +30,7 @@ Restricciones:
 - **Hallazgos sobre OSMD y el exportador.**
   - OSMD ordena las notas de un acorde de grave a agudo, no en el orden del `ScoreIR`.
   - OSMD guarda aparte la parte entera de una duración: 11/8 de redonda es `WholeValue` 1 más 3/8.
-  - Un evento de duración cero se dibuja como una negra, porque music21 ignora `quarterLength=0` (13 notas en 7 de las 99 sesiones; D60). Una duración nula también sale como negra, pero porque el exportador la cambia por 1. En los dos casos el exportador no adelanta el instante (`offset += 0`): la nota siguiente se inserta en el mismo, y music21 y OSMD las ponen una detrás de otra.
+  - Un evento de duración cero se dibujaba como una negra, porque music21 ignora `quarterLength=0` (13 notas en 7 de las 99 sesiones; D60, resuelta por [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), que las dibuja como notas de adorno). Una duración nula también sale como negra, pero porque el exportador la cambia por 1. En los dos casos el exportador no adelanta el instante (`offset += 0`): la nota siguiente se inserta en el mismo, y music21 y OSMD las ponen una detrás de otra.
   - La posición que OSMD da a una nota es el centro de su cabeza: en las 91 sesiones del manifiesto, con un desvío de 0,09 unidades o menos en horizontal y ninguno en vertical. Para un silencio da solo un punto de referencia, no la extensión de su glifo, que según la figura mide de 0,5 a 2,9 unidades de alto.
 - **Densidad.** A 340 px, entre figuras consecutivas de un mismo sistema hay una mediana de 26,2 px, un p10 de 16 px y un mínimo de 0 px (las superpuestas), sobre 1283 separaciones. 1117 (87 %) están por debajo de 44 px y 527 (41 %) por debajo de 24 px. 96 de las 99 sesiones ocupan más de un sistema.
 
@@ -39,13 +40,13 @@ Restricciones:
    - Cada compás del `ScoreIR` se empareja con su compás dibujado (el de ADR-0021), voz con voz por el orden de su número.
    - Dentro de una voz, los eventos se agrupan como los escribe el exportador: un silencio solo, y una nota con las que la siguen marcadas como acorde (`is_chord`).
    - Cada grupo consume, en orden, las figuras dibujadas cuya duración suma la suya: una, o varias si el exportador la partió. Han de ser de su misma clase (nota o silencio) y, en las notas, de las mismas alturas, comparadas por número MIDI y nombre de nota para distinguir enarmonías. Las notas de un acorde se emparejan por altura.
-   - Una duración nula o cero cuenta como una negra, que es como sale dibujada.
+   - Una nota de duración nula o cero corresponde a una sola figura de adorno, con sus alturas y sin sumar tiempo (ADR-0028). Un silencio de duración nula o cero, a un silencio de negra.
    - Ha de consumir todas las figuras de la voz, sin notas de adorno.
    - El ancla se construye como `compute_timing_map`: parte, pentagrama, número de compás, voz, `event_index` por voz y `staff_id`, con el `bbox` y la `confidence` del evento.
 2. **Todo o nada.** Si un compás no cuadra, o un evento no es nota ni silencio con altura, el mapa no se ofrece: no se elige ninguna nota y la vista dice cuántos eventos no coinciden con lo dibujado. Si OSMD dibuja otros compases que el `ScoreIR`, tampoco, ni si dos compases de un pentagrama tienen el mismo número (sus eventos tendrían la misma ancla). Una partitura sin notas ni silencios no se ofrece como control. Las marcas por compás y la reproducción siguen igual. Como en ADR-0021, no se ofrece una selección dudosa.
 3. **Geometría del SVG, recalculada en cada maquetación.**
-   - La caja de una nota es la de su cabeza (`.vf-notehead`) dentro del elemento que da `getSVGGElement()` de VexFlow. En un acorde, es la cabeza más cercana a la altura en que OSMD sitúa la nota.
-   - La de un silencio es la de su glifo entero.
+   - La caja de una nota es la de su cabeza (`.vf-notehead`) dentro del elemento que da `getSVGGElement()` de VexFlow, sin las de sus modificadores: VexFlow anida en ellos las notas de adorno que la preceden (ADR-0028). En un acorde, es la cabeza más cercana a la altura en que OSMD sitúa la nota.
+   - La de un silencio es la de su glifo, que VexFlow dibuja también como cabeza, sin su puntillo.
    - Una figura partida tiene una caja por figura y la que las abarca. Se marca figura a figura, para no encerrar lo que hay entre medias.
    - Cada evento guarda también dónde empieza en el dibujo, que es lo que usan ↑ y ↓, y si es de un acorde, también la nota que lo empieza.
    - Las cajas se miden relativas al contenedor de OSMD, el mismo origen que `measureBox`, y se recalculan cada vez que OSMD vuelve a maquetar (el contador `layout` de ADR-0021).
@@ -76,7 +77,7 @@ Restricciones:
 
 ### Negativas / Riesgos
 - Depende de la estructura interna de OSMD 2.2.1 (`staffEntries`, `graphicalVoiceEntries`, `sourceNote`, `GetExpandedNumerator`, `getHalfTone`) y del SVG de VexFlow (`getSVGGElement`, `.vf-notehead`). Subir de versión exige repetir la medición. La versión ya está fijada.
-- Imita reglas del exportador (agrupación de acordes y negra para la duración cero); si cambian, hay que cambiar el emparejamiento a la vez.
+- Imita reglas del exportador (agrupación de acordes, nota de adorno para la nota sin duración y negra para el silencio sin duración); si cambian, hay que cambiar el emparejamiento a la vez. La medición se regeneró con el exportador de ADR-0028 sobre las mismas 99 sesiones, con las mismas cifras.
 - En un compás sobrellenado y estrecho, OSMD puede superponer figuras. El mapa sigue siendo correcto, pero el toque elige la primera de las superpuestas; el teclado y los botones llegan a todas (1 de 1534 eventos a 340 px).
 - En un unísono dentro de un acorde, las dos notas tienen la misma caja: cuál es cuál es indiferente para el dibujo, pero el toque elige la primera.
 - La caja de una nota marca su cabeza, no la plica ni las alteraciones.
