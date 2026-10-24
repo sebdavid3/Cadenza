@@ -60,5 +60,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md) | Marcas de notación en el `ScoreIR`: articulaciones y calderón en el evento, dinámicas y reguladores por posición del compás, extremos de ligadura con número único por parte (enmienda ADR-0010) | Aceptado | Dominio, Interchange, API |
 | [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md) | Varias voces: el hueco de una voz como silencio invisible (`Event.hidden`), plicas por altura y voces numeradas por pentagrama al exportar, y una voz que sale antes no es un error de balance | Aceptado | Dominio, Interchange, Validación, Web |
 | [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md) | Insertar y borrar eventos y cambiar la clave y la armadura desde la vista: antes del evento elegido, qué queda elegido tras guardar, el acorde, las ligaduras huérfanas, los huecos y el primer compás para OSMD | Aceptado | Web |
+| [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md) | Deshacer y rehacer desde la vista: `POST /undo`, rehacer como la misma edición otra vez, las pilas leídas del log, el teclado fuera de los campos de texto, qué queda elegido y la historia de ediciones | Aceptado | Web |
 
 

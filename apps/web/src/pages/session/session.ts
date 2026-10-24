@@ -7,6 +7,8 @@ import type {
   FindingRead,
   SessionDetailRead,
   TimingMapRead,
+  UndoRequest,
+  UndoResponse,
 } from "../../types";
 import { sessionImage } from "../transcription/sessions";
 
@@ -43,6 +45,24 @@ export function postEdit(
   return api.request<EditEventRead>(`${sessionPath(sessionId)}/edits`, {
     method: "POST",
     json: edit,
+    signal,
+  });
+}
+
+/**
+ * `POST /sessions/{id}/undo`: deshace en el servidor la última edición vigente sobre el estado
+ * `base_seq`, con una edición compensatoria (ADR-0007, ADR-0017). Responde 200 con el `seq` nuevo
+ * y la edición deshecha; el estado nuevo se pide aparte, como tras una edición.
+ */
+export function postUndo(
+  api: ApiClient,
+  sessionId: string,
+  body: UndoRequest,
+  signal?: AbortSignal,
+): Promise<UndoResponse> {
+  return api.request<UndoResponse>(`${sessionPath(sessionId)}/undo`, {
+    method: "POST",
+    json: body,
     signal,
   });
 }

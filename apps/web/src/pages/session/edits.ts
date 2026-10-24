@@ -578,12 +578,16 @@ const insertionAnchor = (anchor: AnchorPayload, eventIndex: number): AnchorPaylo
 });
 
 /** Una nota o un silencio, para decirlo: «Re 4, negra», «un silencio de negra». */
-function eventName(kind: string, pitch: string | null | undefined, beats: string | null): string {
+export function eventName(
+  kind: string,
+  pitch: string | null | undefined,
+  beats: string | null,
+): string {
   const duration = durationName(beats);
   return kind === "note" && pitch ? `${spoken(pitch)}, ${duration}` : `un silencio de ${duration}`;
 }
 
-const insertionChange = (after: Record<string, string>) =>
+export const insertionChange = (after: Record<string, string>) =>
   `inserción de ${eventName(after.kind ?? "rest", after.pitch, after.duration_beats ?? null)}`;
 
 /**
@@ -671,7 +675,10 @@ function visibleIn(measure: MeasurePayload, voice: number) {
  * vea en el compás, el primero del compás siguiente (de la misma voz o de la primera) o el último
  * del anterior, como los movimientos de la selección. Los silencios invisibles no se eligen.
  */
-function selectAfterDelete(score: ScoreIRPayload, anchor: AnchorPayload): AnchorPayload | null {
+export function selectAfterDelete(
+  score: ScoreIRPayload,
+  anchor: AnchorPayload,
+): AnchorPayload | null {
   const staff = score.parts[anchor.part]?.staves[anchor.staff];
   if (!staff) return null;
   const at = (

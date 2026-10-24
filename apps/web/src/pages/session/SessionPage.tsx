@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
@@ -14,6 +14,8 @@ import { useEditor } from "./editor";
 import { carryAnchor } from "./edits";
 import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
+import { historyKey, isTextField } from "./history";
+import { HistoryPanel } from "./HistoryPanel";
 import { buildPlayback, measureSlots } from "./playback";
 import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
@@ -137,8 +139,35 @@ function SessionView({ sessionId }: { sessionId: string }) {
 
   const editor = useEditor(api, sessionId, detail.data);
   const editKeysId = useId();
+  // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y
+  // rehacer (con la partitura dibujada o sin poder dibujarse, no mientras carga), salvo en un
+  // campo de texto, que tiene su propio deshacer (ADR-0034). La escucha lee el editor del último
+  // render.
+  const undoShown = editable && (snapshot !== null || musicXml.isError);
+  const editorRef = useRef(editor);
+  useLayoutEffect(() => {
+    editorRef.current = editor;
+  });
+  useEffect(() => {
+    if (!undoShown) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = historyKey(event);
+      if (!action || event.defaultPrevented || isTextField(event.target)) return;
+      event.preventDefault();
+      // Mantener la tecla pulsada no encadena órdenes: cada una es una edición del log (D38).
+      if (event.repeat) return;
+      if (action === "undo") editorRef.current.undo();
+      else editorRef.current.redo();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [undoShown]);
   // Sin controles, la barra sigue si tiene algo que decir (un 409 que dejó la sesión cerrada).
   const showEditor = editable || editor.status.kind !== "idle";
+  // El control que tenía el foco en la barra cuando esta pasa de un sitio a otro (ADR-0034).
+  const editorFocusRef = useRef<string | null>(null);
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -254,12 +283,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
                         <EditBar
                           editor={editor}
                           editable={editable}
+                          undoable={editable}
                           target={target}
                           available={available}
                           score={snapshot.transcription}
                           multiStaff={expected.length > 1}
                           keysId={editKeysId}
                           focusScore={focusScore}
+                          focusMemoryRef={editorFocusRef}
                         />
                       )
                     : undefined
@@ -267,16 +298,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
               />
             ) : musicXml.isError ? (
               <>
-                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo. */}
-                {editor.status.kind !== "idle" && (
+                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo,
+                    y se puede deshacer la edición que dejó la partitura así. */}
+                {showEditor && (
                   <EditBar
                     editor={editor}
                     editable={false}
+                    undoable={editable}
                     target={null}
                     available={false}
-                    score={null}
+                    score={score}
                     multiStaff={expected.length > 1}
                     keysId={editKeysId}
+                    focusMemoryRef={editorFocusRef}
                   />
                 )}
                 <div className="notation__failed" role="alert">
@@ -304,20 +338,29 @@ function SessionView({ sessionId }: { sessionId: string }) {
           </figure>
         </section>
 
-        <FindingsPanel
-          marks={marks}
-          unplaced={unplaced}
-          dismissed={dismissed}
-          staleSeq={staleValidationSeq(findings.data ?? [], seq)}
-          edits={edits}
-          multiStaff={expected.length > 1}
-          selectable={placed && musicXml.isSuccess}
-          selectedKey={selectedKey}
-          onSelect={setSelectedKey}
-          status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
-          errorText={findings.isError ? errorMessage(findings.error) : undefined}
-          onRetry={() => void findings.refetch()}
-        />
+        <div className="session__aside">
+          <FindingsPanel
+            marks={marks}
+            unplaced={unplaced}
+            dismissed={dismissed}
+            staleSeq={staleValidationSeq(findings.data ?? [], seq)}
+            edits={edits}
+            multiStaff={expected.length > 1}
+            selectable={placed && musicXml.isSuccess}
+            selectedKey={selectedKey}
+            onSelect={setSelectedKey}
+            status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
+            errorText={findings.isError ? errorMessage(findings.error) : undefined}
+            onRetry={() => void findings.refetch()}
+          />
+          {detail.data && (
+            <HistoryPanel
+              edits={detail.data.edits}
+              score={detail.data.current_score ?? null}
+              multiStaff={expected.length > 1}
+            />
+          )}
+        </div>
       </div>
     </main>
   );
