@@ -39,7 +39,7 @@ const osmd = vi.hoisted(() => ({
   /**
    * Figuras de cada compás: altura (null, silencio), duración en redondas como OSMD, las otras
    * notas si es un acorde, el número de voz de OSMD (1 si no se dice), la nota de adorno que la
-   * precede y si el silencio lleva puntillo.
+   * precede, si el silencio lleva puntillo y si es invisible.
    */
   figures: null as
     | {
@@ -49,6 +49,7 @@ const osmd = vi.hoisted(() => ({
         voice?: number;
         grace?: string;
         dot?: boolean;
+        hidden?: boolean;
       }[][]
     | null,
 }));
@@ -72,6 +73,8 @@ vi.mock("opensheetmusicdisplay", () => {
     grace?: string;
     /** Silencio con puntillo: su elemento es más ancho que su glifo. */
     dot?: boolean;
+    /** Silencio invisible (`print-object="no"`): OSMD lo guarda, pero no lo dibuja. */
+    hidden?: boolean;
   }
   /** Una entrada de voz de OSMD con su elemento SVG, dentro de `parent`. */
   function voiceEntry(parent: Element, drawn: Drawn, x: number, unit: number, grace: boolean) {
@@ -99,6 +102,7 @@ vi.mock("opensheetmusicdisplay", () => {
       return {
         sourceNote: {
           isRest: () => pitch === null,
+          PrintObject: !drawn.hidden,
           Length: { GetExpandedNumerator: () => drawn.whole[0], Denominator: drawn.whole[1] },
           Pitch: match
             ? { getHalfTone: () => midi - 12, FundamentalNote: STEPS[match[1] ?? "C"] }
@@ -1510,6 +1514,36 @@ describe("elegir una nota sobre la partitura", () => {
     // ⌘ con → salta de compás, como Ctrl.
     fireEvent.keyDown(region, { key: "ArrowRight", metaKey: true });
     expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+  });
+
+  it("no cuenta como figura el silencio invisible que OSMD guarda, y la voz empieza tras él (ADR-0032)", async () => {
+    osmd.figures = [
+      [
+        { pitch: "E5", whole: [3, 4], voice: 1 },
+        { pitch: null, whole: [1, 4], voice: 2, hidden: true },
+        { pitch: "C4", whole: [2, 4], voice: 2 },
+      ],
+    ];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "E5", duration_beats: "3" },
+          { kind: "rest", pitch: null, duration_beats: "1", voice: 1, hidden: true },
+          { pitch: "C4", duration_beats: "2", voice: 1 },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Mi5 · blanca con puntillo")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowDown" });
+    expect(screen.getByText("Compás 1 · Voz 2")).toBeVisible();
+    expect(screen.getByText("Do4 · blanca")).toBeVisible();
+    // El silencio invisible no se elige: al principio de la voz está Do4.
+    fireEvent.keyDown(region, { key: "Home" });
+    expect(screen.getByText("Do4 · blanca")).toBeVisible();
   });
 
   it("elige por separado la nota de adorno y la nota a la que adorna (D60)", async () => {

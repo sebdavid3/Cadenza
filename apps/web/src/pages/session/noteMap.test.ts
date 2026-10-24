@@ -304,6 +304,52 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     expect(events[1]?.slot).toEqual({ staff: 1, measure: 0 });
   });
 
+  it("salta el silencio invisible de una voz: no se dibuja ni se elige, pero cuenta en el ancla y en el instante (ADR-0032)", () => {
+    const hiddenRest = (duration: string, voice: number) =>
+      event({ kind: "rest", pitch: null, duration_beats: duration, voice, hidden: true });
+    const events = complete(
+      buildNoteMap(
+        score([
+          [
+            note("E5", "4"),
+            hiddenRest("2", 1),
+            note("C5", "1", { voice: 1 }),
+            note("B4", "1", { voice: 1 }),
+          ],
+        ]),
+        drawing([
+          [[figure(["E5"], [4, 1], 10)], [figure(["C5"], [1, 1], 50), figure(["B4"], [1, 1], 70)]],
+        ]),
+      ),
+    );
+
+    expect(events.map((selectable) => selectable.key)).toEqual([
+      "0:0:1:0:0",
+      "0:0:1:1:1",
+      "0:0:1:1:2",
+    ]);
+    expect(events.map((selectable) => selectable.onset)).toEqual([0, 2, 3]);
+    expect(moveSelection(events, "0:0:1:0:0", "down")?.key).toBe("0:0:1:1:1");
+    expect(moveSelection(events, "0:0:1:1:1", "measure-start")?.key).toBe("0:0:1:1:1");
+  });
+
+  it("una voz hecha solo de silencios invisibles no es una voz dibujada", () => {
+    const events = complete(
+      buildNoteMap(
+        score([
+          [
+            event({ kind: "rest", pitch: null, duration_beats: "4", hidden: true }),
+            note("C5", "2", { voice: 1 }),
+            note("D5", "2", { voice: 1 }),
+          ],
+        ]),
+        drawing([[[figure(["C5"], [2, 1], 10), figure(["D5"], [2, 1], 50)]]]),
+      ),
+    );
+
+    expect(events.map((selectable) => selectable.key)).toEqual(["0:0:1:1:0", "0:0:1:1:1"]);
+  });
+
   it("acepta un compás vacío si OSMD tampoco dibuja nada en él", () => {
     const events = complete(
       buildNoteMap(score([[note("C4", "4")], []]), drawing([[[figure(["C4"], [4, 1])]], []])),
