@@ -77,17 +77,23 @@ export const sessionFindingsKey = (sessionId: string) =>
  * Hallazgos de la última validación (`latest_only`), también los descartados para poder
  * contarlos y listarlos aparte (ADR-0021).
  */
+export async function fetchSessionFindings(
+  api: ApiClient,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<FindingRead[]> {
+  const findings = await api.request(`${sessionPath(sessionId)}/findings`, {
+    query: { latest_only: true, include_dismissed: true },
+    signal,
+  });
+  if (!Array.isArray(findings)) throw new ApiError("unexpected", 200);
+  return findings as FindingRead[];
+}
+
 export const sessionFindingsQuery = (api: ApiClient, sessionId: string, seq: number) =>
   queryOptions({
     queryKey: [...sessionFindingsKey(sessionId), seq],
-    queryFn: async ({ signal }) => {
-      const findings = await api.request(`${sessionPath(sessionId)}/findings`, {
-        query: { latest_only: true, include_dismissed: true },
-        signal,
-      });
-      if (!Array.isArray(findings)) throw new ApiError("unexpected", 200);
-      return findings as FindingRead[];
-    },
+    queryFn: ({ signal }) => fetchSessionFindings(api, sessionId, signal),
   });
 
 /**

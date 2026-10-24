@@ -325,10 +325,10 @@ export function useEditor(
     });
   }
 
-  /** Recarga el estado actual de la sesión; dice si lo cargó y lo muestra. */
-  async function reload(): Promise<boolean> {
+  /** Recarga el estado actual de la sesión y lo muestra; devuelve su `seq`, o null si no lo cargó. */
+  async function reload(): Promise<number | null> {
     const controller = begin();
-    if (!controller) return false;
+    if (!controller) return null;
     setStatus({ kind: "reloading" });
     try {
       // Si se guardó una edición sin poder mostrar su estado, la recarga deja elegido lo que ella dejaba.
@@ -337,9 +337,9 @@ export function useEditor(
         pendingPlacement.current = null;
         if (pending) place(pending.request, pending.seq);
       }).catch(() => null);
-      if (controller.signal.aborted) return false;
+      if (controller.signal.aborted) return null;
       setStatus({ kind: fresh ? "reloaded" : "reload-failed" });
-      return fresh !== null;
+      return fresh ? (fresh.current_seq ?? 0) : null;
     } finally {
       inFlight.current = false;
     }
@@ -480,7 +480,7 @@ export function useEditor(
     void send(requestOf(retry.plan, chosen ?? retry.anchor, seq));
   }
 
-  return { status, refusal, blocked, run, reload, retry, reapply, log, undo, redo };
+  return { status, refusal, blocked, held, run, reload, retry, reapply, log, undo, redo };
 }
 
 export type Editor = ReturnType<typeof useEditor>;

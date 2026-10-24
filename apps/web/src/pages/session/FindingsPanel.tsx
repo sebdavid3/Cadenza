@@ -18,7 +18,7 @@ export interface FindingsPanelActions {
   onRestore: (finding: FindingRead) => Promise<FindingOutcome>;
   onRevalidate: () => Promise<FindingOutcome>;
   /** Carga el estado actual de la sesión, si la lista es de uno posterior al que se ve. */
-  onReload: () => Promise<boolean>;
+  onReload: () => Promise<number | null>;
 }
 
 interface FindingsPanelProps {
@@ -368,7 +368,7 @@ export function FindingsPanel({
 
   async function reload() {
     if (!actions || busy || actions.editorBusy) return;
-    if (await actions.onReload()) focusAfter({ kind: "heading" });
+    if ((await actions.onReload()) !== null) focusAfter({ kind: "heading" });
   }
 
   function dismissControls(findings: readonly FindingRead[]) {

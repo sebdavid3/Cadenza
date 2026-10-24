@@ -164,7 +164,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const findingActions = useFindingActions(api, sessionId, {
     seq,
     labelOf: (finding) => findingLabel(score, finding, multiStaff),
-    reload: () => editorRef.current?.reload() ?? Promise.resolve(false),
+    reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
   });
   // Mientras se revalida, las correcciones esperan: cambiarían el estado validado (ADR-0035).
   const editor = useEditor(api, sessionId, detail.data, findingActions.revalidating);

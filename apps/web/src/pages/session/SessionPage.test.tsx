@@ -1845,6 +1845,7 @@ describe("corregir la nota elegida", () => {
   ) {
     let current = start;
     let findings = options.findings ?? [];
+    let findingsStatus: number | null = null;
     const findingCalls: { key: string; body: unknown }[] = [];
     const findingQueue: FindingRoute[] = [];
     const validateQueue: (() => Response | Promise<Response>)[] = [];
@@ -1944,7 +1945,10 @@ describe("corregir la nota elegida", () => {
     let detailRoute: (() => Response | Promise<Response>) | null = null;
     const server = mockApi({
       [`GET /sessions/${ID}`]: () => (detailRoute ? detailRoute() : jsonResponse(current)),
-      [`GET /sessions/${ID}/findings`]: () => jsonResponse(findings),
+      [`GET /sessions/${ID}/findings`]: () =>
+        findingsStatus === null
+          ? jsonResponse(findings)
+          : jsonResponse({ detail: "fallo" }, findingsStatus),
       ...findingRoutes,
       [`POST /sessions/${ID}/validate`]: () => (validateQueue.shift() ?? acceptValidate)(),
       [`GET /sessions/${ID}/export`]: (init) =>
@@ -1991,6 +1995,10 @@ describe("corregir la nota elegida", () => {
       /** Cambia los hallazgos del servidor, como si se hubiera revalidado en otra pestaña. */
       setFindings(next: FindingRead[]) {
         findings = next;
+      },
+      /** Hace fallar la lista de posibles errores (o la arregla, con null). */
+      failFindings(status: number | null) {
+        findingsStatus = status;
       },
       respond(route: EditRoute) {
         queue.push(route);
@@ -4205,7 +4213,7 @@ describe("corregir la nota elegida", () => {
 
       await waitFor(() => {
         expect(findingsStatus()).toHaveTextContent(
-          "La sesión cambió en otra pestaña o dispositivo: se revalidó su estado actual, que ya ves. 1 posible error.",
+          "La sesión iba por un estado posterior al que se veía: se revalidó ese estado, que ya ves. 1 posible error.",
         );
       });
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
@@ -4294,12 +4302,127 @@ describe("corregir la nota elegida", () => {
 
       await waitFor(() => {
         expect(findingsStatus()).toHaveTextContent(
-          "La sesión cambió en otra pestaña o dispositivo y se revalidó su estado actual, pero no se pudo cargar: recarga la sesión para verlo.",
+          "La sesión iba por un estado posterior al que se ve y se revalidó ese estado, pero no se pudo cargar: recarga la sesión para verlo.",
         );
       });
       expect(findingsStatus()).not.toHaveTextContent("que ya ves");
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
       expect(editStatus()).toHaveTextContent("No se pudo recargar la sesión.");
+      // La lista sigue siendo la vieja: ni se da por validada ni por posterior, y se puede revalidar.
+      expect(within(panel()).queryByText(/posterior al que ves/i)).toBeNull();
+      expect(revalidate).toBeVisible();
+      expect(revalidate).toHaveFocus();
+
+      // Tras recargar desde la barra, el aviso ya no vale: habla del estado anterior.
+      server.detailRoute(null);
+      await userEvent.click(button("Recargar la sesión"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Sesión recargada.");
+      });
+      expect(findingsStatus()).toBeEmptyDOMElement();
+    });
+
+    it("con una corrección guardada sin mostrar, revalidar carga su estado sin atribuirlo a otra pestaña", async () => {
+      // La validación ya es de un estado anterior: se ofrece revalidar.
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(9, 3)],
+      });
+      renderPage();
+      await chooseMeasure(2);
+      // Se guarda la corrección, pero el estado nuevo no se puede cargar.
+      server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
+      fireEvent.click(button("Subir un paso"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/no se pudo cargar la partitura nueva/i);
+      });
+      server.detailRoute(null);
+      const pending = deferred<Response>();
+      server.respondValidate(() => pending.promise);
+      const detailCalls = server.count(`GET /sessions/${ID}`);
+
+      await userEvent.click(within(panel()).getByRole("button", { name: "Revalidar" }));
+
+      // Mientras se revalida, la recarga de la barra espera: la hará la revalidación.
+      expect(button("Recargar la sesión")).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Recargar la sesión"));
+      expect(server.count(`GET /sessions/${ID}`)).toBe(detailCalls);
+      pending.resolve(server.acceptValidate());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "La sesión iba por un estado posterior al que se veía: se revalidó ese estado, que ya ves. 1 posible error.",
+        );
+      });
+      expect(findingsStatus()).not.toHaveTextContent(/otra pestaña/);
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+    });
+
+    it("si mientras se revalida la sesión avanza otra vez, lo dice y vuelve a ofrecer revalidar", async () => {
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(9, 1)],
+      });
+      renderPage();
+      const pending = deferred<Response>();
+      server.respondValidate(() => pending.promise);
+      const edit = (base_seq: number, pitch: string) => {
+        server.replace(
+          apply(server.current(), {
+            base_seq,
+            op: "SetPitch",
+            anchor: anchorOf(3),
+            before: null,
+            after: { pitch },
+          }).next,
+        );
+      };
+      // Otra pestaña edita (estado 2), el servidor valida ese estado y vuelve a editar (estado 3).
+      edit(1, "E4");
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Revalidar" },
+        ),
+      );
+      const validated = server.acceptValidate();
+      edit(2, "F4");
+      pending.resolve(validated);
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Se revalidó la partitura tal como estaba tras 2 ediciones, pero la sesión ya va por un estado posterior: hay que volver a revalidar.",
+        );
+      });
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("3");
+      expect(
+        within(panel()).getByText(/tal como estaba tras 2 ediciones; después se editó/i),
+      ).toBeVisible();
+      expect(within(panel()).getByRole("button", { name: "Revalidar" })).toBeVisible();
+    });
+
+    it("si tras descartar no se puede volver a pedir la lista, no la tapa", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2), finding(2, 3)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 3" },
+        ),
+      );
+      server.failFindings(500);
+
+      await userEvent.click(submit());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Descartado como falso positivo: Duración del compás, compás 3. La partitura no cambia.",
+        );
+      });
+      expect(within(panel()).queryByText(/no se pudieron cargar/i)).toBeNull();
+      expect(within(panel()).getByText(/descartados como falso positivo · 1/i)).toBeVisible();
+      expect(markCount()).toBe(1);
     });
 
     it("si el descartado era de una validación anterior a la última, lo dice con la lista nueva", async () => {

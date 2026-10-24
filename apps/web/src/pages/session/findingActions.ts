@@ -6,6 +6,7 @@ import type { FindingRead } from "../../types";
 import { withFinding } from "./findings";
 import {
   dismissFinding,
+  fetchSessionFindings,
   restoreFinding,
   revalidateSession,
   sessionDetailQuery,
@@ -97,9 +98,10 @@ interface FindingActionsOptions {
   labelOf: (finding: FindingRead) => string;
   /**
    * Carga y muestra de una vez el estado actual de la sesión (el `reload` del editor), cuando el
-   * servidor va por delante del que se ve o la sesión ya no admite cambios. Dice si lo cargó.
+   * servidor va por delante del que se ve o la sesión ya no admite cambios. Devuelve el `seq` que
+   * cargó, o null si no lo cargó.
    */
-  reload: () => Promise<boolean>;
+  reload: () => Promise<number | null>;
 }
 
 /**
@@ -237,10 +239,16 @@ export function useFindingActions(
       );
       if (cancelled()) return "ignored";
       // El servidor acepta un hallazgo de una validación anterior a la última (otra pestaña
-      // revalidó otro estado): la lista se vuelve a pedir para saber si sigue siendo de ella.
-      await refetchFindings();
+      // revalidó otro estado): la lista se vuelve a pedir para saber si sigue siendo de ella. Se
+      // pide aparte de la consulta, para que un fallo no tape la lista que ya se ve.
+      const latest = await fetchSessionFindings(api, sessionId, signal).catch(() => null);
       if (cancelled()) return "ignored";
-      const latest = listed(optionsRef.current.seq);
+      if (latest) {
+        queryClient.setQueryData(
+          sessionFindingsQuery(api, sessionId, optionsRef.current.seq).queryKey,
+          latest,
+        );
+      }
       if (latest && !latest.some((candidate) => candidate.id === updated.id)) {
         say(
           `Se ${done}, pero ese posible error era de una validación anterior a la última, hecha en otra pestaña o dispositivo: ya ves la lista actual.`,
@@ -286,8 +294,9 @@ export function useFindingActions(
 
   /**
    * Revalida el estado actual del servidor. Su `current_seq` dice qué estado se validó: el que se
-   * ve, uno posterior (se editó en otra parte: se carga) o uno anterior (la vista pasó a otro
-   * estado mientras tanto: hay que volver a revalidar).
+   * ve, uno posterior (se editó en otra pestaña, o una corrección de esta se guardó sin poder
+   * mostrarla: se carga) o uno anterior (la vista pasó a otro estado mientras tanto: hay que volver
+   * a revalidar). El estado validado solo se recuerda con su lista ya pedida.
    */
   async function revalidate(): Promise<FindingOutcome> {
     const signal = begin("revalidate", null);
@@ -319,19 +328,27 @@ export function useFindingActions(
         // El servidor va por delante: se carga su estado entero, con la lista de ese estado. La
         // del que se ve ya no hace falta pedirla.
         forgetFindings();
-        const reloaded = await optionsRef.current.reload();
-        remember(validated);
+        const loaded = await optionsRef.current.reload();
+        // Sin el estado cargado, la lista que se ve sigue siendo la vieja: no se da por validada.
+        if (loaded !== null) remember(validated);
         if (cancelled()) return "ignored";
-        if (!reloaded) {
+        if (loaded === null) {
           say(
-            "La sesión cambió en otra pestaña o dispositivo y se revalidó su estado actual, pero no se pudo cargar: recarga la sesión para verlo.",
-            null,
+            "La sesión iba por un estado posterior al que se ve y se revalidó ese estado, pero no se pudo cargar: recarga la sesión para verlo.",
+            shown,
           );
           return "failed";
         }
+        if (loaded > validated) {
+          say(
+            `Se revalidó la partitura tal como estaba tras ${plural(validated, "edición", "ediciones")}, pero la sesión ya va por un estado posterior: hay que volver a revalidar.`,
+            loaded,
+          );
+          return "done";
+        }
         const findings = listed(validated);
         say(
-          `La sesión cambió en otra pestaña o dispositivo: se revalidó su estado actual, que ya ves.${
+          `La sesión iba por un estado posterior al que se veía: se revalidó ese estado, que ya ves.${
             findings ? ` ${summary(findings)}` : ""
           }`,
           validated,
@@ -339,7 +356,7 @@ export function useFindingActions(
         return "done";
       }
       await refetchFindings();
-      remember(validated);
+      if (listed(shown)) remember(validated);
       if (cancelled()) return "ignored";
       if (validated < shown) {
         say(
