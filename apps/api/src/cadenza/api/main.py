@@ -491,9 +491,11 @@ def create_app(
                 root_dir = Path(root)
                 root_dir.mkdir(parents=True, exist_ok=True)
                 # La API corre sin root (D57): la carpeta puede existir y no admitir escritura,
-                # como un volumen de root sin migrar.
-                if not os.access(root_dir, os.W_OK | os.X_OK):
-                    raise PermissionError(f"la API no puede escribir en {root_dir}")
+                # como un volumen de root sin migrar. Se mira también `sha256`, la primera
+                # carpeta del almacén; las de prefijo, debajo, no se recorren en cada sondeo.
+                for folder in (root_dir, root_dir / "sha256"):
+                    if folder.exists() and not os.access(folder, os.W_OK | os.X_OK):
+                        raise PermissionError(f"la API no puede escribir en {folder}")
         except Exception as err:
             logger.error("Health check artifact store error: %s", err)
             store_status = "error"
