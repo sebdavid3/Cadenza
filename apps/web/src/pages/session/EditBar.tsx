@@ -15,13 +15,20 @@ import {
   type EditCommand,
   type EditTarget,
 } from "./edits";
-import type { Editor, EditorStatus, EditRequest } from "./editor";
+import type { Editor, EditorRequest, EditorStatus } from "./editor";
+import { describeEdit, hasCompleteBefore, placeOf } from "./history";
 import { KeyCap } from "./SelectionBar";
+import type { EditEventRead } from "../../types";
 
 interface EditBarProps {
   editor: Editor;
   /** Si se ofrecen los controles: la sesión es de quien la ve y no está finalizada. */
   editable: boolean;
+  /**
+   * Si se ofrecen deshacer y rehacer (ADR-0034): como `editable`, también cuando la partitura no
+   * se puede dibujar, para deshacer la edición que la dejó así.
+   */
+  undoable: boolean;
   /** Evento elegido en el estado que se muestra, o null si no hay ninguno que corregir. */
   target: EditTarget | null;
   /** Si se puede elegir una nota sobre la partitura; si no, lo dice la barra de la selección. */
@@ -116,17 +123,43 @@ const distinct = (message: string, nonce: number) =>
   nonce % 2 === 1 ? `${message}${HARD_SPACE}` : message;
 
 /**
- * Dónde está lo que cambia una edición, para decirlo: «compás 2, voz 1»; la clave y la armadura
- * son del compás, sin voz.
+ * Un 422 (u otro rechazo) no cambió nada. Al deshacer, si la edición no guardó su estado previo
+ * (anterior a ADR-0017), el servidor no la puede deshacer sin alterar la partitura: se dice así.
  */
-function placeOf(request: EditRequest, multiStaff: boolean): string {
-  const { anchor } = request;
-  const measureOnly = request.op === "SetClef" || request.op === "SetKey";
-  const place = measureOnly
-    ? `compás ${String(anchor.measure)}`
-    : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
-  return multiStaff ? `pentagrama ${String(anchor.staff + 1)}, ${place}` : place;
+function rejection(request: EditorRequest, where: string): string {
+  switch (request.kind) {
+    case "edit":
+      return `El servidor no aceptó el cambio (${where}): no se guardó nada.`;
+    case "redo":
+      return `El servidor no aceptó rehacer (${where}): no se guardó nada.`;
+    case "undo":
+      return hasCompleteBefore(request.edit)
+        ? `El servidor no aceptó deshacer (${where}): no se cambió nada.`
+        : `No se puede deshacer la edición ${String(request.edit.seq)} (${where}): es de antes de que el servidor guardara el estado previo de cada edición, y deshacerla alteraría la partitura. No se cambió nada.`;
+  }
 }
+
+/** Sin respuesta, o con una que no lo confirma, no se sabe si la orden se hizo. */
+function uncertainty(request: EditorRequest, where: string, reason: "silent" | "server"): string {
+  const check = "Recarga la sesión para comprobarlo.";
+  if (request.kind === "edit") {
+    return reason === "silent"
+      ? `No hubo respuesta del servidor: puede que el cambio (${where}) no se guardara. ${check}`
+      : `El servidor no confirmó el cambio (${where}): puede que no se guardara. ${check}`;
+  }
+  const [maybe, done] =
+    request.kind === "undo" ? ["deshiciera", "deshizo"] : ["rehiciera", "rehízo"];
+  return reason === "silent"
+    ? `No hubo respuesta del servidor: puede que no se ${maybe} (${where}). ${check}`
+    : `El servidor no confirmó si se ${done} (${where}). ${check}`;
+}
+
+/** Cómo se dice lo que pasa con cada clase de orden: corregir, deshacer o rehacer. */
+const WORDS = {
+  edit: { saving: "Guardando…", done: "Guardado", notDone: "No se guardó", it: "guardarlo" },
+  undo: { saving: "Deshaciendo…", done: "Deshecho", notDone: "No se deshizo", it: "deshacerlo" },
+  redo: { saving: "Rehaciendo…", done: "Rehecho", notDone: "No se rehízo", it: "rehacerlo" },
+} as const;
 
 /** Lo que se dice tras una orden, y si hace falta recargar para seguir. */
 function feedback(
@@ -134,22 +167,31 @@ function feedback(
   multiStaff: boolean,
   retry: Editor["retry"],
 ): { text: string; reload: boolean } {
-  const what = (request: EditRequest) => `${request.change} (${placeOf(request, multiStaff)})`;
-  const inline = (request: EditRequest) => `${request.change}, ${placeOf(request, multiStaff)}`;
+  const what = (request: EditorRequest) => `${request.change} (${placeOf(request, multiStaff)})`;
+  const inline = (request: EditorRequest) => `${request.change}, ${placeOf(request, multiStaff)}`;
   switch (status.kind) {
     case "idle":
       return { text: "", reload: false };
     case "saving":
-      return { text: "Guardando…", reload: false };
+      return { text: WORDS[status.request.kind].saving, reload: false };
     case "saved": {
-      const { change, notice } = status.request;
+      const { request } = status;
+      // Deshacer y rehacer dicen dónde: lo que cambia puede no ser la nota elegida.
+      if (request.kind !== "edit") {
+        return { text: `${WORDS[request.kind].done}: ${what(request)}.`, reload: false };
+      }
+      const { change, notice } = request;
       return { text: `Guardado: ${change}.${notice ? ` ${notice}` : ""}`, reload: false };
     }
     case "refused":
       return { text: distinct(status.message, status.nonce), reload: false };
     case "conflict": {
-      const base = `No se guardó: ${what(status.request)}. La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.`;
-      if (!retry || retry.plan.kind === "edit") return { text: base, reload: false };
+      const { request } = status;
+      const words = WORDS[request.kind];
+      const base = `${words.notDone}: ${what(request)}. La sesión cambió en otra pestaña o dispositivo antes de ${words.it}; ya ves su estado actual.`;
+      if (request.kind !== "edit" || !retry || retry.plan.kind === "edit") {
+        return { text: base, reload: false };
+      }
       // Sin nada que volver a aplicar, se dice por qué.
       const reason = retry.anchor
         ? retry.plan.message
@@ -158,42 +200,42 @@ function feedback(
     }
     case "closed":
       return {
-        text: `No se guardó: ${what(status.request)}. La sesión está finalizada y ya no admite correcciones.`,
+        text: `${WORDS[status.request.kind].notDone}: ${what(status.request)}. La sesión está finalizada y ya no admite correcciones.`,
         reload: false,
       };
-    case "outdated":
+    case "outdated": {
+      const words = WORDS[status.request.kind];
       return {
-        text: `No se guardó: ${what(status.request)}. La sesión cambió antes de guardarlo y no se pudo cargar su estado actual: recárgala para seguir.`,
+        text: `${words.notDone}: ${what(status.request)}. La sesión cambió antes de ${words.it} y no se pudo cargar su estado actual: recárgala para seguir.`,
         reload: true,
       };
+    }
     case "rejected":
-      return {
-        text: `El servidor no aceptó el cambio (${inline(status.request)}): no se guardó nada.`,
-        reload: false,
-      };
+      return { text: rejection(status.request, inline(status.request)), reload: false };
     case "forbidden":
       return {
-        text: "No se guardó: solo la persona que hizo la transcripción puede corregirla.",
+        text: `${WORDS[status.request.kind].notDone}: solo la persona que hizo la transcripción puede corregirla.`,
         reload: false,
       };
     case "missing":
       return {
-        text: "No se guardó: la sesión ya no existe o no tienes acceso a ella.",
+        text: `${WORDS[status.request.kind].notDone}: la sesión ya no existe o no tienes acceso a ella.`,
         reload: false,
       };
     case "unknown":
       return {
-        text:
-          status.reason === "silent"
-            ? `No hubo respuesta del servidor: puede que el cambio (${inline(status.request)}) no se guardara. Recarga la sesión para comprobarlo.`
-            : `El servidor no confirmó el cambio (${inline(status.request)}): puede que no se guardara. Recarga la sesión para comprobarlo.`,
+        text: uncertainty(status.request, inline(status.request), status.reason),
         reload: true,
       };
-    case "unsynced":
+    case "unsynced": {
+      const { kind } = status.request;
+      const done =
+        kind === "edit" ? "Se guardó el cambio" : kind === "undo" ? "Se deshizo" : "Se rehízo";
       return {
-        text: `Se guardó el cambio (${inline(status.request)}), pero no se pudo cargar la partitura nueva. Recarga la sesión para seguir corrigiendo.`,
+        text: `${done} (${inline(status.request)}), pero no se pudo cargar la partitura nueva. Recarga la sesión para seguir corrigiendo.`,
         reload: true,
       };
+    }
     // El botón sigue mientras recarga, inactivo: si desapareciera, se perdería el foco.
     case "reloading":
       return { text: "Recargando la sesión…", reload: true };
@@ -333,15 +375,90 @@ function KeyPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
   );
 }
 
+interface HistoryControlsProps {
+  editor: Editor;
+  multiStaff: boolean;
+}
+
+/**
+ * Deshacer y rehacer (ADR-0034): no dependen de la nota elegida. Dicen qué desharían y qué
+ * reharían y, sin nada, que no hay nada; Ctrl+Z y los suyos valen en toda la vista, salvo en un
+ * campo de texto, y los botones lo declaran.
+ */
+function HistoryControls({ editor, multiStaff }: HistoryControlsProps) {
+  const labelId = useId();
+  const noteId = useId();
+  const { blocked, log } = editor;
+  const what = (edit: EditEventRead) => `${describeEdit(edit)} (${placeOf(edit, multiStaff)})`;
+  const note =
+    !log.undo && !log.redo
+      ? "Nada que deshacer ni rehacer."
+      : `${log.undo ? `Deshace: ${what(log.undo)}.` : "Nada que deshacer."} ${
+          log.redo ? `Rehace: ${what(log.redo)}.` : "Nada que rehacer."
+        }`;
+  const buttons = [
+    {
+      label: "Deshacer",
+      icon: "undo",
+      edit: log.undo,
+      none: "Nada que deshacer",
+      keys: "Control+Z Meta+Z",
+      onRun: editor.undo,
+    },
+    {
+      label: "Rehacer",
+      icon: "redo",
+      edit: log.redo,
+      none: "Nada que rehacer",
+      keys: "Control+Shift+Z Meta+Shift+Z Control+Y",
+      onRun: editor.redo,
+    },
+  ] as const;
+  return (
+    <div className="editor__group editor__group--history" role="group" aria-labelledby={labelId}>
+      <p className="label editor__label" id={labelId}>
+        Deshacer y rehacer
+      </p>
+      <div className="editor__buttons">
+        {buttons.map(({ label, icon, edit, none, keys, onRun }) => {
+          const disabled = blocked || !edit;
+          return (
+            <button
+              key={label}
+              type="button"
+              className="editor__button"
+              aria-label={label}
+              title={edit ? `${label}: ${what(edit)}` : none}
+              aria-describedby={noteId}
+              aria-keyshortcuts={keys}
+              aria-disabled={disabled}
+              onClick={() => {
+                if (!disabled) onRun();
+              }}
+            >
+              <PixelIcon name={icon} />
+              <span className="editor__text">{label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="editor__history" id={noteId}>
+        {note}
+      </p>
+    </div>
+  );
+}
+
 /**
  * Barra de corrección de la nota elegida (ADR-0030, ADR-0033): altura, alteración y figura;
- * insertar antes y borrar; la clave y la armadura de su compás. Cada botón es una edición
- * completa, que se envía con el `base_seq` del estado que se ve y no se da por guardada hasta el
- * 201. Lo que pasa se anuncia en una región `aria-live`.
+ * insertar antes y borrar; la clave y la armadura de su compás; y deshacer y rehacer (ADR-0034).
+ * Cada botón es una edición completa, que se envía con el `base_seq` del estado que se ve y no se
+ * da por guardada hasta el 201. Lo que pasa se anuncia en una región `aria-live`.
  */
 export function EditBar({
   editor,
   editable,
+  undoable,
   target,
   available,
   score,
@@ -392,102 +509,105 @@ export function EditBar({
         lastFocused.current = event.target;
       }}
     >
-      {editable && (
-        <>
-          <div className="editor__groups">
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>
-              <p className="label editor__label" id={`${groupId}-pitch`}>
-                Altura
-              </p>
-              <div className="editor__buttons">
-                {PITCH.map((button) => (
-                  <CommandButton key={button.label} {...button} {...shared} />
-                ))}
+      {(editable || undoable) && (
+        <div className="editor__groups">
+          {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} />}
+          {editable && (
+            <>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>
+                <p className="label editor__label" id={`${groupId}-pitch`}>
+                  Altura
+                </p>
+                <div className="editor__buttons">
+                  {PITCH.map((button) => (
+                    <CommandButton key={button.label} {...button} {...shared} />
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-accidental`}>
-              <p className="label editor__label" id={`${groupId}-accidental`}>
-                Alteración
-              </p>
-              <div className="editor__buttons">
-                {ACCIDENTAL_BUTTONS.map((button) => (
-                  <CommandButton
-                    key={button.label}
-                    command={{ kind: "accidental", accidental: button.accidental }}
-                    label={button.label}
-                    icon={button.icon}
-                    pressed={accidental === button.accidental}
-                    {...shared}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-figure`}>
-              <p className="label editor__label" id={`${groupId}-figure`}>
-                Figura
-              </p>
-              <div className="editor__buttons">
-                {FIGURES.map((figure, index) => (
-                  <CommandButton
-                    key={figure.name}
-                    command={{ kind: "figure", figure: index }}
-                    label={figure.name}
-                    icon={FIGURE_ICONS[index] ?? "figure-quarter"}
-                    pressed={current.figure === index}
-                    {...shared}
-                  />
-                ))}
-                <CommandButton
-                  command={{ kind: "dot" }}
-                  label="Puntillo"
-                  icon="figure-dot"
-                  pressed={current.dotted}
-                  {...shared}
-                />
-              </div>
-            </div>
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
-              <p className="label editor__label" id={`${groupId}-structure`}>
-                Insertar antes o borrar
-              </p>
-              <div className="editor__buttons">
-                {STRUCTURE.map((button) => (
-                  <CommandButton key={button.label} {...button} {...shared} />
-                ))}
-              </div>
-            </div>
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
-              <p className="label editor__label" id={`${groupId}-clef`}>
-                {`Clave${range("clef")}`}
-              </p>
-              <div className="editor__buttons">
-                {CLEFS.map((clef, index) => {
-                  const command: EditCommand = { kind: "clef", clef: index };
-                  const plan = planCommand(command, target, score);
-                  return (
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-accidental`}>
+                <p className="label editor__label" id={`${groupId}-accidental`}>
+                  Alteración
+                </p>
+                <div className="editor__buttons">
+                  {ACCIDENTAL_BUTTONS.map((button) => (
                     <CommandButton
-                      key={clef.name}
-                      command={command}
-                      label={clef.name}
-                      text={clef.word}
-                      pressed={plan.kind === "refused" && plan.reason === "same"}
+                      key={button.label}
+                      command={{ kind: "accidental", accidental: button.accidental }}
+                      label={button.label}
+                      icon={button.icon}
+                      pressed={accidental === button.accidental}
                       {...shared}
                     />
-                  );
-                })}
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="editor__group" role="group" aria-labelledby={`${groupId}-key`}>
-              <p className="label editor__label" id={`${groupId}-key`}>
-                {`Armadura${range("key_signature")}`}
-              </p>
-              <KeyPicker labelId={`${groupId}-key`} {...shared} />
-            </div>
-          </div>
-          {hint(target, available) !== null && (
-            <p className="editor__hint">{hint(target, available)}</p>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-figure`}>
+                <p className="label editor__label" id={`${groupId}-figure`}>
+                  Figura
+                </p>
+                <div className="editor__buttons">
+                  {FIGURES.map((figure, index) => (
+                    <CommandButton
+                      key={figure.name}
+                      command={{ kind: "figure", figure: index }}
+                      label={figure.name}
+                      icon={FIGURE_ICONS[index] ?? "figure-quarter"}
+                      pressed={current.figure === index}
+                      {...shared}
+                    />
+                  ))}
+                  <CommandButton
+                    command={{ kind: "dot" }}
+                    label="Puntillo"
+                    icon="figure-dot"
+                    pressed={current.dotted}
+                    {...shared}
+                  />
+                </div>
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
+                <p className="label editor__label" id={`${groupId}-structure`}>
+                  Insertar antes o borrar
+                </p>
+                <div className="editor__buttons">
+                  {STRUCTURE.map((button) => (
+                    <CommandButton key={button.label} {...button} {...shared} />
+                  ))}
+                </div>
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
+                <p className="label editor__label" id={`${groupId}-clef`}>
+                  {`Clave${range("clef")}`}
+                </p>
+                <div className="editor__buttons">
+                  {CLEFS.map((clef, index) => {
+                    const command: EditCommand = { kind: "clef", clef: index };
+                    const plan = planCommand(command, target, score);
+                    return (
+                      <CommandButton
+                        key={clef.name}
+                        command={command}
+                        label={clef.name}
+                        text={clef.word}
+                        pressed={plan.kind === "refused" && plan.reason === "same"}
+                        {...shared}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-key`}>
+                <p className="label editor__label" id={`${groupId}-key`}>
+                  {`Armadura${range("key_signature")}`}
+                </p>
+                <KeyPicker labelId={`${groupId}-key`} {...shared} />
+              </div>
+            </>
           )}
-        </>
+        </div>
+      )}
+      {editable && hint(target, available) !== null && (
+        <p className="editor__hint">{hint(target, available)}</p>
       )}
       <div className="editor__feedback">
         <div className="editor__messages" role="status" ref={statusRef} tabIndex={-1}>
@@ -549,6 +669,16 @@ export function EditBar({
           </span>
           <span>
             <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar
+          </span>
+          <span>
+            <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+            <KeyCap>Z</KeyCap> deshacer
+          </span>
+          <span>
+            <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+            <KeyCap>Mayús</KeyCap>
+            <KeyCap>Z</KeyCap>, o <KeyCap>Ctrl</KeyCap>
+            <KeyCap>Y</KeyCap> rehacer
           </span>
         </p>
       )}

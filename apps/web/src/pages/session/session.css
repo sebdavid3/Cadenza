@@ -423,6 +423,13 @@
   margin-left: calc(var(--rule-width) * -1);
 }
 
+/* Qué desharía y qué reharía: bajo sus botones, sin ensanchar el grupo. */
+.editor__history {
+  max-width: 30ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
 .editor__hint {
   flex-basis: 100%;
   color: var(--color-ink-muted);
@@ -759,13 +766,19 @@
   font-weight: 700;
 }
 
+/* Columna de al lado: los posibles errores y, debajo, la historia de ediciones. */
+.session__aside {
+  display: grid;
+  align-content: start;
+  border-left: var(--rule);
+}
+
 /* Posibles errores */
 .findings {
   display: grid;
   align-content: start;
   gap: var(--space-4);
   padding: var(--space-6) var(--gutter) var(--space-8);
-  border-left: var(--rule);
 }
 
 .findings__head {
@@ -923,12 +936,107 @@ button.findings__item:hover {
   font-size: var(--text-small);
 }
 
+/* Historia de ediciones: el log entero, de la más reciente a la primera. Lo deshecho se tacha
+   con filete discontinuo, el patrón de lo que ya no pide acción, y lo dice con su etiqueta. */
+.history {
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--gutter) var(--space-8);
+  border-top: var(--rule);
+}
+
+.history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.history__title {
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.history__count {
+  min-width: 2.5rem;
+  padding: 6px var(--space-2);
+  border: var(--rule);
+  font-weight: 700;
+  text-align: center;
+}
+
+.history__empty,
+.history__summary {
+  max-width: 48ch;
+  color: var(--color-ink-muted);
+}
+
+.history__details summary {
+  min-height: 44px;
+  padding: var(--space-3) 0;
+  cursor: pointer;
+}
+
+.history__list {
+  display: grid;
+  max-height: 28rem;
+  overflow-y: auto;
+  padding: 0;
+  list-style: none;
+  border-top: var(--rule);
+}
+
+.history__item {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  padding: var(--space-3) var(--space-2);
+  border-bottom: var(--rule);
+}
+
+.history__seq {
+  grid-row: span 3;
+  align-self: start;
+  padding: 2px 0;
+  border: var(--rule);
+  font-weight: 700;
+  text-align: center;
+}
+
+.history__change {
+  font-weight: 500;
+}
+
+.history__meta {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.history__tag {
+  justify-self: start;
+  padding: 2px var(--space-2);
+  border: var(--rule-width) dashed var(--color-ink);
+}
+
+.history__item[data-undone="true"] .history__change {
+  color: var(--color-ink-muted);
+  text-decoration: line-through;
+}
+
 @media (max-width: 960px) {
   .session__body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .findings {
+  .session__aside {
     border-top: var(--rule);
     border-left: 0;
   }
