@@ -196,7 +196,7 @@ El primer acceso público, mientras Funnel obtenía el certificado, cortó el ha
 
 El 2026-10-23 la caché llegó a 42,43 GB (231 entradas, todas de Cadenza), con el disco al 83 %. Se liberó con `docker builder prune -af` y `docker image prune -f`: la caché quedó en 0 B y el disco al 75 % (115 GB libres), con los servicios en marcha.
 
-**Ahora.** La etapa `deps` instala las dependencias y los pesos de HOMR antes de copiar el código. La etapa final copia el entorno virtual de `deps` aparte de los paquetes del workspace y del código, que son lo único que cambia de una versión a otra. Medido en el servidor con un clon desechable:
+**Ahora.** La etapa `deps` instala las dependencias y los pesos de HOMR antes de copiar el código, solo con el lockfile y los `pyproject.toml`. La etapa final copia el entorno virtual de `deps` aparte de los paquetes del workspace y del código, que son lo único que cambia de una versión a otra. La construcción falla si a la imagen final le falta algún archivo de esos paquetes, y una prueba (`apps/api/tests/test_dockerfile.py`) fija todo esto. Medido en el servidor con un clon desechable:
 - Tras un cambio solo de código, la caché crece 20 MB y 19 MB en dos reconstrucciones seguidas, que tardan 13 s y 9 s. Antes, 2,5 GB por reconstrucción.
 - Con las dependencias antes del código, pero el entorno virtual copiado entero a la etapa final, crecía todavía 1,23 GB: el `RECORD` y el `uv_cache.json` de los paquetes del workspace cambian con cada construcción.
 - El entorno virtual de la imagen final es idéntico al del builder: 16.174 archivos, ninguna diferencia.
@@ -204,7 +204,7 @@ El 2026-10-23 la caché llegó a 42,43 GB (231 entradas, todas de Cadenza), con 
 **Tope.** `deploy/limpieza-docker.sh` deja la caché de construcción en `CADENZA_BUILD_CACHE_MAX` como mucho (10 GB por defecto), quedándose con lo usado más recientemente, y borra las imágenes colgantes.
 - No toca volúmenes, contenedores ni imágenes con nombre, tampoco las de otros proyectos del servidor. La caché de construcción y las imágenes colgantes sí son de todo el servidor.
 - El tope es un objetivo: la caché que respalda imágenes existentes no se libera. Con 3 GB, la prueba dejó 4,9 GB, y la reconstrucción siguiente tardó 9 s.
-- Corre después de cada actualización (procedimiento de abajo) y cada domingo desde el cron de `papoi`, después de la copia diaria. La línea está también en `~/scripts/crontab-papoi.txt`:
+- Corre después de cada actualización (el procedimiento de arriba) y cada domingo desde el cron de `papoi`, después de la copia diaria. La línea está también en `~/scripts/crontab-papoi.txt`, desde el que se instala ese crontab:
 
 ```cron
 45 4 * * 0 /bin/sh /opt/docker/cadenza/deploy/limpieza-docker.sh >> /opt/docker/cadenza/backups/limpieza-docker.log 2>&1
