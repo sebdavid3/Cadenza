@@ -43,46 +43,53 @@ def _installs_dependencies(instruction: str) -> bool:
     return instruction.startswith("RUN uv sync") and "--no-install-workspace" in instruction
 
 
-def _is_code(instruction: str) -> bool:
-    return instruction in ("COPY apps/api/ apps/api/", "COPY packages/ packages/")
+def _members() -> list[str]:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    members: list[str] = pyproject["tool"]["uv"]["workspace"]["members"]
+    return members
 
 
-def test_dependencies_and_weights_are_installed_without_the_code() -> None:
+def _copied_sources(instructions: list[str]) -> list[str]:
+    """Fuentes de las instrucciones COPY que toman archivos del contexto, no de otra etapa."""
+    return [
+        source
+        for instruction in instructions
+        if instruction.startswith("COPY ") and "--from=" not in instruction
+        for source in instruction.split()[1:-1]
+        if not source.startswith("--")
+    ]
+
+
+def test_dependencies_and_weights_are_installed_from_the_manifests_alone() -> None:
+    # En deps solo entran el lockfile y los pyproject.toml, de todos los miembros del workspace,
+    # que `uv sync --frozen` necesita: ni una línea de código, o cada cambio de código
+    # reinstalaría las dependencias.
     deps = _stage("deps")
 
     dependencies = _only(deps, _installs_dependencies)
     weights = _only(deps, lambda instruction: "homr --init" in instruction)
 
     assert dependencies < weights
-    assert not any(_is_code(instruction) for instruction in deps)
+    assert sorted(_copied_sources(deps)) == sorted(
+        ["pyproject.toml", "uv.lock", *(f"{member}/pyproject.toml" for member in _members())]
+    )
+    assert not _copied_sources(deps[dependencies:])
 
 
 def test_the_code_and_the_workspace_packages_come_after_the_dependencies() -> None:
     builder = _stage("builder")
+    deps = _stage("deps")
 
-    code = [n for n, instruction in enumerate(builder) if _is_code(instruction)]
+    code = [n for n, instruction in enumerate(builder) if instruction.startswith("COPY ")]
     workspace = _only(builder, lambda instruction: instruction.startswith("RUN uv sync"))
 
-    assert len(code) == 2 and max(code) < workspace
-    assert not _installs_dependencies(builder[workspace])
-
-
-def test_every_workspace_member_is_declared_before_installing_dependencies() -> None:
-    # `uv sync --frozen` necesita el pyproject.toml de todos los miembros del workspace.
-    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    members = pyproject["tool"]["uv"]["workspace"]["members"]
-    deps = _stage("deps")
-    dependencies = _only(deps, _installs_dependencies)
-
-    copied = {
-        source
-        for instruction in deps[:dependencies]
-        if instruction.startswith("COPY ")
-        for source in instruction.split()[1:-1]
-        if source.endswith("pyproject.toml")
-    }
-
-    assert copied == {"pyproject.toml", *(f"{member}/pyproject.toml" for member in members)}
+    assert _copied_sources(builder) == ["apps/api/", "packages/"]
+    assert max(code) < workspace
+    # Las mismas opciones que en deps: con otras, la etapa final no tendría lo que se instalara
+    # de más, porque de esta instalación solo copia los paquetes del workspace.
+    assert (
+        builder[workspace] + " --no-install-workspace" == deps[_only(deps, _installs_dependencies)]
+    )
 
 
 def test_the_final_stage_copies_the_environment_apart_from_the_code() -> None:
@@ -97,3 +104,16 @@ def test_the_final_stage_copies_the_environment_apart_from_the_code() -> None:
         "COPY --from=builder /app/apps /app/apps",
         "COPY --from=builder /app/packages /app/packages",
     ]
+
+
+def test_the_build_fails_if_a_workspace_file_is_left_behind() -> None:
+    # De la instalación del workspace solo se copian los dist-info y los .pth: la construcción
+    # comprueba que estén todos los archivos que esos paquetes declaran.
+    runner = _stage("runner")
+
+    check = _only(runner, lambda instruction: "locate_file" in instruction)
+
+    assert check > max(n for n, i in enumerate(runner) if i.startswith("COPY --from="))
+    assert "startswith('cadenza-')" in runner[check]
+    # Distribution.files omite lo que no existe desde Python 3.12: la lista sale del RECORD.
+    assert "read_text('RECORD')" in runner[check]

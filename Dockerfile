@@ -77,6 +77,13 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Falla al construir si la API o HOMR no se pueden importar en la imagen final (#135)
 RUN python -c "import cadenza.api.main, homr.main, cv2, onnxruntime"
 
+# Falla también si falta algún archivo de los paquetes del workspace: de su instalación solo se
+# copian los dist-info y los .pth, y un script de consola, por ejemplo, se quedaría atrás (#205).
+# Lee el RECORD directamente: desde Python 3.12, Distribution.files omite lo que no existe.
+RUN python -c "import csv, importlib.metadata as md; \
+missing = [p for d in md.distributions() if (d.metadata['Name'] or '').startswith('cadenza-') for p, *_ in csv.reader((d.read_text('RECORD') or '').splitlines()) if not d.locate_file(p).exists()]; \
+assert not missing, missing"
+
 # El código de la imagen es de root y solo se lee. Los paquetes del workspace se instalan en
 # modo editable y uv no los compila: se compilan aquí, porque el usuario de la API no puede
 # escribir su caché de bytecode. La carpeta de artefactos es suya: un volumen nuevo la hereda
