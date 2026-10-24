@@ -13,11 +13,14 @@ export interface SelectableEvent {
   slot: MeasureSlot;
   /**
    * Cuándo empieza dentro del compás dibujado, en negras: sirve para pasar de una voz a otra. Es
-   * el instante del dibujo, que con una duración cero no es el del mapa de tiempos.
+   * el instante del dibujo: un silencio de duración cero ocupa una negra, que el mapa de tiempos
+   * no cuenta, y una nota de adorno empieza con la nota que la sigue.
    */
   onset: number;
   /** Si es una nota de un acorde, también la que lo empieza. */
   chord: boolean;
+  /** Si es una nota de adorno: una nota sin duración, que no ocupa tiempo (ADR-0028). */
+  grace: boolean;
   /** Caja de cada figura que lo dibuja: más de una si el exportador partió su duración. */
   boxes: Box[];
   /** Caja que abarca todas sus figuras. */
@@ -147,13 +150,15 @@ function pairNotes(members: Indexed[], figure: DrawnFigure): number[] | null {
 interface Matched {
   boxes: Box[];
   chord: boolean;
+  grace: boolean;
   onset: number;
 }
 
 /**
  * Empareja los eventos de un compás con sus figuras dibujadas: voz con voz por orden y, dentro
- * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración, que han de
- * ser de su misma clase y alturas. Devuelve, por posición en el compás, las cajas de cada evento,
+ * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración (una nota sin
+ * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Devuelve,
+ * por posición en el compás, las cajas de cada evento,
  * si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
@@ -218,6 +223,7 @@ function matchMeasure(
         matched.set(member.index, {
           boxes: perMember[position] ?? [],
           chord: group.members.length > 1,
+          grace: length.grace,
           onset: start[0] / start[1],
         });
       });
@@ -276,9 +282,10 @@ export function buildNoteMap(
             bbox: event.bbox,
             confidence: event.confidence,
           };
-          const { boxes, chord, onset } = matched.get(index) ?? {
+          const { boxes, chord, grace, onset } = matched.get(index) ?? {
             boxes: [],
             chord: false,
+            grace: false,
             onset: 0,
           };
           found.push({
@@ -288,6 +295,7 @@ export function buildNoteMap(
             slot,
             onset,
             chord,
+            grace,
             boxes,
             box: union(boxes),
           });
@@ -394,7 +402,8 @@ export function moveSelection(
       let distance = Infinity;
       for (const candidate of target) {
         const offset = Math.abs(candidate.onset - current.onset);
-        if (offset < distance) {
+        // Una nota de adorno empieza con la nota que adorna: en el empate gana la nota.
+        if (offset < distance || (offset === distance && best.grace && !candidate.grace)) {
           distance = offset;
           best = candidate;
         }

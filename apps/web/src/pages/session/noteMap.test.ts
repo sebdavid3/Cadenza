@@ -491,6 +491,22 @@ describe("moverse entre eventos", () => {
     expect(move(key(2, 0, 0), "down")).toBe(key(2, 0, 0));
   });
 
+  it("al pasar de voz, entre una nota de adorno y su nota prefiere la nota", () => {
+    // La nota de adorno empieza en el mismo instante que la nota a la que adorna (ADR-0028).
+    const withGrace = complete(
+      buildNoteMap(
+        score([[note("G4", "0"), note("A4", "4"), note("C4", "4", { voice: 1 })]]),
+        drawing([
+          [
+            [figure(["G4"], [1, 1], 10, { grace: true }), figure(["A4"], [4, 1], 20)],
+            [figure(["C4"], [4, 1], 20)],
+          ],
+        ]),
+      ),
+    );
+    expect(moveSelection(withGrace, "0:0:1:1:0", "up")?.event.pitch).toBe("A4");
+  });
+
   it("si lo elegido ya no está en el mapa, empieza por el primer evento", () => {
     expect(move("0:0:9:0:0", "next")).toBe(key(1, 0, 0));
   });

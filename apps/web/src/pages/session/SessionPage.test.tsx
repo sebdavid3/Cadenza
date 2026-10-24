@@ -114,8 +114,11 @@ vi.mock("opensheetmusicdisplay", () => {
     const unit = 10 * zoom;
     const main = voiceEntry(svg, drawn, x, unit, false);
     if (!drawn.grace) return { graphicalVoiceEntries: [main.entry] };
-    // La nota de adorno va antes en la columna y, en el SVG, dentro de la nota que adorna.
+    // La nota de adorno va antes en la columna y, en el SVG, dentro de la nota que adorna. Sus
+    // modificadores van aquí delante de la cabeza propia, al revés que en VexFlow: así la prueba
+    // depende de que solo cuenten las cabezas propias de cada nota.
     const modifiers = svgBox(main.group, "vf-modifiers", DOMRect.fromRect());
+    main.group.prepend(modifiers);
     const grace = voiceEntry(
       modifiers,
       { pitch: drawn.grace, whole: [1, 4], voice: drawn.voice },
@@ -1525,6 +1528,28 @@ describe("elegir una nota sobre la partitura", () => {
     // Solo su cabeza, sin la de la nota de adorno que lleva dentro.
     expect(selection()?.style.left).toBe("108px");
     expect(selection()?.style.width).toBe("9px");
+  });
+
+  it("ante un silencio, la nota de adorno y el silencio tienen cada uno su caja", async () => {
+    osmd.figures = [[{ pitch: null, whole: [3, 4], grace: "G4" }]];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "G4", duration_beats: "0" },
+          { kind: "rest", pitch: null, duration_beats: "3" },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Sol4 · sin duración")).toBeVisible();
+    expect(selection()?.style.left).toBe("96.75px");
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Silencio de blanca con puntillo")).toBeVisible();
+    // El glifo del silencio, no la cabeza de la nota de adorno que lleva dentro.
+    expect(selection()?.style.left).toBe("108px");
   });
 
   it("marca el glifo del silencio, sin su puntillo", async () => {
