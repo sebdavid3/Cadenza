@@ -118,12 +118,15 @@ jobs:
         run: docker build -t cadenza-api:ci .
 
       # La API corre sin root (D57, #192). Con las restricciones del despliegue y el sistema de
-      # archivos de solo lectura salvo /tmp y el HOME del usuario, HOMR transcribe un íncipit.
+      # archivos de solo lectura salvo /tmp, el HOME del usuario (suyo, como en la imagen) y un
+      # volumen nuevo de artefactos, que ha de heredar su dueño, HOMR transcribe un íncipit.
       - name: Transcribir un íncipit en la imagen de la API, sin root
         run: |
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /home/cadenza \
+          docker run --rm --read-only --tmpfs /tmp \
+            --tmpfs /home/cadenza:uid=10001,gid=10001,mode=0755 \
+            --mount type=volume,dst=/app/data/artifacts \
             --cap-drop ALL --security-opt no-new-privileges:true \
-            cadenza-api:ci sh -c 'test "$(id -u)" = 10001 && python apps/api/tests/fixtures/transcribe_incipit.py'
+            cadenza-api:ci sh -c 'test "$(id -u)" = 10001 && touch /app/data/artifacts/.prueba && python apps/api/tests/fixtures/transcribe_incipit.py'
 
       # Compila apps/web y valida la configuración de Nginx con nginx -t (#156)
       - name: Construir la imagen web
