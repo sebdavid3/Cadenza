@@ -34,12 +34,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Usuario sin privilegios (D57, #192). El UID y el GID son fijos: el procedimiento que da los
+# volúmenes de artefactos existentes a este usuario los nombra (operacion_backend.md §2.2).
+RUN groupadd --system --gid 10001 cadenza \
+    && useradd --system --uid 10001 --gid cadenza --create-home --home-dir /home/cadenza \
+        --shell /usr/sbin/nologin cadenza
+
 COPY --from=builder /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Falla al construir si la API o HOMR no se pueden importar en la imagen final (#135)
 RUN python -c "import cadenza.api.main, homr.main, cv2, onnxruntime"
+
+# El código de la imagen es de root y solo se lee. Los paquetes del workspace se instalan en
+# modo editable y uv no los compila: se compilan aquí, porque el usuario de la API no puede
+# escribir su caché de bytecode. La carpeta de artefactos es suya: un volumen nuevo la hereda
+# con este dueño.
+RUN python -m compileall -q /app/apps /app/packages \
+    && mkdir -p /app/data/artifacts \
+    && chown -R cadenza:cadenza /app/data
+
+USER cadenza
 
 EXPOSE 8000
 
