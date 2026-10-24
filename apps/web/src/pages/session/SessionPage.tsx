@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
@@ -16,6 +16,7 @@ import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
 import { ScoreView } from "./ScoreView";
+import { useSelectionStore } from "./selection";
 import {
   sessionDetailQuery,
   sessionFindingsQuery,
@@ -103,6 +104,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [placed, setPlaced] = useState(true);
+  // La nota elegida es de esta sesión: se olvida al salir de ella (ADR-0027).
+  const clearSelection = useSelectionStore((state) => state.clear);
+  useEffect(() => clearSelection, [clearSelection]);
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -194,10 +198,13 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onTempo={player.setTempo}
               />
             </div>
-            {musicXml.data ? (
+            {musicXml.data && score ? (
               <ScoreView
                 key={seq}
                 xml={musicXml.data}
+                transcription={score}
+                sessionId={sessionId}
+                seq={seq}
                 marks={marks}
                 expectedMeasures={expected}
                 selectedKey={selectedKey}

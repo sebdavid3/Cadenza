@@ -77,7 +77,7 @@ flowchart LR
 |---|---|
 | Dominio, OMR, validación, persistencia, API y plano offline (fases 0 a 7) | Completos |
 | Contrato de la API v1 (OpenAPI 3.1.0, 25 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
-| Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML y la reproducción (Tone.js), y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#177](https://github.com/sebdavid3/Cadenza/issues/177)). Falta la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
+| Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML, la reproducción (Tone.js) y la selección de notas, y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#182](https://github.com/sebdavid3/Cadenza/issues/182)). Falta la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
 | Despliegue público | En **https://r2d2.tailcacb19.ts.net**, en el homelab ([ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)) |
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
 | Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
@@ -99,7 +99,7 @@ detalle, las dependencias y el criterio de cierre están en
 
 | Etapa | Issues | Contenido |
 |---|---|---|
-| Corrección sobre la partitura | [#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Seleccionar una nota (mapa ancla→SVG, D11), corregir altura, duración y alteración, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores |
+| Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Corregir altura, duración y alteración de la nota elegida, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182), D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
 | Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Dataset sin cuentas del registro (D55), API sin root (D57), clave de firma con longitud mínima (D58) y límites del registro abierto (D59, alcance por decidir) |
@@ -294,13 +294,14 @@ La interfaz web vive en `apps/web` (React 18, TypeScript y Vite), sobre la API v
 - `/registro` y `/entrar`: registro abierto y acceso.
 - `/transcripcion`: subir imágenes por lotes y ver las sesiones.
 - `/sesiones/:id`: la partitura dibujada con OSMD junto a la imagen original, los posibles
-  errores marcados por compás, la descarga del MusicXML y la reproducción con Tone.js con el
-  compás que suena resaltado.
+  errores marcados por compás, la descarga del MusicXML, la reproducción con Tone.js con el
+  compás que suena resaltado y la selección de una nota o un silencio con el ratón, el dedo o el
+  teclado (flechas, Ctrl más flechas, Inicio, Fin y Esc).
 - `/cuentas`: moderación de cuentas, solo para investigadores.
 
 Las decisiones están en los ADR del
 [ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) al
-[ADR-0026](docs/adr/ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md). El estado y lo que
+[ADR-0027](docs/adr/ADR-0027-seleccion-de-notas-sobre-la-partitura.md). El estado y lo que
 falta están en [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) §6 y en
 [`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md). El
 producto está en [`PRODUCT.md`](PRODUCT.md) y el sistema de diseño, en [`DESIGN.md`](DESIGN.md) y

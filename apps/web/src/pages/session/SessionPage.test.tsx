@@ -1,9 +1,10 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { routes } from "../../router";
 import { engineLoader } from "./player";
+import { useSelectionStore } from "./selection";
 import {
   ANA,
   deferred,
@@ -13,46 +14,134 @@ import {
   resetAuth,
   signInAs,
 } from "../../test/auth-helpers";
-import type { FindingRead, SessionDetailRead, TimingMapRead, UserRead } from "../../types";
+import type {
+  FindingRead,
+  ScoreEventPayload,
+  SessionDetailRead,
+  TimingMapRead,
+  UserRead,
+} from "../../types";
 
-// OSMD no se puede dibujar en jsdom: un doble con la misma forma de lo que la vista lee.
+// OSMD no se puede dibujar en jsdom: un doble con la misma forma de lo que la vista lee. Cada
+// compás mide 20 unidades desde x = 10 + 20 × compás; sus figuras se dibujan desde 5 unidades
+// después, cada 5, con la cabeza (1,2 × 1,05 unidades) centrada en su posición, a 7 unidades de
+// altura; en un acorde, cada nota siguiente, una unidad más arriba.
 const osmd = vi.hoisted(() => ({
   measures: 3,
   fail: false,
   cleared: 0,
   zooms: [] as number[],
   loaded: [] as string[],
+  /**
+   * Figuras de cada compás: altura (null, silencio), duración en redondas como OSMD, las otras
+   * notas si es un acorde y el número de voz de OSMD (1 si no se dice).
+   */
+  figures: null as
+    { pitch: string | null; whole: [number, number]; chord?: string[]; voice?: number }[][] | null,
 }));
-vi.mock("opensheetmusicdisplay", () => ({
-  OpenSheetMusicDisplay: class {
-    zoom = 1;
-    GraphicSheet = { MeasureList: [] as unknown[][] };
-    EngravingRules = { PageBottomMargin: 10 };
-    constructor(readonly host: HTMLElement) {}
-    load(document: Document) {
-      osmd.loaded.push(document.documentElement.nodeName);
-      return osmd.fail ? Promise.reject(new Error("MusicXML no válido")) : Promise.resolve({});
-    }
-    render() {
-      osmd.zooms.push(this.zoom);
-      this.host.appendChild(document.createElementNS("http://www.w3.org/2000/svg", "svg"));
-      this.GraphicSheet.MeasureList = Array.from({ length: osmd.measures }, (_unused, index) => [
-        {
-          PositionAndShape: {
-            AbsolutePosition: { x: 10 + index * 20, y: 5 },
-            BorderLeft: 0,
-            BorderRight: 20,
-            BorderTop: 0,
-            BorderBottom: 4,
-          },
+vi.mock("opensheetmusicdisplay", () => {
+  const STEPS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+  const SVG = "http://www.w3.org/2000/svg";
+  /** Elemento SVG con la caja que daría el navegador, en píxeles de la página. */
+  function svgBox(parent: Element, className: string, box: DOMRect) {
+    const element = document.createElementNS(SVG, "g");
+    element.setAttribute("class", className);
+    element.getBoundingClientRect = () => box;
+    parent.appendChild(element);
+    return element;
+  }
+  interface Drawn {
+    pitch: string | null;
+    whole: [number, number];
+    chord?: string[];
+    voice?: number;
+  }
+  function figure(svg: Element, drawn: Drawn, x: number, zoom: number) {
+    const unit = 10 * zoom;
+    const group = svgBox(
+      svg,
+      "vf-stavenote",
+      DOMRect.fromRect({
+        x: (x - 0.6) * unit,
+        y: 6.5 * unit,
+        width: 1.2 * unit,
+        height: 3.5 * unit,
+      }),
+    );
+    const pitches = drawn.pitch === null ? [null] : [drawn.pitch, ...(drawn.chord ?? [])];
+    const notes = pitches.map((pitch, position) => {
+      const match = pitch === null ? null : /^([A-G])(#?)(\d)$/.exec(pitch);
+      const midi = match
+        ? 12 * (Number(match[3]) + 1) + (STEPS[match[1] ?? "C"] ?? 0) + (match[2] ?? "").length
+        : 0;
+      const y = 7 - position;
+      if (match) {
+        svgBox(
+          group,
+          "vf-notehead",
+          DOMRect.fromRect({
+            x: (x - 0.6) * unit,
+            y: (y - 0.5) * unit,
+            width: 1.2 * unit,
+            height: 1.05 * unit,
+          }),
+        );
+      }
+      return {
+        sourceNote: {
+          isRest: () => pitch === null,
+          Length: { GetExpandedNumerator: () => drawn.whole[0], Denominator: drawn.whole[1] },
+          Pitch: match
+            ? { getHalfTone: () => midi - 12, FundamentalNote: STEPS[match[1] ?? "C"] }
+            : undefined,
         },
-      ]);
-    }
-    clear() {
-      osmd.cleared += 1;
-    }
-  },
-}));
+        PositionAndShape: { AbsolutePosition: { x, y } },
+        getSVGGElement: () => group,
+      };
+    });
+    const voice = { ParentVoice: { VoiceId: drawn.voice ?? 1 }, IsGrace: false };
+    return { graphicalVoiceEntries: [{ parentVoiceEntry: voice, notes }] };
+  }
+  return {
+    OpenSheetMusicDisplay: class {
+      zoom = 1;
+      GraphicSheet = { MeasureList: [] as unknown[][] };
+      EngravingRules = { PageBottomMargin: 10 };
+      constructor(readonly host: HTMLElement) {}
+      load(document: Document) {
+        osmd.loaded.push(document.documentElement.nodeName);
+        return osmd.fail ? Promise.reject(new Error("MusicXML no válido")) : Promise.resolve({});
+      }
+      render() {
+        osmd.zooms.push(this.zoom);
+        this.host.replaceChildren();
+        const svg = document.createElementNS(SVG, "svg");
+        this.host.appendChild(svg);
+        this.GraphicSheet.MeasureList = Array.from({ length: osmd.measures }, (_unused, index) => {
+          const left = 10 + index * 20;
+          const figures: Drawn[] = osmd.figures?.[index] ?? [{ pitch: "C4", whole: [3, 4] }];
+          return [
+            {
+              PositionAndShape: {
+                AbsolutePosition: { x: left, y: 5 },
+                BorderLeft: 0,
+                BorderRight: 20,
+                BorderTop: 0,
+                BorderBottom: 4,
+              },
+              staffEntries: figures.map((drawn, position) =>
+                figure(svg, drawn, left + 5 + position * 5, this.zoom),
+              ),
+            },
+          ];
+        });
+      }
+      clear() {
+        osmd.cleared += 1;
+      }
+    },
+  };
+});
 
 // Tone.js no suena en jsdom: un motor con reloj falso que avisa de cada compás al avanzar.
 const audio = vi.hoisted(() => {
@@ -305,7 +394,15 @@ const scrollIntoView = vi.fn();
 
 beforeEach(() => {
   resetAuth();
-  Object.assign(osmd, { measures: 3, fail: false, cleared: 0, zooms: [], loaded: [] });
+  Object.assign(osmd, {
+    measures: 3,
+    fail: false,
+    cleared: 0,
+    zooms: [],
+    loaded: [],
+    figures: null,
+  });
+  useSelectionStore.getState().clear();
   audio.engines = [];
   audio.failPlay = false;
   createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
@@ -340,7 +437,7 @@ describe("vista de una sesión", () => {
     // Segundo compás de OSMD: x = 30 unidades; en jsdom el ancho es 0 y el zoom, el de móvil.
     expect(mark?.style.left).toBe("225px");
     expect(mark).toHaveTextContent("Compás 2");
-    expect(screen.getByRole("img", { name: /posibles errores: 2/i })).toBeInTheDocument();
+    expect(screen.getByRole("application", { name: /posibles errores: 2/i })).toBeInTheDocument();
     // OSMD recibe el MusicXML ya analizado, no una cadena que podría tomar por una URL.
     expect(osmd.loaded).toEqual(["score-partwise"]);
 
@@ -971,5 +1068,439 @@ describe("reproducción de la partitura", () => {
 
     expect(await screen.findByText("No se pudo iniciar el audio.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reproducir" })).toBeVisible();
+  });
+});
+
+describe("elegir una nota sobre la partitura", () => {
+  const findScore = () => screen.findByRole("application", { name: /partitura transcrita/i });
+  const selection = () => document.querySelector<HTMLElement>(".notation__selection");
+  const live = () => document.querySelector(".selection [role='status']");
+  /** Centro de la cabeza de la primera figura de un compás (1, 2 o 3), con el zoom de jsdom. */
+  const head = (measure: number) => ({
+    clientX: (15 + (measure - 1) * 20) * 7.5,
+    clientY: 7 * 7.5,
+  });
+  /** Ancho controlado por la prueba: devuelve con qué cambiarlo y avisar del cambio. */
+  function observeResizes(initial: number) {
+    let width = initial;
+    vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    const observers: (() => void)[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback);
+        }
+        observe() {
+          // El doble solo guarda el aviso; la prueba lo dispara a mano.
+        }
+        disconnect() {
+          // Nada que soltar.
+        }
+      },
+    );
+    return (next: number) => {
+      width = next;
+      for (const notify of observers) notify();
+    };
+  }
+
+  it("elige con el ratón la nota tocada, la marca, la anuncia y guarda su ancla", async () => {
+    api();
+    renderPage();
+    expect(
+      await screen.findByText("Elige una nota o un silencio: tócalo o usa las flechas."),
+    ).toBeVisible();
+    const region = await findScore();
+
+    fireEvent.click(region, head(2));
+
+    // Cabeza de la nota del compás 2: x = (35 − 0,6) unidades × 7,5 px.
+    expect(selection()?.style.left).toBe("258px");
+    expect(selection()?.style.width).toBe("9px");
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    expect(useSelectionStore.getState().selection).toEqual({
+      sessionId: ID,
+      seq: 0,
+      anchor: {
+        part: 0,
+        staff: 0,
+        measure: 2,
+        voice: 0,
+        event_index: 0,
+        staff_id: "part-0-staff-0",
+        bbox: null,
+        confidence: null,
+      },
+    });
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Compás 2, voz 1: Do 4, blanca con puntillo.");
+    });
+    // El clic deja el foco en la partitura para seguir con el teclado.
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("se mueve con el teclado y anuncia solo dónde se detiene", async () => {
+    api();
+    renderPage();
+    const region = await findScore();
+    region.focus();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Compás 3 · Voz 1")).toBeVisible();
+    // Los pasos intermedios no se anuncian.
+    expect(live()).toBeEmptyDOMElement();
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Compás 3, voz 1: Do 4, blanca con puntillo.");
+    });
+
+    fireEvent.keyDown(region, { key: "ArrowLeft", ctrlKey: true });
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+    fireEvent.keyDown(region, { key: "PageUp" });
+    expect(screen.getByText("Compás 1 · Voz 1")).toBeVisible();
+    fireEvent.keyDown(region, { key: "PageDown" });
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+
+    fireEvent.keyDown(region, { key: "Escape" });
+    expect(selection()).toBeNull();
+    expect(useSelectionStore.getState().selection).toBeNull();
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Sin nota elegida.");
+    });
+  });
+
+  it("recorre las figuras de un compás con Inicio y Fin y distingue los silencios", async () => {
+    osmd.figures = [
+      [
+        { pitch: "E4", whole: [1, 4] },
+        { pitch: null, whole: [1, 4] },
+        { pitch: "G4", whole: [1, 4] },
+      ],
+    ];
+    const first = measure(1).events[0];
+    const current = detail();
+    const staff = current.current_score?.parts[0]?.staves[0];
+    if (!first || !staff?.measures[0]) throw new Error("partitura de prueba incompleta");
+    staff.measures[0].events = [
+      { ...first, kind: "note", pitch: "E4", duration_beats: "1" },
+      { ...first, kind: "rest", pitch: null, duration_beats: "1" },
+      { ...first, kind: "note", pitch: "G4", duration_beats: "1" },
+    ];
+    api({ detail: current });
+    renderPage();
+    const region = await findScore();
+
+    // Sin nada elegido, la primera tecla elige el primer evento.
+    fireEvent.keyDown(region, { key: "End" });
+    expect(screen.getByText("Mi4 · negra")).toBeVisible();
+    fireEvent.keyDown(region, { key: "End" });
+    expect(screen.getByText("Sol4 · negra")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowLeft" });
+    expect(screen.getByText("Silencio de negra")).toBeVisible();
+    fireEvent.keyDown(region, { key: "Home" });
+    expect(screen.getByText("Mi4 · negra")).toBeVisible();
+  });
+
+  it("anuncia también un evento que se describe igual que el anterior", async () => {
+    osmd.figures = [
+      [
+        { pitch: "C4", whole: [1, 4] },
+        { pitch: "C4", whole: [1, 4] },
+        { pitch: "C4", whole: [1, 4] },
+      ],
+    ];
+    const first = measure(1).events[0];
+    const current = detail();
+    const staff = current.current_score?.parts[0]?.staves[0];
+    if (!first || !staff?.measures[0]) throw new Error("partitura de prueba incompleta");
+    staff.measures[0].events = [1, 2, 3].map(() => ({
+      ...first,
+      kind: "note" as const,
+      duration_beats: "1",
+    }));
+    api({ detail: current });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Compás 1, voz 1: Do 4, negra.");
+    });
+    const before = live()?.textContent;
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+
+    // El texto es el mismo: cambia lo justo para que el lector de pantalla lo vuelva a leer.
+    await waitFor(() => {
+      expect(live()?.textContent).not.toBe(before);
+    });
+    expect(live()).toHaveTextContent("Compás 1, voz 1: Do 4, negra.");
+  });
+
+  it("no trae la nota a la vista al volver a maquetar si la tecla no la movió", async () => {
+    const resize = observeResizes(1200);
+    api();
+    renderPage();
+    const region = await findScore();
+    // A zoom 1, la cabeza del compás 3 está en x = 55 unidades × 10 px.
+    fireEvent.click(region, { clientX: 550, clientY: 70 });
+    // Es el último evento: la flecha no la mueve.
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Compás 3 · Voz 1")).toBeVisible();
+    scrollIntoView.mockClear();
+
+    resize(390);
+
+    await waitFor(() => {
+      expect(selection()?.style.left).toBe("408px");
+    });
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("los botones de la barra, la alternativa táctil, mueven la selección", async () => {
+    api();
+    renderPage();
+    const region = await findScore();
+    fireEvent.click(region, head(1));
+    scrollIntoView.mockClear();
+
+    await userEvent.click(screen.getByRole("button", { name: "Siguiente" }));
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Anterior" }));
+    expect(screen.getByText("Compás 1 · Voz 1")).toBeVisible();
+    // La nota elegida se trae a la vista al moverse.
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Quitar" }));
+    expect(selection()).toBeNull();
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("con movimiento reducido trae la nota a la vista sin desplazamiento suave", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("reduce") }));
+    api();
+    renderPage();
+    const region = await findScore();
+    scrollIntoView.mockClear();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+
+    expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+  });
+
+  it("convive con la marca del compás dudoso y con el compás que suena", async () => {
+    api({ findings: [finding(1, 2)] });
+    renderPage();
+    const region = await findScore();
+    const play = await screen.findByRole("button", { name: "Reproducir" });
+    await waitFor(() => {
+      expect(play).not.toHaveAttribute("aria-disabled", "true");
+    });
+    await userEvent.click(play);
+    act(() => {
+      audio.engines.at(-1)?.advance(3.5);
+    });
+
+    fireEvent.click(region, head(2));
+
+    expect(document.querySelector(".notation__mark")).not.toBeNull();
+    expect(document.querySelector<HTMLElement>(".notation__playhead")?.style.left).toBe("225px");
+    expect(selection()?.style.left).toBe("258px");
+    // Elegir una nota no detiene la reproducción.
+    expect(audio.engines.at(-1)?.playing).toBe(true);
+  });
+
+  it("al volver a maquetar recoloca la nota elegida y la conserva", async () => {
+    const resize = observeResizes(1200);
+    api();
+    renderPage();
+    const region = await findScore();
+    // A zoom 1, la cabeza del compás 2 está en x = 35 unidades × 10 px.
+    fireEvent.click(region, { clientX: 350, clientY: 70 });
+    expect(selection()?.style.left).toBe("344px");
+
+    resize(390);
+
+    await waitFor(() => {
+      expect(selection()?.style.left).toBe("258px");
+    });
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+  });
+
+  it("si lo dibujado no coincide con la transcripción, no ofrece elegir notas y lo dice", async () => {
+    osmd.figures = [[{ pitch: "D4", whole: [3, 4] }]];
+    api();
+    renderPage();
+
+    expect(
+      await screen.findByText(
+        "No se puede elegir nota a nota en esta partitura: 1 de los 3 eventos no coincide con lo dibujado.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByRole("application")).toBeNull();
+    expect(screen.getByRole("img", { name: /partitura transcrita/i })).toBeInTheDocument();
+    expect(selection()).toBeNull();
+  });
+
+  it("si OSMD dibuja otros compases, tampoco ofrece elegir notas", async () => {
+    osmd.measures = 2;
+    api();
+    renderPage();
+
+    expect(
+      await screen.findByText("No se puede elegir nota a nota en esta partitura."),
+    ).toBeVisible();
+    expect(screen.queryByRole("application")).toBeNull();
+  });
+
+  /** Sustituye los eventos del compás 1 de la sesión de prueba. */
+  function firstMeasure(events: Partial<ScoreEventPayload>[]) {
+    const base = measure(1).events[0];
+    const current = detail();
+    const staff = current.current_score?.parts[0]?.staves[0];
+    if (!base || !staff?.measures[0]) throw new Error("partitura de prueba incompleta");
+    staff.measures[0].events = events.map((changes) => ({ ...base, kind: "note", ...changes }));
+    return current;
+  }
+
+  it("no muestra una nota elegida en otra sesión ni en otro estado de esta", async () => {
+    const anchor = {
+      part: 0,
+      staff: 0,
+      measure: 2,
+      voice: 0,
+      event_index: 0,
+      staff_id: "part-0-staff-0",
+      bbox: null,
+      confidence: null,
+    };
+    useSelectionStore.getState().select({ sessionId: "otra", seq: 0, anchor });
+    api();
+    renderPage();
+    await findScore();
+    expect(selection()).toBeNull();
+
+    act(() => {
+      useSelectionStore.getState().select({ sessionId: ID, seq: 5, anchor });
+    });
+    expect(selection()).toBeNull();
+
+    act(() => {
+      useSelectionStore.getState().select({ sessionId: ID, seq: 0, anchor });
+    });
+    expect(selection()?.style.left).toBe("258px");
+  });
+
+  it("una partitura sin notas ni silencios no se ofrece como control", async () => {
+    osmd.figures = [[], [], []];
+    const current = detail();
+    for (const staff of current.current_score?.parts[0]?.staves ?? []) {
+      for (const empty of staff.measures) empty.events = [];
+    }
+    api({ detail: current });
+    renderPage();
+
+    expect(
+      await screen.findByText("La partitura no tiene notas ni silencios que elegir."),
+    ).toBeVisible();
+    expect(screen.queryByRole("application")).toBeNull();
+    expect(screen.getByRole("img", { name: /partitura transcrita/i })).toBeInTheDocument();
+  });
+
+  it("marca por separado cada figura de una nota partida en notas ligadas", async () => {
+    osmd.figures = [
+      [
+        { pitch: "C4", whole: [1, 4] },
+        { pitch: "C4", whole: [1, 16] },
+      ],
+    ];
+    api({
+      detail: detail({ current_score: firstMeasure([{ duration_beats: "5/4" }]).current_score }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+
+    const marks = document.querySelectorAll<HTMLElement>(".notation__selection");
+    expect([...marks].map((mark) => mark.style.left)).toEqual(["108px", "145.5px"]);
+  });
+
+  it("en un acorde elige la cabeza tocada y dice que es de acorde", async () => {
+    osmd.figures = [[{ pitch: "C4", chord: ["E4"], whole: [3, 4] }]];
+    api({
+      detail: detail({
+        current_score: firstMeasure([{ pitch: "C4" }, { pitch: "E4", is_chord: true }])
+          .current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    // Mi4 es la segunda nota del acorde: una unidad por encima de Do4.
+    fireEvent.click(region, { clientX: 15 * 7.5, clientY: 6 * 7.5 });
+    expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
+    fireEvent.click(region, { clientX: 15 * 7.5, clientY: 7 * 7.5 });
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    await waitFor(() => {
+      expect(live()).toHaveTextContent("Compás 1, voz 1: Do 4, blanca con puntillo, en acorde.");
+    });
+  });
+
+  it("empareja las voces por su número aunque OSMD las dé en otro orden, y pasa de una a otra", async () => {
+    osmd.figures = [
+      [
+        { pitch: "C4", whole: [3, 4], voice: 2 },
+        { pitch: "E5", whole: [3, 4], voice: 1 },
+      ],
+    ];
+    api({
+      detail: detail({
+        current_score: firstMeasure([{ pitch: "E5" }, { pitch: "C4", voice: 1 }]).current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Mi5 · blanca con puntillo")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowDown" });
+    expect(screen.getByText("Compás 1 · Voz 2")).toBeVisible();
+    expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    // Ctrl con ↑ y Alt con → no son teclas de la partitura.
+    fireEvent.keyDown(region, { key: "ArrowUp", ctrlKey: true });
+    fireEvent.keyDown(region, { key: "ArrowRight", altKey: true });
+    expect(screen.getByText("Compás 1 · Voz 2")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowUp" });
+    expect(screen.getByText("Compás 1 · Voz 1")).toBeVisible();
+    // ⌘ con → salta de compás, como Ctrl.
+    fireEvent.keyDown(region, { key: "ArrowRight", metaKey: true });
+    expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+  });
+
+  it("la leyenda nombra las teclas de compás de cada sistema", async () => {
+    api();
+    renderPage();
+    await findScore();
+
+    const keys = document.querySelector(".selection__keys");
+    for (const label of ["Ctrl", "Cmd", "Re Pág", "Av Pág", "Inicio", "Fin", "Esc"]) {
+      expect(keys).toHaveTextContent(label);
+    }
+  });
+
+  it("al salir de la sesión olvida la nota elegida", async () => {
+    api();
+    const router = renderPage();
+    fireEvent.click(await findScore(), head(1));
+    expect(useSelectionStore.getState().selection).not.toBeNull();
+
+    await router.navigate("/transcripcion");
+
+    await waitFor(() => {
+      expect(useSelectionStore.getState().selection).toBeNull();
+    });
   });
 });

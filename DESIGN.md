@@ -125,6 +125,12 @@ components:
     textColor: "{colors.on-accent}"
     typography: "{typography.label}"
     padding: "4px 8px"
+  key-cap:
+    backgroundColor: "{colors.ink}"
+    textColor: "{colors.paper}"
+    typography: "{typography.label}"
+    padding: "0 4px"
+    height: "24px"
   site-header:
     backgroundColor: "{colors.paper}"
     textColor: "{colors.ink}"
@@ -157,7 +163,7 @@ El violeta no es decoración: significa «te toca a ti». Marca la acción princ
 Tres neutros de imprenta y un acento eléctrico que solo aparece cuando le toca actuar al usuario.
 
 ### Primary
-- **Violeta Eléctrico** (accent): acción principal (botón «Entrar» relleno), la trama y el contorno del compás dudoso, el rótulo del hallazgo, la línea de lectura de la demostración, el campo de cierre de la landing, el anillo de foco, la selección de texto y el cursor. Contraste de 5,3:1 con el papel en ambos sentidos.
+- **Violeta Eléctrico** (accent): acción principal (botón «Entrar» relleno), la trama y el contorno del compás dudoso, el rótulo del hallazgo, la línea de lectura de la demostración, el campo de cierre de la landing, el anillo de foco, la selección de texto, la nota elegida en la partitura y el cursor. Contraste de 5,3:1 con el papel en ambos sentidos.
 
 ### Neutral
 - **Papel Frío** (paper): fondo de toda la interfaz, relleno de los botones secundarios y del bloque legible sobre trama; también el texto sobre el violeta (on-accent, mismo valor).
@@ -210,6 +216,7 @@ El sistema es plano. No hay sombras difusas ni capas tonales: la profundidad se 
 - **Doble filete** (`box-shadow: inset 0 0 0 3px <papel>, 0 0 0 3px <tinta>`): anillo interior de papel y exterior de tinta alrededor del botón primario; sobre el campo violeta, el anillo interior pasa a tinta.
 - **Contorno de lectura** (`box-shadow: 0 0 0 2px <tinta>`): ribete de la línea de lectura violeta sobre la partitura.
 - **Compás que suena** (`box-shadow: inset 0 0 0 3px <tinta>`): anillo interior del compás que suena en la vista de una sesión.
+- **Nota elegida** (`box-shadow: 0 0 0 3px <papel>, 0 0 0 6px <violeta>`): aro de papel y filete violeta alrededor de la cabeza de la nota elegida, sobre una caja de papel.
 
 ### Named Rules
 **The No Blur Rule.** Ninguna sombra lleva desenfoque ni desplazamiento. Si algo necesita destacar, se invierte, se trama o se enmarca.
@@ -246,8 +253,11 @@ Rótulo del hallazgo del validador: Silkscreen sobre bloque violeta macizo, rell
 ### Barra de la partitura
 En la vista de una sesión, la figura de la notación lleva su barra en la misma franja que el pie: rótulo a la izquierda y acciones a la derecha, sobre un único filete. Si la partitura es estrecha (menos de 34rem), la barra baja a su propia franja bajo el pie. Lleva controles compactos con iconos de píxel. Debajo, en su propia franja, el transporte: «Reproducir» y «Pausa» en un mismo botón y «Detener», con botones contiguos de filete solapado (mientras suena, el botón cambia su rótulo a «Pausa» y es un bloque de tinta; no es un conmutador con `aria-pressed`, porque su acción cambia), el tempo como paso de − y + alrededor del valor, y a la derecha el compás que suena o la duración.
 
+### Selección de notas
+En la vista de una sesión, una franja propia entre el transporte y la partitura. A la izquierda, la nota elegida: dónde está en rótulo de tinta gastada («Compás 4 · Voz 1») y qué es en texto («Fa#5 · corchea»), precedidos por una muestra de su marca. Sin nada elegido, una indicación en texto pequeño. A la derecha, los pasos «Anterior», «Siguiente» y «Quitar», botones contiguos de 44 px con el filete solapado, como el transporte; «Quitar» lleva el filete discontinuo mientras no hay nada que quitar. Debajo, la leyenda de teclas: cada tecla es un bloque de tinta macizo con su rótulo o su flecha de píxel en papel. En una pantalla táctil la leyenda se oculta, y en una partitura estrecha los pasos ocupan la fila entera y «Anterior» y «Siguiente» quedan como flechas. Si la selección no se puede ofrecer, la franja lo dice en texto pequeño, y mientras se dibuja la partitura dice que la está preparando. En una pantalla táctil, los botones no se quedan en el estado de hover tras tocarlos.
+
 ### Partitura: escaneo y notación
-La pieza firma del sistema. La misma maqueta se dibuja dos veces: como escaneo, en canvas a un 20 % de resolución, umbralizado a un bit con los colores de papel y tinta leídos de los tokens y ampliado con `image-rendering: pixelated`; como notación, en SVG con pentagrama y barras de tinta de 3 px y glifos de Noto Music convertidos en rutas. El compás dudoso se marca con trama de puntos violeta y contorno violeta de 4 px; el compás ya corregido, con contorno de tinta de 4 px; el compás que suena, con contorno de tinta de 3 px por detrás de las notas y una banda maciza de tinta de 6 px colgada bajo su caja, fuera de ella para no tapar plicas ni notas graves (no es violeta: no pide nada). Las dos vistas comparten proporción (1360 / 262) y se superponen exactamente.
+La pieza firma del sistema. La misma maqueta se dibuja dos veces: como escaneo, en canvas a un 20 % de resolución, umbralizado a un bit con los colores de papel y tinta leídos de los tokens y ampliado con `image-rendering: pixelated`; como notación, en SVG con pentagrama y barras de tinta de 3 px y glifos de Noto Music convertidos en rutas. El compás dudoso se marca con trama de puntos violeta y contorno violeta de 4 px; el compás ya corregido, con contorno de tinta de 4 px; el compás que suena, con contorno de tinta de 3 px por detrás de las notas y una banda maciza de tinta de 6 px colgada bajo su caja, fuera de ella para no tapar plicas ni notas graves (no es violeta: no pide nada); la nota elegida, con una caja de papel por detrás de su cabeza, un aro de papel y un filete violeta de 3 px (pide acción), que abre un hueco en la trama del compás dudoso y aparece sin movimiento; una nota partida en figuras ligadas se marca figura a figura, y con colores forzados la marca es un contorno con el color de selección del sistema. Con notas que elegir, la partitura toma el anillo de foco del sistema. Las dos vistas comparten proporción (1360 / 262) y se superponen exactamente.
 
 **Movimiento:** la lectura es el único momento animado de la vista. Al entrar en pantalla, una línea violeta recorre la imagen de izquierda a derecha en 2400 ms con `steps(56, end)` (saltos de columna, como un escáner) y descubre la notación con un recorte. Con `prefers-reduced-motion` o sin soporte, se muestra directamente el estado final con el compás señalado. En la vista de una sesión, el único movimiento es el del compás que suena: su banda entra con un barrido a saltos de 240 ms (`steps(6)`); con movimiento reducido aparece sin barrido y el compás se trae a la vista sin desplazamiento suave. El resto de transiciones del sistema son cambios de color de 160 ms con `cubic-bezier(0.16, 1, 0.3, 1)`.
 

@@ -2,6 +2,7 @@ import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deferred } from "../../test/auth-helpers";
+import type { ScoreIRPayload } from "../../types";
 import type { RenderedScore } from "./osmd";
 import { ScoreView } from "./ScoreView";
 
@@ -24,9 +25,31 @@ function fakeScore() {
   return {
     measuresPerStaff: () => [1],
     measureBox: () => ({ left: 0, top: 0, width: 10, height: 10 }),
+    measureFigures: () => [],
     relayout: vi.fn(),
     dispose: vi.fn(),
   } satisfies RenderedScore;
+}
+
+/** Un compás vacío: la selección no importa aquí. */
+const TRANSCRIPTION = {
+  parts: [
+    { id: "part-0", staves: [{ id: "part-0-staff-0", measures: [{ number: 1, events: [] }] }] },
+  ],
+} as unknown as ScoreIRPayload;
+
+function view() {
+  return (
+    <ScoreView
+      xml="<score-partwise/>"
+      transcription={TRANSCRIPTION}
+      sessionId="sesion"
+      seq={0}
+      marks={[]}
+      expectedMeasures={[1]}
+      selectedKey={null}
+    />
+  );
 }
 
 beforeEach(() => {
@@ -35,11 +58,7 @@ beforeEach(() => {
 
 describe("ScoreView", () => {
   it("con el doble montaje de StrictMode libera el dibujo descartado y el que se queda", async () => {
-    const view = render(
-      <StrictMode>
-        <ScoreView xml="<score-partwise/>" marks={[]} expectedMeasures={[1]} selectedKey={null} />
-      </StrictMode>,
-    );
+    const rendered = render(<StrictMode>{view()}</StrictMode>);
     expect(calls.pending).toHaveLength(2);
     expect(calls.pending[0]?.signal.aborted).toBe(true);
     expect(calls.pending[1]?.signal.aborted).toBe(false);
@@ -54,15 +73,21 @@ describe("ScoreView", () => {
     expect(discarded.dispose).toHaveBeenCalledTimes(1);
     expect(kept.dispose).not.toHaveBeenCalled();
 
-    view.unmount();
+    rendered.unmount();
     expect(kept.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("mientras se dibuja no invita a elegir notas", () => {
+    const rendered = render(view());
+
+    expect(rendered.getByText("Preparando la selección de notas…")).toBeInTheDocument();
+    expect(rendered.queryByText(/elige una nota/i)).toBeNull();
+    expect(rendered.queryByRole("button", { name: "Siguiente" })).toBeNull();
+  });
+
   it("al salir mientras OSMD carga, cancela el dibujo y lo libera cuando termina", async () => {
-    const view = render(
-      <ScoreView xml="<score-partwise/>" marks={[]} expectedMeasures={[1]} selectedKey={null} />,
-    );
-    view.unmount();
+    const rendered = render(view());
+    rendered.unmount();
     expect(calls.pending[0]?.signal.aborted).toBe(true);
 
     const late = fakeScore();
