@@ -51,12 +51,15 @@ from music21 import (
     midi,
     musicxml,
     note,
+    pitch,
     spanner,
     stream,
     tie,
 )
 
 _MAX_DENOMINATOR = 1000
+# Hueco más breve que cuenta como hueco de una voz (ADR-0032): una semigarrapatea (1/64 de negra).
+_MIN_GAP: Final[Fraction] = Fraction(1, 64)
 
 # Articulaciones del alcance (ADR-0031). Se busca la clase exacta: en music21, `Staccatissimo`
 # deriva de `Staccato` y `StrongAccent` de `Accent`, y `Spiccato` (fuera del alcance), de
@@ -135,20 +138,64 @@ def _event_tie(pitch_source: Any) -> Tie | None:
 _SourcedEvent = tuple[Event, tuple[Any, ...]]
 
 
-def _events_from_measure(measure: Any) -> list[_SourcedEvent]:
-    events: list[_SourcedEvent] = []
+def _ordered_voices(measure: Any) -> list[Any]:
+    """Voces de un compás en orden (ADR-0032): por su número si todas lo tienen (MusicXML, como
+    texto: music21 las ordenaba como texto, y «10» iba antes que «2»); si no, en el orden del
+    compás. converter21 crea sin número las voces de MEI y **kern, y music21 les da su dirección
+    de memoria, que no es un orden."""
+
     voices = list(getattr(measure, "voices", ()))
+    if all(isinstance(voice.id, str) and voice.id.isdigit() for voice in voices):
+        return sorted(voices, key=lambda voice: int(voice.id))
+    return voices
+
+
+def _events_from_measure(measure: Any, musicxml: bool) -> list[_SourcedEvent]:
+    """Eventos de un compás de un pentagrama.
+
+    Las voces se numeran desde 0 en cada compás, en el orden de su número de MusicXML (ADR-0032):
+    HOMR numera 1-3 las del pentagrama superior y 5-7 las del inferior, y las dos quedan 0-2.
+    """
+
+    events: list[_SourcedEvent] = []
+    voices = _ordered_voices(measure)
     if voices:
         for voice_index, voice in enumerate(voices):
-            events.extend(_events_from_elements(voice.notesAndRests, voice_index))
+            events.extend(_events_from_elements(voice.notesAndRests, voice_index, musicxml))
     else:
-        events.extend(_events_from_elements(measure.notesAndRests, 0))
+        events.extend(_events_from_elements(measure.notesAndRests, 0, musicxml))
     return events
 
 
-def _events_from_elements(elements: Any, voice: int) -> list[_SourcedEvent]:
+def _events_from_elements(elements: Any, voice: int, musicxml: bool) -> list[_SourcedEvent]:
+    """Eventos de una voz en orden (ADR-0032).
+
+    Un hueco antes de una nota (en MusicXML, un `<forward>` o un `<backup>` que no vuelve al
+    principio: la voz entra a mitad del compás o calla entre dos notas) es un silencio invisible,
+    para que cada nota conserve dónde empieza. Lo que falta tras la última nota no es un evento.
+
+    Con ``musicxml``, un silencio que music21 da oculto (`print-object="no"`) es también un
+    silencio invisible. De MEI no: converter21 oculta el silencio con que sustituye un
+    `<multiRest>`, que en la partitura se ve (32 de las 100 verdades de PrIMuS de `data/`).
+
+    Un hueco más breve que `_MIN_GAP` no es musical (un `<backup>` que se queda corto en una
+    división) y se ignora, como antes. Los silencios invisibles seguidos son uno: music21
+    escribe en dos figuras el que no cabe en una, y la ida y vuelta lo devuelve igual.
+    """
+
     events: list[_SourcedEvent] = []
+    cursor = Fraction(0)
     for element in elements:
+        start = Fraction(element.offset)
+        if start - cursor >= _MIN_GAP:
+            gap = Event(
+                kind=EventKind.REST,
+                voice=voice,
+                duration_beats=(start - cursor).limit_denominator(_MAX_DENOMINATOR),
+                hidden=True,
+            )
+            _append_event(events, gap, ())
+        cursor = max(cursor, start + Fraction(element.quarterLength))
         if isinstance(element, chord.Chord):
             chord_notes = list(element.notes)
             for i, chord_note in enumerate(chord_notes):
@@ -159,9 +206,37 @@ def _events_from_elements(elements: Any, voice: int) -> list[_SourcedEvent]:
                 event = _note_event(chord_note, element, voice, is_chord=(i > 0), marks=marks)
                 events.append((event, sources))
         else:
-            event = _note_event(element, element, voice, is_chord=False, marks=(element,))
-            events.append((event, (element,)))
+            hidden = (
+                musicxml
+                and isinstance(element, note.Rest)
+                and bool(element.style.hideObjectOnPrint)
+            )
+            event = _note_event(
+                element, element, voice, is_chord=False, marks=(element,), hidden=hidden
+            )
+            _append_event(events, event, (element,))
     return events
+
+
+def _append_event(events: list[_SourcedEvent], event: Event, sources: tuple[Any, ...]) -> None:
+    """Añade un evento a su voz; un silencio invisible sin marcas tras otro se suma a él."""
+
+    if events and event.hidden and not _has_marks(event):
+        last, last_sources = events[-1]
+        if (
+            last.hidden
+            and not _has_marks(last)
+            and last.duration_beats is not None
+            and event.duration_beats is not None
+        ):
+            merged = replace(last, duration_beats=last.duration_beats + event.duration_beats)
+            events[-1] = (merged, last_sources + sources)
+            return
+    events.append((event, sources))
+
+
+def _has_marks(event: Event) -> bool:
+    return bool(event.articulations or event.fermata or event.slurs)
 
 
 def _note_marks(sources: Iterable[Any]) -> tuple[tuple[Articulation, ...], bool]:
@@ -187,6 +262,7 @@ def _note_event(
     voice: int,
     is_chord: bool = False,
     marks: Iterable[Any] = (),
+    hidden: bool = False,
 ) -> Event:
     is_rest = isinstance(pitch_source, note.Rest)
     note_articulations, fermata = _note_marks(marks)
@@ -199,6 +275,7 @@ def _note_event(
         is_chord=is_chord,
         articulations=note_articulations,
         fermata=fermata,
+        hidden=hidden,
     )
 
 
@@ -262,7 +339,7 @@ def _measure_key_signature(measure: Any, is_first: bool = False) -> KeySignature
     return KeySignature(fifths=int(fifths), mode=str(mode) if mode is not None else None)
 
 
-def _measures(part: Any) -> list[tuple[Measure, list[tuple[Any, ...]]]]:
+def _measures(part: Any, musicxml: bool) -> list[tuple[Measure, list[tuple[Any, ...]]]]:
     """Compases de un pentagrama, cada uno con los objetos de music21 de cada evento."""
 
     found = list(part.getElementsByClass(stream.Measure))
@@ -276,7 +353,7 @@ def _measures(part: Any) -> list[tuple[Measure, list[tuple[Any, ...]]]]:
         else:
             number = measure.number if isinstance(measure.number, int) else position
         is_first = position == 1
-        sourced = _events_from_measure(measure)
+        sourced = _events_from_measure(measure, musicxml)
         measures.append(
             (
                 Measure(
@@ -309,14 +386,14 @@ class _PartReader:
     de su inicio, de modo que la ida y vuelta por MusicXML da los mismos números.
     """
 
-    def __init__(self, raw_staves: Sequence[Any]) -> None:
+    def __init__(self, raw_staves: Sequence[Any], musicxml: bool) -> None:
         self._measures: list[list[Measure]] = []
         self._places: dict[int, _EventPlace] = {}
         self._slurs: dict[_EventPlace, list[Slur]] = {}
         self._wedges: dict[tuple[int, int], list[Wedge]] = {}
         for staff_index, raw_staff in enumerate(raw_staves):
             staff_measures: list[Measure] = []
-            for measure_index, (measure, sources) in enumerate(_measures(raw_staff)):
+            for measure_index, (measure, sources) in enumerate(_measures(raw_staff, musicxml)):
                 for event_index, event_sources in enumerate(sources):
                     for source in event_sources:
                         self._places.setdefault(
@@ -540,13 +617,17 @@ def music21_stream_to_score_ir(parsed: Any) -> ScoreIR:
 
     Lleva las articulaciones, los calderones, las ligaduras de expresión y las dinámicas
     (ADR-0031). Los reguladores solo se leen con el MusicXML a mano (`musicxml_to_score_ir`,
-    `read_score`): music21 pierde su posición.
+    `read_score`): music21 pierde su posición. Sin saber de qué formato viene, un silencio que
+    music21 da oculto se lee como un silencio que se ve (ADR-0032); los huecos de una voz sí son
+    silencios invisibles.
     """
 
     return _to_score_ir(parsed, None)
 
 
 def _to_score_ir(parsed: Any, musicxml_source: str | bytes | None) -> ScoreIR:
+    # Solo en MusicXML un silencio oculto es invisible (ADR-0032, `_events_from_elements`).
+    musicxml = musicxml_source is not None
     if isinstance(parsed, stream.Opus):
         if not parsed.scores:
             return ScoreIR(parts=())
@@ -555,7 +636,7 @@ def _to_score_ir(parsed: Any, musicxml_source: str | bytes | None) -> ScoreIR:
 
     is_score = isinstance(parsed, stream.Score)
     groups: list[list[Any]] = _group_parts(parsed) if is_score else [[parsed]]
-    readers = [_PartReader(group) for group in groups]
+    readers = [_PartReader(group, musicxml) for group in groups]
     slurs = list(parsed.spannerBundle.getByClass(spanner.Slur))
     for reader in readers:
         reader.add_slurs(slurs)
@@ -644,7 +725,7 @@ def _build_voice_elements(
     lo dibujado suma lo mismo que el `ScoreIR`, el mapa de tiempos y el validador (D60, #199).
     Antes salía como negra, porque music21 cambia `quarterLength=0` por su duración por defecto.
     Un silencio no tiene versión de adorno en MusicXML: con duración cero sigue saliendo como
-    silencio de negra.
+    silencio de negra. Un silencio invisible sale con `print-object="no"` (ADR-0032).
 
     Devuelve también, para cada evento, el elemento que lo dibuja (el acorde, en sus notas),
     donde se atan las ligaduras de expresión. Con ``marks``, las notas llevan sus marcas.
@@ -659,6 +740,7 @@ def _build_voice_elements(
         dur = float(ev.duration_beats) if ev.duration_beats is not None else 1.0
         if ev.kind is EventKind.REST or ev.pitch is None:
             r = note.Rest(quarterLength=dur)
+            r.style.hideObjectOnPrint = ev.hidden
             if marks:
                 _apply_note_marks(r, [ev])
             elements.append((offset, r))
@@ -697,6 +779,31 @@ def _build_voice_elements(
             owners.extend([element] * len(chord_notes))
             i = j
     return elements, owners
+
+
+def _stem_directions(measure: Measure) -> dict[int, str]:
+    """Dirección de plica de cada voz con notas de un compás con varias voces (ADR-0032).
+
+    El `ScoreIR` no la guarda (HOMR no la da): se decide al exportar con la convención clásica,
+    la voz de arriba hacia arriba y las demás hacia abajo. La de arriba es la de mayor altura
+    media, no la de número menor: HOMR no numera las voces por su altura (en el piano de prueba
+    da la voz 1 a las negras graves y la 2 a las blancas agudas). Sin plicas, OSMD solo fuerza la
+    primera voz hacia arriba donde otra ataca a la vez, y en el resto podía pisar a la segunda.
+    Con menos de dos voces con notas, decide quien dibuja.
+    """
+
+    heights: dict[int, list[int]] = {}
+    for event in measure.events:
+        if event.kind is EventKind.NOTE and event.pitch is not None:
+            try:
+                midi = pitch.Pitch(_to_music21_pitch(event.pitch)).midi
+            except (ValueError, pitch.PitchException):
+                continue
+            heights.setdefault(event.voice, []).append(midi)
+    if len(heights) < 2:
+        return {}
+    ranked = sorted(heights, key=lambda voice: (-sum(heights[voice]) / len(heights[voice]), voice))
+    return {voice: "up" if position == 0 else "down" for position, voice in enumerate(ranked)}
 
 
 def _build_measure(
@@ -742,12 +849,15 @@ def _build_measure(
         for off, el in elements:
             built.insert(off, el)
     else:
+        stems = _stem_directions(measure)
         for voice_key, indices in sorted(by_voice.items()):
             v = stream.Voice(id=str(voice_key + 1))
             elements, voice_owners = _build_voice_elements(
                 [measure.events[i] for i in indices], marks=marks
             )
             for off, el in elements:
+                if voice_key in stems and not isinstance(el, note.Rest):
+                    el.stemDirection = stems[voice_key]
                 v.insert(off, el)
             for i, owner in zip(indices, voice_owners, strict=True):
                 owners[i] = owner
@@ -957,8 +1067,52 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
     with _keeping_spanner_numbers():
         root = exporter.parse()
     _drop_placeholder_metadata(root)
+    _number_voices_by_staff(root, score)
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
+
+
+def _number_voices_by_staff(root: Any, score: ScoreIR) -> None:
+    """Numera las voces de cada pentagrama aparte y igual en todos los compases (ADR-0032).
+
+    Al unir los pentagramas de una parte, music21 no renumera las voces del inferior si el
+    superior ya las numera: las dos manos compartían la voz 1, y la voz principal de abajo era la
+    1 en unos compases y la 2 en otros. OSMD sitúa los silencios de varias voces por su número.
+    Aquí la voz ``v`` del pentagrama ``s`` (desde 0) es la ``s * paso + v + 1``, con un paso de 4
+    como HOMR y MuseScore (1-4 arriba, 5-8 abajo) o mayor si un pentagrama tiene más voces.
+    Solo se renumera lo que music21 ya numeró, compás a compás y pentagrama a pentagrama, en el
+    orden en que escribe las voces del `ScoreIR`; si no cuadra, el compás se deja como está.
+    """
+
+    for part, written_part in zip(score.parts, root.findall("part"), strict=False):
+        highest = max(
+            (e.voice for staff in part.staves for m in staff.measures for e in m.events), default=0
+        )
+        step = max(4, highest + 1)
+        for measure_index, written_measure in enumerate(written_part.findall("measure")):
+            notes = written_measure.findall("note")
+            for staff_index, staff in enumerate(part.staves):
+                if measure_index >= len(staff.measures):
+                    continue
+                voices = sorted({event.voice for event in staff.measures[measure_index].events})
+                staff_notes = [
+                    n for n in notes if (n.findtext("staff") or "1") == str(staff_index + 1)
+                ]
+                written: list[str] = []
+                for n in staff_notes:
+                    number = n.findtext("voice")
+                    if number is not None and number not in written:
+                        written.append(number)
+                if len(written) != len(voices):
+                    continue
+                renumbered = {
+                    old: str(staff_index * step + voice + 1)
+                    for old, voice in zip(written, voices, strict=True)
+                }
+                for n in staff_notes:
+                    element = n.find("voice")
+                    if element is not None and element.text is not None:
+                        element.text = renumbered[element.text]
 
 
 def _spanner_class_name(item: Any) -> str:

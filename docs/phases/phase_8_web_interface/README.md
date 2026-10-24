@@ -9,7 +9,7 @@ Referencias:
 - [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md): §5 (Módulo 3) y §10.
 - ADR: [ADR-0006](../../adr/ADR-0006-render-editor-osmd-verovio-zustand.md) y de
   [ADR-0019](../../adr/ADR-0019-base-del-cliente-web.md) a
-  [ADR-0031](../../adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md).
+  [ADR-0032](../../adr/ADR-0032-varias-voces-huecos-y-plicas.md).
 - Guía de integración: [`../../api/frontend-handoff.md`](../../api/frontend-handoff.md).
 - Producto y diseño: [`../../../PRODUCT.md`](../../../PRODUCT.md) y
   [`../../../DESIGN.md`](../../../DESIGN.md).
@@ -29,7 +29,7 @@ Seguimiento: milestones
 | 2 | [#152](https://github.com/sebdavid3/Cadenza/issues/152)–[#155](https://github.com/sebdavid3/Cadenza/issues/155) | MusicXML fiel al `ScoreIR`; vista de solo lectura con OSMD y posibles errores por compás; registro de cuentas y moderación | ADR-0021, ADR-0022 |
 | Despliegue | [#156](https://github.com/sebdavid3/Cadenza/issues/156), [#157](https://github.com/sebdavid3/Cadenza/issues/157), [#159](https://github.com/sebdavid3/Cadenza/issues/159), [#165](https://github.com/sebdavid3/Cadenza/issues/165), [#166](https://github.com/sebdavid3/Cadenza/issues/166), [#169](https://github.com/sebdavid3/Cadenza/issues/169), [#174](https://github.com/sebdavid3/Cadenza/issues/174), [#180](https://github.com/sebdavid3/Cadenza/issues/180) | Publicación en `https://r2d2.tailcacb19.ts.net`, transcripciones simultáneas, confirmación antes de responder, registro abierto y copias diarias | ADR-0023, ADR-0024, ADR-0025 |
 | 3 | [#176](https://github.com/sebdavid3/Cadenza/issues/176), [#177](https://github.com/sebdavid3/Cadenza/issues/177) | Descarga del MusicXML y reproducción con Tone.js, con el compás que suena resaltado | ADR-0026 |
-| 4 (en curso) | [#182](https://github.com/sebdavid3/Cadenza/issues/182), [#183](https://github.com/sebdavid3/Cadenza/issues/183), [#213](https://github.com/sebdavid3/Cadenza/issues/213) | Seleccionar una nota o un silencio sobre la partitura con el ratón, el teclado o los pasos de la barra, con su ancla: mapa ancla→caja por evento emparejado con lo que dibuja OSMD (D11 resuelta). Corregir su altura, su duración y su alteración con botones o con el teclado, con `base_seq`, sin envío optimista y con el 409 recargado. Guardar y mostrar las articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores, sin cambiar las anclas ni las métricas de los experimentos | ADR-0027, ADR-0030, ADR-0031 |
+| 4 (en curso) | [#182](https://github.com/sebdavid3/Cadenza/issues/182), [#183](https://github.com/sebdavid3/Cadenza/issues/183), [#213](https://github.com/sebdavid3/Cadenza/issues/213), [#218](https://github.com/sebdavid3/Cadenza/issues/218) | Seleccionar una nota o un silencio sobre la partitura con el ratón, el teclado o los pasos de la barra, con su ancla: mapa ancla→caja por evento emparejado con lo que dibuja OSMD (D11 resuelta). Corregir su altura, su duración y su alteración con botones o con el teclado, con `base_seq`, sin envío optimista y con el 409 recargado. Guardar y mostrar las articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores, sin cambiar las anclas ni las métricas de los experimentos. Conservar el ritmo de varias voces (el hueco de una voz es un silencio invisible) y dibujarlas con las plicas separadas | ADR-0027, ADR-0030, ADR-0031, ADR-0032 |
 
 Queda pendiente la escucha manual de la reproducción por el responsable, en escritorio y en
 móvil: un navegador sin interfaz no la oye.
@@ -41,7 +41,8 @@ móvil: un navegador sin interfaz no la oye.
 | **Corrección** | ~~[#182](https://github.com/sebdavid3/Cadenza/issues/182)~~ | **Hecho:** seleccionar una nota sobre la partitura, con el mapa ancla→caja por evento (ADR-0027) | — | D11 (resuelta) |
 | | ~~[#183](https://github.com/sebdavid3/Cadenza/issues/183)~~ | **Hecho:** corregir la altura, la duración y la alteración (`base_seq`, 409, 422; ADR-0030) | #182 | D61 (nueva: la figura de un acorde) |
 | | ~~[#213](https://github.com/sebdavid3/Cadenza/issues/213)~~ | **Hecho:** guardar y mostrar las marcas de notación; deshacer un borrado las devuelve (ADR-0031) | #183 | — |
-| | [#184](https://github.com/sebdavid3/Cadenza/issues/184) | Insertar y borrar eventos, y cambiar la clave y la armadura | #183, #213 | — |
+| | ~~[#218](https://github.com/sebdavid3/Cadenza/issues/218)~~ | **Hecho:** varias voces con su ritmo (huecos como silencios invisibles), plicas separadas y sin el error falso de balance (ADR-0032) | #213 | D63 (resuelta), D62 (diagnosticada) |
+| | [#184](https://github.com/sebdavid3/Cadenza/issues/184) | Insertar y borrar eventos, y cambiar la clave y la armadura | #183, #213, #218 | — |
 | | [#185](https://github.com/sebdavid3/Cadenza/issues/185) | Deshacer en el servidor y rehacer (ADR-0006, ADR-0007) | #183 | — |
 | | [#186](https://github.com/sebdavid3/Cadenza/issues/186) | Descartar, restaurar y revalidar los posibles errores | #183 | — |
 | | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista | #213; conviene después de #184 y #185 | — |
@@ -59,7 +60,8 @@ móvil: un navegador sin interfaz no la oye.
 flowchart LR
     S182["#182 seleccionar una nota"] --> S183["#183 altura, duración y alteración"]
     S183 --> S213["#213 marcas de notación"]
-    S213 --> S184["#184 insertar, borrar, clave y armadura"]
+    S213 --> S218["#218 varias voces"]
+    S218 --> S184["#184 insertar, borrar, clave y armadura"]
     S213 --> S214["#214 añadir y quitar marcas"]
     S213 --> S215["#215 volumen según las dinámicas"]
     S183 --> S185["#185 deshacer y rehacer"]

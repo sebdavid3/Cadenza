@@ -64,6 +64,9 @@ _KEY_MODES: Final[frozenset[str | None]] = frozenset({None, "major", "minor"})
 # Marcas de la nota (ADR-0031): las admite `InsertEvent` y las guarda la instantánea de
 # `DeleteEvent`, para que deshacer un borrado devuelva la nota con ellas.
 _EVENT_MARK_KEYS: Final[tuple[str, ...]] = ("articulations", "fermata", "slurs")
+# Un silencio invisible (ADR-0032) también: deshacer el borrado del hueco de una voz lo
+# devuelve invisible. Si el silencio se ve, la instantánea no lo lleva.
+_HIDDEN_KEY: Final[str] = "hidden"
 _INSERT_KEYS: Final[frozenset[str]] = frozenset(
     {
         "kind",
@@ -75,6 +78,7 @@ _INSERT_KEYS: Final[frozenset[str]] = frozenset(
         "confidence",
         "voice",
         *_EVENT_MARK_KEYS,
+        _HIDDEN_KEY,
     }
 )
 # Sin marcas, la instantánea no las lleva: su ausencia es «sin marcas», como en las
@@ -275,6 +279,11 @@ def _check_insert(op: EditOp, anchor: Anchor, after: Mapping[str, Any]) -> None:
             raise InvalidEditPayload("un silencio no lleva 'tie' ni 'is_chord'")
     else:
         raise InvalidEditPayload(f"InsertEvent solo admite kind 'note' o 'rest': {kind!r}")
+    hidden = after.get(_HIDDEN_KEY)
+    if hidden is not None and not isinstance(hidden, bool):
+        raise InvalidEditPayload(f"'hidden' debe ser booleano: {hidden!r}")
+    if hidden and kind != EventKind.REST.value:
+        raise InvalidEditPayload("solo un silencio puede ser invisible ('hidden')")
     _check_duration(after["duration_beats"])
     tie = after.get("tie")
     if tie is not None and (
@@ -462,7 +471,9 @@ def _event_snapshot(event: Event) -> dict[str, Any]:
         key: primitive[key]
         for key in ("kind", "pitch", "duration_beats", "tie", "is_chord", "bbox", "confidence")
     }
-    snapshot.update({key: primitive[key] for key in _EVENT_MARK_KEYS if key in primitive})
+    snapshot.update(
+        {key: primitive[key] for key in (*_EVENT_MARK_KEYS, _HIDDEN_KEY) if key in primitive}
+    )
     return snapshot
 
 

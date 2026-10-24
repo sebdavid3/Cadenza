@@ -107,6 +107,9 @@ def score_to_symbol_sequence(
 
     Si `apply_key_signature` es True (por defecto), las alturas que carecen de alteración
     explícita heredan la alteración tonal de la armadura activa del compás.
+
+    Un silencio invisible (el hueco de una voz, ADR-0032) no es un símbolo: no se dibuja ni se
+    reconoce, y antes de #218 el `<forward>` del que sale se perdía al importar.
     """
     symbols: list[str] = []
     active_fifths = 0
@@ -133,6 +136,8 @@ def score_to_symbol_sequence(
 
                 # 4. Eventos musicales
                 for event in measure.events:
+                    if event.hidden:
+                        continue
                     duration_str = format_duration_symbol(event.duration_beats)
                     if event.kind == EventKind.REST:
                         symbols.append(f"rest:{duration_str}")

@@ -58,5 +58,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0029](ADR-0029-api-con-usuario-sin-privilegios.md) | La API corre con un usuario sin privilegios (UID 10001), con la migración de los volúmenes anteriores | Aceptado | Infra, API |
 | [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md) | Corrección de la altura, la duración y la alteración de la nota elegida: controles, teclado, `base_seq` sin envío optimista y el 409 recargado | Aceptado | Web |
 | [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md) | Marcas de notación en el `ScoreIR`: articulaciones y calderón en el evento, dinámicas y reguladores por posición del compás, extremos de ligadura con número único por parte (enmienda ADR-0010) | Aceptado | Dominio, Interchange, API |
+| [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md) | Varias voces: el hueco de una voz como silencio invisible (`Event.hidden`), plicas por altura y voces numeradas por pentagrama al exportar, y una voz que sale antes no es un error de balance | Aceptado | Dominio, Interchange, Validación, Web |
 
 

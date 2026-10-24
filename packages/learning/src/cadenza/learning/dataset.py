@@ -269,12 +269,15 @@ MeasureKey = tuple[int, int, int]
 
 
 def _event_counts(document: ScoreDocument) -> dict[MeasureKey, int]:
+    """Eventos que se ven en cada compás: un silencio invisible (ADR-0032) no cuenta."""
+
     counts: dict[MeasureKey, int] = {}
     for part_index, part in enumerate(document.score.parts):
         for staff_index, staff in enumerate(part.staves):
             for measure in staff.measures:
                 key = (part_index, staff_index, measure.number)
-                counts[key] = counts.get(key, 0) + len(measure.events)
+                shown = sum(1 for event in measure.events if not event.hidden)
+                counts[key] = counts.get(key, 0) + shown
     return counts
 
 

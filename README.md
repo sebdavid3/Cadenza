@@ -298,12 +298,13 @@ La interfaz web vive en `apps/web` (React 18, TypeScript y Vite), sobre la API v
   compás que suena resaltado, la selección de una nota o un silencio con el ratón, el dedo o el
   teclado (flechas, Ctrl más flechas, Inicio, Fin y Esc) y, para quien la transcribió, la
   corrección de su altura, su alteración y su figura con botones o con el teclado (Mayús más
-  flechas o Re Pág y Av Pág, + − =, del 1 al 7 y el punto).
+  flechas o Re Pág y Av Pág, + − =, del 1 al 7 y el punto). La partitura lleva las marcas de
+  notación y las varias voces de cada pentagrama con su ritmo.
 - `/cuentas`: moderación de cuentas, solo para investigadores.
 
 Las decisiones están en los ADR del
 [ADR-0019](docs/adr/ADR-0019-base-del-cliente-web.md) al
-[ADR-0030](docs/adr/ADR-0030-correccion-de-altura-duracion-y-alteracion.md). El estado y lo que
+[ADR-0032](docs/adr/ADR-0032-varias-voces-huecos-y-plicas.md). El estado y lo que
 falta están en [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) §6 y en
 [`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md). El
 producto está en [`PRODUCT.md`](PRODUCT.md) y el sistema de diseño, en [`DESIGN.md`](DESIGN.md) y

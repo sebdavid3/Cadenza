@@ -4,6 +4,12 @@ Comprueba que la suma de duraciones de notas y silencios de un compás coincida
 con su métrica. La duración esperada la aporta el propio valor de dominio
 `TimeSignature.quarter_length`, sin dependencias externas. La regla es de **solo
 lectura** y ancla el hallazgo al primer evento del compás problemático.
+
+Con varias voces en el compás de un pentagrama, cada voz se comprueba aparte, y una
+voz puede salir antes del final del compás si otra que se ve lo completa (ADR-0032):
+MusicXML no obliga a rellenarla. Un silencio invisible (el hueco de una voz que entra
+a mitad del compás) cuenta como cualquier silencio, pero una voz hecha solo de
+silencios invisibles no completa el compás.
 """
 
 from __future__ import annotations
@@ -113,10 +119,20 @@ class MeasureBalanceRule(ValidationRule):
         if not events_by_voice:
             return []
 
+        sums = {
+            voice: _voice_durations_sum(voice_events)
+            for voice, voice_events in sorted(events_by_voice.items())
+        }
+        # Con varias voces, la que sale antes del final no es un error si otra que se ve completa
+        # el compás: una voz hecha solo de silencios invisibles no lo completa.
+        completed = len(sums) > 1 and any(
+            sums[voice] == expected and not all(event.hidden for event in voice_events)
+            for voice, voice_events in events_by_voice.items()
+        )
+
         findings: list[Finding] = []
-        for voice, voice_events in sorted(events_by_voice.items()):
-            actual = _voice_durations_sum(voice_events)
-            if actual is None or actual == expected:
+        for voice, actual in sums.items():
+            if actual is None or actual == expected or (completed and actual < expected):
                 continue
             anchor = first_by_voice.get(
                 (part_index, staff_index, measure.number, voice)

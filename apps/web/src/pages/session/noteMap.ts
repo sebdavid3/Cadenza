@@ -87,11 +87,17 @@ interface Indexed {
   index: number;
 }
 
-/** Nota o silencio que el exportador escribe como una figura: un silencio, una nota o un acorde. */
+/**
+ * Nota o silencio que el exportador escribe como una figura: un silencio, una nota o un acorde.
+ * Un silencio invisible (`hidden`, ADR-0032) ocupa su tiempo pero OSMD no lo dibuja.
+ */
 interface Group {
   rest: boolean;
+  hidden: boolean;
   members: Indexed[];
 }
+
+const isHidden = (event: ScoreEventPayload) => event.hidden === true;
 
 /**
  * Agrupa los eventos de una voz como el exportador (`_build_voice_elements`): un silencio solo,
@@ -104,7 +110,7 @@ function groupsOf(voice: Indexed[]): Group[] | null {
     const first = voice[i];
     if (!first) break;
     if (first.event.kind === "rest") {
-      groups.push({ rest: true, members: [first] });
+      groups.push({ rest: true, hidden: isHidden(first.event), members: [first] });
       i += 1;
       continue;
     }
@@ -116,7 +122,7 @@ function groupsOf(voice: Indexed[]): Group[] | null {
       members.push(next);
       j += 1;
     }
-    groups.push({ rest: false, members });
+    groups.push({ rest: false, hidden: false, members });
     i = j;
   }
   return groups;
@@ -157,9 +163,10 @@ interface Matched {
 /**
  * Empareja los eventos de un compás con sus figuras dibujadas: voz con voz por orden y, dentro
  * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración (una nota sin
- * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Devuelve,
- * por posición en el compás, las cajas de cada evento,
- * si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
+ * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Un
+ * silencio invisible no tiene figura: solo retrasa lo que le sigue, y una voz hecha solo de
+ * silencios invisibles no es una voz dibujada. Devuelve, por posición en el compás, las cajas de
+ * cada evento que se ve, si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
   events: readonly ScoreEventPayload[],
@@ -172,7 +179,10 @@ function matchMeasure(
     if (voice) voice.push({ event, index });
     else voices.set(event.voice, [{ event, index }]);
   });
-  const ordered = [...voices.entries()].sort(([a], [b]) => a - b).map(([, voice]) => voice);
+  const ordered = [...voices.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, voice]) => voice)
+    .filter((voice) => voice.some(({ event }) => !isHidden(event)));
   if (ordered.length !== drawn.length) return null;
 
   const matched = new Map<number, Matched>();
@@ -185,6 +195,10 @@ function matchMeasure(
     for (const group of groups) {
       const length = drawnLength(group);
       if (!length) return null;
+      if (group.hidden) {
+        if (!length.grace) start = add(start, length.beats);
+        continue;
+      }
       const used: DrawnFigure[] = [];
       if (length.grace) {
         // Una nota de adorno es una sola figura, sin tiempo: no cuenta la duración de su figura.
@@ -243,9 +257,10 @@ function union(boxes: readonly Box[]): Box {
 }
 
 /**
- * Mapa ancla→caja de la partitura: cada evento del `ScoreIR` con su ancla (`event_index` cuenta
- * los eventos de su voz en el compás, como `compute_timing_map`) y las cajas de las figuras que
- * OSMD dibujó para él. `drawn` da las figuras de cada compás dibujado.
+ * Mapa ancla→caja de la partitura: cada evento del `ScoreIR` que se ve con su ancla
+ * (`event_index` cuenta los eventos de su voz en el compás, también los silencios invisibles,
+ * como `compute_timing_map`) y las cajas de las figuras que OSMD dibujó para él. `drawn` da las
+ * figuras de cada compás dibujado.
  */
 export function buildNoteMap(
   score: ScoreIRPayload,
@@ -260,11 +275,12 @@ export function buildNoteMap(
       const slotStaff = globalStaff;
       globalStaff += 1;
       staff.measures.forEach((measure, measureIndex) => {
-        total += measure.events.length;
+        const shown = measure.events.filter((event) => !isHidden(event)).length;
+        total += shown;
         const slot = { staff: slotStaff, measure: measureIndex };
         const matched = matchMeasure(measure.events, drawn(slot));
         if (!matched) {
-          unmatched += measure.events.length;
+          unmatched += shown;
           return;
         }
         const counters = new Map<number, number>();
@@ -272,6 +288,7 @@ export function buildNoteMap(
         measure.events.forEach((event, index) => {
           const eventIndex = counters.get(event.voice) ?? 0;
           counters.set(event.voice, eventIndex + 1);
+          if (isHidden(event)) return;
           const anchor: AnchorPayload = {
             part: partIndex,
             staff: staffIndex,

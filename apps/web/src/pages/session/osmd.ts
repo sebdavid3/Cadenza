@@ -128,13 +128,16 @@ function drawnNote(note: GraphicalNote, origin: DOMRect, unit: number): DrawnNot
   };
 }
 
-/** Figuras de un compás dibujado, agrupadas por voz y en el orden del número de voz. */
+/**
+ * Figuras de un compás dibujado, agrupadas por voz y en el orden del número de voz. Un silencio
+ * invisible (`print-object="no"`, ADR-0032) no es una figura: OSMD lo guarda pero no lo dibuja.
+ */
 function measureFigures(measure: GraphicalMeasure, origin: DOMRect, unit: number): DrawnVoice[] {
   const voices = new Map<number, DrawnFigure[]>();
   for (const entry of measure.staffEntries) {
     for (const voiceEntry of entry.graphicalVoiceEntries) {
       const first = voiceEntry.notes[0];
-      if (!first) continue;
+      if (!first || voiceEntry.notes.every((note) => !note.sourceNote.PrintObject)) continue;
       // OSMD mide en redondas y guarda aparte la parte entera: 11/8 es 1 + 3/8.
       const length = first.sourceNote.Length;
       const figure: DrawnFigure = {
