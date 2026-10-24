@@ -72,6 +72,8 @@ services:
     # HOMR en CPU ocupa unos 600 MiB en reposo; el tope impide que una transcripción se lleve la
     # memoria del servidor, que comparte con otros servicios.
     mem_limit: 3g
+    # La imagen corre con el usuario cadenza (UID 10001), sin root (ADR-0029). Un volumen de
+    # artefactos anterior a #192 se migra una vez: operacion_backend.md §2.2.
     cap_drop:
       - ALL
     security_opt:
@@ -131,6 +133,9 @@ services:
     environment:
       CADENZA_DATABASE_URL: postgresql://${CADENZA_POSTGRES_USER:-cadenza}:${CADENZA_POSTGRES_PASSWORD}@postgres:5432/${CADENZA_POSTGRES_DB:-cadenza}
       CADENZA_ARTIFACTS_DIR: /artifacts
+      # La restauración corre como root y da los artefactos al usuario de la API (ADR-0029),
+      # también si el volumen lo crea ella.
+      CADENZA_ARTIFACTS_OWNER: "10001:10001"
     volumes:
       - artifacts_data:/artifacts
       - ${CADENZA_BACKUP_DIR:-./backups}:/backups

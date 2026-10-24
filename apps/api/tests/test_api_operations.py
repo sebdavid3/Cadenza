@@ -1,5 +1,7 @@
 """Tests de integración para operaciones del backend (#40, D44)."""
 
+import os
+import secrets
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -66,6 +68,47 @@ def test_health_check_healthy(ops_test_client: TestClient) -> None:
     assert data["omr_engine"] == "fake"
     assert "device" in data
     assert data["version"] == "1.0.0"
+
+
+@pytest.mark.parametrize("blocked", ["", "sha256"])
+@pytest.mark.parametrize("injected_store", [True, False])
+def test_health_is_unhealthy_when_the_api_cannot_write_its_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, injected_store: bool, blocked: str
+) -> None:
+    # La API corre sin root (D57, #192): un volumen de artefactos de antes, de root, existe pero
+    # no admite escritura, y la API arrancaría sana para fallar en la primera transcripción. En
+    # producción el almacén no se inyecta: cada petición crea uno sobre `artifacts_dir`, y antes
+    # de #192 /health no comprobaba esa carpeta. Con el almacén inyectado, se comprueba la suya.
+    engine = create_memory_engine()
+    create_schema(engine)
+    store_dir = tmp_path / "almacen"
+    settings_dir = tmp_path / "ajustes"
+    for folder in (store_dir, settings_dir):
+        (folder / "sha256").mkdir(parents=True)
+    client = TestClient(
+        create_app(
+            create_session_factory(engine),
+            omr_engine=FakeOMREngine(),
+            artifact_store=FilesystemArtifactStore(store_dir) if injected_store else None,
+            settings=Settings(auth_secret_key=secrets.token_hex(32), artifacts_dir=settings_dir),
+        )
+    )
+    assert client.get("/health").status_code == 200
+    not_writable = ((store_dir if injected_store else settings_dir) / blocked).resolve()
+    real_access = os.access
+
+    def access(path: str | os.PathLike[str], mode: int) -> bool:
+        if Path(path).resolve() == not_writable and mode & os.W_OK:
+            return False
+        return real_access(path, mode)
+
+    monkeypatch.setattr(os, "access", access)
+
+    resp = client.get("/health")
+
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "unhealthy"
+    assert resp.json()["artifact_store"] == "error"
 
 
 def test_health_reports_homr_with_default_engine(tmp_path: Path) -> None:

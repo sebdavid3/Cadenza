@@ -102,7 +102,7 @@ detalle, las dependencias y el criterio de cierre están en
 | Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Corregir altura, duración y alteración de la nota elegida, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182), D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | API sin root (D57) y límites del registro abierto (D59, alcance por decidir). Ya están hechas la longitud mínima de la clave de firma (D58) y el dataset sin las cuentas del registro (D55) |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto (D59, alcance por decidir). Ya están hechas la longitud mínima de la clave de firma (D58), el dataset sin las cuentas del registro (D55) y la API sin root (D57) |
 | Después de la fase 8 | — | Estudio de esfuerzo con participantes (D38) |
 
 ---
@@ -480,7 +480,7 @@ Cadenza/
 |---|---|
 | [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
-| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0026) |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0029) |
 | [`docs/phases/`](docs/phases) | Alcance y criterio de cierre de cada fase; la vigente es la [Fase 8](docs/phases/phase_8_web_interface/README.md) |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |

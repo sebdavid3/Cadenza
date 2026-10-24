@@ -9,6 +9,7 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import tempfile
 import time
@@ -482,9 +483,19 @@ def create_app(
 
         store_status = "accessible"
         store = request.app.state.artifact_store
+        # Sin almacén inyectado, como en producción, cada petición crea uno sobre
+        # `artifacts_dir` (get_artifact_store): esa es la carpeta que se comprueba.
+        root = app_settings.artifacts_dir if store is None else getattr(store, "_root_dir", None)
         try:
-            if store is not None and hasattr(store, "_root_dir"):
-                Path(store._root_dir).mkdir(parents=True, exist_ok=True)
+            if root is not None:
+                root_dir = Path(root)
+                root_dir.mkdir(parents=True, exist_ok=True)
+                # La API corre sin root (D57): la carpeta puede existir y no admitir escritura,
+                # como un volumen de root sin migrar. Se mira también `sha256`, la primera
+                # carpeta del almacén; las de prefijo, debajo, no se recorren en cada sondeo.
+                for folder in (root_dir, root_dir / "sha256"):
+                    if folder.exists() and not os.access(folder, os.W_OK | os.X_OK):
+                        raise PermissionError(f"la API no puede escribir en {folder}")
         except Exception as err:
             logger.error("Health check artifact store error: %s", err)
             store_status = "error"

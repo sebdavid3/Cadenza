@@ -273,8 +273,13 @@ def restore_backup(
     db_url: str = "sqlite+pysqlite:///./cadenza.db",
     artifacts_dir: Path = Path("./data/artifacts"),
     force: bool = False,
+    owner: tuple[int, int] | None = None,
 ) -> None:
-    """Restaura la base de datos y los artefactos tras verificar su integridad."""
+    """Restaura la base de datos y los artefactos tras verificar su integridad.
+
+    Como root, da lo restaurado a `owner` (UID y GID) o, sin él, al dueño de la carpeta de
+    artefactos (D57, #192).
+    """
     verify_backup(archive_path)
 
     archive_path = archive_path.resolve()
@@ -288,6 +293,22 @@ def restore_backup(
 
         with (tmpdir / "manifest.json").open("r", encoding="utf-8") as f:
             manifest = json.load(f)
+
+        # Los destinos de los artefactos se comprueban antes de tocar la base: ninguno puede salir
+        # de la carpeta de artefactos, tampoco por un enlace simbólico plantado en ella.
+        src_art = tmpdir / "artifacts"
+        copies: list[tuple[Path, Path]] = []
+        if src_art.exists():
+            for root, _, files in os.walk(src_art):
+                for fname in files:
+                    full_p = Path(root) / fname
+                    dst_p = artifacts_dir / full_p.relative_to(src_art)
+                    if not dst_p.resolve().is_relative_to(artifacts_dir):
+                        raise BackupError(
+                            f"El artefacto {dst_p} saldría de {artifacts_dir}: hay un enlace "
+                            "simbólico en el camino. No se ha restaurado nada."
+                        )
+                    copies.append((full_p, dst_p))
 
         # 1. Restaurar la base de datos primero: si falla, los artefactos quedan como estaban.
         db_file = tmpdir / "database" / manifest.get("db_file", "")
@@ -322,15 +343,45 @@ def restore_backup(
 
         # 2. Restaurar los artefactos, direccionados por contenido: copiarlos sobre los existentes
         # no cambia ninguno que ya estuviera.
-        src_art = tmpdir / "artifacts"
-        if src_art.exists():
-            for root, _, files in os.walk(src_art):
-                for fname in files:
-                    full_p = Path(root) / fname
-                    rel_p = full_p.relative_to(src_art)
-                    dst_p = artifacts_dir / rel_p
-                    dst_p.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(full_p, dst_p)
+        for full_p, dst_p in copies:
+            dst_p.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(full_p, dst_p)
+
+    _give_restored_artifacts_to_owner(artifacts_dir, [dst_p for _, dst_p in copies], owner)
+
+
+def _give_restored_artifacts_to_owner(
+    artifacts_dir: Path, restored: list[Path], owner: tuple[int, int] | None
+) -> None:
+    """Da lo restaurado, sus carpetas y la de artefactos al usuario de la API (D57, #192).
+
+    En el despliegue se restaura como root y la API corre con su propio usuario: sin esto, las
+    carpetas que crea la restauración serían de root y la API no podría guardar nada en ellas.
+    El dueño es `owner` (en el despliegue, `CADENZA_ARTIFACTS_OWNER`) o, sin él, el de la carpeta
+    de artefactos, que es root si la restauración creó el volumen. Sin ser root, lo restaurado
+    ya es de quien restaura, y no se puede dar a otro.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    chown = getattr(os, "chown", None)
+    if geteuid is None or chown is None or geteuid() != 0:
+        return
+    if owner is None:
+        folder = artifacts_dir.stat()
+        owner = (folder.st_uid, folder.st_gid)
+    paths = {artifacts_dir}
+    for path in restored:
+        paths.add(path)
+        paths.update(parent for parent in path.parents if parent.is_relative_to(artifacts_dir))
+    for path in sorted(paths):
+        chown(path, *owner, follow_symlinks=False)
+
+
+def _parse_owner(value: str) -> tuple[int, int]:
+    """`UID:GID` del dueño que se da a los artefactos restaurados."""
+    uid, separator, gid = value.partition(":")
+    if not separator or not uid.isdigit() or not gid.isdigit():
+        raise argparse.ArgumentTypeError(f"Se esperaba UID:GID, como 10001:10001: {value!r}")
+    return int(uid), int(gid)
 
 
 def main() -> None:
@@ -396,6 +447,15 @@ def main() -> None:
         action="store_true",
         help="Sobrescribir base de datos existente si es SQLite.",
     )
+    restore_p.add_argument(
+        "--owner",
+        type=_parse_owner,
+        default=os.getenv("CADENZA_ARTIFACTS_OWNER") or None,
+        help=(
+            "UID:GID al que se dan, como root, los artefactos restaurados y sus carpetas; "
+            "por defecto, el dueño de la carpeta de artefactos (D57, #192)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -423,6 +483,7 @@ def _run_command(args: argparse.Namespace) -> None:
             db_url=args.db_url,
             artifacts_dir=args.artifacts_dir,
             force=args.force,
+            owner=args.owner,
         )
         print("Restauración completada exitosamente.")
 
