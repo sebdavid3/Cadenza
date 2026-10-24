@@ -203,8 +203,8 @@ uv run python -m ml run --config configs/learning/default.json --work-dir result
 
 | Comando | Entrada | Salida | Metadatos persistidos |
 |---|---|---|---|
-| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, muestras |
-| `select` | `dataset.json` | `selected.json` | `dataset_hash`, `source_dataset_hash`, `strategy`, `budget`, `seed` |
+| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`, `UserRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, `self_registered_included`, muestras |
+| `select` | `dataset.json` | `selected.json` | `dataset_hash`, `source_dataset_hash`, `strategy`, `budget`, `seed`, `self_registered_included` |
 | `train` | `selected.json` | `trained_artifact.json` + `data/artifacts/sha256/...` | `artifact_hash` (pesos), `dataset_hash`, `config_hash`, métricas |
 | `evaluate` | `trained_artifact.json` | `evaluation_report.json` | `metrics` (SER, OMR-NED), `threshold`, `meets_threshold` |
 | `promote` | `trained_artifact.json` | `promotion_result.json` + `model_versions` (BD) | `version`, `promoted`, `active_model_version`, umbral |

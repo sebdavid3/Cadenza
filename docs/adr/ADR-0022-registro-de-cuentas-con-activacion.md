@@ -27,7 +27,7 @@ Se **enmienda ADR-0012 §1**: además de las cuentas que crea un investigador, c
 2. **Rol fijo `transcriptor`.** El cuerpo no admite rol; un campo extra se rechaza con 422.
 3. **Solo usuario y contraseña**, sin correo ni recuperación, como en ADR-0012.
 4. **Cuenta inactiva hasta su activación.** Una cuenta autorregistrada no inicia sesión ni transcribe hasta que un investigador la active con `PATCH /users/{id}`. El inicio de sesión de una cuenta inactiva responde igual que unas credenciales incorrectas (401), como ya hacía `authenticate`; la interfaz lo explica. Esto no oculta qué nombres existen, porque el registro responde 409 a un nombre ocupado: lo que frena el sondeo es el límite por IP.
-5. **Marca de origen.** La columna `users.self_registered` (booleano, falso por defecto; migración 0012) distingue las cuentas autorregistradas, y `UserRead` la expone. La exportación del estudio de esfuerzo (`exp_10`, `ml export-effort`) excluye las sesiones cuyo propietario tiene `self_registered = true`; el `DatasetBuilder` del aprendizaje activo todavía no (D55).
+5. **Marca de origen.** La columna `users.self_registered` (booleano, falso por defecto; migración 0012) distingue las cuentas autorregistradas, y `UserRead` la expone. La exportación del estudio de esfuerzo (`exp_10`, `ml export-effort`) excluye las sesiones cuyo propietario tiene `self_registered = true`; el `DatasetBuilder` del aprendizaje activo también, desde [#191](https://github.com/sebdavid3/Cadenza/issues/191) (D55, resuelta).
 6. **Protección contra abuso.**
    - Límite de registros por IP en memoria (`CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` intentos en `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS`), agrupando las IPv6 por su red /64. Comprobar y anotar es una sola operación. Cuentan todos los intentos que llegan a procesarse, también los que acaban en 409, para no permitir sondear nombres sin límite; un cuerpo que no supera el esquema (422) no cuenta porque no toca la base de datos.
    - La IP es la que da uvicorn: detrás del proxy de producción, la real de `X-Forwarded-For` solo si viene del proxy de confianza ([#156](https://github.com/sebdavid3/Cadenza/issues/156)). **Sin ese proxy no conviene abrir el registro**: todas las peticiones llegarían con la misma IP y el límite sería uno solo para todo el servicio.
@@ -49,7 +49,7 @@ Se **enmienda ADR-0012 §1**: además de las cuentas que crea un investigador, c
 - El tope de pendientes también lo puede alcanzar alguien que quiera cerrar el registro a los demás; se reabre en cuanto un investigador activa cuentas.
 - No hay estado «rechazada» ni borrado de cuentas: una cuenta autorregistrada que un investigador desactiva vuelve a contar como sin activar, también para el tope (D56). La interfaz las llama «sin activar», no «pendientes».
 - Las filas de cuentas inactivas pueden acumularse; un investigador puede dejarlas inactivas (no hay borrado de cuentas).
-- El `DatasetBuilder` del plano offline todavía no excluye las sesiones de cuentas autorregistradas; queda como deuda (D55).
+- El `DatasetBuilder` del plano offline no excluía las sesiones de cuentas autorregistradas (D55). Resuelta en [#191](https://github.com/sebdavid3/Cadenza/issues/191): las deja fuera salvo con `--include-self-registered`.
 - Un cuerpo que no supera la validación del esquema (422) no llega al límite por IP: no toca la base de datos.
 
 ## Alternativas consideradas

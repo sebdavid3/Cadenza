@@ -49,7 +49,7 @@ Antes del despliegue público (#157), el responsable decide que el registro sea 
 - El límite de registros por IP vive en la memoria del proceso: se pierde al reiniciar la API y depende de la IP real que da el proxy (ADR-0023).
 - Cualquiera puede elegir un nombre como `admin` o `investigador`: no hay nombres reservados, y el rol sigue siendo transcriptor. El 409 dice si un nombre existe, como ya pasaba con ADR-0022.
 - `/cuentas` carga todas las cuentas de una vez, sin paginar.
-- Las cuentas del registro no se distinguen de las del estudio en el plano offline (`DatasetBuilder`, deuda D55); con registro abierto puede haber más.
+- Las cuentas del registro no se distinguían de las del estudio en el plano offline (`DatasetBuilder`, D55); con registro abierto puede haber más. Resuelta en [#191](https://github.com/sebdavid3/Cadenza/issues/191): el `DatasetBuilder` las deja fuera salvo que se pida incluirlas.
 
 Los límites del registro abierto quedan como deuda (D59), para resolverlos si el uso lo pide.
 
