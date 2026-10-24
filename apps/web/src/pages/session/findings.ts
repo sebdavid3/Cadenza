@@ -94,15 +94,61 @@ export function measureMarks(
 }
 
 /**
- * Los hallazgos de `latest_only` son de la última validación. Si se editó después, describen un
- * estado anterior: se devuelve ese estado para avisarlo.
+ * De qué estado es la última validación respecto al que se ve (ADR-0013, ADR-0035):
+ * - `current`: del estado actual;
+ * - `stale`: de un estado anterior (`seq`), porque se editó después;
+ * - `unknown`: sin hallazgos no hay `at_seq` que comparar (`SessionDetailRead` no expone
+ *   `validated_at_seq`) y la partitura tiene ediciones (ADR-0021 §3).
  */
-export function staleValidationSeq(
+export type ValidationState =
+  { kind: "current" } | { kind: "stale"; seq: number } | { kind: "unknown" };
+
+/**
+ * Los hallazgos de `latest_only` son de la última validación, también los descartados. `knownSeq`
+ * es el estado de una validación que se sabe hecha (la que devolvió `POST /validate`): sin
+ * hallazgos, es lo único que dice de cuándo es. Vale la más reciente de las dos.
+ */
+export function validationState(
   findings: readonly FindingRead[],
   currentSeq: number,
-): number | null {
+  knownSeq: number | null = null,
+): ValidationState {
   const seqs = findings.map((finding) => finding.at_seq ?? 0);
-  if (seqs.length === 0) return null;
+  if (knownSeq !== null) seqs.push(knownSeq);
+  // Sin ediciones, la única validación es la de la transcripción, sobre el estado 0.
+  if (seqs.length === 0) return currentSeq === 0 ? { kind: "current" } : { kind: "unknown" };
   const validated = Math.max(...seqs);
-  return validated < currentSeq ? validated : null;
+  return validated < currentSeq ? { kind: "stale", seq: validated } : { kind: "current" };
+}
+
+/** La lista con `updated` en lugar del hallazgo con su mismo id (tras descartarlo o restaurarlo). */
+export function withFinding(findings: readonly FindingRead[], updated: FindingRead): FindingRead[] {
+  return findings.map((finding) => (finding.id === updated.id ? updated : finding));
+}
+
+/**
+ * Dónde está un posible error, para nombrar sus acciones y decir qué se hizo con él: «compás 3».
+ * Con varios pentagramas, también en cuál (en el orden global de OSMD, como las marcas).
+ */
+export function findingPlace(
+  score: ScoreIRPayload | null,
+  finding: FindingRead,
+  multiStaff: boolean,
+): string {
+  const { anchor } = finding;
+  const place = `compás ${String(anchor.measure)}`;
+  if (!multiStaff || !score) return place;
+  const previousStaves = score.parts
+    .slice(0, anchor.part)
+    .reduce((total, previous) => total + previous.staves.length, 0);
+  return `${place} del pentagrama ${String(previousStaves + anchor.staff + 1)}`;
+}
+
+/** Qué posible error es y dónde: «Duración del compás, compás 3». */
+export function findingLabel(
+  score: ScoreIRPayload | null,
+  finding: FindingRead,
+  multiStaff: boolean,
+): string {
+  return `${ruleLabel(finding.rule_id)}, ${findingPlace(score, finding, multiStaff)}`;
 }

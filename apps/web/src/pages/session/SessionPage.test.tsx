@@ -459,7 +459,7 @@ describe("vista de una sesión", () => {
 
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Sesión 3e951fef");
     const list = await screen.findByRole("list");
-    const item = within(list).getByRole("button", { name: /compás 2/i });
+    const item = within(list).getByRole("button", { name: /^compás 2/i });
     expect(item).toHaveTextContent("Duración del compás");
     expect(item).toHaveTextContent("Altura fuera de registro");
     expect(item).toHaveTextContent("El compás 2 suma 4 negras y su métrica 3/4 exige 3.");
@@ -488,7 +488,7 @@ describe("vista de una sesión", () => {
   it("al elegir un compás de la lista lo resalta en la partitura", async () => {
     api({ findings: [finding(1, 1), finding(2, 3)] });
     renderPage();
-    const button = await screen.findByRole("button", { name: /compás 3/i });
+    const button = await screen.findByRole("button", { name: /^compás 3/i });
     await waitFor(() => {
       expect(document.querySelectorAll(".notation__mark")).toHaveLength(2);
     });
@@ -563,7 +563,7 @@ describe("vista de una sesión", () => {
     renderPage();
 
     expect(await screen.findByText("No se pudo dibujar la partitura.")).toBeVisible();
-    expect(screen.getByRole("button", { name: /compás 2/i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^compás 2/i })).toBeVisible();
     expect(await screen.findByAltText("Imagen original de la partitura")).toBeInTheDocument();
   });
 
@@ -624,7 +624,7 @@ describe("vista de una sesión", () => {
     expect(await screen.findByText(/no se pudieron cargar los posibles errores/i)).toBeVisible();
     fail = false;
     await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
-    expect(await screen.findByRole("button", { name: /compás 1/i })).toBeVisible();
+    expect(await screen.findByRole("button", { name: /^compás 1/i })).toBeVisible();
   });
 
   it("si falla el detalle de la sesión lo dice sin confundirlo con un 404", async () => {
@@ -652,7 +652,7 @@ describe("vista de una sesión", () => {
     renderPage();
 
     expect(await screen.findByText(/no se pudieron situar/i)).toBeVisible();
-    expect(screen.queryByRole("button", { name: /compás 2/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^compás 2/i })).toBeNull();
     expect(screen.getByText("Compás 2")).toBeVisible();
   });
 
@@ -1826,6 +1826,7 @@ describe("corregir la nota elegida", () => {
   }
 
   type EditRoute = (body: EditEventCreate) => Response | Promise<Response>;
+  type FindingRoute = (key: string, body: unknown) => Response | Promise<Response>;
   type UndoRoute = () => Response | Promise<Response>;
 
   /**
@@ -1833,8 +1834,72 @@ describe("corregir la nota elegida", () => {
    * con un 201 y cambia el detalle y el dibujo. `respond` cambia la respuesta de la siguiente.
    * `POST /undo` deshace la última edición vigente con su compensatoria (`respondUndo`, igual).
    */
-  function editableApi(start: SessionDetailRead = detail()) {
+  function editableApi(
+    start: SessionDetailRead = detail(),
+    options: {
+      /** Hallazgos de la última validación, también los descartados. */
+      findings?: FindingRead[];
+      /** Lo que señala el validador sobre un estado (`POST /validate`). */
+      validate?: (current: SessionDetailRead) => FindingRead[];
+    } = {},
+  ) {
     let current = start;
+    let findings = options.findings ?? [];
+    const findingCalls: { key: string; body: unknown }[] = [];
+    const findingQueue: FindingRoute[] = [];
+    const validateQueue: (() => Response | Promise<Response>)[] = [];
+    /** Descarta o restaura como el servidor: 404 si el hallazgo no está, 409 si está finalizada. */
+    const acceptFinding = (key: string, body: unknown) => {
+      const match = /findings\/(\d+)\/(dismiss|restore)$/.exec(key);
+      const target = findings.find((candidate) => candidate.id === Number(match?.[1]));
+      if (!target) return jsonResponse({ detail: "finding not found" }, 404);
+      if (current.status === "finalized") return jsonResponse({ detail: "Sesión cerrada" }, 409);
+      const reason = (body as { reason?: string | null } | null)?.reason ?? null;
+      const updated: FindingRead =
+        match?.[2] === "dismiss"
+          ? {
+              ...target,
+              status: "dismissed",
+              dismissed_at: "2026-10-24T11:00:00",
+              dismissed_by: "ana",
+              dismissal_reason: reason,
+            }
+          : {
+              ...target,
+              status: "active",
+              dismissed_at: null,
+              dismissed_by: null,
+              dismissal_reason: null,
+            };
+      findings = findings.map((candidate) => (candidate.id === target.id ? updated : candidate));
+      return jsonResponse(updated);
+    };
+    /** Revalida el estado actual: sus hallazgos pasan a ser los de la última validación. */
+    const acceptValidate = () => {
+      const seq = current.current_seq ?? 0;
+      findings = (options.validate?.(current) ?? []).map((candidate) => ({
+        ...candidate,
+        at_seq: seq,
+      }));
+      return jsonResponse({
+        session_id: ID,
+        current_seq: seq,
+        findings: findings.filter((candidate) => candidate.status !== "dismissed"),
+      });
+    };
+    const findingRoutes = Object.fromEntries(
+      Array.from({ length: 9 }, (_unused, index) => index + 1).flatMap((id) =>
+        ["dismiss", "restore"].map((action) => {
+          const key = `POST /sessions/${ID}/findings/${String(id)}/${action}`;
+          const route = (init: RequestInit | undefined) => {
+            const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : null;
+            findingCalls.push({ key, body });
+            return (findingQueue.shift() ?? acceptFinding)(key, body);
+          };
+          return [key, route];
+        }),
+      ),
+    );
     draw(current);
     const bodies: EditEventCreate[] = [];
     const queue: EditRoute[] = [];
@@ -1879,7 +1944,9 @@ describe("corregir la nota elegida", () => {
     let detailRoute: (() => Response | Promise<Response>) | null = null;
     const server = mockApi({
       [`GET /sessions/${ID}`]: () => (detailRoute ? detailRoute() : jsonResponse(current)),
-      [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
+      [`GET /sessions/${ID}/findings`]: () => jsonResponse(findings),
+      ...findingRoutes,
+      [`POST /sessions/${ID}/validate`]: () => (validateQueue.shift() ?? acceptValidate)(),
       [`GET /sessions/${ID}/export`]: (init) =>
         exportOverride
           ? exportOverride(init)
@@ -1908,8 +1975,23 @@ describe("corregir la nota elegida", () => {
       ...server,
       bodies,
       undoBodies,
+      findingCalls,
       accept,
       acceptUndo,
+      acceptFinding,
+      acceptValidate,
+      /** Otra respuesta para el siguiente descarte o restauración. */
+      respondFinding(route: FindingRoute) {
+        findingQueue.push(route);
+      },
+      /** Otra respuesta para la siguiente revalidación. */
+      respondValidate(route: () => Response | Promise<Response>) {
+        validateQueue.push(route);
+      },
+      /** Cambia los hallazgos del servidor, como si se hubiera revalidado en otra pestaña. */
+      setFindings(next: FindingRead[]) {
+        findings = next;
+      },
       respond(route: EditRoute) {
         queue.push(route);
       },
@@ -3828,6 +3910,544 @@ describe("corregir la nota elegida", () => {
       fireEvent.keyDown(document.body, ctrl("z"));
 
       expect(server.count(`POST /sessions/${ID}/undo`)).toBe(0);
+    });
+  });
+
+  describe("descartar, restaurar y revalidar los posibles errores (#186)", () => {
+    const panel = () => screen.getByRole("region", { name: "Posibles errores" });
+    const findingsStatus = () => document.querySelector(".findings__status");
+    const markCount = () => document.querySelectorAll(".notation__mark").length;
+    const heading = () => screen.getByRole("heading", { name: "Posibles errores" });
+    const dismissTrigger = (label: string) =>
+      within(panel()).getByRole("button", { name: `Descartar como falso positivo · ${label}` });
+    const submit = () =>
+      within(panel()).getByRole("button", { name: "Descartar como falso positivo" });
+    const reasonField = () => within(panel()).getByRole("textbox", { name: /motivo/i });
+    const ctrlKey = (key: string) => ({ key, ctrlKey: true });
+    const dismissedFinding = (id: number, measureNumber: number, reason: string | null = null) =>
+      finding(id, measureNumber, {
+        status: "dismissed",
+        dismissed_at: "2026-10-24T11:00:00",
+        dismissed_by: "ana",
+        dismissal_reason: reason,
+      });
+    /** Una edición guardada que se puede deshacer, para empezar con la partitura ya editada. */
+    function editedDetail(changes: Partial<SessionDetailRead> = {}) {
+      const { next } = apply(detail(), {
+        base_seq: 0,
+        op: "SetPitch",
+        anchor: anchorOf(1),
+        before: null,
+        after: { pitch: "D4" },
+      });
+      return { ...next, ...changes };
+    }
+
+    it("descarta con un motivo, sin darlo por descartado antes de la respuesta, y lo lista aparte", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 1), finding(2, 3)] });
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(2);
+      });
+      // Descartar no corrige nada: se dice antes de abrir el formulario.
+      expect(within(panel()).getByText(/descartar un posible error no corrige/i)).toBeVisible();
+
+      await userEvent.click(dismissTrigger("Duración del compás, compás 3"));
+      expect(reasonField()).toHaveFocus();
+      expect(within(panel()).getByText(/descartar no corrige la partitura/i)).toBeVisible();
+      await userEvent.type(reasonField(), "Así está en el original");
+      const pending = deferred<Response>();
+      server.respondFinding(() => pending.promise);
+      await userEvent.click(submit());
+
+      expect(server.findingCalls).toEqual([
+        {
+          key: `POST /sessions/${ID}/findings/2/dismiss`,
+          body: { reason: "Así está en el original" },
+        },
+      ]);
+      // Sin la respuesta no se da por descartado: el compás sigue marcado y en la lista.
+      expect(findingsStatus()).toHaveTextContent("Descartando…");
+      expect(submit()).toHaveAttribute("aria-disabled", "true");
+      expect(markCount()).toBe(2);
+
+      pending.resolve(
+        server.acceptFinding(`POST /sessions/${ID}/findings/2/dismiss`, {
+          reason: "Así está en el original",
+        }),
+      );
+
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(findingsStatus()).toHaveTextContent(
+        "Descartado como falso positivo: Duración del compás, compás 3. La partitura no cambia.",
+      );
+      expect(within(panel()).queryByRole("textbox")).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: /^compás 3/i })).toBeNull();
+      // El foco sigue en la lista: pasa al posible error que queda.
+      expect(dismissTrigger("Duración del compás, compás 1")).toHaveFocus();
+      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
+      expect(within(panel()).getByText("Motivo: Así está en el original")).toBeVisible();
+      // Descartar no cambia la partitura: no se vuelve a pedir ni el detalle ni el MusicXML.
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+    });
+
+    it("con varios posibles errores en un compás, numera cada uno y su botón, con su mensaje (ADR-0032)", async () => {
+      // Con varias voces, `measure.balance` señala cada voz del compás por separado.
+      const voice1 = finding(1, 2, { message: "El compás 2 (voz 0) suma 4 negras." });
+      const voice2 = finding(2, 2, {
+        message: "El compás 2 (voz 1) suma 2 negras.",
+        anchor: { ...finding(2, 2).anchor, voice: 1 },
+      });
+      const server = editableApi(detail(), { findings: [voice1, voice2] });
+      renderPage();
+      const region = await screen.findByRole("region", { name: "Posibles errores" });
+      const first = await within(region).findByRole("button", {
+        name: "Descartar 1 como falso positivo · Duración del compás, compás 2",
+      });
+      const second = within(region).getByRole("button", {
+        name: "Descartar 2 como falso positivo · Duración del compás, compás 2",
+      });
+      expect(first).toHaveAccessibleDescription("El compás 2 (voz 0) suma 4 negras.");
+      expect(second).toHaveAccessibleDescription("El compás 2 (voz 1) suma 2 negras.");
+      const toggle = within(region).getByRole("button", { name: /^compás 2/i });
+      expect(toggle).toHaveTextContent("1 · Duración del compás");
+      expect(toggle).toHaveTextContent("2 · Duración del compás");
+
+      await userEvent.click(second);
+      await userEvent.click(submit());
+
+      expect(server.findingCalls).toEqual([
+        { key: `POST /sessions/${ID}/findings/2/dismiss`, body: { reason: null } },
+      ]);
+      await waitFor(() => {
+        expect(dismissTrigger("Duración del compás, compás 2")).toHaveFocus();
+      });
+      // Queda uno: sin número.
+      expect(within(region).getByRole("button", { name: /^compás 2/i })).not.toHaveTextContent(
+        "1 ·",
+      );
+      await userEvent.click(within(region).getByText(/descartados como falso positivo · 1/i));
+      expect(
+        within(region).getByRole("button", { name: "Restaurar · Duración del compás, compás 2" }),
+      ).toHaveAccessibleDescription("El compás 2 (voz 1) suma 2 negras.");
+    });
+
+    it("con el teclado: Intro abre el formulario, Esc lo cierra y un motivo en blanco se envía como null", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      const trigger = await within(
+        await screen.findByRole("region", { name: "Posibles errores" }),
+      ).findByRole("button", {
+        name: "Descartar como falso positivo · Duración del compás, compás 2",
+      });
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+      trigger.focus();
+      await userEvent.keyboard("{Enter}");
+      expect(reasonField()).toHaveFocus();
+      expect(trigger).toHaveAttribute("aria-expanded", "true");
+      await userEvent.keyboard("{Escape}");
+      expect(within(panel()).queryByRole("textbox")).toBeNull();
+      expect(trigger).toHaveFocus();
+      expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+      await userEvent.keyboard("{Enter}");
+      await userEvent.keyboard("   {Enter}");
+
+      expect(server.findingCalls).toEqual([
+        { key: `POST /sessions/${ID}/findings/1/dismiss`, body: { reason: null } },
+      ]);
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent("Descartado como falso positivo");
+      });
+      // Sin posibles errores activos el foco pasa al título del panel, que lo dice con cautela.
+      expect(heading()).toHaveFocus();
+      expect(markCount()).toBe(0);
+      expect(within(panel()).getByText(/no queda ningún posible error activo/i)).toBeVisible();
+      expect(
+        within(panel()).getByText(/no garantiza que la transcripción esté bien/i),
+      ).toBeVisible();
+    });
+
+    it("restaura un descartado desde la lista, también con el teclado, y vuelve a marcar su compás", async () => {
+      const server = editableApi(detail(), {
+        findings: [finding(1, 1), dismissedFinding(2, 3, "Así está")],
+      });
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
+      const restore = within(panel()).getByRole("button", {
+        name: "Restaurar · Duración del compás, compás 3",
+      });
+
+      restore.focus();
+      await userEvent.keyboard("{Enter}");
+
+      expect(server.findingCalls).toEqual([
+        { key: `POST /sessions/${ID}/findings/2/restore`, body: null },
+      ]);
+      await waitFor(() => {
+        expect(markCount()).toBe(2);
+      });
+      expect(findingsStatus()).toHaveTextContent(
+        "Restaurado: Duración del compás, compás 3 vuelve a señalarse.",
+      );
+      expect(within(panel()).queryByText(/descartados como falso positivo/i)).toBeNull();
+      // El foco sigue al posible error restaurado, ya en la lista de los activos.
+      expect(dismissTrigger("Duración del compás, compás 3")).toHaveFocus();
+    });
+
+    it("revalida tras corregir: las marcas y la lista pasan a ser las del estado nuevo", async () => {
+      const server = editableApi(detail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(7, 3, { rule_id: "pitch.range" })],
+      });
+      renderPage();
+      await chooseMeasure(2);
+      fireEvent.click(button("Subir un paso"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+      });
+      // Los posibles errores son de la transcripción: lo dice y ofrece revalidar.
+      expect(
+        await within(panel()).findByText(
+          /corresponden a la partitura tal como la transcribió HOMR; después se editó/i,
+        ),
+      ).toBeVisible();
+      const revalidate = within(panel()).getByRole("button", { name: "Revalidar" });
+      const pending = deferred<Response>();
+      server.respondValidate(() => pending.promise);
+
+      await userEvent.click(revalidate);
+
+      expect(findingsStatus()).toHaveTextContent("Revalidando…");
+      expect(revalidate).toHaveAttribute("aria-disabled", "true");
+      // Mientras tanto, la lista es la de antes: no se descarta nada que vaya a cambiar.
+      expect(dismissTrigger("Duración del compás, compás 2")).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      pending.resolve(server.acceptValidate());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Revalidada la partitura actual: 1 posible error.",
+        );
+      });
+      expect(server.count(`POST /sessions/${ID}/validate`)).toBe(1);
+      expect(markCount()).toBe(1);
+      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+      expect(within(panel()).getByRole("button", { name: /^compás 3/i })).toHaveTextContent(
+        "Altura fuera de registro",
+      );
+      expect(within(panel()).queryByRole("button", { name: /^compás 2/i })).toBeNull();
+      expect(within(panel()).queryByText(/después se editó/i)).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
+      // El botón ya no está: el foco pasa al título del panel.
+      expect(heading()).toHaveFocus();
+      // Revalidar no cambia la partitura ni la nota elegida.
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
+    });
+
+    it("sin posibles errores y con ediciones ofrece revalidar; si no queda ninguno, no promete que esté bien", async () => {
+      const server = editableApi(editedDetail(), { validate: () => [] });
+      renderPage();
+      expect(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByText(
+          /puede que el resultado ya no esté al día/i,
+        ),
+      ).toBeVisible();
+
+      await userEvent.click(within(panel()).getByRole("button", { name: "Revalidar" }));
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Revalidada la partitura actual: el validador no señala ningún compás. Que no señale ninguno no garantiza que la transcripción esté bien.",
+        );
+      });
+      expect(
+        within(panel()).getByText("El validador no señala ningún compás en la partitura actual."),
+      ).toBeVisible();
+      expect(within(panel()).queryByText(/puede que el resultado ya no esté al día/i)).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
+      expect(server.count(`POST /sessions/${ID}/validate`)).toBe(1);
+    });
+
+    it("si se editó en otra pestaña, revalida el estado actual de la sesión y lo muestra", async () => {
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(9, 1)],
+      });
+      renderPage();
+      await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+        "button",
+        { name: "Revalidar" },
+      );
+      // Otra pestaña guarda una edición: el servidor pasa al estado 2.
+      server.replace(
+        apply(server.current(), {
+          base_seq: 1,
+          op: "SetPitch",
+          anchor: anchorOf(3),
+          before: null,
+          after: { pitch: "E4" },
+        }).next,
+      );
+
+      await userEvent.click(within(panel()).getByRole("button", { name: "Revalidar" }));
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "La sesión cambió en otra pestaña o dispositivo: se revalidó su estado actual, que ya ves. 1 posible error.",
+        );
+      });
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
+      expect(markCount()).toBe(1);
+      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(within(panel()).queryByText(/después se editó/i)).toBeNull();
+      expect(editStatus()).toHaveTextContent("Sesión recargada.");
+    });
+
+    it("si se edita mientras se revalida, lo dice y vuelve a ofrecer revalidar", async () => {
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(9, 1)],
+      });
+      renderPage();
+      const pending = deferred<Response>();
+      server.respondValidate(() => pending.promise);
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Revalidar" },
+        ),
+      );
+      // El servidor valida el estado 1 y, antes de que llegue la respuesta, se guarda otra edición.
+      const validated = server.acceptValidate();
+      await chooseMeasure(2);
+      fireEvent.click(button("Subir un paso"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+      });
+      pending.resolve(validated);
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Se revalidó la partitura tal como estaba tras 1 edición, pero se editó mientras tanto: hay que volver a revalidar.",
+        );
+      });
+      expect(
+        within(panel()).getByText(/tal como estaba tras 1 edición; después se editó/i),
+      ).toBeVisible();
+      expect(within(panel()).getByRole("button", { name: "Revalidar" })).toBeVisible();
+    });
+
+    it("un 409 al descartar porque la sesión se finalizó lo dice y la deja en solo lectura", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      server.replace({ ...server.current(), status: "finalized" });
+
+      await userEvent.click(submit());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No se descartó: la sesión está finalizada y sus posibles errores ya no se pueden cambiar.",
+        );
+      });
+      await waitFor(() => {
+        expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
+      });
+      expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+      expect(markCount()).toBe(1);
+    });
+
+    it("si el posible error ya no está (404), lo dice y vuelve a cargar la lista", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      // Otra pestaña revalidó el mismo estado: sus hallazgos tienen otro id.
+      server.setFindings([finding(4, 2)]);
+
+      await userEvent.click(submit());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No se descartó: ese posible error ya no está en la última validación. Ya ves la lista actual.",
+        );
+      });
+      expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
+      expect(within(panel()).queryByRole("textbox")).toBeNull();
+      expect(dismissTrigger("Duración del compás, compás 2")).toBeVisible();
+    });
+
+    it("sin respuesta al descartar no lo da por descartado y conserva el motivo", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      await userEvent.type(reasonField(), "Igual que el original");
+      server.respondFinding(() => Promise.reject(new TypeError("Failed to fetch")));
+
+      await userEvent.click(submit());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No llegó la confirmación: no se sabe si se descartó. No se pudo conectar con el servidor. Comprueba la conexión. Puedes volver a intentarlo.",
+        );
+      });
+      expect(reasonField()).toHaveValue("Igual que el original");
+      expect(markCount()).toBe(1);
+      expect(submit()).not.toHaveAttribute("aria-disabled", "true");
+    });
+
+    it("un fallo al revalidar lo dice y deja volver a intentarlo", async () => {
+      const server = editableApi(editedDetail(), { findings: [finding(1, 2)] });
+      renderPage();
+      server.respondValidate(() => jsonResponse({ detail: "fallo" }, 500));
+      const revalidate = await within(
+        await screen.findByRole("region", { name: "Posibles errores" }),
+      ).findByRole("button", { name: "Revalidar" });
+
+      await userEvent.click(revalidate);
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No llegó la confirmación: no se sabe si se revalidó. El servidor tuvo un problema. Inténtalo de nuevo en un momento. Puedes volver a intentarlo.",
+        );
+      });
+      expect(revalidate).not.toHaveAttribute("aria-disabled", "true");
+      expect(revalidate).toHaveFocus();
+      expect(markCount()).toBe(1);
+    });
+
+    it("mientras se descarta no se restaura ni se revalida", async () => {
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2), dismissedFinding(2, 3)],
+      });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      const pending = deferred<Response>();
+      server.respondFinding(() => pending.promise);
+      await userEvent.click(submit());
+      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
+
+      const restore = within(panel()).getByRole("button", {
+        name: "Restaurar · Duración del compás, compás 3",
+      });
+      const revalidate = within(panel()).getByRole("button", { name: "Revalidar" });
+      expect(restore).toHaveAttribute("aria-disabled", "true");
+      expect(revalidate).toHaveAttribute("aria-disabled", "true");
+      await userEvent.click(restore);
+      await userEvent.click(revalidate);
+
+      expect(server.findingCalls).toHaveLength(1);
+      expect(server.count(`POST /sessions/${ID}/validate`)).toBe(0);
+      pending.resolve(
+        server.acceptFinding(`POST /sessions/${ID}/findings/1/dismiss`, { reason: null }),
+      );
+      await waitFor(() => {
+        expect(restore).not.toHaveAttribute("aria-disabled", "true");
+      });
+    });
+
+    it("si se sale de la vista con un descarte en curso, al volver la lista ya lo tiene", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2), finding(2, 3)] });
+      const router = renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 3" },
+        ),
+      );
+      const pending = deferred<Response>();
+      server.respondFinding(() => pending.promise);
+      await userEvent.click(submit());
+
+      await act(() => router.navigate("/transcripcion"));
+      pending.resolve(
+        server.acceptFinding(`POST /sessions/${ID}/findings/2/dismiss`, { reason: null }),
+      );
+      await act(() => router.navigate(`/sesiones/${ID}`));
+
+      const region = await screen.findByRole("region", { name: "Posibles errores" });
+      expect(
+        await within(region).findByText(/descartados como falso positivo · 1/i),
+      ).toBeInTheDocument();
+      expect(within(region).queryByRole("button", { name: /^compás 3/i })).toBeNull();
+    });
+
+    it("Ctrl+Z en el motivo es el deshacer del campo, no el de la partitura", async () => {
+      const server = editableApi(editedDetail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+
+      fireEvent.keyDown(reasonField(), ctrlKey("z"));
+
+      expect(server.count(`POST /sessions/${ID}/undo`)).toBe(0);
+      expect(reasonField()).toHaveFocus();
+    });
+
+    it("en solo lectura se ven los posibles errores, pero no se descartan, restauran ni revalidan", async () => {
+      editableApi(editedDetail({ owner_id: LUIS.id }), {
+        findings: [finding(1, 2), dismissedFinding(2, 3, "Así está")],
+      });
+      renderPage(INVESTIGADORA);
+      expect(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByText(
+          /después se editó y todavía no se ha vuelto a validar/i,
+        ),
+      ).toBeVisible();
+      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
+
+      expect(within(panel()).getByText("Motivo: Así está")).toBeVisible();
+      expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: /^restaurar/i })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
+      expect(within(panel()).queryByText(/descartar un posible error no corrige/i)).toBeNull();
+    });
+
+    it("una sesión finalizada tampoco ofrece descartar ni revalidar", async () => {
+      editableApi(editedDetail({ status: "finalized" }), { findings: [finding(1, 2)] });
+      renderPage();
+      expect(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByText(
+          /después se editó/i,
+        ),
+      ).toBeVisible();
+      expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
     });
   });
 });

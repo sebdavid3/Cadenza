@@ -2,9 +2,11 @@ import { queryOptions } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type {
+  DismissFindingRequest,
   EditEventCreate,
   EditEventRead,
   FindingRead,
+  RevalidateResponse,
   SessionDetailRead,
   TimingMapRead,
   UndoRequest,
@@ -67,13 +69,17 @@ export function postUndo(
   });
 }
 
+/** Raíz de las consultas de hallazgos de una sesión, de todos sus estados. */
+export const sessionFindingsKey = (sessionId: string) =>
+  ["session", sessionId, "findings"] as const;
+
 /**
  * Hallazgos de la última validación (`latest_only`), también los descartados para poder
  * contarlos y listarlos aparte (ADR-0021).
  */
 export const sessionFindingsQuery = (api: ApiClient, sessionId: string, seq: number) =>
   queryOptions({
-    queryKey: ["session", sessionId, "findings", seq],
+    queryKey: [...sessionFindingsKey(sessionId), seq],
     queryFn: async ({ signal }) => {
       const findings = await api.request(`${sessionPath(sessionId)}/findings`, {
         query: { latest_only: true, include_dismissed: true },
@@ -83,6 +89,69 @@ export const sessionFindingsQuery = (api: ApiClient, sessionId: string, seq: num
       return findings as FindingRead[];
     },
   });
+
+/**
+ * Estado de la última validación que se sabe hecha en esta pestaña (`current_seq` de
+ * `POST /validate`). No hay endpoint que lo dé: sin hallazgos, la lista no dice de qué estado es
+ * (ADR-0021 §3), así que se guarda al revalidar y la consulta solo lo lee (ADR-0035).
+ */
+export const validatedSeqQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ["session", sessionId, "validated"],
+    queryFn: (): number | null => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+
+const findingPath = (sessionId: string, findingId: number) =>
+  `${sessionPath(sessionId)}/findings/${String(findingId)}` as const;
+
+/**
+ * `POST /sessions/{id}/findings/{finding_id}/dismiss`: descarta un posible error como falso
+ * positivo, con un motivo opcional (#36). No cambia la partitura ni el log de ediciones.
+ */
+export function dismissFinding(
+  api: ApiClient,
+  sessionId: string,
+  findingId: number,
+  body: DismissFindingRequest,
+  signal?: AbortSignal,
+): Promise<FindingRead> {
+  return api.request<FindingRead>(`${findingPath(sessionId, findingId)}/dismiss`, {
+    method: "POST",
+    json: body,
+    signal,
+  });
+}
+
+/** `POST /sessions/{id}/findings/{finding_id}/restore`: vuelve a dar por activo un descartado. */
+export function restoreFinding(
+  api: ApiClient,
+  sessionId: string,
+  findingId: number,
+  signal?: AbortSignal,
+): Promise<FindingRead> {
+  return api.request<FindingRead>(`${findingPath(sessionId, findingId)}/restore`, {
+    method: "POST",
+    signal,
+  });
+}
+
+/**
+ * `POST /sessions/{id}/validate`: revalida el estado actual del servidor (ADR-0013). Responde con
+ * el `current_seq` que validó y solo los hallazgos activos: los descartados que conserva (#36) se
+ * piden aparte, con la lista.
+ */
+export function revalidateSession(
+  api: ApiClient,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<RevalidateResponse> {
+  return api.request<RevalidateResponse>(`${sessionPath(sessionId)}/validate`, {
+    method: "POST",
+    signal,
+  });
+}
 
 /** MusicXML del estado materializado: lo que OSMD dibuja. Cambia con cada edición. */
 export const sessionMusicXmlQuery = (api: ApiClient, sessionId: string, seq: number) =>
