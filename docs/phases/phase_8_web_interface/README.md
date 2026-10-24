@@ -47,7 +47,7 @@ móvil: un navegador sin interfaz no la oye.
 | | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo | #183, #187 | D38 |
 | | [#189](https://github.com/sebdavid3/Cadenza/issues/189) | Descargar el MIDI | — | — |
 | **Cuenta** | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña | — | — |
-| **Deuda** | [#191](https://github.com/sebdavid3/Cadenza/issues/191) | Excluir del dataset las sesiones de cuentas autorregistradas | conviene antes de #187 | D55 |
+| **Deuda** | ~~[#191](https://github.com/sebdavid3/Cadenza/issues/191)~~ | **Hecho:** excluir del dataset las sesiones de cuentas autorregistradas | conviene antes de #187 | D55 (resuelta) |
 | | [#192](https://github.com/sebdavid3/Cadenza/issues/192) | La imagen de la API sin ejecutarse como root | — | D57 |
 | | ~~[#193](https://github.com/sebdavid3/Cadenza/issues/193)~~ | **Hecho:** longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 (resuelta) |
 | | [#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto: **alcance por decidir** | decisión del responsable | D59 |

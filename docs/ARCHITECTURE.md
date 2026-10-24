@@ -669,7 +669,7 @@ TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos
 
 | Comando | Función |
 |---|---|
-| `build-dataset` | Lee sesiones y `EditEvent` de la base de datos y produce muestras de entrenamiento con su `dataset_hash`. |
+| `build-dataset` | Lee sesiones y `EditEvent` de la base de datos y produce muestras de entrenamiento con su `dataset_hash`. Deja fuera las sesiones de cuentas del registro público (ADR-0022), salvo con `--include-self-registered` ([#191](https://github.com/sebdavid3/Cadenza/issues/191)). |
 | `select` | Aplica una `AcquisitionStrategy` con un presupuesto. |
 | `train` | Ajusta el modelo con una configuración versionada y exporta ONNX al `ArtifactStore`. |
 | `evaluate` | Calcula SER y OMR-NED contra el corpus de evaluación. |
@@ -891,7 +891,7 @@ dependencias y el criterio de cierre, en
 | Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Las siete operaciones de `EditOp` sobre la nota elegida, deshacer y rehacer, y gestión de hallazgos desde la interfaz. El mapa `Anchor → caja` por evento y la selección ya existen ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D55, D57 y D59 (esta última, con el alcance por decidir); D58 resuelta en [#193](https://github.com/sebdavid3/Cadenza/issues/193) |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D57 y D59 (esta última, con el alcance por decidir); D58 y D55 resueltas en [#193](https://github.com/sebdavid3/Cadenza/issues/193) y [#191](https://github.com/sebdavid3/Cadenza/issues/191) |
 
 El estudio de esfuerzo con participantes (D38) va después de la Fase 8. #102 y #103 siguen
 con el alcance por decidir.
