@@ -189,17 +189,39 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     expect(events[3]?.box.left).toBe(110);
   });
 
-  it("toma la duración nula o cero como una negra, que es como la escribe music21", () => {
+  it("empareja la nota de duración nula o cero con su nota de adorno (D60)", () => {
+    // OSMD da a la nota de adorno la duración de su figura (aquí, negra), pero no ocupa tiempo.
+    const grace = { grace: true };
     const events = complete(
       buildNoteMap(
         score([[note("F#4", "0"), note("Gb4", null), note("C5", "2")]]),
         drawing([
-          [[figure(["F#4"], [1, 1], 10), figure(["Gb4"], [1, 1], 30), figure(["C5"], [2, 1], 50)]],
+          [
+            [
+              figure(["F#4"], [1, 1], 10, grace),
+              figure(["Gb4"], [1, 1], 30, grace),
+              figure(["C5"], [2, 1], 50),
+            ],
+          ],
         ]),
       ),
     );
 
-    expect(events.map((selectable) => selectable.event.pitch)).toEqual(["F#4", "Gb4", "C5"]);
+    expect(events.map((selectable) => [selectable.event.pitch, selectable.box.left])).toEqual([
+      ["F#4", 10],
+      ["Gb4", 30],
+      ["C5", 50],
+    ]);
+  });
+
+  it("un silencio de duración cero sigue contando como un silencio de negra", () => {
+    const events = complete(
+      buildNoteMap(
+        score([[rest("0"), note("C5", "2")]]),
+        drawing([[[figure("rest", [1, 1], 10), figure(["C5"], [2, 1], 30)]]]),
+      ),
+    );
+    expect(events.map((selectable) => selectable.onset)).toEqual([0, 1]);
   });
 
   it("empareja tresillos y ligaduras sin tratarlos aparte", () => {
@@ -301,15 +323,14 @@ describe("lo que sale del dibujo", () => {
     expect(events.map((selectable) => selectable.chord)).toEqual([true, true, false]);
   });
 
-  it("sitúa cada evento donde está dibujado, aunque su duración sea cero", () => {
-    // El exportador dibuja la duración cero como una negra y la nota siguiente detrás.
+  it("una nota de adorno no ocupa tiempo: la siguiente empieza en su mismo instante", () => {
     const events = complete(
       buildNoteMap(
         score([[note("C4", "0"), note("D4"), note("E4")]]),
-        drawing([[[figure(["C4"]), figure(["D4"]), figure(["E4"])]]]),
+        drawing([[[figure(["C4"], [1, 1], 0, { grace: true }), figure(["D4"]), figure(["E4"])]]]),
       ),
     );
-    expect(events.map((selectable) => selectable.onset)).toEqual([0, 1, 2]);
+    expect(events.map((selectable) => selectable.onset)).toEqual([0, 0, 1]);
   });
 
   it("una nota marcada como de acorde tras un silencio es una figura aparte", () => {
@@ -342,7 +363,7 @@ describe("lo que no se empareja no se ofrece", () => {
     ["una figura de menos", () => [[[figure(["C4"])]], ok()[1]]],
     ["otro número de voces", () => [[[figure(["C4"]), figure(["D4"])], [figure("rest")]], ok()[1]]],
     [
-      "una nota de adorno",
+      "una nota de adorno donde la nota tiene duración",
       () => [[[figure(["C4"], [1, 1], 0, { grace: true }), figure(["D4"])]], ok()[1]],
     ],
     ["un acorde con otras notas", () => [[[figure(["C4", "E4"]), figure(["D4"])]], ok()[1]]],
@@ -356,6 +377,14 @@ describe("lo que no se empareja no se ofrece", () => {
   ])("con %s en el compás 1, dice cuántos eventos no se pueden elegir", (_name, staves) => {
     const map = buildNoteMap(base, drawing(staves() as DrawnVoice[][]));
     expect(map).toEqual({ status: "incomplete", total: 3, unmatched: 2 });
+  });
+
+  it("una nota de duración cero dibujada como negra, como antes de D60, no se empareja", () => {
+    const map = buildNoteMap(
+      score([[note("G#4", "0"), note("A4", "3")]]),
+      drawing([[[figure(["G#4"], [1, 1]), figure(["A4"], [3, 1])]]]),
+    );
+    expect(map).toEqual({ status: "incomplete", total: 2, unmatched: 2 });
   });
 
   it("distingue las enarmonías: un Sol bemol no es un Fa sostenido", () => {

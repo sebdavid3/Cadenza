@@ -54,17 +54,28 @@ function add([a, b]: Fraction, [c, d]: Fraction): Fraction {
 const compare = ([a, b]: Fraction, [c, d]: Fraction) => a * d - c * b;
 
 /**
- * Duración con la que el exportador escribe un evento, en negras. music21 ignora una duración
- * cero y escribe una negra, igual que con una duración nula; null si no se entiende.
+ * Duración de un evento en negras, como fracción: cero si es nula; null si no se entiende.
  */
-function exportedBeats(value: string | null): Fraction | null {
-  if (value === null) return [1, 1];
+function beatsOf(value: string | null): Fraction | null {
+  if (value === null) return [0, 1];
   const match = /^\s*(\d+)(?:\s*\/\s*(\d+))?\s*$/.exec(value);
   if (!match) return null;
   const numerator = Number(match[1]);
   const denominator = match[2] === undefined ? 1 : Number(match[2]);
-  if (denominator === 0) return null;
-  return numerator === 0 ? [1, 1] : [numerator, denominator];
+  return denominator === 0 ? null : [numerator, denominator];
+}
+
+/**
+ * Cómo dibuja el exportador un grupo, según su duración: una nota (o un acorde) sin duración
+ * es una nota de adorno, que no ocupa tiempo (D60, #199); un silencio sin duración no tiene
+ * versión de adorno y sale como silencio de negra.
+ */
+function drawnLength(group: Group): { grace: true } | { grace: false; beats: Fraction } | null {
+  const first = group.members[0];
+  const beats = first ? beatsOf(first.event.duration_beats) : null;
+  if (!beats) return null;
+  if (beats[0] > 0) return { grace: false, beats };
+  return group.rest ? { grace: false, beats: [1, 1] } : { grace: true };
 }
 
 interface Indexed {
@@ -167,19 +178,26 @@ function matchMeasure(
     let cursor = 0;
     let start: Fraction = [0, 1];
     for (const group of groups) {
-      const first = group.members[0];
-      const wanted = first ? exportedBeats(first.event.duration_beats) : null;
-      if (!wanted) return null;
+      const length = drawnLength(group);
+      if (!length) return null;
       const used: DrawnFigure[] = [];
-      let sum: Fraction = [0, 1];
-      while (compare(sum, wanted) < 0) {
+      if (length.grace) {
+        // Una nota de adorno es una sola figura, sin tiempo: no cuenta la duración de su figura.
         const figure = figures[cursor];
-        if (!figure || figure.grace) return null;
-        sum = add(sum, figure.beats);
+        if (!figure?.grace) return null;
         used.push(figure);
         cursor += 1;
+      } else {
+        let sum: Fraction = [0, 1];
+        while (compare(sum, length.beats) < 0) {
+          const figure = figures[cursor];
+          if (!figure || figure.grace) return null;
+          sum = add(sum, figure.beats);
+          used.push(figure);
+          cursor += 1;
+        }
+        if (compare(sum, length.beats) !== 0) return null;
       }
-      if (compare(sum, wanted) !== 0) return null;
 
       const perMember: Box[][] = group.members.map(() => []);
       for (const figure of used) {
@@ -203,7 +221,7 @@ function matchMeasure(
           onset: start[0] / start[1],
         });
       });
-      start = add(start, wanted);
+      if (!length.grace) start = add(start, length.beats);
     }
     if (cursor !== figures.length) return null;
   }
