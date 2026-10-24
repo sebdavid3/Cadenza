@@ -40,6 +40,15 @@ afterEach(() => {
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/** Espera a que React pinte algo sin act; falla con un mensaje claro si no llega. */
+async function until(ready: () => boolean, what: string) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (ready()) return;
+    await tick();
+  }
+  throw new Error(`No llegó a pintarse: ${what}`);
+}
+
 describe("DownloadButton", () => {
   it("no descarga lo que llega al salir de la vista, antes de que React limpie sus efectos", async () => {
     const names: string[] = [];
@@ -51,35 +60,39 @@ describe("DownloadButton", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    const retry = deferred<string | undefined>();
-    root.render(
-      <DownloadButton
-        sessionId={ID}
-        xml={undefined}
-        status="error"
-        onRetry={() => retry.promise}
-      />,
-    );
-    while (!host.querySelector("button")) await tick();
-
-    host.querySelector("button")?.click();
-    // Se sale con una navegación (una transición, como React Router) y la respuesta llega justo
-    // cuando React ya quitó el botón de la página pero aún no ha limpiado sus efectos pasivos.
-    startTransition(() => {
+    try {
+      const retry = deferred<string | undefined>();
       root.render(
-        <Next
-          onCommit={() => {
-            retry.resolve("<score-partwise/>");
-          }}
+        <DownloadButton
+          sessionId={ID}
+          xml={undefined}
+          status="error"
+          onRetry={() => retry.promise}
         />,
       );
-    });
-    while (!host.textContent.includes("Otra vista")) await tick();
-    await tick();
+      await until(() => host.querySelector("button") !== null, "el botón");
 
-    expect(host.querySelector("button")).toBeNull();
-    expect(names).toEqual([]);
-    root.unmount();
-    host.remove();
+      host.querySelector("button")?.click();
+      // Se sale con una navegación (una transición, como React Router) y la respuesta llega
+      // justo cuando React ya quitó el botón de la página pero aún no ha limpiado sus efectos
+      // pasivos.
+      startTransition(() => {
+        root.render(
+          <Next
+            onCommit={() => {
+              retry.resolve("<score-partwise/>");
+            }}
+          />,
+        );
+      });
+      await until(() => host.textContent.includes("Otra vista"), "la otra vista");
+      await tick();
+
+      expect(host.querySelector("button")).toBeNull();
+      expect(names).toEqual([]);
+    } finally {
+      root.unmount();
+      host.remove();
+    }
   });
 });
