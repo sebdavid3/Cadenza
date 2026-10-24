@@ -678,6 +678,15 @@ def create_app(
             "y emite un token de acceso Bearer JWT (#40)."
         ),
         responses={
+            # No es AUTH_401: aquí el 401 no es un token caducado, y el cliente no debe tratarlo
+            # como el fin de una sesión (#143).
+            status.HTTP_401_UNAUTHORIZED: {
+                "model": ErrorDetail,
+                "description": (
+                    "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una "
+                    "contraseña incorrecta y una cuenta desactivada responden igual"
+                ),
+            },
             status.HTTP_429_TOO_MANY_REQUESTS: {
                 "model": ErrorDetail,
                 "description": "Límite de intentos de autenticación superado",

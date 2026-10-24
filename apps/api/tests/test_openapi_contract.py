@@ -190,6 +190,26 @@ def test_core_domain_schemas_are_strictly_typed() -> None:
     assert session_props["edits"]["items"]["$ref"] == "#/components/schemas/EditEventRead"
 
 
+def test_login_declares_its_own_401() -> None:
+    """POST /auth/login declara su 401 con ErrorDetail y una descripción propia (#143).
+
+    Ese 401 son unas credenciales inválidas o una cuenta desactivada, no un token caducado: la
+    descripción genérica de las rutas protegidas no sirve.
+    """
+    app = create_default_app(Settings(auth_secret_key="test-secret-at-least-32-chars-long!"))
+    responses = app.openapi()["paths"]["/auth/login"]["post"]["responses"]
+
+    assert "401" in responses, "POST /auth/login debe documentar respuesta 401"
+    unauthorized = responses["401"]
+    assert unauthorized["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ErrorDetail"
+    }
+    description = unauthorized["description"].lower()
+    assert "credenciales inválidas" in description
+    assert "desactivada" in description
+    assert "token" not in description
+
+
 def test_protected_endpoints_have_error_responses() -> None:
     """Verifica que los endpoints protegidos documentan respuestas 401 y 403."""
     with open(OPENAPI_JSON_PATH, encoding="utf-8") as f:
