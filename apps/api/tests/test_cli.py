@@ -71,6 +71,8 @@ def test_create_investigator_still_accepts_the_password_argument(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = _database(tmp_path, monkeypatch)
+    # Hexadecimal y no `token_urlsafe`: una contraseña que empieza por «-» (una de cada 64 de
+    # `token_urlsafe`) argparse la toma por otra opción y la prueba fallaba al azar (#223).
     monkeypatch.setattr(
         sys,
         "argv",
@@ -80,7 +82,7 @@ def test_create_investigator_still_accepts_the_password_argument(
             "--username",
             "admin",
             "--password",
-            secrets.token_urlsafe(12),
+            secrets.token_hex(12),
         ],
     )
 
