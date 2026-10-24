@@ -799,24 +799,35 @@ def _musicxml_numbers(spans: Sequence[tuple[int, int]]) -> list[int]:
 def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
     """Ligaduras de expresión completas de la parte (ADR-0031): un extremo huérfano no se dibuja."""
 
-    starts: dict[int, tuple[Any, int]] = {}
-    stops: dict[int, tuple[Any, int]] = {}
-    for staff, built in zip(part.staves, built_staves, strict=True):
+    # Cada extremo con su elemento, su compás y su lugar en el orden en que music21 escribe el
+    # compás de la parte: pentagrama a pentagrama y, en cada uno, voz a voz.
+    starts: dict[int, tuple[Any, int, tuple[int, ...]]] = {}
+    stops: dict[int, tuple[Any, int, tuple[int, ...]]] = {}
+    for staff_index, (staff, built) in enumerate(zip(part.staves, built_staves, strict=True)):
         for measure_index, (measure, (_built_measure, owners)) in enumerate(
             zip(staff.measures, built, strict=True)
         ):
+            voices = sorted({event.voice for event in measure.events})
+            seen: dict[int, int] = {}
             for event, owner in zip(measure.events, owners, strict=True):
+                position = seen.get(event.voice, 0)
+                seen[event.voice] = position + 1
+                written = (measure_index, staff_index, voices.index(event.voice), position)
                 for slur in event.slurs:
                     ends = starts if slur.type is SlurType.START else stops
-                    ends.setdefault(slur.number, (owner, measure_index))
-    pairs = [
-        (first, stops[number])
-        for number, first in starts.items()
-        if number in stops and stops[number][0] is not first[0]
-    ]
+                    ends.setdefault(slur.number, (owner, measure_index, written))
+    pairs = []
+    for number, first in starts.items():
+        last = stops.get(number)
+        if last is None or last[0] is first[0]:
+            continue
+        # Si el inicio se escribiría detrás del fin (de un pentagrama o una voz posterior a otra
+        # anterior del mismo compás), al leerlo se emparejaría con el fin de otra ligadura: se
+        # intercambian sus papeles, y la ligadura une las mismas notas.
+        pairs.append((first, last) if first[2] <= last[2] else (last, first))
     numbers = _musicxml_numbers([(first[1], last[1]) for first, last in pairs])
-    for ((first, _), (last, _)), number in zip(pairs, numbers, strict=True):
-        slur = spanner.Slur(first, last)
+    for (first, last), number in zip(pairs, numbers, strict=True):
+        slur = spanner.Slur(first[0], last[0])
         slur.idLocal = number
         out.insert(0, slur)
 

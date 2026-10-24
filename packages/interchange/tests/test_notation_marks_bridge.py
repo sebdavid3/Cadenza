@@ -388,6 +388,77 @@ def test_overlapping_slurs_and_wedges_get_distinct_musicxml_numbers() -> None:
     assert len(_span_ends(again)[1]) == 9
 
 
+def test_slurs_whose_start_is_written_after_their_end_are_reversed() -> None:
+    """Una ligadura de la mano izquierda a la derecha, o de la segunda voz a la primera, en el
+    mismo compás: music21 escribe antes el pentagrama superior y la primera voz, así que su fin
+    quedaba delante de su inicio y, al leerlo, el inicio se emparejaba con el fin de otra."""
+
+    def right(number: int, *slurs: tuple[int, SlurType, int]) -> Measure:
+        marks = {(event, kind): n for event, kind, n in slurs}
+
+        def ends(event: int) -> tuple[Slur, ...]:
+            return tuple(Slur(kind, n) for (e, kind), n in marks.items() if e == event)
+
+        return Measure(
+            number=number,
+            time_signature=TimeSignature(2, 4),
+            events=(
+                _note("C5", slurs=ends(0)),
+                _note("D5", slurs=ends(1)),
+                _note("E4", "2", voice=1, slurs=ends(2)),
+            ),
+        )
+
+    def left(number: int, *slurs: Slur) -> Measure:
+        return Measure(
+            number=number,
+            time_signature=TimeSignature(2, 4),
+            events=(_note("C3", "2", slurs=slurs),),
+        )
+
+    score = ScoreIR(
+        parts=(
+            Part(
+                id="part-0",
+                staves=(
+                    Staff(
+                        id="part-0-staff-0",
+                        measures=(
+                            # 1: de la mano izquierda (Do3) al Re5 de la derecha.
+                            right(1, (1, SlurType.STOP, 1)),
+                            # 2: de la segunda voz (Mi4) al Re5 de la primera.
+                            right(2, (2, SlurType.START, 2), (1, SlurType.STOP, 2)),
+                            # 3 y 4: ligaduras normales que reutilizarían los números.
+                            right(3, (0, SlurType.START, 3), (1, SlurType.STOP, 3)),
+                            right(4, (0, SlurType.START, 4), (1, SlurType.STOP, 4)),
+                        ),
+                    ),
+                    Staff(
+                        id="part-0-staff-1",
+                        measures=(
+                            left(1, Slur(SlurType.START, 1)),
+                            left(2),
+                            left(3, Slur(SlurType.START, 5)),
+                            left(4, Slur(SlurType.STOP, 5)),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    )
+    xml_text = score_ir_to_musicxml(score)
+    root = ET.fromstring(xml_text.encode("utf-8"))
+    assert _unambiguous(root, "slur")
+    again = musicxml_to_score_ir(xml_text)
+    # Une las mismas notas, aunque el inicio y el fin hayan cambiado de papel.
+    assert _unordered(_span_ends(again)[0]) == _unordered(_span_ends(score)[0])
+    assert len(_span_ends(again)[0]) == 5
+
+
+def _unordered(pairs: list[tuple[Any, Any]]) -> list[tuple[Any, Any]]:
+    return sorted(tuple(sorted(pair)) for pair in pairs)
+
+
 def _span_ends(score: ScoreIR) -> tuple[list[tuple[Any, Any]], list[tuple[Any, Any]]]:
     """Pares (inicio, fin) de ligaduras y de reguladores por su posición, sin su número."""
 
