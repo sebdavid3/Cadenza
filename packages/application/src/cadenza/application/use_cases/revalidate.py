@@ -85,7 +85,8 @@ def revalidate(
     2. Materializa el ScoreIR con el log existente y construye el AnchorIndex enriquecido.
     3. Construye un ScoreDocument representativo y ejecuta ValidationEngine.
     4. Asigna at_seq igual al último seq aplicado a cada hallazgo.
-    5. Preserva el estado descartado previo si el evento señalado no fue modificado (#36).
+    5. Preserva el estado descartado de la validación vigente si el evento señalado no fue
+       modificado (#36, ADR-0035).
     6. Persiste los hallazgos vigentes con replace_findings (conservando los históricos).
     """
 
@@ -141,8 +142,14 @@ def revalidate(
     evaluated_findings: list[Finding] = validator.validate(current_doc)
     findings_with_seq = [replace(f, at_seq=current_seq) for f in evaluated_findings]
 
-    # 4. Determinar preservación de falsos positivos previamente descartados (#36)
-    dismissed_findings = session_repository.list_dismissed_findings(session_id)
+    # 4. Determinar preservación de falsos positivos previamente descartados (#36). Solo
+    # cuentan los de la validación vigente: los de validaciones anteriores son historia
+    # (ADR-0013 §3), y heredarlos desharía una restauración posterior (ADR-0035).
+    dismissed_findings = tuple(
+        d
+        for d in session_repository.list_dismissed_findings(session_id)
+        if d.at_seq == session_data.validated_at_seq
+    )
     dismissed_statuses: list[PersistedFinding | None] = []
 
     for f in findings_with_seq:
