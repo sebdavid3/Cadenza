@@ -13,11 +13,14 @@ export interface SelectableEvent {
   slot: MeasureSlot;
   /**
    * Cuándo empieza dentro del compás dibujado, en negras: sirve para pasar de una voz a otra. Es
-   * el instante del dibujo, que con una duración cero no es el del mapa de tiempos.
+   * el instante del dibujo: un silencio de duración cero ocupa una negra, que el mapa de tiempos
+   * no cuenta, y una nota de adorno empieza con la nota que la sigue.
    */
   onset: number;
   /** Si es una nota de un acorde, también la que lo empieza. */
   chord: boolean;
+  /** Si es una nota de adorno: una nota sin duración, que no ocupa tiempo (ADR-0028). */
+  grace: boolean;
   /** Caja de cada figura que lo dibuja: más de una si el exportador partió su duración. */
   boxes: Box[];
   /** Caja que abarca todas sus figuras. */
@@ -54,17 +57,28 @@ function add([a, b]: Fraction, [c, d]: Fraction): Fraction {
 const compare = ([a, b]: Fraction, [c, d]: Fraction) => a * d - c * b;
 
 /**
- * Duración con la que el exportador escribe un evento, en negras. music21 ignora una duración
- * cero y escribe una negra, igual que con una duración nula; null si no se entiende.
+ * Duración de un evento en negras, como fracción: cero si es nula; null si no se entiende.
  */
-function exportedBeats(value: string | null): Fraction | null {
-  if (value === null) return [1, 1];
+function beatsOf(value: string | null): Fraction | null {
+  if (value === null) return [0, 1];
   const match = /^\s*(\d+)(?:\s*\/\s*(\d+))?\s*$/.exec(value);
   if (!match) return null;
   const numerator = Number(match[1]);
   const denominator = match[2] === undefined ? 1 : Number(match[2]);
-  if (denominator === 0) return null;
-  return numerator === 0 ? [1, 1] : [numerator, denominator];
+  return denominator === 0 ? null : [numerator, denominator];
+}
+
+/**
+ * Cómo dibuja el exportador un grupo, según su duración: una nota (o un acorde) sin duración
+ * es una nota de adorno, que no ocupa tiempo (D60, #199); un silencio sin duración no tiene
+ * versión de adorno y sale como silencio de negra.
+ */
+function drawnLength(group: Group): { grace: true } | { grace: false; beats: Fraction } | null {
+  const first = group.members[0];
+  const beats = first ? beatsOf(first.event.duration_beats) : null;
+  if (!beats) return null;
+  if (beats[0] > 0) return { grace: false, beats };
+  return group.rest ? { grace: false, beats: [1, 1] } : { grace: true };
 }
 
 interface Indexed {
@@ -136,13 +150,15 @@ function pairNotes(members: Indexed[], figure: DrawnFigure): number[] | null {
 interface Matched {
   boxes: Box[];
   chord: boolean;
+  grace: boolean;
   onset: number;
 }
 
 /**
  * Empareja los eventos de un compás con sus figuras dibujadas: voz con voz por orden y, dentro
- * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración, que han de
- * ser de su misma clase y alturas. Devuelve, por posición en el compás, las cajas de cada evento,
+ * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración (una nota sin
+ * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Devuelve,
+ * por posición en el compás, las cajas de cada evento,
  * si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
@@ -167,19 +183,26 @@ function matchMeasure(
     let cursor = 0;
     let start: Fraction = [0, 1];
     for (const group of groups) {
-      const first = group.members[0];
-      const wanted = first ? exportedBeats(first.event.duration_beats) : null;
-      if (!wanted) return null;
+      const length = drawnLength(group);
+      if (!length) return null;
       const used: DrawnFigure[] = [];
-      let sum: Fraction = [0, 1];
-      while (compare(sum, wanted) < 0) {
+      if (length.grace) {
+        // Una nota de adorno es una sola figura, sin tiempo: no cuenta la duración de su figura.
         const figure = figures[cursor];
-        if (!figure || figure.grace) return null;
-        sum = add(sum, figure.beats);
+        if (!figure?.grace) return null;
         used.push(figure);
         cursor += 1;
+      } else {
+        let sum: Fraction = [0, 1];
+        while (compare(sum, length.beats) < 0) {
+          const figure = figures[cursor];
+          if (!figure || figure.grace) return null;
+          sum = add(sum, figure.beats);
+          used.push(figure);
+          cursor += 1;
+        }
+        if (compare(sum, length.beats) !== 0) return null;
       }
-      if (compare(sum, wanted) !== 0) return null;
 
       const perMember: Box[][] = group.members.map(() => []);
       for (const figure of used) {
@@ -200,10 +223,11 @@ function matchMeasure(
         matched.set(member.index, {
           boxes: perMember[position] ?? [],
           chord: group.members.length > 1,
+          grace: length.grace,
           onset: start[0] / start[1],
         });
       });
-      start = add(start, wanted);
+      if (!length.grace) start = add(start, length.beats);
     }
     if (cursor !== figures.length) return null;
   }
@@ -258,9 +282,10 @@ export function buildNoteMap(
             bbox: event.bbox,
             confidence: event.confidence,
           };
-          const { boxes, chord, onset } = matched.get(index) ?? {
+          const { boxes, chord, grace, onset } = matched.get(index) ?? {
             boxes: [],
             chord: false,
+            grace: false,
             onset: 0,
           };
           found.push({
@@ -270,6 +295,7 @@ export function buildNoteMap(
             slot,
             onset,
             chord,
+            grace,
             boxes,
             box: union(boxes),
           });
@@ -376,7 +402,8 @@ export function moveSelection(
       let distance = Infinity;
       for (const candidate of target) {
         const offset = Math.abs(candidate.onset - current.onset);
-        if (offset < distance) {
+        // Una nota de adorno empieza con la nota que adorna: en el empate gana la nota.
+        if (offset < distance || (offset === distance && best.grace && !candidate.grace)) {
           distance = offset;
           best = candidate;
         }

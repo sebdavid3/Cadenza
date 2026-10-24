@@ -87,20 +87,32 @@ function noteElement(note: GraphicalNote): SVGGElement | null {
 }
 
 /**
+ * Cabezas propias del elemento de una nota: no las de sus modificadores. VexFlow anida en ellos
+ * las notas de adorno que la preceden, y sus puntillos.
+ */
+function ownHeads(element: SVGGElement): Element[] {
+  return [...element.querySelectorAll(".vf-notehead")].filter(
+    (head) => head.closest(".vf-stavenote") === element,
+  );
+}
+
+/**
  * Altura y caja de una nota dibujada. La caja es la de su cabeza en el SVG: en un acorde, la
  * cabeza más cercana a la altura en que OSMD sitúa la nota, que es el centro de su cabeza. En un
- * silencio, la del glifo entero, porque OSMD no da su extensión.
+ * silencio, la de su glifo, que VexFlow dibuja también como cabeza; sin ella, el elemento entero.
  */
 function drawnNote(note: GraphicalNote, origin: DOMRect, unit: number): DrawnNote {
   const source = note.sourceNote;
   const element = noteElement(note);
+  const heads = element ? ownHeads(element) : [];
   if (source.isRest()) {
-    return { midi: null, step: null, box: element ? relativeBox(element, origin) : null };
+    const glyph = heads[0] ?? element;
+    return { midi: null, step: null, box: glyph ? relativeBox(glyph, origin) : null };
   }
   const centre = note.PositionAndShape.AbsolutePosition.y * unit;
   let box: Box | null = null;
   let distance = Infinity;
-  for (const head of element?.querySelectorAll(".vf-notehead") ?? []) {
+  for (const head of heads) {
     const candidate = relativeBox(head, origin);
     const offset = Math.abs(candidate.top + candidate.height / 2 - centre);
     if (offset < distance) {

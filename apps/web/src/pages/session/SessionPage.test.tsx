@@ -34,10 +34,19 @@ const osmd = vi.hoisted(() => ({
   loaded: [] as string[],
   /**
    * Figuras de cada compás: altura (null, silencio), duración en redondas como OSMD, las otras
-   * notas si es un acorde y el número de voz de OSMD (1 si no se dice).
+   * notas si es un acorde, el número de voz de OSMD (1 si no se dice), la nota de adorno que la
+   * precede y si el silencio lleva puntillo.
    */
   figures: null as
-    { pitch: string | null; whole: [number, number]; chord?: string[]; voice?: number }[][] | null,
+    | {
+        pitch: string | null;
+        whole: [number, number];
+        chord?: string[];
+        voice?: number;
+        grace?: string;
+        dot?: boolean;
+      }[][]
+    | null,
 }));
 vi.mock("opensheetmusicdisplay", () => {
   const STEPS: Record<string, number> = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -55,19 +64,21 @@ vi.mock("opensheetmusicdisplay", () => {
     whole: [number, number];
     chord?: string[];
     voice?: number;
+    /** Nota de adorno que la precede: VexFlow la anida en los modificadores de esta figura. */
+    grace?: string;
+    /** Silencio con puntillo: su elemento es más ancho que su glifo. */
+    dot?: boolean;
   }
-  function figure(svg: Element, drawn: Drawn, x: number, zoom: number) {
-    const unit = 10 * zoom;
-    const group = svgBox(
-      svg,
-      "vf-stavenote",
+  /** Una entrada de voz de OSMD con su elemento SVG, dentro de `parent`. */
+  function voiceEntry(parent: Element, drawn: Drawn, x: number, unit: number, grace: boolean) {
+    const box = (left: number, top: number, width: number, height: number) =>
       DOMRect.fromRect({
-        x: (x - 0.6) * unit,
-        y: 6.5 * unit,
-        width: 1.2 * unit,
-        height: 3.5 * unit,
-      }),
-    );
+        x: left * unit,
+        y: top * unit,
+        width: width * unit,
+        height: height * unit,
+      });
+    const group = svgBox(parent, "vf-stavenote", box(x - 0.6, 6.5, drawn.dot ? 2.5 : 1.2, 3.5));
     const pitches = drawn.pitch === null ? [null] : [drawn.pitch, ...(drawn.chord ?? [])];
     const notes = pitches.map((pitch, position) => {
       const match = pitch === null ? null : /^([A-G])(#?)(\d)$/.exec(pitch);
@@ -75,18 +86,12 @@ vi.mock("opensheetmusicdisplay", () => {
         ? 12 * (Number(match[3]) + 1) + (STEPS[match[1] ?? "C"] ?? 0) + (match[2] ?? "").length
         : 0;
       const y = 7 - position;
-      if (match) {
-        svgBox(
-          group,
-          "vf-notehead",
-          DOMRect.fromRect({
-            x: (x - 0.6) * unit,
-            y: (y - 0.5) * unit,
-            width: 1.2 * unit,
-            height: 1.05 * unit,
-          }),
-        );
-      }
+      // VexFlow dibuja también el glifo de un silencio como cabeza.
+      svgBox(
+        group,
+        "vf-notehead",
+        match ? box(x - 0.6, y - 0.5, 1.2, 1.05) : box(x - 0.6, 6.5, 1.2, 3),
+      );
       return {
         sourceNote: {
           isRest: () => pitch === null,
@@ -99,8 +104,29 @@ vi.mock("opensheetmusicdisplay", () => {
         getSVGGElement: () => group,
       };
     });
-    const voice = { ParentVoice: { VoiceId: drawn.voice ?? 1 }, IsGrace: false };
-    return { graphicalVoiceEntries: [{ parentVoiceEntry: voice, notes }] };
+    const entry = {
+      parentVoiceEntry: { ParentVoice: { VoiceId: drawn.voice ?? 1 }, IsGrace: grace },
+      notes,
+    };
+    return { group, entry };
+  }
+  function figure(svg: Element, drawn: Drawn, x: number, zoom: number) {
+    const unit = 10 * zoom;
+    const main = voiceEntry(svg, drawn, x, unit, false);
+    if (!drawn.grace) return { graphicalVoiceEntries: [main.entry] };
+    // La nota de adorno va antes en la columna y, en el SVG, dentro de la nota que adorna. Sus
+    // modificadores van aquí delante de la cabeza propia, al revés que en VexFlow: así la prueba
+    // depende de que solo cuenten las cabezas propias de cada nota.
+    const modifiers = svgBox(main.group, "vf-modifiers", DOMRect.fromRect());
+    main.group.prepend(modifiers);
+    const grace = voiceEntry(
+      modifiers,
+      { pitch: drawn.grace, whole: [1, 4], voice: drawn.voice },
+      x - 1.5,
+      unit,
+      true,
+    );
+    return { graphicalVoiceEntries: [grace.entry, main.entry] };
   }
   return {
     OpenSheetMusicDisplay: class {
@@ -1478,6 +1504,68 @@ describe("elegir una nota sobre la partitura", () => {
     // ⌘ con → salta de compás, como Ctrl.
     fireEvent.keyDown(region, { key: "ArrowRight", metaKey: true });
     expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+  });
+
+  it("elige por separado la nota de adorno y la nota a la que adorna (D60)", async () => {
+    osmd.figures = [[{ pitch: "A4", whole: [3, 4], grace: "G#4" }]];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "G#4", duration_beats: "0" },
+          { pitch: "A4", duration_beats: "3" },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Sol#4 · sin duración")).toBeVisible();
+    // La nota de adorno, 1,5 unidades a la izquierda: (15 − 1,5 − 0,6) unidades × 7,5 px.
+    expect(selection()?.style.left).toBe("96.75px");
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("La4 · blanca con puntillo")).toBeVisible();
+    // Solo su cabeza, sin la de la nota de adorno que lleva dentro.
+    expect(selection()?.style.left).toBe("108px");
+    expect(selection()?.style.width).toBe("9px");
+  });
+
+  it("ante un silencio, la nota de adorno y el silencio tienen cada uno su caja", async () => {
+    osmd.figures = [[{ pitch: null, whole: [3, 4], grace: "G4" }]];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "G4", duration_beats: "0" },
+          { kind: "rest", pitch: null, duration_beats: "3" },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    const region = await findScore();
+
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Sol4 · sin duración")).toBeVisible();
+    expect(selection()?.style.left).toBe("96.75px");
+    fireEvent.keyDown(region, { key: "ArrowRight" });
+    expect(screen.getByText("Silencio de blanca con puntillo")).toBeVisible();
+    // El glifo del silencio, no la cabeza de la nota de adorno que lleva dentro.
+    expect(selection()?.style.left).toBe("108px");
+  });
+
+  it("marca el glifo del silencio, sin su puntillo", async () => {
+    osmd.figures = [[{ pitch: null, whole: [3, 4], dot: true }]];
+    api({
+      detail: detail({
+        current_score: firstMeasure([{ kind: "rest", pitch: null, duration_beats: "3" }])
+          .current_score,
+      }),
+    });
+    renderPage();
+
+    fireEvent.keyDown(await findScore(), { key: "ArrowRight" });
+
+    expect(screen.getByText("Silencio de blanca con puntillo")).toBeVisible();
+    expect(selection()?.style.width).toBe("9px");
   });
 
   it("la leyenda nombra las teclas de compás de cada sistema", async () => {

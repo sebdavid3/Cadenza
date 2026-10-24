@@ -14,7 +14,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
   - §6: Casos de uso, puertos y endpoints.
   - §7: Modelo de datos y esquemas relacionales.
   - §10: Estado real frente al objetivo.
-- **`docs/adr/ADR-0001` a `ADR-0027`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
+- **`docs/adr/ADR-0001` a `ADR-0028`:** Decisiones arquitectónicas aceptadas. **Si un issue y un ADR se contradicen, prevalece el ADR.**
 - **`docs/api/frontend-handoff.md` y `docs/api/openapi.json`:** Contrato congelado de la API v1 y guía de integración para el frontend.
 - **`docs/infra/operacion_backend.md`:** Procedimientos de despliegue, monitoreo (`/health`), logs estructurados, copias de seguridad y ejecución en GPU.
 - **`docs/CONVENTIONS.md`:** Convenciones de Git, calidad y Definition of Done.
