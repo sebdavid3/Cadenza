@@ -163,7 +163,7 @@ sudo tailscale funnel --https=443 off
 sudo tailscale funnel --bg 8380
 ```
 
-- La primera actualización a una versión con #192 necesita además, una sola vez, la migración del volumen de artefactos (sección anterior).
+- La primera actualización a una versión con #192 necesita además, una sola vez, la migración del volumen de artefactos (sección anterior). En el homelab se hizo el 2026-10-23 ([#203](https://github.com/sebdavid3/Cadenza/issues/203)): ninguna entrada quedó con otro dueño y la API arrancó `healthy` como `cadenza`.
 - Para restaurar una copia, ver la §4.2.
 - `down -v` borra los volúmenes con la base de datos y los artefactos: no se usa.
 - Una prueba desechable de esta configuración en el mismo servidor necesita otra subred, porque dos redes con `10.77.0.0/24` no pueden coexistir.
