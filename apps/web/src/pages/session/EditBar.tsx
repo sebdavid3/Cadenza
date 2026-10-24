@@ -293,6 +293,9 @@ function KeyPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
     origin,
     fifths: current,
   });
+  // Lo propuesto vale para un compás y su armadura: al pasar a otro (o al guardarla) se olvida,
+  // también si después se vuelve al mismo compás.
+  if (draft.origin !== origin) setDraft({ origin, fifths: current });
   const fifths = draft.origin === origin ? draft.fifths : current;
   const command: EditCommand = { kind: "key", fifths };
   const plan = planCommand(command, target, score);

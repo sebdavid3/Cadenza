@@ -4,6 +4,7 @@ import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type { AnchorPayload, SessionDetailRead } from "../../types";
 import {
+  carryAnchor,
   planCommand,
   replan,
   type EditCommand,
@@ -147,6 +148,8 @@ export function useEditor(
   // Último estado que se sabe que tiene el servidor: hasta que la vista lo muestre no se edita.
   const [knownSeq, setKnownSeq] = useState<number | null>(null);
   const inFlight = useRef(false);
+  // Una edición guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
+  const pendingPlacement = useRef<{ request: EditRequest; seq: number } | null>(null);
   const nonce = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(
@@ -255,6 +258,7 @@ export function useEditor(
         place(request, saved);
       }).catch(() => null);
       if (cancelled()) return;
+      if (!fresh) pendingPlacement.current = { request, seq: saved };
       setStatus(fresh ? { kind: "saved", request } : { kind: "unsynced", request });
     } finally {
       inFlight.current = false;
@@ -266,7 +270,12 @@ export function useEditor(
     if (!controller) return;
     setStatus({ kind: "reloading" });
     try {
-      const fresh = await refresh(controller.signal).catch(() => null);
+      // Si se guardó una edición sin poder mostrar su estado, la recarga deja elegido lo que ella dejaba.
+      const fresh = await refresh(controller.signal, () => {
+        const pending = pendingPlacement.current;
+        pendingPlacement.current = null;
+        if (pending) place(pending.request, pending.seq);
+      }).catch(() => null);
       if (controller.signal.aborted) return;
       setStatus({ kind: fresh ? "reloaded" : "reload-failed" });
     } finally {
@@ -303,7 +312,13 @@ export function useEditor(
 
   function reapply() {
     if (blocked || retry?.plan.kind !== "edit" || !retry.anchor) return;
-    void send(requestOf(retry.plan, retry.anchor, seq));
+    // El evento elegido, llevado al estado recargado: en un acorde no es el ancla de la inserción,
+    // y es el que tiene que seguir elegido para que la edición deje elegido el evento nuevo.
+    const chosen =
+      status.kind === "conflict" && detail
+        ? carryAnchor(status.request.target, status.request.baseSeq, detail)
+        : null;
+    void send(requestOf(retry.plan, chosen ?? retry.anchor, seq));
   }
 
   return { status, refusal, blocked, run, reload, retry, reapply };

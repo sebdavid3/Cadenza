@@ -858,6 +858,13 @@ describe("cambiar la armadura del compás elegido", () => {
     expect(plan.kind === "edit" && plan.after).not.toHaveProperty("mode");
   });
 
+  it("solo conserva el modo mayor o menor, los que admite el servidor (ADR-0017)", () => {
+    const state = staffScore([{ events: [note("C4")], fifths: 1, mode: "dorian" }]);
+    const plan = planKey(2, place(1), state);
+    expect(plan).toMatchObject({ kind: "edit", after: { fifths: 2 } });
+    expect(plan.kind === "edit" && plan.after).not.toHaveProperty("mode");
+  });
+
   it("si se elige la que trae del compás anterior, quita el cambio de armadura", () => {
     const state = staffScore([
       { events: [note("C4")], fifths: 1 },

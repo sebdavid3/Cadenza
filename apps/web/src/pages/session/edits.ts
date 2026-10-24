@@ -877,7 +877,7 @@ export function planClef(
 }
 
 /**
- * Cambiar la armadura del compás elegido (ADR-0033), con el modo de la que rige si lo tiene. Si
+ * Cambiar la armadura del compás elegido (ADR-0033), con el modo de la que rige si es mayor o menor. Si
  * es la que trae de los compases anteriores (sin ninguna, «sin alteraciones»), se quita el cambio
  * del compás (`{"key_signature": null}`). Las notas conservan su altura.
  */
@@ -893,7 +893,8 @@ export function planKey(
   const active: KeySignaturePayload | null = found.own ?? found.inherited;
   if ((active?.fifths ?? 0) === fifths) return refuse("same", "El compás ya tiene esa armadura.");
   const back = found.own !== null && (found.inherited?.fifths ?? 0) === fifths;
-  const mode = active?.mode;
+  // Solo los modos que admite el servidor (ADR-0017); otro (un dórico de music21) se omite.
+  const mode = active?.mode === "major" || active?.mode === "minor" ? active.mode : null;
   return {
     kind: "edit",
     op: "SetKey",

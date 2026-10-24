@@ -355,6 +355,13 @@ export function ScoreView({
     stage.focus({ preventScroll: true });
   };
 
+  // Lo que deja elegido una inserción o un borrado (ADR-0033) se trae a la vista, como un
+  // movimiento con el teclado: un borrado puede dejar elegida una nota de otro sistema. Si ya se
+  // ve, no se mueve nada (`nearest`).
+  const placedBy = ours?.placedBy;
+  useEffect(() => {
+    if (placedBy !== undefined) revealRef.current = true;
+  }, [placedBy]);
   useEffect(() => {
     if (!chosen || !revealRef.current) return;
     revealRef.current = false;

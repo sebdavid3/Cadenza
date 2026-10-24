@@ -2515,7 +2515,12 @@ describe("corregir la nota elegida", () => {
         },
       ]);
       expect(editStatus()).toHaveTextContent("Guardando…");
-      expect(osmd.figures?.[1]).toHaveLength(1);
+      // Sin el 201 la vista no da nada por insertado: el mismo dibujo, el mismo estado.
+      const figures = () => document.querySelectorAll(".notation__host .vf-stavenote").length;
+      expect(figures()).toBe(3);
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 0 });
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("0");
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
       // Otra orden mientras tanto no sale.
       fireEvent.click(button("Borrar"));
       expect(server.bodies).toHaveLength(1);
@@ -2537,7 +2542,8 @@ describe("corregir la nota elegida", () => {
       await waitFor(() => {
         expect(selection()).not.toBeNull();
       });
-      expect(osmd.figures?.[1]).toHaveLength(2);
+      expect(figures()).toBe(4);
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
       // La primera figura del compás 2 empieza en x = 35 unidades; la segunda, en 40.
       expect(Number.parseFloat(selection()?.style.left ?? "")).toBeLessThan(37 * 7.5);
     });
@@ -2794,6 +2800,24 @@ describe("corregir la nota elegida", () => {
       expect(document.activeElement).toBe(button("Cambiar armadura"));
     });
 
+    it("lo propuesto en el desplegable se olvida al pasar a otro compás, también al volver", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+      const picker = () => within(editor()).getByRole("combobox", { name: /^Armadura · comp/ });
+      fireEvent.change(picker(), { target: { value: "3" } });
+      expect(picker()).toHaveValue("3");
+
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      expect(screen.getByText("Compás 3 · Voz 1")).toBeVisible();
+      expect(picker()).toHaveValue("0");
+      fireEvent.keyDown(region, { key: "ArrowLeft" });
+      expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
+      expect(picker()).toHaveValue("0");
+      expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "true");
+      expect(server.bodies).toHaveLength(0);
+    });
+
     it("sin nota elegida, insertar, borrar, la clave y la armadura esperan", async () => {
       const server = editableApi();
       renderPage();
@@ -2855,6 +2879,100 @@ describe("corregir la nota elegida", () => {
         seq: 2,
         anchor: { measure: 2, event_index: 0 },
       });
+    });
+
+    it("tras un 409, volver a aplicar una inserción ante una nota de acorde elige el evento nuevo", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+      expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
+      server.respond(() => {
+        // Otra pestaña cambió el compás 3: el acorde no se mueve.
+        server.replace(
+          apply(server.current(), {
+            base_seq: 0,
+            op: "SetPitch",
+            anchor: anchorOf(3),
+            before: null,
+            after: { pitch: "E4" },
+          }).next,
+        );
+        return jsonResponse({ detail: "conflicto" }, 409);
+      });
+
+      fireEvent.click(button("Insertar un silencio antes"));
+      fireEvent.click(await within(editor()).findByRole("button", { name: "Volver a aplicar" }));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: inserción de un silencio de blanca con puntillo.",
+        );
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "InsertEvent",
+        anchor: { measure: 2, event_index: 0 },
+      });
+      // Queda elegido el silencio nuevo, aunque la nota elegida no fuera la que empieza el acorde.
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 2,
+        anchor: { measure: 2, event_index: 0 },
+        placedBy: 2,
+      });
+    });
+
+    it("si el estado nuevo no se carga, al recargar queda elegido el evento que dejó la edición", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      await chooseMeasure(2);
+      server.respond((body) => {
+        const response = server.accept(body);
+        server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
+        return response;
+      });
+
+      fireEvent.click(button("Borrar"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Se guardó el cambio (borrado de Do 4, negra con puntillo, compás 2, voz 1), pero no se pudo cargar la partitura nueva.",
+        );
+      });
+
+      server.detailRoute(null);
+      fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Sesión recargada.");
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: anchorOf(2),
+        placedBy: 1,
+      });
+      expect(screen.getByText("Re4 · negra con puntillo")).toBeVisible();
+    });
+
+    it("si un borrado lleva la selección a otro compás, la trae a la vista", async () => {
+      editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      scrollIntoView.mockClear();
+
+      fireEvent.click(button("Borrar"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, blanca con puntillo.");
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({ anchor: anchorOf(3) });
+      await waitFor(() => {
+        const revealed = scrollIntoView.mock.contexts as Element[];
+        expect(revealed.some((element) => element.classList.contains("notation__selection"))).toBe(
+          true,
+        );
+      });
+      expect(scrollIntoView).toHaveBeenCalledWith(expect.objectContaining({ block: "nearest" }));
     });
 
     it("un 409 de la clave dice el compás, no la voz", async () => {
