@@ -22,7 +22,7 @@ Medido el 2026-10-23 en el servidor del despliegue, con una imagen de prueba sin
 
 1. **Usuario propio con UID y GID fijos.** La etapa final de la imagen crea el usuario `cadenza` (UID y GID 10001, sin shell, HOME en `/home/cadenza`) y arranca con `USER cadenza`.
    - El código sigue siendo de root y solo se lee.
-   - `/app/data/artifacts` es de `cadenza`. Un volumen nuevo hereda ese dueño al montarse por primera vez.
+   - `/app/data/artifacts` es de `cadenza`. Un volumen nuevo hereda ese dueño si lo monta primero la API; si lo crea antes otro contenedor, como el de copias, es de root.
    - El número es fijo para poder nombrarlo en la migración.
 2. **Bytecode compilado en el build.** `python -m compileall` compila `/app/apps` y `/app/packages`, que el usuario de la API no puede escribir.
 3. **Sin arranque como root.** No hay un entrypoint que corrija permisos y después cambie de usuario: necesitaría las capacidades `CHOWN`, `SETUID` y `SETGID`, que el despliegue quita (`cap_drop: ALL`).
@@ -32,10 +32,15 @@ Medido el 2026-10-23 en el servidor del despliegue, con una imagen de prueba sin
    docker run --rm --user 0 --entrypoint chown -v cadenza-prod_artifacts_data:/app/data/artifacts cadenza-api:prod -R 10001:10001 /app/data/artifacts
    ```
 
-   El procedimiento está en `docs/infra/operacion_backend.md` §2.2.
-5. **`/health` comprueba que la API puede escribir sus artefactos.** Si no hay almacén inyectado, comprueba `artifacts_dir`, la carpeta de producción. Sin permiso de escritura responde 503 con `artifact_store: "error"` y deja en el registro la carpeta afectada. El healthcheck de Compose marca entonces la API como `unhealthy`. El contrato de `/health` no cambia: los mismos campos y valores.
-6. **La restauración da los artefactos al dueño de su carpeta.** Si corre como root, `restore` pasa todo lo que hay bajo la carpeta de artefactos al dueño de esa carpeta. Sin ser root no hace nada: lo restaurado ya es de quien restaura.
-7. **La CI transcribe un íncipit dentro de la imagen.** Usa las restricciones del despliegue y el sistema de archivos de solo lectura salvo `/tmp` y el HOME del usuario. El íncipit es propio del proyecto (`apps/api/tests/fixtures/incipit.musicxml`), dibujado con Verovio como PrIMuS. Su imagen se versiona porque el corpus no está en el repositorio. Si HOMR necesitara escribir en otro sitio, la CI fallaría.
+   El procedimiento, con sus comprobaciones (que la imagen sea la nueva y que el volumen exista), está en `docs/infra/operacion_backend.md` §2.2. Puede hacerse también con la API ya arrancada: sin permiso no escribe nada, y `/health` se recupera sin reiniciarla.
+5. **`/health` comprueba que la API puede escribir sus artefactos.** Si no hay almacén inyectado, comprueba `artifacts_dir`, la carpeta de producción, y su carpeta `sha256`. Las de prefijo, debajo, no se recorren en cada sondeo: las cubren la migración (`chown -R`) y la restauración. Sin permiso de escritura responde 503 con `artifact_store: "error"` y deja en el registro la carpeta afectada. El healthcheck de Compose marca entonces la API como `unhealthy`. El contrato de `/health` no cambia: los mismos campos y valores.
+6. **La restauración da lo restaurado al usuario de la API.** Si corre como root, `restore` da los artefactos que copia, sus carpetas y la carpeta de artefactos a `--owner` (`CADENZA_ARTIFACTS_OWNER`, `10001:10001` en el servicio `backup`). Sin él, se los da al dueño de la carpeta, que es root si fue la restauración quien creó el volumen. No toca nada más. Sin ser root no hace nada: lo restaurado ya es de quien restaura. Antes de tocar la base, rechaza la copia si algún destino sale de la carpeta de artefactos por un enlace simbólico: con la API sin root, un enlace plantado en el volumen podría llevar a la restauración, que corre como root, a escribir fuera.
+7. **La CI transcribe un íncipit dentro de la imagen.**
+   - Usa las restricciones del despliegue.
+   - El sistema de archivos es de solo lectura salvo `/tmp`, el HOME del usuario (suyo, como en la imagen) y un volumen nuevo de artefactos, en el que comprueba que puede escribir.
+   - El íncipit es propio del proyecto (`apps/api/tests/fixtures/incipit.musicxml`), dibujado con Verovio como PrIMuS. Su imagen se versiona porque el corpus no está en el repositorio.
+   - Si HOMR no pudiera escribir lo que necesita, como sus pesos, la CI fallaría. Las escrituras que HOMR tolera no la hacen fallar: ONNX Runtime se conforma con un identificador en memoria si no puede guardar el suyo.
+   - Compara las 14 alturas para saber que transcribió de verdad. Si cambian HOMR o sus pesos, puede que haya que actualizarlas.
 
 ## Consecuencias
 
@@ -47,9 +52,11 @@ Medido el 2026-10-23 en el servidor del despliegue, con una imagen de prueba sin
   - El paso de la CI transcribe las 14 alturas del íncipit.
   - Un volumen de root sin migrar da `/health` 503 («la API no puede escribir en /app/data/artifacts»), y tras la migración, 200.
   - Una restauración como root deja los artefactos y sus carpetas con UID 10001, y la API escribe en ellas.
+  - La revisión del cambio encontró tres casos que esto no cubría. `/health` no veía unas carpetas de prefijo de root. Una restauración sobre un volumen creado por ella misma lo dejaba de root. Y en la CI el HOME era de root, con ONNX Runtime sin poder guardar su identificador. Por eso, `/health` mira también `sha256`, el servicio de copias nombra al dueño (`CADENZA_ARTIFACTS_OWNER`) y la CI monta el HOME como del usuario.
 
 ### Negativas / Riesgos
 - **Migración manual.** Actualizar un despliegue existente exige la migración del volumen una vez. Sin ella, la API arranca `unhealthy` y no transcribe.
+- **Carpetas de prefijo.** `/health` no ve una carpeta de prefijo de root (`sha256/ab`) si `sha256` sí admite escritura. Puede pasar si se restaura con una imagen de copias anterior a #192: el procedimiento de §2.2 reconstruye también esa imagen.
 - **UID fijo.** Si otra imagen escribe en el mismo volumen con otro usuario, hay que alinearlo. Es el caso del plano offline (`Dockerfile.ml-cuda`, perfil `batch` del compose de desarrollo), que hoy no se construye (D53).
 - **Copias de root.** Las copias que escribe el servicio `backup` en el host siguen siendo de root. No cambia: ese contenedor sigue corriendo como root para leer y restaurar.
 - **Imagen de producción.** El íncipit de la CI y su script viajan en ella, porque el builder copia `apps/api` entero. Son unos 14 KB.
@@ -58,4 +65,4 @@ Medido el 2026-10-23 en el servidor del despliegue, con una imagen de prueba sin
 
 1. **Entrypoint como root que hace `chown` y baja a `cadenza` con `gosu` o `setpriv`.** Descartada: devuelve al contenedor capacidades que el despliegue quita.
 2. **UID asignado por `useradd` sin fijar.** Descartada: el número podría cambiar entre versiones de la imagen base, y la migración no sabría a quién dar el volumen.
-3. **Montar el volumen con otro dueño desde Compose.** Descartada: los volúmenes locales de Docker no tienen esa opción, y `user:` en Compose sin usuario en la imagen no tendría HOME para ONNX Runtime.
+3. **Montar el volumen con otro dueño desde Compose.** Descartada: los volúmenes locales de Docker no tienen esa opción. `user:` en Compose, sin usuario en la imagen, dejaría además el UID fuera de la imagen, sin HOME propio ni dueño para `/app/data/artifacts`.

@@ -106,24 +106,35 @@ docker compose -f docker-compose.prod.yml exec api python -m cadenza.api.cli cre
 
 #### Usuario de la API y volúmenes anteriores ([#192](https://github.com/sebdavid3/Cadenza/issues/192), [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md))
 
-La API corre con el usuario `cadenza` (UID y GID 10001), dueño de `/app/data/artifacts`; un volumen nuevo hereda ese dueño. Un volumen creado con una imagen anterior a #192 es de root: la API lo lee, pero no escribe en él, y `/health` responde 503 con `artifact_store: "error"` y deja en el registro «la API no puede escribir en /app/data/artifacts». Se migra una sola vez, con la imagen nueva construida y antes de arrancarla:
+La API corre con el usuario `cadenza` (UID y GID 10001), dueño de `/app/data/artifacts`; un volumen nuevo hereda ese dueño si lo monta primero la API. Un volumen creado con una imagen anterior a #192 es de root: la API lo lee, pero no escribe en él, y `/health` responde 503 con `artifact_store: "error"` y deja en el registro «la API no puede escribir en /app/data/artifacts». Se migra una sola vez, con la imagen nueva construida y antes de arrancarla:
 
 ```bash
 DC="docker compose -f docker-compose.prod.yml --env-file .env"
-$DC build api
+
+# Copia, código nuevo e imágenes nuevas, también la de copias
+$DC --profile backup run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
+git pull --ff-only
+$DC build api web
+$DC --profile backup build backup
+docker run --rm --entrypoint id cadenza-api:prod -u   # ha de dar 10001: la imagen es la nueva
+
+# Migración: con la API parada, el volumen pasa al usuario de la API
 $DC stop api
-docker run --rm --user 0 --entrypoint chown -v cadenza-prod_artifacts_data:/app/data/artifacts cadenza-api:prod -R 10001:10001 /app/data/artifacts
+docker volume inspect cadenza-prod_artifacts_data >/dev/null \
+  && docker run --rm --user 0 --entrypoint chown -v cadenza-prod_artifacts_data:/app/data/artifacts cadenza-api:prod -R 10001:10001 /app/data/artifacts
 $DC up -d
 ```
 
-- El volumen se llama `<proyecto>_artifacts_data`; con el compose de producción, `cadenza-prod_artifacts_data` (`docker volume ls`).
-- El contenedor de la migración es desechable y corre como root, sin las restricciones del servicio: `chown` necesita la capacidad `CHOWN`, que el servicio no tiene.
-- Las restauraciones (§4.2) dan los artefactos al dueño de su carpeta: después de restaurar no hace falta repetirla.
+- **Nombre del volumen.** Es `<proyecto>_artifacts_data`: con el compose de producción, `cadenza-prod_artifacts_data`, y con el de desarrollo, `cadenza_artifacts_data` (`docker volume ls`). `docker volume inspect` evita que un nombre mal escrito cree un volumen nuevo y la migración parezca hecha.
+- **Contenedor de la migración.** Es desechable y corre como root, sin las restricciones del servicio: `chown` necesita la capacidad `CHOWN`, que el servicio no tiene.
+- **Orden.** Si la API ya arrancó con la imagen nueva (por ejemplo, con `up -d --build`), la migración se puede hacer igual después: sin permiso, la API no escribe nada, y `/health` se recupera sin reiniciarla.
+- **Restauraciones.** La de §4.2 da lo restaurado al usuario de la API (`CADENZA_ARTIFACTS_OWNER`), también si crea ella el volumen: después de restaurar no hace falta repetir la migración. Con una imagen de copias anterior a #192 sí haría falta, y `/health` no lo vería: solo mira la carpeta de artefactos y `sha256`, no las de prefijo.
 
 Comprobado el 2026-10-23 en el servidor del despliegue, con una imagen de prueba, volúmenes y contenedores desechables que se retiraron después, y las restricciones del despliegue (`cap_drop: ALL`, `no-new-privileges`):
 - HOMR transcribe sin root un incipit de PrIMuS (22 notas) y el íncipit de la CI (sus 14 alturas). Solo escribe en `/tmp` y en `~/.cache` (el identificador de dispositivo de ONNX Runtime); los pesos de la imagen no se tocan.
 - Con un volumen de root sin migrar, la API lee los artefactos y no puede escribir (`Permission denied`); `/health`, 503. Tras la migración, escribe y crea carpetas, y `/health` da 200.
 - Una copia restaurada como root en un volumen de la API deja los artefactos y sus carpetas con UID 10001, y la API escribe en ellas.
+- Tras la revisión, en un volumen que crea la propia restauración, con `CADENZA_ARTIFACTS_OWNER=10001:10001`: la carpeta de artefactos, las de prefijo y el artefacto quedan con UID 10001.
 
 #### Despliegue en el homelab ([#157](https://github.com/sebdavid3/Cadenza/issues/157), 2026-10-23)
 
@@ -212,7 +223,7 @@ curl -i http://localhost:8000/health
 }
 ```
 
-En caso de fallo en la base de datos o en el almacenamiento de artefactos, el endpoint responde con **HTTP 503 Service Unavailable** y `"status": "unhealthy"`. El almacenamiento falla también si la API no puede escribir en su carpeta, como un volumen de root sin migrar (§2.2, [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)). Antes de #192, en producción no se comprobaba esa carpeta: el almacén no se inyecta y `/health` solo miraba el inyectado.
+En caso de fallo en la base de datos o en el almacenamiento de artefactos, el endpoint responde con **HTTP 503 Service Unavailable** y `"status": "unhealthy"`. El almacenamiento falla también si la API no puede escribir en su carpeta o en su `sha256`, como un volumen de root sin migrar (§2.2, [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)). Antes de #192, en producción no se comprobaba esa carpeta: el almacén no se inyecta y `/health` solo miraba el inyectado.
 
 ### 3.2 Trazabilidad con `X-Request-ID` y Logs Estructurados
 
@@ -258,7 +269,7 @@ uv run --no-sync python scripts/backup_restore.py restore --archive backup-2026-
 
 ### 4.2 En el despliegue público (`docker-compose.prod.yml`)
 
-El servicio `backup` (perfil `backup`, `Dockerfile.backup`) lleva el `pg_dump` 16 de la imagen de PostgreSQL. Monta el volumen de artefactos y el directorio de copias del host, `${CADENZA_BACKUP_DIR:-./backups}`, en `/backups`. Solo se ejecuta a petición. Las copias contienen todos los datos: el directorio debe tener permisos 700 y no salir del servidor sin cifrar. El contenedor corre como root, así que las copias pertenecen a root. Al restaurar, da los artefactos al dueño de su carpeta, el usuario de la API: así la API puede seguir escribiendo en las carpetas que crea la restauración (ADR-0029).
+El servicio `backup` (perfil `backup`, `Dockerfile.backup`) lleva el `pg_dump` 16 de la imagen de PostgreSQL. Monta el volumen de artefactos y el directorio de copias del host, `${CADENZA_BACKUP_DIR:-./backups}`, en `/backups`. Solo se ejecuta a petición. Las copias contienen todos los datos: el directorio debe tener permisos 700 y no salir del servidor sin cifrar. El contenedor corre como root, así que las copias pertenecen a root. Al restaurar, da los artefactos que copia, sus carpetas y la carpeta de artefactos al usuario de la API (`CADENZA_ARTIFACTS_OWNER`, `10001:10001`): así la API puede seguir escribiendo en las carpetas que crea la restauración, también si la restauración crea el volumen. Antes de tocar la base, rechaza la copia si algún destino sale de la carpeta de artefactos por un enlace simbólico (ADR-0029).
 
 ```bash
 cd /opt/docker/cadenza
