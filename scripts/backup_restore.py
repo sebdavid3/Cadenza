@@ -332,6 +332,25 @@ def restore_backup(
                     dst_p.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(full_p, dst_p)
 
+    _give_artifacts_to_their_owner(artifacts_dir)
+
+
+def _give_artifacts_to_their_owner(artifacts_dir: Path) -> None:
+    """Da todo lo que hay en la carpeta de artefactos al dueño de esa carpeta (D57, #192).
+
+    En el despliegue se restaura como root y la API corre con su propio usuario: sin esto, las
+    carpetas que crea la restauración serían de root y la API no podría guardar nada en ellas.
+    Sin ser root, lo restaurado ya es de quien restaura, y no se puede dar a otro.
+    """
+    geteuid = getattr(os, "geteuid", None)
+    chown = getattr(os, "chown", None)
+    if geteuid is None or chown is None or geteuid() != 0:
+        return
+    owner = artifacts_dir.stat()
+    for root, dirs, files in os.walk(artifacts_dir):
+        for name in (*dirs, *files):
+            chown(Path(root) / name, owner.st_uid, owner.st_gid, follow_symlinks=False)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
