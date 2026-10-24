@@ -14,7 +14,7 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any, Final
 
-from cadenza.application.ports import EditEventRepository, SessionRepository
+from cadenza.application.ports import EditEventRepository, SessionRepository, UserRepository
 from cadenza.domain import (
     Anchor,
     EditEvent,
@@ -359,15 +359,19 @@ class DatasetBuilder:
         session_repository: SessionRepository,
         edit_event_repository: EditEventRepository,
         *,
+        user_repository: UserRepository | None,
         status: str = "finalized",
         owner_id: str | None = None,
+        include_self_registered: bool = False,
     ) -> tuple[TrainingSample, ...]:
         """Conveniencia para invocar RepositoryDatasetReader sobre este builder."""
         return RepositoryDatasetReader(self).read_dataset(
             session_repository=session_repository,
             edit_event_repository=edit_event_repository,
+            user_repository=user_repository,
             status=status,
             owner_id=owner_id,
+            include_self_registered=include_self_registered,
         )
 
 
@@ -375,8 +379,8 @@ class RepositoryDatasetReader:
     """Lector que construye un dataset a partir de sesiones y eventos persistidos (D16, ADR-0008).
 
     Recorre las sesiones finalizadas y sus eventos de edición a través de los
-    puertos abstractos `SessionRepository` y `EditEventRepository`, sin acoplarse
-    al ORM ni a la base de datos subyacente.
+    puertos abstractos `SessionRepository`, `EditEventRepository` y `UserRepository`,
+    sin acoplarse al ORM ni a la base de datos subyacente.
     """
 
     def __init__(self, dataset_builder: DatasetBuilder | None = None) -> None:
@@ -387,14 +391,42 @@ class RepositoryDatasetReader:
         session_repository: SessionRepository,
         edit_event_repository: EditEventRepository,
         *,
+        user_repository: UserRepository | None,
         status: str = "finalized",
         owner_id: str | None = None,
+        include_self_registered: bool = False,
     ) -> tuple[TrainingSample, ...]:
+        """Muestras de las sesiones con `status`, opcionalmente de un solo propietario.
+
+        Solo entran las sesiones de las cuentas del estudio: las que existen y no vienen del
+        registro público (`self_registered`, ADR-0022), el mismo criterio que la exportación del
+        estudio de esfuerzo. Con `include_self_registered` entran todas (D55, #191). Para saber
+        cuáles son hace falta `user_repository`; sin él, solo se admite incluirlas todas, para
+        no adivinar. Pedir las de un propietario que no es del estudio, sin incluirlas todas, es
+        un error y no un dataset vacío.
+        """
+        study_accounts: set[str] | None = None
+        if not include_self_registered:
+            if user_repository is None:
+                raise ValueError(
+                    "Hace falta el repositorio de usuarios para dejar fuera las cuentas del "
+                    "registro público, o pedir include_self_registered=True"
+                )
+            study_accounts = {
+                user.id for user in user_repository.list() if not user.self_registered
+            }
+            if owner_id is not None and owner_id not in study_accounts:
+                raise ValueError(
+                    f"La cuenta {owner_id!r} no es del estudio: no existe o viene del registro "
+                    "público. Para incluirla, pida include_self_registered=True"
+                )
         sessions = session_repository.list(owner_id=owner_id, status=status)
         all_samples: list[TrainingSample] = []
 
         for s in sessions:
             if s.status != status:
+                continue
+            if study_accounts is not None and s.owner_id not in study_accounts:
                 continue
             document = ScoreDocument.from_primitive(s.document)
             persisted_findings = session_repository.list_findings(

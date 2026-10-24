@@ -47,6 +47,7 @@ from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyModelRegistry,
     SqlAlchemySessionRepository,
+    SqlAlchemyUserRepository,
     create_engine_for_url,
     create_schema,
     create_session_factory,
@@ -99,22 +100,31 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     create_schema(engine)
     factory = create_session_factory(engine)
 
+    # Las cuentas del registro público quedan fuera salvo que se pida (ADR-0022, D55).
+    include_self_registered: bool = args.include_self_registered
     with session_scope(factory) as db:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         reader = RepositoryDatasetReader()
 
-        samples = reader.read_dataset(
-            session_repository=session_repo,
-            edit_event_repository=edit_repo,
-            status=args.status,
-            owner_id=args.owner_id,
-        )
+        try:
+            samples = reader.read_dataset(
+                session_repository=session_repo,
+                edit_event_repository=edit_repo,
+                user_repository=SqlAlchemyUserRepository(db),
+                status=args.status,
+                owner_id=args.owner_id,
+                include_self_registered=include_self_registered,
+            )
+        except ValueError as err:
+            print(f"Error: {err}", file=sys.stderr)
+            return 1
 
     serialized = serialize_dataset(samples)
     serialized["config_hash"] = cfg_hash
     serialized["seed"] = seed
     serialized["status_filter"] = args.status
+    serialized["self_registered_included"] = include_self_registered
     serialized["created_at"] = datetime.datetime.now(datetime.UTC).isoformat()
 
     output_path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
@@ -171,6 +181,9 @@ def select_command(args: argparse.Namespace) -> int:
         "budget": budget,
         "seed": seed,
         "config_hash": config.config_hash if config else raw_input.get("config_hash", "none"),
+        # Si el dataset de origen incluía las cuentas del registro público (D55); None si no
+        # lo dice, como los de antes de #191.
+        "self_registered_included": raw_input.get("self_registered_included"),
         "count": len(selected_samples),
         "selected_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "samples": [s.to_primitive() for s in sorted(selected_samples, key=TrainingSample.key)],
@@ -565,6 +578,7 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         status=args.status,
         owner_id=args.owner_id,
+        include_self_registered=args.include_self_registered,
     )
     rc = build_dataset_command(b_args)
     if rc != 0:
@@ -666,6 +680,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", default="finalized", help="Filtrar por estado de sesión (default: finalized)."
     )
     p_build.add_argument("--owner-id", default=None, help="Filtrar por propietario (opcional).")
+    p_build.add_argument(
+        "--include-self-registered",
+        action="store_true",
+        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
+    )
 
     # 2. select
     p_select = subparsers.add_parser(
@@ -817,6 +836,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--status", default="finalized", help="Filtrar sesiones por estado.")
     p_run.add_argument("--owner-id", default=None, help="Filtrar sesiones por propietario.")
+    p_run.add_argument(
+        "--include-self-registered",
+        action="store_true",
+        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
+    )
     p_run.add_argument("--strategy", default=None, help="Estrategia de adquisición.")
     p_run.add_argument("--budget", type=int, default=None, help="Presupuesto de adquisición.")
     p_run.add_argument("--seed", type=int, default=None, help="Semilla.")

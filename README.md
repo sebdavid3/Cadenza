@@ -102,7 +102,7 @@ detalle, las dependencias y el criterio de cierre están en
 | Corrección sobre la partitura | [#183](https://github.com/sebdavid3/Cadenza/issues/183)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Corregir altura, duración y alteración de la nota elegida, insertar y borrar, clave y armadura, deshacer y rehacer, y gestionar los posibles errores (seleccionar una nota ya está hecho: [#182](https://github.com/sebdavid3/Cadenza/issues/182), D11 resuelta) |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Dataset sin cuentas del registro (D55), API sin root (D57) y límites del registro abierto (D59, alcance por decidir). La longitud mínima de la clave de firma (D58) ya está hecha |
+| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | API sin root (D57) y límites del registro abierto (D59, alcance por decidir). Ya están hechas la longitud mínima de la clave de firma (D58) y el dataset sin las cuentas del registro (D55) |
 | Después de la fase 8 | — | Estudio de esfuerzo con participantes (D38) |
 
 ---
@@ -414,6 +414,10 @@ con una CLI:
 uv run --no-sync python -m ml --help
 # build-dataset · select · train · evaluate · promote · run · export-effort
 ```
+
+`build-dataset` y `run` dejan fuera las sesiones de cuentas del registro público, que no
+forman parte del estudio; `--include-self-registered` las incluye
+([#191](https://github.com/sebdavid3/Cadenza/issues/191)).
 
 Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments). Escriben en
 `results/` y leen los corpus de `data/`; las dos carpetas no se versionan.
