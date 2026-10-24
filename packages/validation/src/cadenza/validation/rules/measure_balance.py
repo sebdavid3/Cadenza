@@ -6,9 +6,10 @@ con su métrica. La duración esperada la aporta el propio valor de dominio
 lectura** y ancla el hallazgo al primer evento del compás problemático.
 
 Con varias voces en el compás de un pentagrama, cada voz se comprueba aparte, y una
-voz puede salir antes del final del compás si otra lo completa (ADR-0032): MusicXML
-no obliga a rellenarla. Un silencio invisible (el hueco de una voz que entra a mitad
-del compás) cuenta como cualquier silencio.
+voz puede salir antes del final del compás si otra que se ve lo completa (ADR-0032):
+MusicXML no obliga a rellenarla. Un silencio invisible (el hueco de una voz que entra
+a mitad del compás) cuenta como cualquier silencio, pero una voz hecha solo de
+silencios invisibles no completa el compás.
 """
 
 from __future__ import annotations
@@ -122,8 +123,12 @@ class MeasureBalanceRule(ValidationRule):
             voice: _voice_durations_sum(voice_events)
             for voice, voice_events in sorted(events_by_voice.items())
         }
-        # Con varias voces, la que sale antes del final no es un error si otra completa el compás.
-        completed = len(sums) > 1 and expected in sums.values()
+        # Con varias voces, la que sale antes del final no es un error si otra que se ve completa
+        # el compás: una voz hecha solo de silencios invisibles no lo completa.
+        completed = len(sums) > 1 and any(
+            sums[voice] == expected and not all(event.hidden for event in voice_events)
+            for voice, voice_events in events_by_voice.items()
+        )
 
         findings: list[Finding] = []
         for voice, actual in sums.items():

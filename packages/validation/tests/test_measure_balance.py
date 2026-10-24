@@ -152,6 +152,33 @@ def test_a_voice_may_end_before_the_measure_if_another_completes_it() -> None:
     assert engine.validate(_with_second_voice_lasting(2)) == []
 
 
+def test_a_voice_of_hidden_rests_does_not_complete_the_measure() -> None:
+    """Un silencio de redonda invisible (Finale, OpenScore) no completa el compás: la voz que se
+    ve y se queda corta sigue siendo un error."""
+
+    from fractions import Fraction
+
+    from cadenza.domain import Event, EventKind
+
+    doc = _piano_document()
+    part = doc.score.parts[0]
+    staff_0 = part.staves[0]
+    events = (
+        *(
+            Event(kind=EventKind.NOTE, voice=0, pitch=p, duration_beats=Fraction(1))
+            for p in ("C4", "D4", "E4")
+        ),
+        Event(kind=EventKind.REST, voice=1, duration_beats=Fraction(4), hidden=True),
+    )
+    broken_m2 = replace(staff_0.measures[1], events=events)
+    new_staff_0 = replace(staff_0, measures=(staff_0.measures[0], broken_m2))
+    new_score = replace(doc.score, parts=(replace(part, staves=(new_staff_0, part.staves[1])),))
+    broken_doc = replace(doc, score=new_score, anchors=build_anchor_index(new_score))
+
+    findings = ValidationEngine([MeasureBalanceRule()]).validate(broken_doc)
+    assert [(f.anchor.measure, f.anchor.voice) for f in findings] == [(2, 0)]
+
+
 def test_short_voices_are_errors_if_no_voice_completes_the_measure() -> None:
     findings = ValidationEngine([MeasureBalanceRule()]).validate(
         _with_second_voice_lasting(2, first_voice_beats=1)
