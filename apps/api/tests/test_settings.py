@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,8 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CADENZA_DATABASE_URL", "sqlite+pysqlite:///:memory:")
     monkeypatch.setenv("CADENZA_OMR_USE_GPU", "true")
     monkeypatch.setenv("CADENZA_ARTIFACTS_DIR", "/custom/artifacts")
-    monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", "super-secret-from-env")
+    key = secrets.token_urlsafe(32)
+    monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", key)
     monkeypatch.setenv("CADENZA_AUTH_TOKEN_EXPIRE_MINUTES", "45")
     monkeypatch.setenv("CADENZA_AUTO_CREATE_SCHEMA", "true")
 
@@ -33,7 +35,7 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.database_url == "sqlite+pysqlite:///:memory:"
     assert settings.omr_use_gpu is True
     assert settings.artifacts_dir == Path("/custom/artifacts")
-    assert settings.auth_secret_key == "super-secret-from-env"
+    assert settings.auth_secret_key == key
     assert settings.auth_token_expire_minutes == 45
     assert settings.auto_create_schema is True
 
@@ -44,6 +46,42 @@ def test_create_app_fails_without_auth_secret_key() -> None:
         create_app(create_session_factory(engine), settings=Settings(auth_secret_key=""))
 
 
+def test_short_auth_secret_key_is_rejected_without_showing_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # 20 caracteres ASCII: una clave que hoy se aceptaría y se adivina por fuerza bruta (D58).
+    short = secrets.token_urlsafe(32)[:20]
+    monkeypatch.setenv("CADENZA_AUTH_SECRET_KEY", short)
+
+    with pytest.raises(ValidationError) as caught:
+        Settings()
+
+    message = str(caught.value)
+    assert "al menos 32 bytes" in message
+    assert "tiene 20" in message
+    # Ni la clave ni un trozo suyo salen en el error, que puede acabar en un registro.
+    assert short[:8] not in message
+    assert short[-8:] not in message
+
+
+def test_auth_secret_key_of_32_bytes_is_accepted() -> None:
+    key = secrets.token_hex(16)
+    assert Settings(auth_secret_key=key).auth_secret_key == key
+
+
+def test_auth_secret_key_is_measured_in_bytes() -> None:
+    # Cada «ñ» ocupa 2 bytes en UTF-8: 16 caracteres hexadecimales y 8 eñes son 32 bytes.
+    base = secrets.token_hex(8)
+    assert Settings(auth_secret_key=base + "ñ" * 8).auth_secret_key == base + "ñ" * 8
+    with pytest.raises(ValidationError, match="tiene 30"):
+        Settings(auth_secret_key=base + "ñ" * 7)
+
+
+def test_empty_auth_secret_key_is_left_to_create_app() -> None:
+    # Sin clave, Settings no falla: create_app la exige salvo con un token_service inyectado.
+    assert Settings(auth_secret_key="").auth_secret_key == ""
+
+
 def test_settings_have_no_engine_selector() -> None:
     """HOMR es el único motor (ADR-0018): no hay selector de motor en la configuración."""
     assert "omr_engine" not in Settings.model_fields
@@ -52,7 +90,9 @@ def test_settings_have_no_engine_selector() -> None:
 def test_obsolete_engine_variable_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CADENZA_OMR_ENGINE", "fake")
     app = create_default_app(
-        Settings(database_url="sqlite+pysqlite:///:memory:", auth_secret_key="test-key-legacy")
+        Settings(
+            database_url="sqlite+pysqlite:///:memory:", auth_secret_key=secrets.token_urlsafe(32)
+        )
     )
     assert isinstance(app.state.omr_engine, HOMREngine)
 
@@ -61,7 +101,7 @@ def test_create_default_app_uses_homr() -> None:
     settings = Settings(
         database_url="sqlite+pysqlite:///:memory:",
         omr_use_gpu=False,
-        auth_secret_key="test-key-homr",
+        auth_secret_key=secrets.token_urlsafe(32),
     )
     app = create_default_app(settings)
     assert isinstance(app.state.omr_engine, HOMREngine)
@@ -71,7 +111,7 @@ def test_create_default_app_uses_homr() -> None:
 def test_create_app_without_injected_engine_uses_homr() -> None:
     app = create_app(
         create_session_factory(create_memory_engine()),
-        settings=Settings(auth_secret_key="test-key-homr"),
+        settings=Settings(auth_secret_key=secrets.token_urlsafe(32)),
     )
     assert isinstance(app.state.omr_engine, HOMREngine)
 
