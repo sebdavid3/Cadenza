@@ -284,3 +284,31 @@ def test_insert_event_rejects_invalid_marks(marks: dict[str, Any]) -> None:
     after = {"kind": "note", "pitch": "A4", "duration_beats": "1", **marks}
     with pytest.raises(InvalidEditPayload):
         validate_after(_score(), _anchor(0), EditOp.INSERT_EVENT, after)
+
+
+def test_insert_event_rejects_a_slur_end_already_in_the_part() -> None:
+    """El `number` identifica la ligadura en su parte: no se repite un extremo (ADR-0031)."""
+
+    after = {
+        "kind": "note",
+        "pitch": "A4",
+        "duration_beats": "1",
+        "slurs": [{"type": "start", "number": 1}],
+    }
+    with pytest.raises(InvalidEditPayload, match="start 1"):
+        validate_after(_score(), _anchor(3), EditOp.INSERT_EVENT, after)
+    validate_after(
+        _score(),
+        _anchor(3),
+        EditOp.INSERT_EVENT,
+        {**after, "slurs": [{"type": "start", "number": 2}]},
+    )
+
+
+def test_marks_given_as_lists_are_normalized_to_tuples() -> None:
+    # Se pasan listas a propósito, contra el tipo declarado: lo que se comprueba es que el
+    # evento las normaliza a tuplas y sigue siendo hashable.
+    event = Event(kind=EventKind.NOTE, pitch="C4", articulations=[], slurs=[])  # type: ignore[arg-type]
+    assert event.articulations == () and event.slurs == ()
+    assert hash(event) == hash(Event(kind=EventKind.NOTE, pitch="C4"))
+    assert Event.from_primitive({"kind": "note", "voice": 0, "fermata": "false"}).fermata is False

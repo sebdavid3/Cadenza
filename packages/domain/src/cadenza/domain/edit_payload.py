@@ -332,6 +332,26 @@ def _check_event_marks(after: Mapping[str, Any]) -> None:
             )
 
 
+def _check_slur_ends_free(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> None:
+    """Un extremo de ligadura insertado no puede repetir uno de la parte: el `number` identifica
+    la ligadura dentro de su parte (ADR-0031), y dos inicios iguales no se sabría emparejarlos."""
+
+    wanted = {(slur["type"], slur["number"]) for slur in after.get("slurs") or ()}
+    if not wanted:
+        return
+    taken = {
+        (slur.type.value, slur.number)
+        for staff in score.parts[anchor.part].staves
+        for measure in staff.measures
+        for event in measure.events
+        for slur in event.slurs
+    }
+    repeated = sorted(wanted & taken)
+    if repeated:
+        ends = ", ".join(f"{kind} {number}" for kind, number in repeated)
+        raise InvalidEditPayload(f"la parte ya tiene esos extremos de ligadura: {ends}")
+
+
 def _is_finite_number(value: object) -> bool:
     if isinstance(value, bool) or not isinstance(value, int | float):
         return False
@@ -368,6 +388,7 @@ def validate_after(
             _check_key(op, payload)
         else:
             _check_insert(op, anchor, payload)
+            _check_slur_ends_free(score, anchor, payload)
         return
 
     target = _locate_event(score, anchor)

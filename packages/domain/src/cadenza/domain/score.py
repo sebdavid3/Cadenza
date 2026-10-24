@@ -56,10 +56,8 @@ class Event:
     slurs: tuple[Slur, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.articulations:
-            object.__setattr__(self, "articulations", normalize_articulations(self.articulations))
-        if self.slurs:
-            object.__setattr__(self, "slurs", normalize_slurs(self.slurs))
+        object.__setattr__(self, "articulations", normalize_articulations(self.articulations))
+        object.__setattr__(self, "slurs", normalize_slurs(self.slurs))
 
     def to_primitive(self) -> dict[str, Any]:
         primitive: dict[str, Any] = {
@@ -101,7 +99,7 @@ class Event:
             confidence=None if data.get("confidence") is None else float(data["confidence"]),
             ir_handle=None if data.get("ir_handle") is None else str(data["ir_handle"]),
             articulations=tuple(Articulation(str(a)) for a in data.get("articulations") or ()),
-            fermata=bool(data.get("fermata", False)),
+            fermata=data.get("fermata") is True,
             slurs=tuple(Slur.from_primitive(item) for item in data.get("slurs") or ()),
         )
 
@@ -123,10 +121,8 @@ class Measure:
     wedges: tuple[Wedge, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.dynamics:
-            object.__setattr__(self, "dynamics", sort_dynamics(self.dynamics))
-        if self.wedges:
-            object.__setattr__(self, "wedges", sort_wedges(self.wedges))
+        object.__setattr__(self, "dynamics", sort_dynamics(self.dynamics))
+        object.__setattr__(self, "wedges", sort_wedges(self.wedges))
 
     def to_primitive(self) -> dict[str, Any]:
         primitive: dict[str, Any] = {
