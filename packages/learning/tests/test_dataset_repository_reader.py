@@ -197,6 +197,8 @@ def test_read_dataset_with_real_database() -> None:
 
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
+        # El propietario es una cuenta del estudio: solo esas entran en el dataset (D55).
+        SqlAlchemyUserRepository(db).add(_user("investigator", self_registered=False))
 
         # 1. Sesión finalizada
         s_data = SessionData(
@@ -273,7 +275,6 @@ def test_read_dataset_with_real_database() -> None:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
 
-        # El propietario no figura entre los usuarios: no consta que se registrara solo.
         users = SqlAlchemyUserRepository(db)
         reader = RepositoryDatasetReader()
         samples = reader.read_dataset(
@@ -336,18 +337,17 @@ def _finalized_session(session_id: str, owner_id: str) -> tuple[SessionData, Edi
     return session, edit
 
 
-def _repositories() -> (
-    tuple[InMemorySessionRepository, InMemoryEditEventRepository, InMemoryUserRepository]
-):
-    """Una sesión finalizada de una cuenta del estudio, otra del registro público y otra de un
-    propietario que no figura entre los usuarios."""
+_ALL_SESSIONS = [("estudio", "ana"), ("registro", "visita"), ("huerfana", "sin-cuenta")]
+
+
+def _repositories(
+    sessions: list[tuple[str, str]] = _ALL_SESSIONS,
+) -> tuple[InMemorySessionRepository, InMemoryEditEventRepository, InMemoryUserRepository]:
+    """Por defecto, una sesión finalizada de una cuenta del estudio, otra del registro público y
+    otra de un propietario que no figura entre los usuarios."""
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
-    for session_id, owner in [
-        ("estudio", "ana"),
-        ("registro", "visita"),
-        ("antigua", "sin-cuenta"),
-    ]:
+    for session_id, owner in sessions:
         session, edit = _finalized_session(session_id, owner)
         session_repo.add(session, [])
         edit_repo.append(session_id, edit)
@@ -359,12 +359,13 @@ def _repositories() -> (
 
 def test_self_registered_sessions_are_left_out_of_the_dataset() -> None:
     # Las cuentas del registro público no forman parte del estudio (ADR-0022, D55, #191). Hasta
-    # este cambio entraban en el dataset como cualquier otra.
+    # este cambio entraban en el dataset como cualquier otra. Tampoco entra la de un propietario
+    # que no es una cuenta, como en la exportación del estudio de esfuerzo.
     session_repo, edit_repo, users = _repositories()
 
     samples = RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=users)
 
-    assert sorted({sample.document_id for sample in samples}) == ["doc-antigua", "doc-estudio"]
+    assert sorted({sample.document_id for sample in samples}) == ["doc-estudio"]
 
 
 def test_self_registered_sessions_only_enter_when_asked() -> None:
@@ -375,10 +376,29 @@ def test_self_registered_sessions_only_enter_when_asked() -> None:
     )
 
     assert sorted({sample.document_id for sample in samples}) == [
-        "doc-antigua",
         "doc-estudio",
+        "doc-huerfana",
         "doc-registro",
     ]
+
+
+@pytest.mark.parametrize("owner_id", ["visita", "sin-cuenta"])
+def test_asking_for_an_account_outside_the_study_is_an_error(owner_id: str) -> None:
+    # Pedir las sesiones de una cuenta que no es del estudio daría un dataset vacío sin avisar.
+    session_repo, edit_repo, users = _repositories()
+    reader = RepositoryDatasetReader()
+
+    with pytest.raises(ValueError, match="no es del estudio"):
+        reader.read_dataset(session_repo, edit_repo, user_repository=users, owner_id=owner_id)
+
+    samples = reader.read_dataset(
+        session_repo,
+        edit_repo,
+        user_repository=users,
+        owner_id=owner_id,
+        include_self_registered=True,
+    )
+    assert len(samples) == 1
 
 
 def test_without_users_the_reader_does_not_guess() -> None:
@@ -389,11 +409,17 @@ def test_without_users_the_reader_does_not_guess() -> None:
         RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=None)
 
 
+def _hash_of(sessions: list[tuple[str, str]]) -> str:
+    session_repo, edit_repo, users = _repositories(sessions)
+    return dataset_hash(
+        RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=users)
+    )
+
+
 def test_leaving_out_self_registered_keeps_the_hash_deterministic() -> None:
-    session_repo, edit_repo, users = _repositories()
-    reader = RepositoryDatasetReader()
+    # El dataset filtrado es el mismo que el de una base que nunca tuvo las otras sesiones, sea
+    # cual sea el orden en que se guardaron.
+    only_study = _hash_of([("estudio", "ana")])
 
-    first = reader.read_dataset(session_repo, edit_repo, user_repository=users)
-    second = DatasetBuilder().read_from_repositories(session_repo, edit_repo, user_repository=users)
-
-    assert dataset_hash(first) == dataset_hash(second)
+    assert _hash_of(_ALL_SESSIONS) == only_study
+    assert _hash_of(list(reversed(_ALL_SESSIONS))) == only_study

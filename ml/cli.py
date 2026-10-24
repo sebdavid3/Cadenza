@@ -101,20 +101,24 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     factory = create_session_factory(engine)
 
     # Las cuentas del registro público quedan fuera salvo que se pida (ADR-0022, D55).
-    include_self_registered = bool(getattr(args, "include_self_registered", False))
+    include_self_registered: bool = args.include_self_registered
     with session_scope(factory) as db:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         reader = RepositoryDatasetReader()
 
-        samples = reader.read_dataset(
-            session_repository=session_repo,
-            edit_event_repository=edit_repo,
-            user_repository=SqlAlchemyUserRepository(db),
-            status=args.status,
-            owner_id=args.owner_id,
-            include_self_registered=include_self_registered,
-        )
+        try:
+            samples = reader.read_dataset(
+                session_repository=session_repo,
+                edit_event_repository=edit_repo,
+                user_repository=SqlAlchemyUserRepository(db),
+                status=args.status,
+                owner_id=args.owner_id,
+                include_self_registered=include_self_registered,
+            )
+        except ValueError as err:
+            print(f"Error: {err}", file=sys.stderr)
+            return 1
 
     serialized = serialize_dataset(samples)
     serialized["config_hash"] = cfg_hash
@@ -177,6 +181,9 @@ def select_command(args: argparse.Namespace) -> int:
         "budget": budget,
         "seed": seed,
         "config_hash": config.config_hash if config else raw_input.get("config_hash", "none"),
+        # Si el dataset de origen incluía las cuentas del registro público (D55); None si no
+        # lo dice, como los de antes de #191.
+        "self_registered_included": raw_input.get("self_registered_included"),
         "count": len(selected_samples),
         "selected_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "samples": [s.to_primitive() for s in sorted(selected_samples, key=TrainingSample.key)],

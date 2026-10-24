@@ -779,11 +779,9 @@ def test_cli_promote_marks_artifact_without_flag_as_simulated(tmp_path: Path) ->
     assert "simulation_warning" in result
 
 
-def test_cli_build_dataset_leaves_out_self_registered_accounts(
-    tmp_path: Path, populated_db_url: str
-) -> None:
-    # Una cuenta del registro público con una sesión finalizada y editada (ADR-0022, D55, #191).
-    factory = create_session_factory(create_engine_for_url(populated_db_url))
+def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
+    """Una cuenta del registro público con una sesión finalizada y una edición (ADR-0022, D55)."""
+    factory = create_session_factory(create_engine_for_url(db_url))
     visitor = User(
         id="user-registro",
         username="visita",
@@ -826,6 +824,12 @@ def test_cli_build_dataset_leaves_out_self_registered_accounts(
             validator=ValidationEngine([]),
         )
 
+
+def test_cli_build_dataset_leaves_out_self_registered_accounts(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    _add_self_registered_session(tmp_path, populated_db_url)
+
     default_path = tmp_path / "sin_registro.json"
     included_path = tmp_path / "con_registro.json"
     base = ["build-dataset", "--db-url", populated_db_url, "--output"]
@@ -840,3 +844,54 @@ def test_cli_build_dataset_leaves_out_self_registered_accounts(
     assert included["count"] == 3
     assert included["self_registered_included"] is True
     assert included["dataset_hash"] != default["dataset_hash"]
+
+
+def test_cli_run_passes_include_self_registered_down_the_pipeline(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    _add_self_registered_session(tmp_path, populated_db_url)
+    work_dir = tmp_path / "pipeline_registro"
+
+    rc = main(
+        [
+            "run",
+            "--work-dir",
+            str(work_dir),
+            "--db-url",
+            populated_db_url,
+            "--artifacts-dir",
+            str(tmp_path / "artifacts"),
+            "--budget",
+            "3",
+            "--version",
+            "v2.1.0-registro",
+            "--ser",
+            "0.02",
+            "--omr-ned",
+            "0.03",
+            "--include-self-registered",
+        ]
+    )
+
+    assert rc == 0
+    dataset = json.loads((work_dir / "dataset.json").read_text(encoding="utf-8"))
+    selected = json.loads((work_dir / "selected.json").read_text(encoding="utf-8"))
+    assert dataset["count"] == 3
+    assert dataset["self_registered_included"] is True
+    assert selected["self_registered_included"] is True
+
+
+def test_cli_build_dataset_rejects_an_owner_outside_the_study(
+    tmp_path: Path, populated_db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Sin la opción, pedir una cuenta del registro daría un dataset vacío sin avisar.
+    _add_self_registered_session(tmp_path, populated_db_url)
+    output = tmp_path / "visita.json"
+    base = ["build-dataset", "--db-url", populated_db_url, "--owner-id", "user-registro"]
+
+    assert main([*base, "--output", str(output)]) == 1
+    assert "no es del estudio" in capsys.readouterr().err
+    assert not output.exists()
+
+    assert main([*base, "--output", str(output), "--include-self-registered"]) == 0
+    assert json.loads(output.read_text(encoding="utf-8"))["count"] == 1
