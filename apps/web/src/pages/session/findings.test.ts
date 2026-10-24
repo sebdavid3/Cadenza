@@ -137,6 +137,11 @@ describe("validationState", () => {
     expect(validationState([], 5, 3)).toEqual({ kind: "stale", seq: 3 });
   });
 
+  it("una validación posterior al estado que se ve no está al día con él", () => {
+    expect(validationState([finding(1, 1, { at_seq: 6 })], 5)).toEqual({ kind: "ahead" });
+    expect(validationState([], 5, 6)).toEqual({ kind: "ahead" });
+  });
+
   it("la validación conocida y los hallazgos cuentan juntos: vale la más reciente", () => {
     expect(validationState([finding(1, 1, { at_seq: 2 })], 5, 4)).toEqual({
       kind: "stale",

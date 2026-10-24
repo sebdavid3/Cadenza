@@ -4215,7 +4215,7 @@ describe("corregir la nota elegida", () => {
       expect(editStatus()).toHaveTextContent("Sesión recargada.");
     });
 
-    it("si se edita mientras se revalida, lo dice y vuelve a ofrecer revalidar", async () => {
+    it("mientras se revalida, las correcciones esperan: cambiarían el estado validado", async () => {
       const server = editableApi(editedDetail(), {
         findings: [finding(1, 2)],
         validate: () => [finding(9, 1)],
@@ -4223,30 +4223,146 @@ describe("corregir la nota elegida", () => {
       renderPage();
       const pending = deferred<Response>();
       server.respondValidate(() => pending.promise);
+      await chooseMeasure(2);
+      await userEvent.click(
+        within(screen.getByRole("region", { name: "Posibles errores" })).getByRole("button", {
+          name: "Revalidar",
+        }),
+      );
+
+      expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Subir un paso"));
+      fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+      expect(server.bodies).toEqual([]);
+      expect(server.count(`POST /sessions/${ID}/undo`)).toBe(0);
+
+      pending.resolve(server.acceptValidate());
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Revalidada la partitura actual: 1 posible error.",
+        );
+      });
+      expect(button("Subir un paso")).not.toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Subir un paso"));
+      expect(server.bodies).toHaveLength(1);
+    });
+
+    it("el aviso de la última orden caduca al pasar a otro estado", async () => {
+      editableApi(detail(), { findings: [finding(1, 2), finding(2, 3)] });
+      renderPage();
       await userEvent.click(
         await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
           "button",
-          { name: "Revalidar" },
+          { name: "Descartar como falso positivo · Duración del compás, compás 3" },
         ),
       );
-      // El servidor valida el estado 1 y, antes de que llegue la respuesta, se guarda otra edición.
-      const validated = server.acceptValidate();
-      await chooseMeasure(2);
+      await userEvent.click(submit());
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent("Descartado como falso positivo");
+      });
+
+      await chooseMeasure(1);
       fireEvent.click(button("Subir un paso"));
       await waitFor(() => {
         expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
       });
-      pending.resolve(validated);
+
+      expect(findingsStatus()).toBeEmptyDOMElement();
+    });
+
+    it("si el servidor va por delante y su estado no se puede cargar, no dice que ya se ve", async () => {
+      const server = editableApi(editedDetail(), {
+        findings: [finding(1, 2)],
+        validate: () => [finding(9, 1)],
+      });
+      renderPage();
+      const revalidate = await within(
+        await screen.findByRole("region", { name: "Posibles errores" }),
+      ).findByRole("button", { name: "Revalidar" });
+      server.replace(
+        apply(server.current(), {
+          base_seq: 1,
+          op: "SetPitch",
+          anchor: anchorOf(3),
+          before: null,
+          after: { pitch: "E4" },
+        }).next,
+      );
+      server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
+
+      await userEvent.click(revalidate);
 
       await waitFor(() => {
         expect(findingsStatus()).toHaveTextContent(
-          "Se revalidó la partitura tal como estaba tras 1 edición, pero se editó mientras tanto: hay que volver a revalidar.",
+          "La sesión cambió en otra pestaña o dispositivo y se revalidó su estado actual, pero no se pudo cargar: recarga la sesión para verlo.",
         );
       });
+      expect(findingsStatus()).not.toHaveTextContent("que ya ves");
+      expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
+      expect(editStatus()).toHaveTextContent("No se pudo recargar la sesión.");
+    });
+
+    it("si el descartado era de una validación anterior a la última, lo dice con la lista nueva", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      // Otra pestaña revalidó: el servidor acepta el descarte del hallazgo viejo, pero la última
+      // validación tiene otro.
+      server.respondFinding(() =>
+        jsonResponse(finding(1, 2, { status: "dismissed", dismissed_by: "ana" })),
+      );
+      server.setFindings([finding(4, 2)]);
+
+      await userEvent.click(submit());
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "Se descartó, pero ese posible error era de una validación anterior a la última, hecha en otra pestaña o dispositivo: ya ves la lista actual.",
+        );
+      });
+      expect(dismissTrigger("Duración del compás, compás 2")).toHaveAttribute("data-dismiss", "4");
+      expect(within(panel()).queryByText(/descartados como falso positivo/i)).toBeNull();
+      expect(heading()).toHaveFocus();
+    });
+
+    it("si la lista es de un estado posterior al que se ve, lo dice y deja recargar la sesión", async () => {
+      const server = editableApi(detail(), { findings: [finding(1, 2)] });
+      renderPage();
+      await userEvent.click(
+        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByRole(
+          "button",
+          { name: "Descartar como falso positivo · Duración del compás, compás 2" },
+        ),
+      );
+      // Otra pestaña editó y revalidó: el hallazgo que se ve ya no está y la lista es del estado 1.
+      server.replace(
+        apply(server.current(), {
+          base_seq: 0,
+          op: "SetPitch",
+          anchor: anchorOf(3),
+          before: null,
+          after: { pitch: "E4" },
+        }).next,
+      );
+      server.setFindings([finding(5, 1, { at_seq: 1 })]);
+
+      await userEvent.click(submit());
+
       expect(
-        within(panel()).getByText(/tal como estaba tras 1 edición; después se editó/i),
+        await within(panel()).findByText(/corresponden a un estado de la partitura posterior/i),
       ).toBeVisible();
-      expect(within(panel()).getByRole("button", { name: "Revalidar" })).toBeVisible();
+      await userEvent.click(within(panel()).getByRole("button", { name: "Recargar la sesión" }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
+      });
+      expect(within(panel()).queryByText(/posterior al que ves/i)).toBeNull();
+      expect(heading()).toHaveFocus();
     });
 
     it("un 409 al descartar porque la sesión se finalizó lo dice y la deja en solo lectura", async () => {

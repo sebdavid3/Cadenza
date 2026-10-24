@@ -97,11 +97,13 @@ export function measureMarks(
  * De qué estado es la última validación respecto al que se ve (ADR-0013, ADR-0035):
  * - `current`: del estado actual;
  * - `stale`: de un estado anterior (`seq`), porque se editó después;
+ * - `ahead`: de un estado posterior al que se ve, porque se editó y se revalidó en otra pestaña
+ *   o dispositivo y la vista todavía no lo ha cargado;
  * - `unknown`: sin hallazgos no hay `at_seq` que comparar (`SessionDetailRead` no expone
  *   `validated_at_seq`) y la partitura tiene ediciones (ADR-0021 §3).
  */
 export type ValidationState =
-  { kind: "current" } | { kind: "stale"; seq: number } | { kind: "unknown" };
+  { kind: "current" } | { kind: "stale"; seq: number } | { kind: "ahead" } | { kind: "unknown" };
 
 /**
  * Los hallazgos de `latest_only` son de la última validación, también los descartados. `knownSeq`
@@ -118,6 +120,7 @@ export function validationState(
   // Sin ediciones, la única validación es la de la transcripción, sobre el estado 0.
   if (seqs.length === 0) return currentSeq === 0 ? { kind: "current" } : { kind: "unknown" };
   const validated = Math.max(...seqs);
+  if (validated > currentSeq) return { kind: "ahead" };
   return validated < currentSeq ? { kind: "stale", seq: validated } : { kind: "current" };
 }
 

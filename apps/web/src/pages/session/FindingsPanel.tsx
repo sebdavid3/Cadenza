@@ -17,6 +17,8 @@ export interface FindingsPanelActions {
   onDismiss: (finding: FindingRead, reason: string) => Promise<FindingOutcome>;
   onRestore: (finding: FindingRead) => Promise<FindingOutcome>;
   onRevalidate: () => Promise<FindingOutcome>;
+  /** Carga el estado actual de la sesión, si la lista es de uno posterior al que se ve. */
+  onReload: () => Promise<boolean>;
 }
 
 interface FindingsPanelProps {
@@ -364,6 +366,11 @@ export function FindingsPanel({
     if (outcome === "done") focusAfter({ kind: "revalidate" });
   }
 
+  async function reload() {
+    if (!actions || busy || actions.editorBusy) return;
+    if (await actions.onReload()) focusAfter({ kind: "heading" });
+  }
+
   function dismissControls(findings: readonly FindingRead[]) {
     if (!actions) return null;
     return (
@@ -441,6 +448,26 @@ export function FindingsPanel({
             ; después se editó y todavía no se ha vuelto a validar.
           </p>
           {revalidateButton}
+        </div>
+      )}
+
+      {status === "ready" && validation.kind === "ahead" && (
+        <div className="findings__stale">
+          <p>
+            Corresponden a un estado de la partitura posterior al que ves: se editó en otra pestaña
+            o dispositivo.{" "}
+            {actions ? "Recarga la sesión para verlo." : "Recarga la página para verlo."}
+          </p>
+          {actions && (
+            <button
+              type="button"
+              className="button button--compact"
+              aria-disabled={busy || actions.editorBusy || undefined}
+              onClick={() => void reload()}
+            >
+              Recargar la sesión
+            </button>
+          )}
         </div>
       )}
 

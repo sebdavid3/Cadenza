@@ -101,6 +101,8 @@ export const validatedSeqQuery = (sessionId: string) =>
     queryFn: (): number | null => null,
     enabled: false,
     staleTime: Infinity,
+    // Se pierde al recargar la página, no al pasar un rato en otra vista (D64).
+    gcTime: Infinity,
   });
 
 const findingPath = (sessionId: string, findingId: number) =>

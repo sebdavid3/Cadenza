@@ -11,7 +11,7 @@ import type { FindingRead } from "../../types";
 import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
-import { useEditor } from "./editor";
+import { useEditor, type Editor } from "./editor";
 import { carryAnchor } from "./edits";
 import { useFindingActions } from "./findingActions";
 import {
@@ -158,19 +158,22 @@ function SessionView({ sessionId }: { sessionId: string }) {
     else clearSelection();
   }, [detail.data, sessionId, seq, select, clearSelection]);
 
-  const editor = useEditor(api, sessionId, detail.data);
+  // El editor del último render: lo usan las órdenes que llegan después (el teclado, una
+  // revalidación que encuentra el servidor por delante).
+  const editorRef = useRef<Editor | null>(null);
   const findingActions = useFindingActions(api, sessionId, {
     seq,
     labelOf: (finding) => findingLabel(score, finding, multiStaff),
-    reload: editor.reload,
+    reload: () => editorRef.current?.reload() ?? Promise.resolve(false),
   });
+  // Mientras se revalida, las correcciones esperan: cambiarían el estado validado (ADR-0035).
+  const editor = useEditor(api, sessionId, detail.data, findingActions.revalidating);
   const editKeysId = useId();
   // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y
   // rehacer (con la partitura dibujada o sin poder dibujarse, no mientras carga), salvo en un
   // campo de texto, que tiene su propio deshacer (ADR-0034). La escucha lee el editor del último
   // render.
   const undoShown = editable && (snapshot !== null || musicXml.isError);
-  const editorRef = useRef(editor);
   useLayoutEffect(() => {
     editorRef.current = editor;
   });
@@ -182,8 +185,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
       event.preventDefault();
       // Mantener la tecla pulsada no encadena órdenes: cada una es una edición del log (D38).
       if (event.repeat) return;
-      if (action === "undo") editorRef.current.undo();
-      else editorRef.current.redo();
+      if (action === "undo") editorRef.current?.undo();
+      else editorRef.current?.redo();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -390,6 +393,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     onDismiss: findingActions.dismiss,
                     onRestore: findingActions.restore,
                     onRevalidate: findingActions.revalidate,
+                    onReload: editor.reload,
                   }
                 : undefined
             }

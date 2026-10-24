@@ -24,13 +24,16 @@ export type FindingAction = "dismiss" | "restore" | "revalidate";
 export type FindingActionsStatus =
   | { kind: "idle" }
   | { kind: "busy"; action: FindingAction; findingId: number | null }
-  /** `nonce` distingue dos mensajes iguales seguidos, para que se vuelvan a anunciar. */
-  | { kind: "said"; message: string; nonce: number };
+  /**
+   * `nonce` distingue dos mensajes iguales seguidos, para que se vuelvan a anunciar. `seq` es el
+   * estado del que habla: al pasar a otro, el mensaje caduca; null si no caduca.
+   */
+  | { kind: "said"; message: string; nonce: number; seq: number | null };
 
 /**
  * Cómo acabó una orden, para el panel: `done` se hizo; `failed` no se hizo o no se sabe, y se
- * puede volver a intentar; `gone`, el posible error ya no está; `closed`, la sesión ya no admite
- * cambios; `ignored`, no se envió (había otra en curso) o se canceló.
+ * puede volver a intentar; `gone`, el posible error ya no está en la última validación; `closed`,
+ * la sesión ya no admite cambios; `ignored`, no se envió (había otra en curso) o se canceló.
  */
 export type FindingOutcome = "done" | "failed" | "gone" | "closed" | "ignored";
 
@@ -94,17 +97,18 @@ interface FindingActionsOptions {
   labelOf: (finding: FindingRead) => string;
   /**
    * Carga y muestra de una vez el estado actual de la sesión (el `reload` del editor), cuando el
-   * servidor va por delante del que se ve o la sesión ya no admite cambios.
+   * servidor va por delante del que se ve o la sesión ya no admite cambios. Dice si lo cargó.
    */
-  reload: () => Promise<void>;
+  reload: () => Promise<boolean>;
 }
 
 /**
  * Descartar, restaurar y revalidar los posibles errores (#186, ADR-0035). Nada se da por hecho
  * sin la respuesta del servidor. Descartar y restaurar no cambian la partitura: solo la lista, que
- * se actualiza con el hallazgo devuelto. Revalidar sustituye los hallazgos de la última
- * validación: se vuelven a pedir (con los descartados que se conservan) y, si el servidor validó
- * un estado posterior al que se ve, se carga ese estado.
+ * se actualiza con el hallazgo devuelto y se vuelve a pedir, por si ya no es la de la última
+ * validación. Revalidar sustituye los hallazgos de la última validación: se vuelven a pedir (con
+ * los descartados que se conservan) y, si el servidor validó un estado posterior al que se ve, se
+ * carga ese estado. Mientras se revalida, el editor espera (`revalidating`).
  */
 export function useFindingActions(
   api: ApiClient,
@@ -128,9 +132,10 @@ export function useFindingActions(
     [],
   );
 
-  function say(message: string) {
+  /** Dice qué pasó, del estado `seq` (por defecto, el que se ve). */
+  function say(message: string, seq: number | null = optionsRef.current.seq) {
     nonce.current += 1;
-    setStatus({ kind: "said", message, nonce: nonce.current });
+    setStatus({ kind: "said", message, nonce: nonce.current, seq });
   }
 
   /** Una orden a la vez; devuelve su señal, o null si ya hay otra en curso. */
@@ -160,6 +165,14 @@ export function useFindingActions(
     });
   }
 
+  /** La lista del estado `seq`, si llegó: undefined si no se pudo pedir. */
+  function listed(seq: number) {
+    const key = sessionFindingsQuery(api, sessionId, seq).queryKey;
+    return queryClient.getQueryState(key)?.status === "success"
+      ? queryClient.getQueryData(key)
+      : undefined;
+  }
+
   /** Descartar o restaurar: cambia el estado de un hallazgo, no la partitura. */
   async function change(
     action: "dismiss" | "restore",
@@ -181,29 +194,33 @@ export function useFindingActions(
           return "ignored";
         }
         const kind = error instanceof ApiError ? error.kind : "unexpected";
-        // El único 409 de estas rutas: la sesión está finalizada (ADR-0014).
+        // El único 409 de estas rutas: la sesión está finalizada (ADR-0014). Ya no cambiará.
         if (kind === "conflict") {
           say(
             `No se ${done}: la sesión está finalizada y sus posibles errores ya no se pueden cambiar.`,
+            null,
           );
           await optionsRef.current.reload();
           return "closed";
         }
-        // Otra validación sustituyó a la que se ve (sus hallazgos tienen otro id), o la sesión ya
-        // no está: se vuelve a pedir la lista y, si tampoco está, la vista lo dice.
+        // Otra validación del mismo estado sustituyó a la que se ve (sus hallazgos tienen otro
+        // id), o la sesión ya no está: se vuelve a pedir la lista y, si tampoco está, la vista
+        // lo dice.
         if (kind === "not-found") {
           await refetchFindings();
           if (cancelled()) return "ignored";
-          const listed = queryClient.getQueryState(
+          const state = queryClient.getQueryState(
             sessionFindingsQuery(api, sessionId, optionsRef.current.seq).queryKey,
           );
-          if (listed?.error instanceof ApiError && listed.error.kind === "not-found") {
+          if (state?.error instanceof ApiError && state.error.kind === "not-found") {
             void queryClient.invalidateQueries({
               queryKey: sessionDetailQuery(api, sessionId).queryKey,
             });
           }
           say(
-            `No se ${done}: ese posible error ya no está en la última validación. Ya ves la lista actual.`,
+            state?.status === "success"
+              ? `No se ${done}: ese posible error ya no está en la última validación. Ya ves la lista actual.`
+              : `No se ${done}: ese posible error ya no está en la última validación, y no se pudo cargar la lista actual.`,
           );
           return "gone";
         }
@@ -219,6 +236,17 @@ export function useFindingActions(
         (list) => (list ? withFinding(list, updated) : list),
       );
       if (cancelled()) return "ignored";
+      // El servidor acepta un hallazgo de una validación anterior a la última (otra pestaña
+      // revalidó otro estado): la lista se vuelve a pedir para saber si sigue siendo de ella.
+      await refetchFindings();
+      if (cancelled()) return "ignored";
+      const latest = listed(optionsRef.current.seq);
+      if (latest && !latest.some((candidate) => candidate.id === updated.id)) {
+        say(
+          `Se ${done}, pero ese posible error era de una validación anterior a la última, hecha en otra pestaña o dispositivo: ya ves la lista actual.`,
+        );
+        return "gone";
+      }
       say(
         action === "dismiss"
           ? `Descartado como falso positivo: ${label}. La partitura no cambia.`
@@ -249,10 +277,17 @@ export function useFindingActions(
     );
   }
 
+  /** El estado validado se recuerda después de pedir su lista: antes, la lista sería la vieja. */
+  function remember(validated: number) {
+    queryClient.setQueryData(validatedSeqQuery(sessionId).queryKey, (known) =>
+      Math.max(known ?? 0, validated),
+    );
+  }
+
   /**
    * Revalida el estado actual del servidor. Su `current_seq` dice qué estado se validó: el que se
-   * ve, uno posterior (se editó en otra parte: se carga) o uno anterior (se editó mientras tanto:
-   * hay que volver a revalidar).
+   * ve, uno posterior (se editó en otra parte: se carga) o uno anterior (la vista pasó a otro
+   * estado mientras tanto: hay que volver a revalidar).
    */
   async function revalidate(): Promise<FindingOutcome> {
     const signal = begin("revalidate", null);
@@ -279,47 +314,46 @@ export function useFindingActions(
         else setStatus({ kind: "idle" });
         return "failed";
       }
-      queryClient.setQueryData(validatedSeqQuery(sessionId).queryKey, (known) =>
-        Math.max(known ?? 0, validated),
-      );
-      if (cancelled()) {
-        forgetFindings();
-        return "ignored";
-      }
       const shown = optionsRef.current.seq;
-      // Lo que el validador dejó en la lista del estado validado, ya pedida.
-      const listed = () => {
-        const key = sessionFindingsQuery(api, sessionId, validated).queryKey;
-        const state = queryClient.getQueryState(key);
-        return state?.status === "success" ? queryClient.getQueryData(key) : undefined;
-      };
       if (validated > shown) {
         // El servidor va por delante: se carga su estado entero, con la lista de ese estado. La
         // del que se ve ya no hace falta pedirla.
         forgetFindings();
-        await optionsRef.current.reload();
+        const reloaded = await optionsRef.current.reload();
+        remember(validated);
         if (cancelled()) return "ignored";
-        const findings = listed();
+        if (!reloaded) {
+          say(
+            "La sesión cambió en otra pestaña o dispositivo y se revalidó su estado actual, pero no se pudo cargar: recarga la sesión para verlo.",
+            null,
+          );
+          return "failed";
+        }
+        const findings = listed(validated);
         say(
           `La sesión cambió en otra pestaña o dispositivo: se revalidó su estado actual, que ya ves.${
             findings ? ` ${summary(findings)}` : ""
           }`,
+          validated,
         );
         return "done";
       }
       await refetchFindings();
+      remember(validated);
       if (cancelled()) return "ignored";
       if (validated < shown) {
         say(
-          `Se revalidó la partitura tal como estaba tras ${plural(validated, "edición", "ediciones")}, pero se editó mientras tanto: hay que volver a revalidar.`,
+          `Se revalidó la partitura tal como estaba tras ${plural(validated, "edición", "ediciones")}, pero la vista pasó a un estado posterior mientras tanto: hay que volver a revalidar.`,
+          shown,
         );
         return "done";
       }
-      const findings = listed();
+      const findings = listed(validated);
       say(
         findings
           ? `Revalidada la partitura actual: ${lowerFirst(summary(findings))}`
           : "Se revalidó la partitura actual, pero no se pudo cargar la lista de posibles errores.",
+        validated,
       );
       return "done";
     } finally {
@@ -328,9 +362,12 @@ export function useFindingActions(
   }
 
   const busy = status.kind === "busy";
-  /** Lo que el panel dice de la última orden, o null si no hay nada que decir. */
+  /**
+   * Lo que el panel dice de la última orden, o null si no hay nada que decir. Un mensaje sobre
+   * otro estado ya no vale: tras una edición, «la partitura actual» sería otra.
+   */
   const message =
-    status.kind === "said"
+    status.kind === "said" && (status.seq === null || status.seq === options.seq)
       ? // Un espacio duro alterno: el mismo mensaje dos veces seguidas se vuelve a anunciar.
         `${status.message}${status.nonce % 2 === 1 ? HARD_SPACE : ""}`
       : status.kind === "busy"
@@ -342,6 +379,7 @@ export function useFindingActions(
   return {
     status,
     busy,
+    revalidating: status.kind === "busy" && status.action === "revalidate",
     message,
     pendingId: status.kind === "busy" ? status.findingId : null,
     dismiss,
