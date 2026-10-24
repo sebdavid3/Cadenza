@@ -58,6 +58,8 @@ from music21 import (
 )
 
 _MAX_DENOMINATOR = 1000
+# Hueco más breve que cuenta como hueco de una voz (ADR-0032): una semigarrapatea (1/64 de negra).
+_MIN_GAP: Final[Fraction] = Fraction(1, 64)
 
 # Articulaciones del alcance (ADR-0031). Se busca la clase exacta: en music21, `Staccatissimo`
 # deriva de `Staccato` y `StrongAccent` de `Accent`, y `Spiccato` (fuera del alcance), de
@@ -136,11 +138,16 @@ def _event_tie(pitch_source: Any) -> Tie | None:
 _SourcedEvent = tuple[Event, tuple[Any, ...]]
 
 
-def _voice_order(voice: Any) -> tuple[int, int]:
-    """Orden de las voces de un compás: por su número de MusicXML (los no numéricos, detrás)."""
+def _ordered_voices(measure: Any) -> list[Any]:
+    """Voces de un compás en orden (ADR-0032): por su número si todas lo tienen (MusicXML, como
+    texto: music21 las ordenaba como texto, y «10» iba antes que «2»); si no, en el orden del
+    compás. converter21 crea sin número las voces de MEI y **kern, y music21 les da su dirección
+    de memoria, que no es un orden."""
 
-    number = str(voice.id)
-    return (0, int(number)) if number.isdigit() else (1, 0)
+    voices = list(getattr(measure, "voices", ()))
+    if all(isinstance(voice.id, str) and voice.id.isdigit() for voice in voices):
+        return sorted(voices, key=lambda voice: int(voice.id))
+    return voices
 
 
 def _events_from_measure(measure: Any, musicxml: bool) -> list[_SourcedEvent]:
@@ -151,7 +158,7 @@ def _events_from_measure(measure: Any, musicxml: bool) -> list[_SourcedEvent]:
     """
 
     events: list[_SourcedEvent] = []
-    voices = sorted(getattr(measure, "voices", ()), key=_voice_order)
+    voices = _ordered_voices(measure)
     if voices:
         for voice_index, voice in enumerate(voices):
             events.extend(_events_from_elements(voice.notesAndRests, voice_index, musicxml))
@@ -170,20 +177,24 @@ def _events_from_elements(elements: Any, voice: int, musicxml: bool) -> list[_So
     Con ``musicxml``, un silencio que music21 da oculto (`print-object="no"`) es también un
     silencio invisible. De MEI no: converter21 oculta el silencio con que sustituye un
     `<multiRest>`, que en la partitura se ve (32 de las 100 verdades de PrIMuS de `data/`).
+
+    Un hueco más breve que `_MIN_GAP` no es musical (un `<backup>` que se queda corto en una
+    división) y se ignora, como antes. Los silencios invisibles seguidos son uno: music21
+    escribe en dos figuras el que no cabe en una, y la ida y vuelta lo devuelve igual.
     """
 
     events: list[_SourcedEvent] = []
     cursor = Fraction(0)
     for element in elements:
         start = Fraction(element.offset)
-        if start > cursor:
+        if start - cursor >= _MIN_GAP:
             gap = Event(
                 kind=EventKind.REST,
                 voice=voice,
                 duration_beats=(start - cursor).limit_denominator(_MAX_DENOMINATOR),
                 hidden=True,
             )
-            events.append((gap, ()))
+            _append_event(events, gap, ())
         cursor = max(cursor, start + Fraction(element.quarterLength))
         if isinstance(element, chord.Chord):
             chord_notes = list(element.notes)
@@ -203,8 +214,29 @@ def _events_from_elements(elements: Any, voice: int, musicxml: bool) -> list[_So
             event = _note_event(
                 element, element, voice, is_chord=False, marks=(element,), hidden=hidden
             )
-            events.append((event, (element,)))
+            _append_event(events, event, (element,))
     return events
+
+
+def _append_event(events: list[_SourcedEvent], event: Event, sources: tuple[Any, ...]) -> None:
+    """Añade un evento a su voz; un silencio invisible sin marcas tras otro se suma a él."""
+
+    if events and event.hidden and not _has_marks(event):
+        last, last_sources = events[-1]
+        if (
+            last.hidden
+            and not _has_marks(last)
+            and last.duration_beats is not None
+            and event.duration_beats is not None
+        ):
+            merged = replace(last, duration_beats=last.duration_beats + event.duration_beats)
+            events[-1] = (merged, last_sources + sources)
+            return
+    events.append((event, sources))
+
+
+def _has_marks(event: Event) -> bool:
+    return bool(event.articulations or event.fermata or event.slurs)
 
 
 def _note_marks(sources: Iterable[Any]) -> tuple[tuple[Articulation, ...], bool]:

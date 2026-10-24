@@ -37,6 +37,7 @@ from cadenza.interchange import (
     score_ir_to_musicxml,
 )
 from music21 import converter, stream
+from music21 import note as m21_note
 
 FIXTURES = Path(__file__).parent / "fixtures"
 FORWARD = FIXTURES / "forward_second_voice.musicxml"
@@ -198,6 +199,76 @@ def test_gaps_and_invisible_rests_become_hidden_rests() -> None:
         ("rest", None, one, False, None, True),
         ("note", "C5", two, False, None, False),
     ]
+
+
+def _two_voices(divisions: int, second_voice_at: int, forward: int = 0) -> str:
+    """4/4: voz 1, un Mi5 redonda; voz 2, Do4 y Re4 blancas desde ``second_voice_at`` divisiones
+    (un `<backup>` que no vuelve al principio) y tras un `<forward>` de ``forward``."""
+
+    whole, half = 4 * divisions, 2 * divisions
+    forward_xml = f"<forward><duration>{forward}</duration></forward>" if forward else ""
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>M</part-name></score-part></part-list>
+  <part id="P1"><measure number="1">
+    <attributes><divisions>{divisions}</divisions><time><beats>4</beats><beat-type>4</beat-type>
+      </time><clef><sign>G</sign><line>2</line></clef></attributes>
+    <note><pitch><step>E</step><octave>5</octave></pitch><duration>{whole}</duration>
+      <voice>1</voice><type>whole</type></note>
+    <backup><duration>{whole - second_voice_at}</duration></backup>{forward_xml}
+    <note><pitch><step>C</step><octave>4</octave></pitch><duration>{half}</duration>
+      <voice>2</voice><type>half</type></note>
+    <note><pitch><step>D</step><octave>4</octave></pitch><duration>{half}</duration>
+      <voice>2</voice><type>half</type></note>
+  </measure></part>
+</score-partwise>"""
+
+
+@pytest.mark.parametrize("divisions", [1024, 3000])
+def test_a_tiny_gap_of_an_inconsistent_source_is_not_a_hidden_rest(divisions: int) -> None:
+    """Un `<backup>` que se queda corto en una división no es un hueco musical: crearía un
+    silencio invisible de 1/1000 de negra, o de duración 0, y un hallazgo falso."""
+
+    score = musicxml_to_score_ir(_two_voices(divisions, second_voice_at=1))
+    assert _voice(score, 0, 1, 1) == [
+        ("note", "C4", Fraction(2), False, None, False),
+        ("note", "D4", Fraction(2), False, None, False),
+    ]
+
+
+def test_a_gap_of_two_figures_comes_back_the_same() -> None:
+    """music21 escribe un silencio de 5/2 negras como dos (2 y 1/2): al leerlo, los silencios
+    invisibles seguidos de una voz son uno, y la ida y vuelta da el mismo `ScoreIR`."""
+
+    score = musicxml_to_score_ir(
+        _two_voices(2, second_voice_at=0, forward=5).replace(
+            "<duration>4</duration>\n      <voice>2</voice><type>half</type></note>\n    <note>",
+            "<duration>1</duration>\n      <voice>2</voice><type>eighth</type></note>\n    <note>",
+            1,
+        )
+    )
+    assert _voice(score, 0, 1, 1)[0] == ("rest", None, Fraction(5, 2), False, None, True)
+    assert musicxml_to_score_ir(score_ir_to_musicxml(score)) == score
+
+
+def test_voices_without_a_musicxml_number_keep_the_order_of_the_measure() -> None:
+    """converter21 crea sin número las voces de MEI y **kern, y music21 les da su dirección de
+    memoria: ordenarlas por ella cambiaba al azar la primera voz por la segunda."""
+
+    first, second = stream.Voice(), stream.Voice()
+    if first.id < second.id:
+        first, second = second, first
+    first.insert(0, m21_note.Note("E5", quarterLength=4))
+    second.insert(0, m21_note.Note("C4", quarterLength=2))
+    second.insert(2, m21_note.Note("D4", quarterLength=2))
+    measure = stream.Measure(number=1)
+    measure.insert(0, first)
+    measure.insert(0, second)
+    part = stream.Part()
+    part.append(measure)
+    score = music21_stream_to_score_ir(part)
+    events = score.parts[0].staves[0].measures[0].events
+    assert [(e.voice, e.pitch) for e in events] == [(0, "E5"), (1, "C4"), (1, "D4")]
 
 
 def test_a_multirest_of_mei_is_a_rest_that_is_seen() -> None:
