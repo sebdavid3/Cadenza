@@ -1751,7 +1751,7 @@ describe("corregir la nota elegida", () => {
         voice: body.anchor.voice,
         pitch: typeof after.pitch === "string" ? after.pitch : null,
         duration_beats: String(after.duration_beats),
-        tie: null,
+        tie: typeof after.tie === "string" ? after.tie : null,
         is_chord: after.is_chord === true,
         bbox: null,
         confidence: null,
@@ -1790,7 +1790,8 @@ describe("corregir la nota elegida", () => {
       before,
       after: body.after ?? null,
       reverts_edit_id: null,
-      created_at: "2026-10-24T10:00:00Z",
+      // Sin zona, como lo da la API sobre SQLite: es UTC.
+      created_at: "2026-10-24T10:00:00",
       ...extra,
     };
     next.current_seq = seq;
@@ -1840,15 +1841,25 @@ describe("corregir la nota elegida", () => {
     const undoBodies: unknown[] = [];
     const undoQueue: UndoRoute[] = [];
     let exportStatus: number | null = null;
+    let exportOverride: ((init: RequestInit | undefined) => Promise<Response>) | null = null;
+    // Como el servidor: un `base_seq` que no es el del estado actual es un 409 (ADR-0011).
+    const stale = (baseSeq: number | null | undefined) =>
+      baseSeq !== undefined && baseSeq !== null && baseSeq !== (current.current_seq ?? 0);
     const accept = (body: EditEventCreate) => {
+      if (stale(body.base_seq)) return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
       const { next, saved } = apply(current, body);
       current = next;
       draw(current);
       return jsonResponse(saved, 201);
     };
-    const acceptUndo = () => {
+    const acceptUndo = (body?: { base_seq?: number | null } | null) => {
+      if (stale(body?.base_seq)) return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
       const target = lastActive(current.edits);
       if (!target) return jsonResponse({ detail: "No hay ediciones activas para deshacer" }, 422);
+      // Sin estado previo (anterior a ADR-0017), el servidor no la deshace.
+      if (target.op !== "InsertEvent" && target.before === null) {
+        return jsonResponse({ detail: "No guardó su estado previo completo" }, 422);
+      }
       const { next, saved } = apply(current, inverse(target, current.current_seq ?? 0), {
         before: target.op === "DeleteEvent" ? null : target.after,
         reverts_edit_id: target.id,
@@ -1869,12 +1880,14 @@ describe("corregir la nota elegida", () => {
     const server = mockApi({
       [`GET /sessions/${ID}`]: () => (detailRoute ? detailRoute() : jsonResponse(current)),
       [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
-      [`GET /sessions/${ID}/export`]: () =>
-        exportStatus
-          ? jsonResponse({ detail: "fallo" }, exportStatus)
-          : new Response(XML, {
-              headers: { "Content-Type": "application/vnd.recordare.musicxml" },
-            }),
+      [`GET /sessions/${ID}/export`]: (init) =>
+        exportOverride
+          ? exportOverride(init)
+          : exportStatus
+            ? jsonResponse({ detail: "fallo" }, exportStatus)
+            : new Response(XML, {
+                headers: { "Content-Type": "application/vnd.recordare.musicxml" },
+              }),
       [`GET /sessions/${ID}/image`]: png,
       [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
       "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
@@ -1884,8 +1897,11 @@ describe("corregir la nota elegida", () => {
         return (queue.shift() ?? accept)(body);
       },
       [`POST /sessions/${ID}/undo`]: (init) => {
-        undoBodies.push(JSON.parse(typeof init?.body === "string" ? init.body : "null"));
-        return (undoQueue.shift() ?? acceptUndo)();
+        const body = JSON.parse(typeof init?.body === "string" ? init.body : "null") as {
+          base_seq?: number | null;
+        } | null;
+        undoBodies.push(body);
+        return (undoQueue.shift() ?? (() => acceptUndo(body)))();
       },
     });
     return {
@@ -1903,6 +1919,10 @@ describe("corregir la nota elegida", () => {
       /** Hace fallar la exportación (o la arregla, con null). */
       failExport(status: number | null) {
         exportStatus = status;
+      },
+      /** Otra respuesta para la exportación (o la de siempre, con null). */
+      exportRoute(route: ((init: RequestInit | undefined) => Promise<Response>) | null) {
+        exportOverride = route;
       },
       /** Cambia el estado del servidor, como si se hubiera editado en otra pestaña. */
       replace(next: SessionDetailRead) {
@@ -3404,12 +3424,6 @@ describe("corregir la nota elegida", () => {
       });
       renderPage();
       await chooseMeasure(2);
-      server.respondUndo(() =>
-        jsonResponse(
-          { detail: "La edición seq=1 (SetPitch) no guardó su estado previo completo" },
-          422,
-        ),
-      );
 
       fireEvent.click(undoButton());
 
@@ -3514,9 +3528,10 @@ describe("corregir la nota elegida", () => {
           "Deshecho: borrado de Do 4, negra con puntillo (compás 2, voz 1).",
         );
       });
-      // La vista muestra lo que devolvió el servidor: la nota, con su staccato (ADR-0031).
-      const restored = server.current().current_score?.parts[0]?.staves[0]?.measures[1]?.events[0];
-      expect(restored).toMatchObject({ pitch: "C4", articulations: ["staccato"] });
+      // La vista no recompone la nota: muestra el estado que devuelve el servidor, cuya
+      // compensatoria lleva la instantánea con las marcas (ADR-0031); lo pide entero.
+      expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(3);
       expect(useSelectionStore.getState().selection).toEqual({
         sessionId: ID,
         seq: 2,
@@ -3650,6 +3665,8 @@ describe("corregir la nota elegida", () => {
       expect(redone).toHaveTextContent("Compás 2, voz 1");
       expect(compensatory).not.toHaveTextContent("Deshecha");
       expect(first).toHaveTextContent("Deshecha en la 2");
+      // La hora del servidor es UTC aunque llegue sin zona.
+      expect(first?.querySelector("time")).toHaveAttribute("datetime", "2026-10-24T10:00:00.000Z");
       expect(first).toHaveAttribute("data-undone", "true");
       expect(redone).not.toHaveAttribute("data-undone", "true");
     });
@@ -3687,15 +3704,19 @@ describe("corregir la nota elegida", () => {
       expect(within(history()).getByRole("listitem")).toHaveTextContent("Altura Re 4");
     });
 
-    it("si la partitura nueva no se puede exportar, se puede deshacer la edición", async () => {
+    it("si la partitura nueva no se puede exportar, se puede deshacer la edición sin perder el foco", async () => {
       const server = editableApi();
       renderPage();
       await chooseMeasure(2);
       server.failExport(500);
+      button("Subir un paso").focus();
       fireEvent.click(button("Subir un paso"));
       await screen.findByText("No se pudo dibujar la partitura.");
+      // La barra pasa a otro sitio y no tiene ese botón: el foco va a lo que dice.
+      expect(document.activeElement).toBe(document.querySelector(".editor__messages"));
       server.failExport(null);
 
+      undoButton().focus();
       fireEvent.click(undoButton());
 
       await waitFor(() => {
@@ -3703,6 +3724,98 @@ describe("corregir la nota elegida", () => {
       });
       expect(await findScore()).toBeVisible();
       expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
+      // La barra de la partitura dibujada sustituye a la otra: el foco sigue en «Deshacer».
+      expect(document.activeElement).toBe(undoButton());
+    });
+
+    it("mientras se carga la partitura, Ctrl+Z no deshace a ciegas", async () => {
+      const done = apply(detail(), {
+        base_seq: 0,
+        op: "SetPitch",
+        anchor: anchorOf(2),
+        before: null,
+        after: { pitch: "D4" },
+      });
+      const server = editableApi(done.next);
+      server.exportRoute(hangUntilAborted);
+      renderPage();
+      await screen.findByText("Ediciones");
+
+      fireEvent.keyDown(document.body, ctrl("z"));
+
+      expect(server.count(`POST /sessions/${ID}/undo`)).toBe(0);
+      expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
+    });
+
+    it("rehace inserciones y borrados en el orden inverso al deshecho, con su ancla y su after", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.keyDown(region, { key: "n" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, negra con puntillo.");
+      });
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, negra con puntillo.");
+      });
+      const [insert, remove] = server.bodies;
+
+      // Se deshacen el borrado y después la inserción; cada uno deja elegido lo que cambia.
+      fireEvent.keyDown(region, ctrl("z"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Deshecho: borrado de Do 4, negra con puntillo (compás 2, voz 1).",
+        );
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 3,
+        anchor: anchorOf(2),
+        placedBy: 3,
+      });
+      fireEvent.keyDown(region, ctrl("z"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Deshecho: inserción de Do 4, negra con puntillo (compás 2, voz 1).",
+        );
+      });
+      expect(historyNote()).toHaveTextContent(
+        "Nada que deshacer. Rehace: inserción de Do 4, negra con puntillo (compás 2, voz 1).",
+      );
+
+      // Se rehacen en el orden inverso: primero la inserción, después el borrado, tal cual.
+      fireEvent.keyDown(region, ctrl("y"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Rehecho: inserción de Do 4, negra con puntillo (compás 2, voz 1).",
+        );
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 5,
+        anchor: anchorOf(2),
+        placedBy: 5,
+      });
+      fireEvent.keyDown(region, ctrl("y"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Rehecho: borrado de Do 4, negra con puntillo (compás 2, voz 1).",
+        );
+      });
+      expect(server.bodies.slice(2)).toEqual([
+        { ...insert, base_seq: 4 },
+        { ...remove, base_seq: 5, after: null },
+      ]);
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 6,
+        anchor: anchorOf(2),
+        placedBy: 6,
+      });
+      expect(
+        server
+          .current()
+          .current_score?.parts[0]?.staves[0]?.measures[1]?.events.map((event) => event.pitch),
+      ).toEqual(["C4", "D4"]);
+      expect(historyNote()).toHaveTextContent("Nada que rehacer.");
     });
 
     it("al salir de la vista deja de escuchar Ctrl+Z", async () => {

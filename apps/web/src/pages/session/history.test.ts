@@ -172,6 +172,16 @@ describe("describeEdit", () => {
     expect(describeEdit(edit(1, "DeleteEvent", null))).toBe("borrado de un evento");
   });
 
+  it("un silencio invisible se dice, porque no se ve en la partitura (ADR-0032)", () => {
+    const hidden = { kind: "rest", pitch: null, duration_beats: "1/2", hidden: true };
+    expect(describeEdit(edit(1, "InsertEvent", hidden))).toBe(
+      "inserción de un silencio invisible de corchea",
+    );
+    expect(describeEdit(edit(1, "DeleteEvent", null, { before: hidden }))).toBe(
+      "borrado de un silencio invisible de corchea",
+    );
+  });
+
   it("la clave y la armadura, también cuando se quita el cambio del compás", () => {
     expect(describeEdit(edit(1, "SetClef", { sign: "F", line: 4 }))).toBe("clave de fa");
     expect(describeEdit(edit(1, "SetClef", { clef: { sign: "C", line: 3 } }))).toBe(
@@ -198,6 +208,19 @@ describe("placeOf", () => {
     expect(placeOf({ op: "SetClef", anchor: anchor(3) }, false)).toBe("compás 3");
     expect(placeOf({ op: "SetKey", anchor: { ...anchor(3), staff: 1 } }, true)).toBe(
       "pentagrama 2, compás 3",
+    );
+  });
+
+  it("cuenta el pentagrama en toda la partitura, sumando los de las partes anteriores", () => {
+    const staff = (id: string) => ({ id, measures: [] });
+    const score = {
+      parts: [
+        { id: "part-0", staves: [staff("part-0-staff-0"), staff("part-0-staff-1")] },
+        { id: "part-1", staves: [staff("part-1-staff-0")] },
+      ],
+    } as unknown as ScoreIRPayload;
+    expect(placeOf({ op: "SetPitch", anchor: { ...anchor(2), part: 1 } }, true, score)).toBe(
+      "pentagrama 3, compás 2, voz 1",
     );
   });
 });
@@ -262,6 +285,16 @@ describe("historyKey", () => {
     // AltGr llega como Ctrl y Alt.
     expect(press("z", { ctrl: true, alt: true })).toBeNull();
     expect(press("x", { ctrl: true })).toBeNull();
+  });
+
+  it("con una distribución no latina cuenta la tecla física; con una latina, la letra", () => {
+    const base = { shiftKey: false, ctrlKey: true, metaKey: false, altKey: false };
+    // Ruso: la Z física da «я», y la Y, «н».
+    expect(historyKey({ ...base, key: "я", code: "KeyZ" })).toBe("undo");
+    expect(historyKey({ ...base, key: "н", code: "KeyY" })).toBe("redo");
+    // Francés: la letra Z está en la tecla física W.
+    expect(historyKey({ ...base, key: "z", code: "KeyW" })).toBe("undo");
+    expect(historyKey({ ...base, key: "a", code: "KeyQ" })).toBeNull();
   });
 });
 

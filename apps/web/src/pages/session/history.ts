@@ -152,6 +152,19 @@ function keyChange(after: Record<string, unknown>): string {
 }
 
 /**
+ * El evento de una inserción o de la instantánea de un borrado: «Re 4, negra», «un silencio de
+ * negra»; un silencio invisible (ADR-0032) no se ve en la partitura, y se dice.
+ */
+function eventOf(payload: Record<string, unknown>): string {
+  const kind = text(payload.kind) ?? "rest";
+  const beats = text(payload.duration_beats);
+  if (kind === "rest" && payload.hidden === true) {
+    return `un silencio invisible de ${durationName(beats)}`;
+  }
+  return eventName(kind, text(payload.pitch), beats);
+}
+
+/**
  * Qué hace una edición del log, como lo dice la barra de corrección: «altura Re 4», «figura
  * corchea», «borrado de Mi 4, negra». Un borrado se describe por la instantánea del servidor.
  */
@@ -170,11 +183,10 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return name ? `alteración ${name}` : "alteración";
     }
     case "InsertEvent":
-      return `inserción de ${eventName(text(after.kind) ?? "rest", text(after.pitch), text(after.duration_beats))}`;
+      return `inserción de ${eventOf(after)}`;
     case "DeleteEvent": {
       const before = record(edit.before);
-      if (!before) return "borrado de un evento";
-      return `borrado de ${eventName(text(before.kind) ?? "rest", text(before.pitch), text(before.duration_beats))}`;
+      return before ? `borrado de ${eventOf(before)}` : "borrado de un evento";
     }
     case "SetClef":
       return clefChange(after);
@@ -187,17 +199,23 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
 
 /**
  * Dónde está lo que cambia una edición, para decirlo: «compás 2, voz 1»; la clave y la armadura
- * son del compás, sin voz.
+ * son del compás, sin voz. El pentagrama se cuenta en toda la partitura, sumando los de las partes
+ * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
   { op, anchor }: { op: string; anchor: AnchorPayload },
   multiStaff: boolean,
+  score: ScoreIRPayload | null = null,
 ): string {
   const measureOnly = op === "SetClef" || op === "SetKey";
   const place = measureOnly
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
-  return multiStaff ? `pentagrama ${String(anchor.staff + 1)}, ${place}` : place;
+  if (!multiStaff) return place;
+  const previous = (score?.parts ?? [])
+    .slice(0, anchor.part)
+    .reduce((total, part) => total + part.staves.length, 0);
+  return `pentagrama ${String(previous + anchor.staff + 1)}, ${place}`;
 }
 
 /**
@@ -269,6 +287,8 @@ export function historyPlacement(
 /** Tecla de deshacer o rehacer. */
 export interface KeyLike {
   key: string;
+  /** Tecla física: con una distribución no latina, `key` es otra letra («я» en la Z rusa). */
+  code?: string;
   shiftKey: boolean;
   ctrlKey: boolean;
   metaKey: boolean;
@@ -277,11 +297,14 @@ export interface KeyLike {
 
 /**
  * Ctrl+Z o ⌘Z deshacen; con Mayús, o Ctrl+Y, rehacen. ⌘Y no: es la historia del navegador en un
- * Mac. Con Alt no es de la vista (AltGr llega como Ctrl y Alt).
+ * Mac. Con Alt no es de la vista (AltGr llega como Ctrl y Alt). Cuenta la letra (en un teclado
+ * francés la Z está en otro sitio) y, si no es latina, la tecla física, como hace el navegador.
  */
 export function historyKey(event: KeyLike): "undo" | "redo" | null {
   if (event.altKey || !(event.ctrlKey || event.metaKey)) return null;
-  const key = event.key.toLowerCase();
+  const latin = /^[a-z]$/i.test(event.key);
+  const physical = event.code === "KeyZ" ? "z" : event.code === "KeyY" ? "y" : "";
+  const key = latin ? event.key.toLowerCase() : physical;
   if (key === "z") return event.shiftKey ? "redo" : "undo";
   if (key === "y" && event.ctrlKey && !event.metaKey && !event.shiftKey) return "redo";
   return null;

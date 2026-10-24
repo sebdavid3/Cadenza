@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { PixelIcon, type PixelIconName } from "../../components/PixelIcon";
 import type { ScoreIRPayload } from "../../types";
 import {
@@ -40,6 +40,11 @@ interface EditBarProps {
   keysId: string;
   /** Lleva el foco a la partitura; false si ahora no lo puede tomar. */
   focusScore?: () => boolean;
+  /**
+   * Control que tenía el foco en la barra a la que esta sustituye (la partitura pasó a dibujarse o
+   * dejó de poder dibujarse, y la barra se montó en otro sitio): esta se lo devuelve.
+   */
+  focusMemoryRef?: MutableRefObject<string | null>;
 }
 
 const PITCH: { command: EditCommand; label: string; word: string; icon: PixelIconName }[] = [
@@ -117,6 +122,10 @@ const STRUCTURE: {
 /** Armaduras que se ofrecen, de siete bemoles a siete sostenidos. */
 const KEYS = Array.from({ length: 15 }, (_unused, index) => index - 7);
 
+/** Cómo se reconoce un control de la barra en otra barra: su nombre accesible o su texto. */
+const focusKey = (element: HTMLElement) =>
+  element.getAttribute("aria-label") ?? element.textContent;
+
 /** Un texto igual al anterior no se volvería a leer: un espacio duro al final lo distingue. */
 const HARD_SPACE = String.fromCharCode(0xa0);
 const distinct = (message: string, nonce: number) =>
@@ -165,10 +174,13 @@ const WORDS = {
 function feedback(
   status: EditorStatus,
   multiStaff: boolean,
+  score: ScoreIRPayload | null,
   retry: Editor["retry"],
 ): { text: string; reload: boolean } {
-  const what = (request: EditorRequest) => `${request.change} (${placeOf(request, multiStaff)})`;
-  const inline = (request: EditorRequest) => `${request.change}, ${placeOf(request, multiStaff)}`;
+  const what = (request: EditorRequest) =>
+    `${request.change} (${placeOf(request, multiStaff, score)})`;
+  const inline = (request: EditorRequest) =>
+    `${request.change}, ${placeOf(request, multiStaff, score)}`;
   switch (status.kind) {
     case "idle":
       return { text: "", reload: false };
@@ -378,6 +390,7 @@ function KeyPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
 interface HistoryControlsProps {
   editor: Editor;
   multiStaff: boolean;
+  score: ScoreIRPayload | null;
 }
 
 /**
@@ -385,11 +398,12 @@ interface HistoryControlsProps {
  * reharían y, sin nada, que no hay nada; Ctrl+Z y los suyos valen en toda la vista, salvo en un
  * campo de texto, y los botones lo declaran.
  */
-function HistoryControls({ editor, multiStaff }: HistoryControlsProps) {
+function HistoryControls({ editor, multiStaff, score }: HistoryControlsProps) {
   const labelId = useId();
   const noteId = useId();
   const { blocked, log } = editor;
-  const what = (edit: EditEventRead) => `${describeEdit(edit)} (${placeOf(edit, multiStaff)})`;
+  const what = (edit: EditEventRead) =>
+    `${describeEdit(edit)} (${placeOf(edit, multiStaff, score)})`;
   const note =
     !log.undo && !log.redo
       ? "Nada que deshacer ni rehacer."
@@ -465,10 +479,11 @@ export function EditBar({
   multiStaff,
   keysId,
   focusScore,
+  focusMemoryRef,
 }: EditBarProps) {
   const groupId = useId();
   const { status, refusal, blocked, retry } = editor;
-  const { text, reload } = feedback(status, multiStaff, retry);
+  const { text, reload } = feedback(status, multiStaff, score, retry);
   const busy = status.kind === "saving" || status.kind === "reloading";
 
   const current = target ? figureOf(target.event.duration_beats) : { figure: null, dotted: false };
@@ -499,9 +514,34 @@ export function EditBar({
     if (active && active !== document.body) return;
     if (!focusScore?.()) statusRef.current?.focus({ preventScroll: true });
   });
+  // La barra se monta en otro sitio cuando la partitura pasa a dibujarse (al deshacer la edición
+  // que no se podía dibujar) o deja de poder dibujarse: el foco que tenía la anterior pasa al
+  // mismo control de esta o, si no lo tiene, a lo que dice la barra; no se queda en el documento.
+  const sectionRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    if (!focusMemoryRef) return;
+    const section = sectionRef.current;
+    const key = focusMemoryRef.current;
+    focusMemoryRef.current = null;
+    const active = document.activeElement;
+    if (key !== null && (!active || active === document.body)) {
+      const same = [...(section?.querySelectorAll("button") ?? [])].find(
+        (button) => focusKey(button) === key,
+      );
+      (same ?? statusRef.current)?.focus({ preventScroll: true });
+    }
+    // Al desmontarse, la barra sigue en el documento: se apunta qué tenía el foco.
+    return () => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && section?.contains(focused)) {
+        focusMemoryRef.current = focusKey(focused);
+      }
+    };
+  }, [focusMemoryRef]);
 
   return (
     <section
+      ref={sectionRef}
       className="editor"
       aria-label="Corregir la nota elegida"
       data-busy={busy}
@@ -511,7 +551,7 @@ export function EditBar({
     >
       {(editable || undoable) && (
         <div className="editor__groups">
-          {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} />}
+          {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} score={score} />}
           {editable && (
             <>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>

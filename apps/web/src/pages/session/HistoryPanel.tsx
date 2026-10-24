@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import type { EditEventRead } from "../../types";
+import type { EditEventRead, ScoreIRPayload } from "../../types";
+import { isoUtc, parseUtc } from "../transcription/sessions";
 import { describeEdit, placeOf, readLog, type LogEntry } from "./history";
 
 interface HistoryPanelProps {
@@ -7,11 +8,13 @@ interface HistoryPanelProps {
   edits: readonly EditEventRead[];
   /** Con varios pentagramas, cada edición dice en cuál está. */
   multiStaff: boolean;
+  /** Estado actual: cuenta los pentagramas de toda la partitura. */
+  score: ScoreIRPayload | null;
 }
 
 const capitalize = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 
-const WHEN = new Intl.DateTimeFormat("es-ES", {
+const WHEN = new Intl.DateTimeFormat("es", {
   day: "numeric",
   month: "short",
   hour: "2-digit",
@@ -33,7 +36,7 @@ function changeOf(entry: LogEntry, bySeq: ReadonlyMap<number, EditEventRead>): s
  * borra (ADR-0007): deshacer añade una edición que compensa la deshecha, y rehacer, la misma
  * edición otra vez. Lo deshecho se tacha y lo dice, también para un lector de pantalla.
  */
-export function HistoryPanel({ edits, multiStaff }: HistoryPanelProps) {
+export function HistoryPanel({ edits, multiStaff, score }: HistoryPanelProps) {
   const log = useMemo(() => readLog(edits), [edits]);
   const bySeq = useMemo(() => new Map(edits.map((edit) => [edit.seq, edit])), [edits]);
   const count = edits.length;
@@ -60,9 +63,16 @@ export function HistoryPanel({ edits, multiStaff }: HistoryPanelProps) {
             <summary className="label">
               {count === 1 ? "Ver la edición" : `Ver las ${String(count)} ediciones`}
             </summary>
-            <ol className="history__list" role="list">
+            {/* Con muchas ediciones la lista se desplaza: con el foco, también con el teclado. */}
+            <ol
+              className="history__list"
+              role="list"
+              tabIndex={0}
+              aria-label="Ediciones, de la más reciente a la primera"
+            >
               {[...log.entries].reverse().map((entry) => {
-                const date = new Date(entry.edit.created_at);
+                // En UTC aunque llegue sin zona (así lo da la API sobre SQLite).
+                const date = parseUtc(entry.edit.created_at);
                 return (
                   <li
                     key={entry.edit.id}
@@ -72,11 +82,11 @@ export function HistoryPanel({ edits, multiStaff }: HistoryPanelProps) {
                     <span className="label history__seq">{entry.edit.seq}</span>
                     <span className="history__change">{changeOf(entry, bySeq)}</span>
                     <span className="history__meta">
-                      {capitalize(placeOf(entry.edit, multiStaff))}
+                      {capitalize(placeOf(entry.edit, multiStaff, score))}
                       {!Number.isNaN(date.getTime()) && (
                         <>
                           {" · "}
-                          <time dateTime={entry.edit.created_at}>{WHEN.format(date)}</time>
+                          <time dateTime={isoUtc(entry.edit.created_at)}>{WHEN.format(date)}</time>
                         </>
                       )}
                     </span>
