@@ -22,7 +22,12 @@ from cadenza.domain import (
     Tie,
     TimeSignature,
 )
-from cadenza.interchange import InterchangeError, musicxml_to_score_ir, score_ir_to_musicxml
+from cadenza.interchange import (
+    InterchangeError,
+    musicxml_to_score_ir,
+    score_ir_to_midi,
+    score_ir_to_musicxml,
+)
 
 THREE_FOUR = TimeSignature(beats=3, beat_type=4)
 
@@ -301,3 +306,99 @@ def test_beams_and_key_accidentals_are_kept() -> None:
     assert notes[0].find("accidental") is None
     accidental = notes[3].find("accidental")
     assert accidental is not None and accidental.text == "natural"
+
+
+def _durations(measure: ET.Element) -> list[int | None]:
+    """Duración MusicXML de cada nota del compás: None en una nota de adorno, que no la lleva."""
+    durations = []
+    for note_element in measure.findall("note"):
+        duration = note_element.find("duration")
+        durations.append(None if duration is None or duration.text is None else int(duration.text))
+    return durations
+
+
+def test_zero_or_null_duration_note_is_a_grace_note_that_takes_no_time() -> None:
+    # HOMR da duración 0 a las notas de adorno. Antes salían como negras que el ScoreIR no suma:
+    # music21 cambia la duración cero por una negra, y el exportador hacía lo mismo con la nula
+    # (D60, #199).
+    null_note = Event(kind=EventKind.NOTE, voice=0, pitch="D5", duration_beats=None)
+    score = _score(
+        _first(1, _note("G#4", "0"), _note("A4", "2"), _note("B4", "1")),
+        _next(2, null_note, _note("E5", "3")),
+    )
+
+    xml_text = score_ir_to_musicxml(score)
+
+    first, second = _xml_measures(xml_text)
+    assert [note.find("grace") is not None for note in first.findall("note")] == [
+        True,
+        False,
+        False,
+    ]
+    assert [note.find("grace") is not None for note in second.findall("note")] == [True, False]
+    # Las notas de adorno no llevan duración: cada compás suma sus tres negras.
+    divisions = int(first.findtext("attributes/divisions") or 0)
+    assert _durations(first) == [None, 2 * divisions, divisions]
+    assert _durations(second) == [None, 3 * divisions]
+
+    reloaded = musicxml_to_score_ir(xml_text).parts[0].staves[0].measures
+    assert [(e.pitch, e.duration_beats) for e in reloaded[0].events] == [
+        ("G#4", Fraction(0)),
+        ("A4", Fraction(2)),
+        ("B4", Fraction(1)),
+    ]
+    assert [(e.pitch, e.duration_beats) for e in reloaded[1].events] == [
+        ("D5", Fraction(0)),
+        ("E5", Fraction(3)),
+    ]
+
+
+def test_zero_duration_chord_is_a_grace_chord() -> None:
+    score = _score(
+        _first(1, _note("C5", "0"), _note("E5", "0", is_chord=True), _note("D5", "3")),
+    )
+
+    xml_text = score_ir_to_musicxml(score)
+
+    (measure,) = _xml_measures(xml_text)
+    assert [note.find("grace") is not None for note in measure.findall("note")] == [
+        True,
+        True,
+        False,
+    ]
+    events = musicxml_to_score_ir(xml_text).parts[0].staves[0].measures[0].events
+    assert [(e.pitch, e.duration_beats, e.is_chord) for e in events] == [
+        ("C5", Fraction(0), False),
+        ("E5", Fraction(0), True),
+        ("D5", Fraction(3), False),
+    ]
+
+
+def test_grace_note_at_the_end_of_a_measure_stays_in_it() -> None:
+    score = _score(_first(1, _note("F5", "3"), _note("G5", "0")), _next(2, _note("A5", "3")))
+
+    xml_text = score_ir_to_musicxml(score)
+
+    first, second = _xml_measures(xml_text)
+    assert [note.findtext("pitch/step") for note in first.findall("note")] == ["F", "G"]
+    assert first.findall("note")[1].find("grace") is not None
+    assert [note.findtext("pitch/step") for note in second.findall("note")] == ["A"]
+
+
+def test_zero_duration_rest_is_still_written_as_a_quarter_rest() -> None:
+    # MusicXML no tiene silencios de adorno: un silencio de duración cero sigue saliendo como
+    # silencio de negra, como hasta ahora.
+    score = _score(_first(1, _rest("0"), _note("C4", "3")))
+
+    xml_text = score_ir_to_musicxml(score)
+
+    (measure,) = _xml_measures(xml_text)
+    divisions = int(measure.findtext("attributes/divisions") or 0)
+    assert measure.findall("note")[0].find("rest") is not None
+    assert _durations(measure)[0] == divisions
+
+
+def test_midi_export_accepts_grace_notes() -> None:
+    score = _score(_first(1, _note("G#4", "0"), _note("A4", "3")))
+
+    assert score_ir_to_midi(score).startswith(b"MThd")

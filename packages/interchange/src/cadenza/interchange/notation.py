@@ -295,7 +295,22 @@ def _to_music21_pitch(pitch: str) -> str:
     return pitch.replace("b", "-")
 
 
+def _is_untimed_note(event: Event) -> bool:
+    """Nota sin duración (cero o nula): así da HOMR una nota de adorno (D60, #199)."""
+
+    return event.kind is not EventKind.REST and event.pitch is not None and not event.duration_beats
+
+
 def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
+    """Elementos de music21 de una voz, cada uno con su instante dentro del compás.
+
+    Una nota o un acorde sin duración se escribe como nota de adorno, que no ocupa tiempo: así
+    lo dibujado suma lo mismo que el `ScoreIR`, el mapa de tiempos y el validador (D60, #199).
+    Antes salía como negra, porque music21 cambia `quarterLength=0` por su duración por defecto.
+    Un silencio no tiene versión de adorno en MusicXML: con duración cero sigue saliendo como
+    silencio de negra.
+    """
+
     elements: list[tuple[float, Any]] = []
     offset = 0.0
     i = 0
@@ -320,14 +335,16 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
                     if cn.tie is not None:
                         n.tie = tie.Tie(cn.tie.value)
                     m21_notes.append(n)
-                ch = chord.Chord(m21_notes, quarterLength=dur)
-                elements.append((offset, ch))
+                element: Any = chord.Chord(m21_notes, quarterLength=dur)
             else:
-                n = note.Note(_to_music21_pitch(ev.pitch), quarterLength=dur)
+                element = note.Note(_to_music21_pitch(ev.pitch), quarterLength=dur)
                 if ev.tie is not None:
-                    n.tie = tie.Tie(ev.tie.value)
-                elements.append((offset, n))
-            offset += dur
+                    element.tie = tie.Tie(ev.tie.value)
+            if _is_untimed_note(ev):
+                elements.append((offset, element.getGrace()))
+            else:
+                elements.append((offset, element))
+                offset += dur
             i = j
     return elements
 
@@ -450,7 +467,8 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
     alteraciones visibles, los corchetes de los tresillos y las barras de agrupación (salvo en
     los compases sobrellenados, que music21 no agrupa), y divide en notas ligadas dentro del
     mismo compás las duraciones que MusicXML no puede escribir con una sola figura. Los
-    tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`.
+    tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`. Una nota
+    de duración cero o nula sale como nota de adorno (D60, #199).
     """
 
     if not score.parts:
