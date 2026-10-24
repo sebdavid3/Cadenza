@@ -163,6 +163,13 @@ class ScoreEventPayload(BaseModel):
         default_factory=list,
         description="Extremos de ligadura de expresión que empiezan o acaban en el evento",
     )
+    hidden: bool = Field(
+        default=False,
+        description=(
+            "Silencio invisible (ADR-0032): el hueco de una voz que entra a mitad del compás o "
+            "calla entre dos notas. Ocupa su tiempo, tiene ancla y no se dibuja"
+        ),
+    )
 
 
 class MeasurePayload(BaseModel):

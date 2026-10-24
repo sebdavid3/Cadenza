@@ -403,6 +403,8 @@ export interface ScoreEventPayload {
   fermata?: boolean;
   /** Extremos de ligadura de expresión que empiezan o acaban en el evento */
   slurs?: SlurPayload[];
+  /** Silencio invisible (ADR-0032): el hueco de una voz que entra a mitad del compás o calla entre dos notas. Ocupa su tiempo, tiene ancla y no se dibuja */
+  hidden?: boolean;
 }
 
 /**
