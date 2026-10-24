@@ -4,19 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { deferred } from "../../test/auth-helpers";
 import type { ScoreIRPayload } from "../../types";
 import type { RenderedScore } from "./osmd";
-import { ScoreView } from "./ScoreView";
+import { ScoreView, type ScoreSnapshot } from "./ScoreView";
 
 // El dibujo real no importa aquí: solo cuándo se pide, cuándo termina y cuándo se libera.
 const calls = vi.hoisted(() => ({
   pending: [] as {
     signal: AbortSignal;
     resolve: (score: RenderedScore) => void;
+    reject: (reason: unknown) => void;
   }[],
 }));
 vi.mock("./osmd", () => ({
   renderScore: (_host: HTMLElement, _xml: string, signal: AbortSignal) => {
-    const { promise, resolve } = deferred<RenderedScore>();
-    calls.pending.push({ signal, resolve });
+    const { promise, resolve, reject } = deferred<RenderedScore>();
+    calls.pending.push({ signal, resolve, reject });
     return promise;
   },
 }));
@@ -38,13 +39,13 @@ const TRANSCRIPTION = {
   ],
 } as unknown as ScoreIRPayload;
 
-function view() {
+const FIRST: ScoreSnapshot = { xml: "<score-partwise/>", transcription: TRANSCRIPTION, seq: 0 };
+
+function view(snapshot = FIRST) {
   return (
     <ScoreView
-      xml="<score-partwise/>"
-      transcription={TRANSCRIPTION}
+      snapshot={snapshot}
       sessionId="sesion"
-      seq={0}
       marks={[]}
       expectedMeasures={[1]}
       selectedKey={null}
@@ -83,6 +84,56 @@ describe("ScoreView", () => {
     expect(rendered.getByText("Preparando la selección de notas…")).toBeInTheDocument();
     expect(rendered.queryByText(/elige una nota/i)).toBeNull();
     expect(rendered.queryByRole("button", { name: "Siguiente" })).toBeNull();
+  });
+
+  it("al cambiar de estado deja a la vista el dibujo anterior hasta tener el nuevo", async () => {
+    const rendered = render(view());
+    const first = fakeScore();
+    await act(async () => {
+      calls.pending[0]?.resolve(first);
+      await Promise.resolve();
+    });
+    const host = rendered.container.querySelector(".notation__host");
+    expect(host?.children).toHaveLength(1);
+
+    rendered.rerender(view({ ...FIRST, seq: 1 }));
+    // El nuevo se prepara oculto encima del anterior, que sigue entero.
+    expect(calls.pending).toHaveLength(2);
+    expect(host?.children).toHaveLength(2);
+    expect(host?.lastElementChild).toHaveClass("notation__next");
+    expect(first.dispose).not.toHaveBeenCalled();
+    expect(rendered.queryByText("Dibujando la partitura…")).toBeNull();
+
+    const second = fakeScore();
+    await act(async () => {
+      calls.pending[1]?.resolve(second);
+      await Promise.resolve();
+    });
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(host?.children).toHaveLength(1);
+    expect(host?.firstElementChild).not.toHaveClass("notation__next");
+
+    rendered.unmount();
+    expect(second.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("si el estado nuevo no se puede dibujar, no deja a la vista el anterior", async () => {
+    const rendered = render(view());
+    const first = fakeScore();
+    await act(async () => {
+      calls.pending[0]?.resolve(first);
+      await Promise.resolve();
+    });
+
+    rendered.rerender(view({ ...FIRST, seq: 1 }));
+    await act(async () => {
+      calls.pending[1]?.reject(new Error("MusicXML no válido"));
+      await Promise.resolve();
+    });
+
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(rendered.getByText("No se pudo dibujar la partitura.")).toBeInTheDocument();
+    expect(rendered.container.querySelector(".notation__host")?.children).toHaveLength(0);
   });
 
   it("al salir mientras OSMD carga, cancela el dibujo y lo libera cuando termina", async () => {

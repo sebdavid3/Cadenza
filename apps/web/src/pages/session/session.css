@@ -1,5 +1,6 @@
-/* Vista de una sesión (solo lectura): el escaneo sobre la notación, como en la demostración de
-   la landing, y los posibles errores al lado. El violeta solo marca el compás dudoso. */
+/* Vista de una sesión: el escaneo sobre la notación, como en la demostración de la landing, y
+   los posibles errores al lado. El violeta marca lo que pide acción: el compás dudoso, la nota
+   elegida y lo que no se pudo guardar. */
 
 .session__head {
   display: grid;
@@ -156,7 +157,8 @@
    un bloque de tinta (el estado pulsado del sistema). Los pasos de la selección son iguales. */
 .playback__button,
 .playback__step,
-.selection__button {
+.selection__button,
+.editor__button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -185,11 +187,13 @@
 }
 
 .playback__button + .playback__button,
-.selection__button + .selection__button {
+.selection__button + .selection__button,
+.editor__button + .editor__button {
   margin-left: calc(var(--rule-width) * -1);
 }
 
-.playback__button[data-active="true"] {
+.playback__button[data-active="true"],
+.editor__button[aria-pressed="true"] {
   background: var(--color-ink);
   color: var(--color-paper);
 }
@@ -199,7 +203,8 @@
 @media (hover: hover) {
   .playback__button:hover,
   .playback__step:hover,
-  .selection__button:hover {
+  .selection__button:hover,
+  .editor__button:hover {
     background: var(--color-ink);
     color: var(--color-paper);
   }
@@ -207,7 +212,8 @@
 
 .playback__button[aria-disabled="true"],
 .playback__step[aria-disabled="true"],
-.selection__button[aria-disabled="true"] {
+.selection__button[aria-disabled="true"],
+.editor__button[aria-disabled="true"] {
   border-style: dashed;
   background: var(--color-paper);
   color: var(--color-ink-muted);
@@ -217,7 +223,8 @@
 /* El foco queda por encima del filete del vecino. */
 .playback__button:focus-visible,
 .playback__step:focus-visible,
-.selection__button:focus-visible {
+.selection__button:focus-visible,
+.editor__button:focus-visible {
   position: relative;
   z-index: 1;
 }
@@ -337,9 +344,101 @@
   height: 0.75rem;
 }
 
-/* Sin teclado físico la leyenda solo estorba: quedan el toque y los pasos. */
+/* Corrección de la nota elegida: su propia franja bajo la de la selección, con tres grupos de
+   botones contiguos (altura, alteración y figura), cada uno con su rótulo encima. El valor que
+   ya tiene la nota es un bloque de tinta (pulsado); lo que no se puede, filete discontinuo. */
+.editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.editor__groups {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-5);
+}
+
+.editor__group {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.editor__label {
+  color: var(--color-ink-muted);
+}
+
+.editor__buttons {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.editor__button {
+  padding: var(--space-2);
+}
+
+.editor__button svg {
+  flex: none;
+}
+
+.editor__word {
+  padding-right: var(--space-1);
+}
+
+.editor__hint {
+  flex-basis: 100%;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Lo que pasó con la última orden; si hay algo que hacer, el botón va al lado. */
+.editor__feedback {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+}
+
+.editor__feedback:not(:has(.editor__status:not(:empty), button)) {
+  display: none;
+}
+
+.editor__status {
+  max-width: 64ch;
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+.editor[data-busy="true"] .editor__status {
+  color: var(--color-ink-muted);
+  font-weight: 400;
+}
+
+.editor__keys {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.editor__keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+/* Sin teclado físico las leyendas solo estorban: quedan el toque y los botones. */
 @media (hover: none) and (pointer: coarse) {
-  .selection__keys {
+  .selection__keys,
+  .editor__keys {
     display: none;
   }
 }
@@ -374,6 +473,21 @@
   .playback__readout {
     flex-basis: 100%;
     margin-left: 0;
+  }
+
+  /* En la corrección quedan los iconos solos (el nombre sigue para el lector) y la franja
+     aprovecha el ancho: ocho botones de figura caben en una fila a 390 px. */
+  .editor {
+    padding-inline: var(--space-2);
+  }
+
+  .editor__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   /* Los pasos de la selección ocupan la fila entera: flechas solas y «Quitar». */
@@ -433,6 +547,17 @@
 .notation__host {
   position: relative;
   z-index: 1;
+}
+
+/* El estado nuevo se dibuja oculto encima del anterior, con su mismo ancho, y lo sustituye al
+   terminar: la página no salta al corregir. */
+.notation__next {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .notation__marks {

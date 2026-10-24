@@ -1,21 +1,51 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
-import type { FindingRead, SessionDetailRead, TimingMapRead } from "../../types";
+import type {
+  EditEventCreate,
+  EditEventRead,
+  FindingRead,
+  SessionDetailRead,
+  TimingMapRead,
+} from "../../types";
 import { sessionImage } from "../transcription/sessions";
 
 const sessionPath = (sessionId: string) => `/sessions/${encodeURIComponent(sessionId)}` as const;
 
+/** Detalle de una sesión: su estado actual (`current_seq`), la partitura y el log de ediciones. */
+export async function fetchSessionDetail(
+  api: ApiClient,
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<SessionDetailRead> {
+  const detail = await api.request<SessionDetailRead>(sessionPath(sessionId), { signal });
+  // Sin partitura materializada no hay nada que dibujar: se trata como respuesta inesperada.
+  if (!detail.current_score) throw new ApiError("unexpected", 200);
+  return detail;
+}
+
 export const sessionDetailQuery = (api: ApiClient, sessionId: string) =>
   queryOptions({
     queryKey: ["session", sessionId],
-    queryFn: async ({ signal }) => {
-      const detail = await api.request<SessionDetailRead>(sessionPath(sessionId), { signal });
-      // Sin partitura materializada no hay nada que dibujar: se trata como respuesta inesperada.
-      if (!detail.current_score) throw new ApiError("unexpected", 200);
-      return detail;
-    },
+    queryFn: ({ signal }) => fetchSessionDetail(api, sessionId, signal),
   });
+
+/**
+ * `POST /sessions/{id}/edits`: una corrección sobre el estado `base_seq` (ADR-0011). Responde 201
+ * con la edición guardada, no con la partitura: el estado nuevo se pide aparte.
+ */
+export function postEdit(
+  api: ApiClient,
+  sessionId: string,
+  edit: EditEventCreate,
+  signal?: AbortSignal,
+): Promise<EditEventRead> {
+  return api.request<EditEventRead>(`${sessionPath(sessionId)}/edits`, {
+    method: "POST",
+    json: edit,
+    signal,
+  });
+}
 
 /**
  * Hallazgos de la última validación (`latest_only`), también los descartados para poder

@@ -27,7 +27,8 @@ function unavailableText(total?: number, unmatched?: number): string {
   return `${base}: ${String(unmatched)} de los ${String(total)} eventos ${verb} con lo dibujado.`;
 }
 
-function Key({ icon, children }: { icon?: PixelIconName; children: string }) {
+/** Tecla de una leyenda: un bloque de tinta con su rótulo o su flecha de píxel. */
+export function KeyCap({ icon, children }: { icon?: PixelIconName; children: string }) {
   if (!icon) return <kbd className="selection__key">{children}</kbd>;
   return (
     <kbd className="selection__key">
@@ -108,28 +109,28 @@ export function SelectionBar({
       </div>
       <p className="selection__keys" id={keysId}>
         <span>
-          <Key icon="arrow-left">flecha izquierda</Key>
-          <Key icon="arrow-right">flecha derecha</Key> nota
+          <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
+          <KeyCap icon="arrow-right">flecha derecha</KeyCap> nota
         </span>
         <span>
-          <Key icon="arrow-up">flecha arriba</Key>
-          <Key icon="arrow-down">flecha abajo</Key> voz y pentagrama
+          <KeyCap icon="arrow-up">flecha arriba</KeyCap>
+          <KeyCap icon="arrow-down">flecha abajo</KeyCap> voz y pentagrama
         </span>
         <span>
-          <Key>Ctrl</Key> o <Key>Cmd</Key>
-          <Key icon="arrow-left">flecha izquierda</Key>
-          <Key icon="arrow-right">flecha derecha</Key> compás
+          <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+          <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
+          <KeyCap icon="arrow-right">flecha derecha</KeyCap> compás
         </span>
         <span>
-          <Key>Re Pág</Key>
-          <Key>Av Pág</Key> compás
+          <KeyCap>Re Pág</KeyCap>
+          <KeyCap>Av Pág</KeyCap> compás
         </span>
         <span>
-          <Key>Inicio</Key>
-          <Key>Fin</Key> dentro del compás
+          <KeyCap>Inicio</KeyCap>
+          <KeyCap>Fin</KeyCap> dentro del compás
         </span>
         <span>
-          <Key>Esc</Key> quitar
+          <KeyCap>Esc</KeyCap> quitar
         </span>
       </p>
       <p className="visually-hidden" role="status">
