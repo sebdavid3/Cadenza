@@ -167,7 +167,8 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         tie_val = Tie(str(tie_raw)) if tie_raw is not None else None
         is_chord_val = bool(_value(edit.after, "is_chord") or False)
 
-        # Marcas de la nota (ADR-0031): el inverso de un borrado las devuelve exactas.
+        # Marcas de la nota (ADR-0031) y silencio invisible (ADR-0032): el inverso de un borrado
+        # los devuelve exactos.
         events.insert(
             insert_pos,
             Event(
@@ -184,6 +185,7 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
                 ),
                 fermata=bool(_value(edit.after, "fermata") or False),
                 slurs=tuple(Slur.from_primitive(s) for s in _value(edit.after, "slurs") or ()),
+                hidden=_value(edit.after, "hidden") is True,
             ),
         )
         return replace(measure, events=tuple(events))

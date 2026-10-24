@@ -40,6 +40,10 @@ class Event:
     Las marcas de la nota (ADR-0031) son atributos: articulaciones, calderón y extremos de
     ligadura de expresión. Se normalizan (sin repetir y en orden canónico) y, vacías, no se
     serializan, para que un documento sin marcas se guarde igual que antes de #213.
+
+    `hidden` marca un silencio invisible (ADR-0032): el hueco de una voz que no empieza con el
+    compás o que calla entre dos notas. Ocupa su tiempo y no se dibuja. Solo un silencio puede
+    serlo y, si no lo es, no se serializa.
     """
 
     kind: EventKind
@@ -54,8 +58,13 @@ class Event:
     articulations: tuple[Articulation, ...] = ()
     fermata: bool = False
     slurs: tuple[Slur, ...] = ()
+    hidden: bool = False
 
     def __post_init__(self) -> None:
+        if self.hidden and self.kind is not EventKind.REST:
+            raise ValueError(
+                f"solo un silencio puede ser invisible, no un evento {self.kind.value}"
+            )
         object.__setattr__(self, "articulations", normalize_articulations(self.articulations))
         object.__setattr__(self, "slurs", normalize_slurs(self.slurs))
 
@@ -77,6 +86,8 @@ class Event:
             primitive["fermata"] = True
         if self.slurs:
             primitive["slurs"] = [slur.to_primitive() for slur in self.slurs]
+        if self.hidden:
+            primitive["hidden"] = True
         return primitive
 
     @classmethod
@@ -101,6 +112,7 @@ class Event:
             articulations=tuple(Articulation(str(a)) for a in data.get("articulations") or ()),
             fermata=data.get("fermata") is True,
             slurs=tuple(Slur.from_primitive(item) for item in data.get("slurs") or ()),
+            hidden=data.get("hidden") is True,
         )
 
 
