@@ -9,38 +9,68 @@ manuscritos históricos) queda fuera.
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
+import zipfile
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 from cadenza.domain import (
+    Articulation,
     Clef,
+    Dynamic,
+    DynamicMark,
     Event,
     EventKind,
     KeySignature,
     Measure,
     Part,
     ScoreIR,
+    Slur,
+    SlurType,
     Staff,
     Tie,
     TimeSignature,
+    Wedge,
+    WedgeType,
 )
 from music21 import (
+    articulations,
     chord,
     clef,
     converter,
     defaults,
+    dynamics,
+    expressions,
     key,
     layout,
     meter,
     midi,
     musicxml,
     note,
+    spanner,
     stream,
     tie,
 )
 
 _MAX_DENOMINATOR = 1000
+
+# Articulaciones del alcance (ADR-0031). Se busca la clase exacta: en music21, `Staccatissimo`
+# deriva de `Staccato` y `StrongAccent` de `Accent`, y `Spiccato` (fuera del alcance), de
+# `Staccato`.
+_ARTICULATIONS_FROM_MUSIC21: Final[dict[type, Articulation]] = {
+    articulations.Staccato: Articulation.STACCATO,
+    articulations.Staccatissimo: Articulation.STACCATISSIMO,
+    articulations.Accent: Articulation.ACCENT,
+    articulations.StrongAccent: Articulation.MARCATO,
+    articulations.Tenuto: Articulation.TENUTO,
+}
+_ARTICULATIONS_TO_MUSIC21: Final[dict[Articulation, type]] = {
+    value: cls for cls, value in _ARTICULATIONS_FROM_MUSIC21.items()
+}
+_DYNAMIC_MARKS: Final[frozenset[str]] = frozenset(mark.value for mark in DynamicMark)
 
 
 class InterchangeError(ValueError):
@@ -92,8 +122,13 @@ def _event_tie(pitch_source: Any) -> Tie | None:
         return None
 
 
-def _events_from_measure(measure: Any) -> list[Event]:
-    events: list[Event] = []
+# Un evento leído y los objetos de music21 de los que sale: un acorde y su primera nota dan el
+# primer evento del acorde. Sirven para situar las ligaduras de expresión (ADR-0031).
+_SourcedEvent = tuple[Event, tuple[Any, ...]]
+
+
+def _events_from_measure(measure: Any) -> list[_SourcedEvent]:
+    events: list[_SourcedEvent] = []
     voices = list(getattr(measure, "voices", ()))
     if voices:
         for voice_index, voice in enumerate(voices):
@@ -103,15 +138,39 @@ def _events_from_measure(measure: Any) -> list[Event]:
     return events
 
 
-def _events_from_elements(elements: Any, voice: int) -> list[Event]:
-    events: list[Event] = []
+def _events_from_elements(elements: Any, voice: int) -> list[_SourcedEvent]:
+    events: list[_SourcedEvent] = []
     for element in elements:
         if isinstance(element, chord.Chord):
-            for i, chord_note in enumerate(element.notes):
-                events.append(_note_event(chord_note, element, voice, is_chord=(i > 0)))
+            chord_notes = list(element.notes)
+            for i, chord_note in enumerate(chord_notes):
+                # Las marcas de un acorde van en su primera nota: music21 ya junta en el acorde
+                # las de cada nota del MusicXML.
+                marks = (element, *chord_notes) if i == 0 else ()
+                sources = (element, chord_note) if i == 0 else (chord_note,)
+                event = _note_event(chord_note, element, voice, is_chord=(i > 0), marks=marks)
+                events.append((event, sources))
         else:
-            events.append(_note_event(element, element, voice, is_chord=False))
+            event = _note_event(element, element, voice, is_chord=False, marks=(element,))
+            events.append((event, (element,)))
     return events
+
+
+def _note_marks(sources: Iterable[Any]) -> tuple[tuple[Articulation, ...], bool]:
+    """Articulaciones del alcance y calderón de los objetos de music21 de un evento."""
+
+    found: list[Articulation] = []
+    fermata = False
+    for source in sources:
+        for articulation in getattr(source, "articulations", ()):
+            mapped = _ARTICULATIONS_FROM_MUSIC21.get(type(articulation))
+            if mapped is not None:
+                found.append(mapped)
+        fermata = fermata or any(
+            isinstance(expression, expressions.Fermata)
+            for expression in getattr(source, "expressions", ())
+        )
+    return tuple(found), fermata
 
 
 def _note_event(
@@ -119,8 +178,10 @@ def _note_event(
     duration_source: Any,
     voice: int,
     is_chord: bool = False,
+    marks: Iterable[Any] = (),
 ) -> Event:
     is_rest = isinstance(pitch_source, note.Rest)
+    note_articulations, fermata = _note_marks(marks)
     return Event(
         kind=EventKind.REST if is_rest else EventKind.NOTE,
         voice=voice,
@@ -128,7 +189,25 @@ def _note_event(
         duration_beats=_duration(duration_source),
         tie=None if is_rest else _event_tie(pitch_source),
         is_chord=is_chord,
+        articulations=note_articulations,
+        fermata=fermata,
     )
+
+
+def _measure_dynamics(measure: Any) -> tuple[Dynamic, ...]:
+    """Dinámicas del alcance con su ataque en negras desde el inicio del compás (ADR-0031).
+
+    music21 las sitúa bien (con el `<offset>` de la indicación) y en el pentagrama de su
+    `<staff>`; la voz de la indicación no la guarda, y una dinámica rige su pentagrama.
+    """
+
+    found: list[Dynamic] = []
+    for dynamic in measure.recurse().getElementsByClass(dynamics.Dynamic):
+        if dynamic.value not in _DYNAMIC_MARKS:
+            continue
+        offset = Fraction(dynamic.getOffsetInHierarchy(measure)).limit_denominator(_MAX_DENOMINATOR)
+        found.append(Dynamic(DynamicMark(dynamic.value), max(offset, Fraction(0))))
+    return tuple(found)
 
 
 def _measure_signature(measure: Any) -> TimeSignature | None:
@@ -175,9 +254,11 @@ def _measure_key_signature(measure: Any, is_first: bool = False) -> KeySignature
     return KeySignature(fifths=int(fifths), mode=str(mode) if mode is not None else None)
 
 
-def _measures(part: Any) -> tuple[Measure, ...]:
+def _measures(part: Any) -> list[tuple[Measure, list[tuple[Any, ...]]]]:
+    """Compases de un pentagrama, cada uno con los objetos de music21 de cada evento."""
+
     found = list(part.getElementsByClass(stream.Measure))
-    measures: list[Measure] = []
+    measures: list[tuple[Measure, list[tuple[Any, ...]]]] = []
     zero_count = sum(1 for m in found if getattr(m, "number", None) == 0)
     has_unassigned_measure_numbers = zero_count > 1
 
@@ -187,16 +268,218 @@ def _measures(part: Any) -> tuple[Measure, ...]:
         else:
             number = measure.number if isinstance(measure.number, int) else position
         is_first = position == 1
+        sourced = _events_from_measure(measure)
         measures.append(
-            Measure(
-                number=number,
-                events=tuple(_events_from_measure(measure)),
-                time_signature=_measure_signature(measure),
-                clef=_measure_clef(measure, is_first=is_first),
-                key_signature=_measure_key_signature(measure, is_first=is_first),
+            (
+                Measure(
+                    number=number,
+                    events=tuple(event for event, _sources in sourced),
+                    time_signature=_measure_signature(measure),
+                    clef=_measure_clef(measure, is_first=is_first),
+                    key_signature=_measure_key_signature(measure, is_first=is_first),
+                    dynamics=_measure_dynamics(measure),
+                ),
+                [sources for _event, sources in sourced],
             )
         )
-    return tuple(measures)
+    return measures
+
+
+# Posición de un evento o de un extremo de regulador dentro de una parte, en orden de lectura:
+# (compás, pentagrama, evento) o (compás, pentagrama, negras desde el inicio del compás).
+_EventPlace = tuple[int, int, int]
+_WedgePlace = tuple[int, int, Fraction]
+
+
+class _PartReader:
+    """Pentagramas de una parte del `ScoreIR` con sus marcas (ADR-0031).
+
+    Lee los compases de cada pentagrama y recuerda de qué objeto de music21 sale cada evento,
+    para añadir después las marcas que abarcan varias notas: las ligaduras de expresión (de los
+    spanners de music21, que cruzan compases y pentagramas) y los reguladores (del MusicXML,
+    `_musicxml_wedges`). Los extremos de cada una se numeran en la parte por orden de lectura
+    de su inicio, de modo que la ida y vuelta por MusicXML da los mismos números.
+    """
+
+    def __init__(self, raw_staves: Sequence[Any]) -> None:
+        self._measures: list[list[Measure]] = []
+        self._places: dict[int, _EventPlace] = {}
+        self._slurs: dict[_EventPlace, list[Slur]] = {}
+        self._wedges: dict[tuple[int, int], list[Wedge]] = {}
+        for staff_index, raw_staff in enumerate(raw_staves):
+            staff_measures: list[Measure] = []
+            for measure_index, (measure, sources) in enumerate(_measures(raw_staff)):
+                for event_index, event_sources in enumerate(sources):
+                    for source in event_sources:
+                        self._places.setdefault(
+                            id(source), (measure_index, staff_index, event_index)
+                        )
+                staff_measures.append(measure)
+            self._measures.append(staff_measures)
+
+    def add_slurs(self, slurs: Iterable[Any]) -> None:
+        """Ligaduras de expresión con sus dos extremos en esta parte; las demás se ignoran."""
+
+        spans: list[tuple[_EventPlace, _EventPlace]] = []
+        for slur in slurs:
+            start = self._places.get(id(slur.getFirst()))
+            stop = self._places.get(id(slur.getLast()))
+            if start is not None and stop is not None and start != stop:
+                spans.append((start, stop))
+        for number, (start, stop) in enumerate(sorted(spans), start=1):
+            self._slurs.setdefault(start, []).append(Slur(SlurType.START, number))
+            self._slurs.setdefault(stop, []).append(Slur(SlurType.STOP, number))
+
+    def has_measure(self, staff_index: int, measure_index: int) -> bool:
+        return staff_index < len(self._measures) and measure_index < len(
+            self._measures[staff_index]
+        )
+
+    def add_wedges(self, spans: Iterable[tuple[WedgeType, _WedgePlace, _WedgePlace]]) -> None:
+        for number, (wedge_type, start, stop) in enumerate(
+            sorted(spans, key=lambda span: (span[1], span[2])), start=1
+        ):
+            for place, kind in ((start, wedge_type), (stop, WedgeType.STOP)):
+                measure_index, staff_index, offset = place
+                self._wedges.setdefault((measure_index, staff_index), []).append(
+                    Wedge(kind, number, offset)
+                )
+
+    def staves(self, part_index: int) -> tuple[Staff, ...]:
+        staves: list[Staff] = []
+        for staff_index, measures in enumerate(self._measures):
+            built: list[Measure] = []
+            for measure_index, measure in enumerate(measures):
+                events = tuple(
+                    (
+                        replace(event, slurs=tuple(self._slurs[place]))
+                        if (place := (measure_index, staff_index, event_index)) in self._slurs
+                        else event
+                    )
+                    for event_index, event in enumerate(measure.events)
+                )
+                wedges = tuple(self._wedges.get((measure_index, staff_index), ()))
+                built.append(replace(measure, events=events, wedges=wedges))
+            staves.append(Staff(id=f"part-{part_index}-staff-{staff_index}", measures=tuple(built)))
+        return tuple(staves)
+
+
+@dataclass(frozen=True, slots=True)
+class _WedgePoint:
+    """Extremo de un regulador leído del MusicXML.
+
+    `staff` es el índice del pentagrama entre todos los de la partitura, en el orden en que
+    music21 los saca (`Score.parts`): las partes del MusicXML en orden y, dentro de cada una,
+    sus pentagramas. `measure` es el ordinal del compás dentro de la parte.
+    """
+
+    staff: int
+    measure: int
+    offset: Fraction
+
+
+def _xml_fraction(text: str | None) -> Fraction:
+    return Fraction(text.strip()) if text and text.strip() else Fraction(0)
+
+
+def _musicxml_wedges(
+    musicxml_source: str | bytes,
+) -> tuple[int, list[tuple[WedgeType, _WedgePoint, _WedgePoint]]]:
+    """Reguladores completos del MusicXML, con la posición exacta de sus dos extremos (ADR-0031).
+
+    music21 ata el inicio de un regulador a la nota siguiente y el fin a la anterior, a veces de
+    otro pentagrama, y la posición se pierde. Aquí se recorre el MusicXML como music21 sitúa las
+    dinámicas: el cursor del compás (las notas que no son de acorde ni de adorno avanzan su
+    `<duration>`; `<backup>` y `<forward>`, la suya) más el `<offset>` de la indicación. Los
+    extremos se emparejan por `number` en orden de lectura, como en MusicXML.
+
+    Devuelve cuántos pentagramas tiene la partitura, para comprobar que coinciden con los de
+    music21, y los reguladores. Un MusicXML que no se entiende no tiene reguladores: esto nunca
+    impide leer la partitura.
+    """
+
+    spans: list[tuple[WedgeType, _WedgePoint, _WedgePoint]] = []
+    first_staff = 0
+    try:
+        root = ET.fromstring(musicxml_source)
+        if root.tag != "score-partwise":
+            return 0, []
+        for part in root.findall("part"):
+            declared = [int(s.text) for s in part.iter("staves") if s.text and s.text.isdigit()]
+            staves = max(declared, default=1)
+            open_wedges: dict[str, tuple[WedgeType, _WedgePoint]] = {}
+            divisions = Fraction(1)
+            for ordinal, measure in enumerate(part.findall("measure")):
+                position = Fraction(0)
+                for child in measure:
+                    if child.tag == "attributes" and child.findtext("divisions"):
+                        divisions = _xml_fraction(child.findtext("divisions"))
+                    elif child.tag == "note":
+                        if child.find("chord") is None and child.find("grace") is None:
+                            position += _xml_fraction(child.findtext("duration"))
+                    elif child.tag == "backup":
+                        position -= _xml_fraction(child.findtext("duration"))
+                    elif child.tag == "forward":
+                        position += _xml_fraction(child.findtext("duration"))
+                    elif child.tag == "direction":
+                        wedges = child.findall("direction-type/wedge")
+                        staff = int(child.findtext("staff") or 1) if wedges else 0
+                        if not 1 <= staff <= staves:
+                            continue
+                        offset = (position + _xml_fraction(child.findtext("offset"))) / divisions
+                        point = _WedgePoint(
+                            first_staff + staff - 1, ordinal, max(offset, Fraction(0))
+                        )
+                        for wedge in wedges:
+                            number = wedge.get("number", "1")
+                            wedge_type = wedge.get("type")
+                            if wedge_type in (WedgeType.CRESCENDO, WedgeType.DIMINUENDO):
+                                open_wedges[number] = (WedgeType(wedge_type), point)
+                            elif wedge_type == WedgeType.STOP and number in open_wedges:
+                                start_type, start = open_wedges.pop(number)
+                                spans.append((start_type, start, point))
+            first_staff += staves
+    except (ET.ParseError, ValueError, ZeroDivisionError):
+        return 0, []
+    return first_staff, spans
+
+
+def _add_wedges(
+    readers: Sequence[_PartReader],
+    groups: Sequence[Sequence[Any]],
+    raw_parts: Sequence[Any],
+    musicxml_source: str | bytes,
+) -> None:
+    """Sitúa en las partes del `ScoreIR` los reguladores leídos del MusicXML."""
+
+    staff_count, spans = _musicxml_wedges(musicxml_source)
+    if staff_count != len(raw_parts):
+        return
+    located: dict[int, tuple[int, int]] = {}
+    for part_index, group in enumerate(groups):
+        for staff_index, raw_staff in enumerate(group):
+            located[id(raw_staff)] = (part_index, staff_index)
+    by_part: dict[int, list[tuple[WedgeType, _WedgePlace, _WedgePlace]]] = {}
+    for wedge_type, start, stop in spans:
+        start_part, start_staff = located.get(id(raw_parts[start.staff]), (-1, -1))
+        stop_part, stop_staff = located.get(id(raw_parts[stop.staff]), (-1, -1))
+        reader = readers[start_part] if start_part >= 0 else None
+        if (
+            reader is None
+            or stop_part != start_part
+            or not reader.has_measure(start_staff, start.measure)
+            or not reader.has_measure(stop_staff, stop.measure)
+        ):
+            continue
+        by_part.setdefault(start_part, []).append(
+            (
+                wedge_type,
+                (start.measure, start_staff, start.offset),
+                (stop.measure, stop_staff, stop.offset),
+            )
+        )
+    for part_index, part_spans in by_part.items():
+        readers[part_index].add_wedges(part_spans)
 
 
 def _group_parts(parsed: stream.Score) -> list[list[stream.Part]]:
@@ -243,37 +526,66 @@ def _group_parts(parsed: stream.Score) -> list[list[stream.Part]]:
 
 
 def music21_stream_to_score_ir(parsed: Any) -> ScoreIR:
-    """Convierte un `music21` `Stream`/`Score`/`Part` en un `ScoreIR` neutral."""
+    """Convierte un `music21` `Stream`/`Score`/`Part` en un `ScoreIR` neutral.
 
+    Lleva las articulaciones, los calderones, las ligaduras de expresión y las dinámicas
+    (ADR-0031). Los reguladores solo se leen con el MusicXML a mano (`musicxml_to_score_ir`,
+    `read_score`): music21 pierde su posición.
+    """
+
+    return _to_score_ir(parsed, None)
+
+
+def _to_score_ir(parsed: Any, musicxml_source: str | bytes | None) -> ScoreIR:
     if isinstance(parsed, stream.Opus):
         if not parsed.scores:
             return ScoreIR(parts=())
         parsed = parsed.scores[0]
+        musicxml_source = None
 
-    if not isinstance(parsed, stream.Score):
-        raw_part = parsed
-        staff = Staff(id="part-0-staff-0", measures=_measures(raw_part))
-        return ScoreIR(parts=(Part(id="part-0", staves=(staff,)),))
-
-    part_groups = _group_parts(parsed)
-    parts: list[Part] = []
-    for part_index, p_group in enumerate(part_groups):
-        staves: list[Staff] = []
-        for staff_index, raw_staff in enumerate(p_group):
-            staff_id = f"part-{part_index}-staff-{staff_index}"
-            staves.append(Staff(id=staff_id, measures=_measures(raw_staff)))
-        parts.append(Part(id=f"part-{part_index}", staves=tuple(staves)))
-    return ScoreIR(parts=tuple(parts))
+    is_score = isinstance(parsed, stream.Score)
+    groups: list[list[Any]] = _group_parts(parsed) if is_score else [[parsed]]
+    readers = [_PartReader(group) for group in groups]
+    slurs = list(parsed.spannerBundle.getByClass(spanner.Slur))
+    for reader in readers:
+        reader.add_slurs(slurs)
+    if is_score and musicxml_source is not None:
+        _add_wedges(readers, groups, list(parsed.parts), musicxml_source)
+    return ScoreIR(
+        parts=tuple(
+            Part(id=f"part-{part_index}", staves=reader.staves(part_index))
+            for part_index, reader in enumerate(readers)
+        )
+    )
 
 
 def musicxml_to_score_ir(xml_text: str) -> ScoreIR:
-    """Convierte un documento MusicXML en un `ScoreIR` neutral."""
+    """Convierte un documento MusicXML en un `ScoreIR` neutral, con sus marcas (ADR-0031)."""
 
     try:
         parsed = converter.parseData(xml_text, format="musicxml")
     except Exception as exc:  # pragma: no cover - mensaje accionable
         raise InterchangeError(f"MusicXML no interpretable: {exc}") from exc
-    return music21_stream_to_score_ir(parsed)
+    return _to_score_ir(parsed, xml_text)
+
+
+def _musicxml_source(path: Path) -> bytes | None:
+    """El MusicXML de un archivo `.musicxml`/`.xml` o de un `.mxl` comprimido, para los
+    reguladores; None si no lo es o no se puede leer (la partitura se lee igual sin ellos)."""
+
+    suffix = path.suffix.lower()
+    try:
+        if suffix in (".musicxml", ".xml"):
+            return path.read_bytes()
+        if suffix == ".mxl":
+            with zipfile.ZipFile(path) as archive:
+                container = ET.fromstring(archive.read("META-INF/container.xml"))
+                rootfile = container.find("rootfiles/rootfile")
+                full_path = None if rootfile is None else rootfile.get("full-path")
+                return archive.read(full_path) if full_path else None
+    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+        return None
+    return None
 
 
 def read_score(path: Path) -> ScoreIR:
@@ -286,7 +598,7 @@ def read_score(path: Path) -> ScoreIR:
         parsed = converter.parse(str(path))
     except Exception as exc:  # pragma: no cover - mensaje accionable
         raise InterchangeError(f"partitura no interpretable: {path}: {exc}") from exc
-    return music21_stream_to_score_ir(parsed)
+    return _to_score_ir(parsed, _musicxml_source(path))
 
 
 def _to_music21_pitch(pitch: str) -> str:
@@ -301,7 +613,22 @@ def _is_untimed_note(event: Event) -> bool:
     return event.kind is not EventKind.REST and event.pitch is not None and not event.duration_beats
 
 
-def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
+def _apply_note_marks(element: Any, events: Sequence[Event]) -> None:
+    """Escribe en una nota, un acorde o un silencio de music21 las articulaciones y el calderón
+    de sus eventos (ADR-0031). En un acorde, los de todas sus notas, una sola vez."""
+
+    present = {a for event in events for a in event.articulations}
+    element.articulations = [_ARTICULATIONS_TO_MUSIC21[a]() for a in Articulation if a in present]
+    if any(event.fermata for event in events):
+        fermata = expressions.Fermata()
+        # music21 escribe por defecto `inverted` (bajo la nota); sin tipo guardado, va encima.
+        fermata.type = "upright"
+        element.expressions.append(fermata)
+
+
+def _build_voice_elements(
+    events: list[Event], *, marks: bool = True
+) -> tuple[list[tuple[float, Any]], list[Any]]:
     """Elementos de music21 de una voz, cada uno con su instante dentro del compás.
 
     Una nota o un acorde sin duración se escribe como nota de adorno, que no ocupa tiempo: así
@@ -309,9 +636,13 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
     Antes salía como negra, porque music21 cambia `quarterLength=0` por su duración por defecto.
     Un silencio no tiene versión de adorno en MusicXML: con duración cero sigue saliendo como
     silencio de negra.
+
+    Devuelve también, para cada evento, el elemento que lo dibuja (el acorde, en sus notas),
+    donde se atan las ligaduras de expresión. Con ``marks``, las notas llevan sus marcas.
     """
 
     elements: list[tuple[float, Any]] = []
+    owners: list[Any] = []
     offset = 0.0
     i = 0
     while i < len(events):
@@ -319,7 +650,10 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
         dur = float(ev.duration_beats) if ev.duration_beats is not None else 1.0
         if ev.kind is EventKind.REST or ev.pitch is None:
             r = note.Rest(quarterLength=dur)
+            if marks:
+                _apply_note_marks(r, [ev])
             elements.append((offset, r))
+            owners.append(r)
             # Lo que ocupa de verdad: music21 escribe como negra un silencio de duración cero,
             # y la nota de adorno que lo siga no debe caer en su mismo instante.
             offset += float(r.quarterLength)
@@ -342,17 +676,24 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
                 element = note.Note(_to_music21_pitch(ev.pitch), quarterLength=dur)
                 if ev.tie is not None:
                     element.tie = tie.Tie(ev.tie.value)
+            if marks:
+                _apply_note_marks(element, chord_notes)
             if _is_untimed_note(ev):
-                elements.append((offset, element.getGrace()))
+                # `getGrace` devuelve una copia: es la que se dibuja y la que lleva las ligaduras.
+                element = element.getGrace()
+                elements.append((offset, element))
             else:
                 elements.append((offset, element))
                 offset += dur
+            owners.extend([element] * len(chord_notes))
             i = j
-    return elements
+    return elements, owners
 
 
-def _build_measure(measure: Measure, previous_signature: TimeSignature | None = None) -> Any:
-    """Construye el compás de music21.
+def _build_measure(
+    measure: Measure, previous_signature: TimeSignature | None = None, *, marks: bool = True
+) -> tuple[Any, list[Any]]:
+    """Construye el compás de music21 y da, para cada evento del compás, su elemento.
 
     La importación da a cada compás su métrica efectiva; aquí solo se escribe donde cambia
     respecto a ``previous_signature``, para no repetirla en cada compás de la partitura (#152).
@@ -382,27 +723,36 @@ def _build_measure(measure: Measure, previous_signature: TimeSignature | None = 
         signature = measure.time_signature
         built.insert(0, meter.TimeSignature(f"{signature.beats}/{signature.beat_type}"))
 
-    by_voice: dict[int, list[Event]] = {}
-    for event in measure.events:
-        by_voice.setdefault(event.voice, []).append(event)
+    by_voice: dict[int, list[int]] = {}
+    for index, event in enumerate(measure.events):
+        by_voice.setdefault(event.voice, []).append(index)
 
+    owners: list[Any] = [None] * len(measure.events)
     if len(by_voice) <= 1:
-        for off, el in _build_voice_elements(list(measure.events)):
+        elements, owners = _build_voice_elements(list(measure.events), marks=marks)
+        for off, el in elements:
             built.insert(off, el)
     else:
-        for voice_key, v_events in sorted(by_voice.items()):
+        for voice_key, indices in sorted(by_voice.items()):
             v = stream.Voice(id=str(voice_key + 1))
-            for off, el in _build_voice_elements(v_events):
+            elements, voice_owners = _build_voice_elements(
+                [measure.events[i] for i in indices], marks=marks
+            )
+            for off, el in elements:
                 v.insert(off, el)
+            for i, owner in zip(indices, voice_owners, strict=True):
+                owners[i] = owner
             built.insert(0.0, v)
-    return built
+    return built, owners
 
 
-def _build_staff_measures(measures: tuple[Measure, ...]) -> list[Any]:
-    built: list[Any] = []
+def _build_staff_measures(
+    measures: tuple[Measure, ...], *, marks: bool = True
+) -> list[tuple[Any, list[Any]]]:
+    built: list[tuple[Any, list[Any]]] = []
     previous_signature: TimeSignature | None = None
     for index, measure in enumerate(measures):
-        built_measure = _build_measure(measure, previous_signature)
+        built_measure, owners = _build_measure(measure, previous_signature, marks=marks)
         signature = measure.time_signature
         if signature is not None:
             previous_signature = signature
@@ -412,23 +762,77 @@ def _build_staff_measures(measures: tuple[Measure, ...]) -> list[Any]:
             missing = signature.quarter_length - Fraction(built_measure.highestTime)
             if index > 0 and missing > 0:
                 built_measure.paddingRight = missing
-        built.append(built_measure)
+        if marks:
+            # Después del relleno: una dinámica no ocupa tiempo ni completa el compás.
+            for dynamic in measure.dynamics:
+                built_measure.insert(dynamic.offset_beats, dynamics.Dynamic(dynamic.mark.value))
+        built.append((built_measure, owners))
     return built
 
 
-def score_ir_to_music21(score: ScoreIR) -> stream.Score:
-    """Convierte un `ScoreIR` a un objeto `music21.stream.Score` estructurado."""
+def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
+    """Ligaduras de expresión completas de la parte (ADR-0031): un extremo huérfano no se dibuja."""
+
+    starts: dict[int, Any] = {}
+    stops: dict[int, Any] = {}
+    for staff, built in zip(part.staves, built_staves, strict=True):
+        for measure, (_built_measure, owners) in zip(staff.measures, built, strict=True):
+            for event, owner in zip(measure.events, owners, strict=True):
+                for slur in event.slurs:
+                    ends = starts if slur.type is SlurType.START else stops
+                    ends.setdefault(slur.number, owner)
+    for number, first in starts.items():
+        last = stops.get(number)
+        if last is not None and last is not first:
+            out.insert(0, spanner.Slur(first, last))
+
+
+def _attach_wedges(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
+    """Reguladores completos de la parte (ADR-0031), entre dos anclas en su posición exacta del
+    compás, que el exportador sitúa con `<forward>`. Un extremo huérfano no se dibuja."""
+
+    starts: dict[int, tuple[WedgeType, Any, Fraction]] = {}
+    stops: dict[int, tuple[Any, Fraction]] = {}
+    for staff, built in zip(part.staves, built_staves, strict=True):
+        for measure, (built_measure, _owners) in zip(staff.measures, built, strict=True):
+            for wedge in measure.wedges:
+                if wedge.type is WedgeType.STOP:
+                    stops.setdefault(wedge.number, (built_measure, wedge.offset_beats))
+                else:
+                    starts.setdefault(wedge.number, (wedge.type, built_measure, wedge.offset_beats))
+    for number, (wedge_type, start_measure, start_offset) in starts.items():
+        stop = stops.get(number)
+        if stop is None:
+            continue
+        stop_measure, stop_offset = stop
+        first = spanner.SpannerAnchor()
+        start_measure.insert(start_offset, first)
+        last = spanner.SpannerAnchor()
+        stop_measure.insert(stop_offset, last)
+        wedge_class = (
+            dynamics.Crescendo if wedge_type is WedgeType.CRESCENDO else dynamics.Diminuendo
+        )
+        out.insert(0, wedge_class(first, last))
+
+
+def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
+    """Convierte un `ScoreIR` a un objeto `music21.stream.Score` estructurado.
+
+    Con ``marks`` (por defecto) lleva las marcas de notación (ADR-0031); sin ellas, solo las
+    notas, los silencios y los atributos de compás.
+    """
 
     out = stream.Score()
     for part_index, part in enumerate(score.parts):
+        built_staves = [_build_staff_measures(staff.measures, marks=marks) for staff in part.staves]
         if len(part.staves) > 1:
             part_staffs: list[stream.PartStaff] = []
-            for staff_index, staff in enumerate(part.staves):
+            for staff_index, built in enumerate(built_staves):
                 p_staff = stream.PartStaff(
                     id=f"{part.id or f'P{part_index + 1}'}-Staff{staff_index + 1}"
                 )
                 p_staff.partName = part.id
-                for built_measure in _build_staff_measures(staff.measures):
+                for built_measure, _owners in built:
                     p_staff.append(built_measure)
                 part_staffs.append(p_staff)
                 out.insert(0, p_staff)
@@ -436,10 +840,13 @@ def score_ir_to_music21(score: ScoreIR) -> stream.Score:
             out.insert(0, sg)
         else:
             built_part = stream.Part(id=part.id or f"P{part_index + 1}")
-            for staff in part.staves:
-                for built_measure in _build_staff_measures(staff.measures):
+            for built in built_staves:
+                for built_measure, _owners in built:
                     built_part.append(built_measure)
             out.insert(0, built_part)
+        if marks:
+            _attach_slurs(out, part, built_staves)
+            _attach_wedges(out, part, built_staves)
     return out
 
 
@@ -471,6 +878,9 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
     mismo compás las duraciones que MusicXML no puede escribir con una sola figura. Los
     tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`. Una nota
     de duración cero o nula sale como nota de adorno (D60, #199).
+
+    Lleva las marcas de notación (ADR-0031): articulaciones, calderones, dinámicas y las
+    ligaduras de expresión y los reguladores completos; un extremo sin pareja no se dibuja.
     """
 
     if not score.parts:
@@ -488,9 +898,12 @@ def score_ir_to_midi(score: ScoreIR) -> bytes:
     Las notas de adorno (duración cero o nula, ADR-0028) no entran: music21 escribiría su
     note-off antes que su note-on y quedarían sonando sin fin. No ocupan tiempo, y la vista
     tampoco las reproduce (ADR-0026).
+
+    Tampoco las marcas de notación (ADR-0031): las dinámicas cambiarían las velocidades, y el
+    volumen según las dinámicas es otro issue (#215).
     """
 
-    out = score_ir_to_music21(score)
+    out = score_ir_to_music21(score, marks=False)
     for element in list(out.recurse().notes):
         site = element.activeSite
         if element.duration.isGrace and site is not None:
