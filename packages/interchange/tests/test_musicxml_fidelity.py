@@ -398,7 +398,58 @@ def test_zero_duration_rest_is_still_written_as_a_quarter_rest() -> None:
     assert _durations(measure)[0] == divisions
 
 
-def test_midi_export_accepts_grace_notes() -> None:
-    score = _score(_first(1, _note("G#4", "0"), _note("A4", "3")))
+def _midi_notes(data: bytes) -> tuple[list[int], dict[int, int]]:
+    """Alturas que suenan en un MIDI y, por altura, los note-on que no se sueltan."""
+    from music21 import midi
 
-    assert score_ir_to_midi(score).startswith(b"MThd")
+    midi_file = midi.MidiFile()
+    midi_file.readstr(data)
+    sounding: list[int] = []
+    open_notes: dict[int, int] = {}
+    for track in midi_file.tracks:
+        for event in track.events:
+            if event.type == midi.ChannelVoiceMessages.NOTE_ON and event.velocity:
+                sounding.append(event.pitch)
+                open_notes[event.pitch] = open_notes.get(event.pitch, 0) + 1
+            elif event.type == midi.ChannelVoiceMessages.NOTE_OFF or (
+                event.type == midi.ChannelVoiceMessages.NOTE_ON and not event.velocity
+            ):
+                open_notes[event.pitch] = open_notes.get(event.pitch, 0) - 1
+    return sounding, {pitch: count for pitch, count in open_notes.items() if count}
+
+
+def test_midi_leaves_out_grace_notes_and_leaves_nothing_sounding() -> None:
+    # music21 escribe el note-off de una nota de duración 0 antes que su note-on: la nota de
+    # adorno se quedaba sonando sin fin (revisión de #199). No ocupa tiempo ni la reproduce la
+    # vista (ADR-0026): el MIDI la deja fuera, también en un acorde o ligada a la siguiente.
+    score = _score(
+        _first(1, _note("G#4", "0"), _note("A4", "3")),
+        _next(2, _note("C5", "0"), _note("E5", "0", is_chord=True), _note("D5", "3")),
+        _next(3, _note("G4", "0", tie=Tie.START), _note("G4", "3", tie=Tie.STOP)),
+    )
+
+    data = score_ir_to_midi(score)
+
+    sounding, hanging = _midi_notes(data)
+    assert data.startswith(b"MThd")
+    assert hanging == {}
+    assert sorted(sounding) == [67, 69, 74]
+
+
+def test_zero_duration_rest_before_a_grace_note_keeps_their_order() -> None:
+    # El silencio sin duración se escribe como negra: ocupa ese tiempo, y la nota de adorno que
+    # le sigue no se adelanta a él (revisión de #199).
+    score = _score(_first(1, _rest("0"), _note("G4", "0"), _note("A4", "3")))
+
+    xml_text = score_ir_to_musicxml(score)
+
+    (measure,) = _xml_measures(xml_text)
+    notes = measure.findall("note")
+    assert [note.find("rest") is not None for note in notes] == [True, False, False]
+    assert notes[1].find("grace") is not None
+    events = musicxml_to_score_ir(xml_text).parts[0].staves[0].measures[0].events
+    assert [(e.kind, e.pitch) for e in events] == [
+        (EventKind.REST, None),
+        (EventKind.NOTE, "G4"),
+        (EventKind.NOTE, "A4"),
+    ]

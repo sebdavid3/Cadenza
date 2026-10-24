@@ -320,7 +320,9 @@ def _build_voice_elements(events: list[Event]) -> list[tuple[float, Any]]:
         if ev.kind is EventKind.REST or ev.pitch is None:
             r = note.Rest(quarterLength=dur)
             elements.append((offset, r))
-            offset += dur
+            # Lo que ocupa de verdad: music21 escribe como negra un silencio de duración cero,
+            # y la nota de adorno que lo siga no debe caer en su mismo instante.
+            offset += float(r.quarterLength)
             i += 1
         else:
             chord_notes = [ev]
@@ -481,8 +483,17 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
 
 
 def score_ir_to_midi(score: ScoreIR) -> bytes:
-    """Serializa un `ScoreIR` a bytes en formato MIDI 1.0 (Issue #12, ADR-0010)."""
+    """Serializa un `ScoreIR` a bytes en formato MIDI 1.0 (Issue #12, ADR-0010).
+
+    Las notas de adorno (duración cero o nula, ADR-0028) no entran: music21 escribiría su
+    note-off antes que su note-on y quedarían sonando sin fin. No ocupan tiempo, y la vista
+    tampoco las reproduce (ADR-0026).
+    """
 
     out = score_ir_to_music21(score)
+    for element in list(out.recurse().notes):
+        site = element.activeSite
+        if element.duration.isGrace and site is not None:
+            site.remove(element)
     mf = midi.translate.streamToMidiFile(out)
     return bytes(mf.writestr())
