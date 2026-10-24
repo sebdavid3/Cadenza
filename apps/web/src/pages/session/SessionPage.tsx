@@ -124,18 +124,21 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const select = useSelectionStore((state) => state.select);
   useEffect(() => clearSelection, [clearSelection]);
   // Cuando la vista pasa a un estado posterior (una corrección guardada o una recarga), la nota
-  // elegida sigue elegida si su ancla designa el mismo evento (ADR-0011); si no, se olvida. Antes
-  // de pintar, para que no parpadee.
-  const selection = useSelectionStore((state) => state.selection);
+  // elegida sigue elegida con su ancla en ese estado (ADR-0011 §2); si su evento ya no está, se
+  // olvida. Antes de pintar, para que no parpadee. Se lee del almacén sin suscribirse: cada
+  // movimiento de la selección no tiene por qué volver a pintar toda la vista.
   useLayoutEffect(() => {
+    const { selection } = useSelectionStore.getState();
     if (!detail.data || selection?.sessionId !== sessionId || selection.seq >= seq) return;
     const anchor = carryAnchor(selection.anchor, selection.seq, detail.data);
     if (anchor) select({ sessionId, seq, anchor });
     else clearSelection();
-  }, [detail.data, selection, sessionId, seq, select, clearSelection]);
+  }, [detail.data, sessionId, seq, select, clearSelection]);
 
   const editor = useEditor(api, sessionId, detail.data);
   const editKeysId = useId();
+  // Sin controles, la barra sigue si tiene algo que decir (un 409 que dejó la sesión cerrada).
+  const showEditor = editable || editor.status.kind !== "idle";
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -246,33 +249,48 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onCommand={editable ? editor.run : undefined}
                 editKeysId={editable ? editKeysId : undefined}
                 editor={
-                  // Sin controles, la barra sigue si tiene algo que decir (un 409 que la cerró).
-                  editable || editor.status.kind !== "idle"
-                    ? (target) => (
+                  showEditor
+                    ? (target, { available, focusScore }) => (
                         <EditBar
                           editor={editor}
                           editable={editable}
                           target={target}
+                          available={available}
                           fifths={target && score ? activeFifths(score, target.anchor) : 0}
                           multiStaff={expected.length > 1}
                           keysId={editKeysId}
+                          focusScore={focusScore}
                         />
                       )
                     : undefined
                 }
               />
             ) : musicXml.isError ? (
-              <div className="notation__failed" role="alert">
-                <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
-                <p>{errorMessage(musicXml.error)}</p>
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => void musicXml.refetch()}
-                >
-                  Reintentar
-                </button>
-              </div>
+              <>
+                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo. */}
+                {editor.status.kind !== "idle" && (
+                  <EditBar
+                    editor={editor}
+                    editable={false}
+                    target={null}
+                    available={false}
+                    fifths={0}
+                    multiStaff={expected.length > 1}
+                    keysId={editKeysId}
+                  />
+                )}
+                <div className="notation__failed" role="alert">
+                  <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
+                  <p>{errorMessage(musicXml.error)}</p>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => void musicXml.refetch()}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="notation notation--placeholder" aria-hidden="true" />
             )}

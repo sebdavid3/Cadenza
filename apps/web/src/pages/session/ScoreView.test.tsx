@@ -117,6 +117,37 @@ describe("ScoreView", () => {
     expect(second.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("si llega otro estado mientras se dibuja uno, descarta ese y deja el de antes hasta el último", async () => {
+    const rendered = render(view());
+    const first = fakeScore();
+    await act(async () => {
+      calls.pending[0]?.resolve(first);
+      await Promise.resolve();
+    });
+    const host = rendered.container.querySelector(".notation__host");
+
+    rendered.rerender(view({ ...FIRST, seq: 1 }));
+    rendered.rerender(view({ ...FIRST, seq: 2 }));
+    // El del estado 1 se cancela y su contenedor se va; el del 0 sigue a la vista.
+    expect(calls.pending[1]?.signal.aborted).toBe(true);
+    expect(calls.pending[2]?.signal.aborted).toBe(false);
+    expect(host?.children).toHaveLength(2);
+    expect(first.dispose).not.toHaveBeenCalled();
+
+    const late = fakeScore();
+    const last = fakeScore();
+    await act(async () => {
+      calls.pending[1]?.resolve(late);
+      calls.pending[2]?.resolve(last);
+      await Promise.resolve();
+    });
+    expect(late.dispose).toHaveBeenCalledTimes(1);
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(last.dispose).not.toHaveBeenCalled();
+    expect(host?.children).toHaveLength(1);
+    expect(host?.firstElementChild).not.toHaveClass("notation__next");
+  });
+
   it("si el estado nuevo no se puede dibujar, no deja a la vista el anterior", async () => {
     const rendered = render(view());
     const first = fakeScore();

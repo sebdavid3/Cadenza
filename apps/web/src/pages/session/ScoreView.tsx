@@ -60,9 +60,14 @@ interface ScoreViewProps {
   playing?: { measure: number; slots: readonly MeasureSlot[] } | null;
   /**
    * Barra de corrección (ADR-0030), entre la de la selección y la partitura: recibe el evento
-   * elegido en el estado actual, o null si no hay ninguno que se pueda corregir.
+   * elegido en el estado actual (o null si no hay ninguno que se pueda corregir), si se pueden
+   * elegir notas y cómo llevar el foco a la partitura. Sigue aunque la partitura no se pueda
+   * dibujar, para que se vea qué pasó con la última corrección.
    */
-  editor?: (target: EditTarget | null) => ReactNode;
+  editor?: (
+    target: EditTarget | null,
+    context: { available: boolean; focusScore: () => boolean },
+  ) => ReactNode;
   /** Órdenes de corrección con el teclado sobre la partitura; sin ella, las teclas no editan. */
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
   /** Leyenda de las teclas de corrección, que también describe la partitura. */
@@ -292,6 +297,15 @@ export function ScoreView({
     : null;
 
   const stageRef = useRef<HTMLDivElement>(null);
+  // Por su id y no por el ref: se entrega a la barra de corrección durante el render.
+  const stageId = useId();
+  /** Lleva el foco a la partitura, si es un control (con notas que elegir). */
+  const focusScore = () => {
+    const stage = document.getElementById(stageId);
+    if (stage?.getAttribute("role") !== "application") return false;
+    stage.focus({ preventScroll: true });
+    return true;
+  };
   const selectionRef = useRef<HTMLDivElement>(null);
   // Al moverse con el teclado o los botones, la nota elegida se trae a la vista; al tocarla, no.
   const revealRef = useRef(false);
@@ -310,7 +324,9 @@ export function ScoreView({
     const command = onCommand ? editCommand(event) : null;
     if (command) {
       event.preventDefault();
-      onCommand?.(command, target);
+      // Mantener la tecla pulsada no encadena ediciones: cuántas salieran dependería de lo que
+      // tarde cada una en guardarse, y cada una cuenta en el log (D38).
+      if (!event.repeat) onCommand?.(command, target);
       return;
     }
     const action = keyAction(event);
@@ -477,9 +493,9 @@ export function ScoreView({
           }}
         />
       )}
-      {status !== "failed" && editor?.(target)}
+      {editor?.(target, { available: selectable !== null, focusScore })}
       <div className="notation" data-state={status}>
-        <div className="notation__stage" ref={stageRef} {...stageProps}>
+        <div className="notation__stage" id={stageId} ref={stageRef} {...stageProps}>
           {aligned && (
             <div className="notation__marks" ref={marksRef} aria-hidden="true">
               {marks.map((mark) => {

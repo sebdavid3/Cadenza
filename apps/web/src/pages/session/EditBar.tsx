@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useLayoutEffect, useRef } from "react";
 import { PixelIcon, type PixelIconName } from "../../components/PixelIcon";
 import type { AnchorPayload } from "../../types";
 import {
@@ -19,60 +19,49 @@ interface EditBarProps {
   editable: boolean;
   /** Evento elegido en el estado que se muestra, o null si no hay ninguno que corregir. */
   target: EditTarget | null;
+  /** Si se puede elegir una nota sobre la partitura; si no, lo dice la barra de la selección. */
+  available: boolean;
   /** Armadura del compás del evento elegido, en quintas. */
   fifths: number;
   multiStaff: boolean;
   /** Identificador de la leyenda de teclas, que también describe la partitura. */
   keysId: string;
+  /** Lleva el foco a la partitura; false si ahora no lo puede tomar. */
+  focusScore?: () => boolean;
 }
 
-const PITCH: {
-  command: EditCommand;
-  label: string;
-  word: string;
-  icon: PixelIconName;
-  keys: string;
-}[] = [
+const PITCH: { command: EditCommand; label: string; word: string; icon: PixelIconName }[] = [
   {
     command: { kind: "step", direction: -1 },
     label: "Bajar un paso",
     word: "Paso",
     icon: "arrow-down",
-    keys: "Shift+ArrowDown",
   },
   {
     command: { kind: "step", direction: 1 },
     label: "Subir un paso",
     word: "Paso",
     icon: "arrow-up",
-    keys: "Shift+ArrowUp",
   },
   {
     command: { kind: "octave", direction: -1 },
     label: "Bajar una octava",
     word: "Octava",
     icon: "octave-down",
-    keys: "Shift+PageDown",
   },
   {
     command: { kind: "octave", direction: 1 },
     label: "Subir una octava",
     word: "Octava",
     icon: "octave-up",
-    keys: "Shift+PageUp",
   },
 ];
 
-const ACCIDENTAL_BUTTONS: {
-  accidental: Accidental;
-  label: string;
-  icon: PixelIconName;
-  keys?: string;
-}[] = [
+const ACCIDENTAL_BUTTONS: { accidental: Accidental; label: string; icon: PixelIconName }[] = [
   { accidental: "bb", label: "Doble bemol", icon: "accidental-double-flat" },
-  { accidental: "b", label: "Bemol", icon: "accidental-flat", keys: "-" },
-  { accidental: "", label: "Becuadro", icon: "accidental-natural", keys: "=" },
-  { accidental: "#", label: "Sostenido", icon: "accidental-sharp", keys: "+" },
+  { accidental: "b", label: "Bemol", icon: "accidental-flat" },
+  { accidental: "", label: "Becuadro", icon: "accidental-natural" },
+  { accidental: "#", label: "Sostenido", icon: "accidental-sharp" },
   { accidental: "##", label: "Doble sostenido", icon: "accidental-double-sharp" },
 ];
 
@@ -85,6 +74,11 @@ const FIGURE_ICONS: PixelIconName[] = [
   "figure-half",
   "figure-whole",
 ];
+
+/** Un texto igual al anterior no se volvería a leer: un espacio duro al final lo distingue. */
+const HARD_SPACE = String.fromCharCode(0xa0);
+const distinct = (message: string, nonce: number) =>
+  nonce % 2 === 1 ? `${message}${HARD_SPACE}` : message;
 
 /** Dónde está el evento de una edición, para decirlo: «compás 2, voz 1». */
 function placeOf(anchor: AnchorPayload, multiStaff: boolean): string {
@@ -110,7 +104,7 @@ function feedback(
     case "saved":
       return { text: `Guardado: ${status.request.change}.`, reload: false };
     case "refused":
-      return { text: status.message, reload: false };
+      return { text: distinct(status.message, status.nonce), reload: false };
     case "conflict": {
       const base = `No se guardó: ${what(status.request)}. La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.`;
       if (!retry || retry.plan.kind === "edit") return { text: base, reload: false };
@@ -147,7 +141,10 @@ function feedback(
       };
     case "unknown":
       return {
-        text: `No hubo respuesta del servidor: puede que el cambio (${inline(status.request)}) no se guardara. Recarga la sesión para comprobarlo.`,
+        text:
+          status.reason === "silent"
+            ? `No hubo respuesta del servidor: puede que el cambio (${inline(status.request)}) no se guardara. Recarga la sesión para comprobarlo.`
+            : `El servidor no confirmó el cambio (${inline(status.request)}): puede que no se guardara. Recarga la sesión para comprobarlo.`,
         reload: true,
       };
     case "unsynced":
@@ -155,8 +152,9 @@ function feedback(
         text: `Se guardó el cambio (${inline(status.request)}), pero no se pudo cargar la partitura nueva. Recarga la sesión para seguir corrigiendo.`,
         reload: true,
       };
+    // El botón sigue mientras recarga, inactivo: si desapareciera, se perdería el foco.
     case "reloading":
-      return { text: "Recargando la sesión…", reload: false };
+      return { text: "Recargando la sesión…", reload: true };
     case "reloaded":
       return { text: "Sesión recargada.", reload: false };
     case "reload-failed":
@@ -167,9 +165,10 @@ function feedback(
   }
 }
 
-/** Qué hint dar bajo los controles según lo elegido. */
-function hint(target: EditTarget | null): string | null {
-  if (!target) return "Elige una nota o un silencio para corregirlo.";
+/** Qué indicar bajo los controles según lo elegido. */
+function hint(target: EditTarget | null, available: boolean): string | null {
+  // Si no se puede elegir nota, ya lo dice la barra de la selección.
+  if (!target) return available ? "Elige una nota o un silencio para corregirlo." : null;
   if (target.event.kind !== "note") return "Un silencio solo admite cambiar su figura.";
   if (target.chord) {
     return "En un acorde se cambian la altura y la alteración de cada nota; la figura, todavía no.";
@@ -183,8 +182,6 @@ interface CommandButtonProps {
   icon: PixelIconName;
   /** Palabra visible junto al icono; en una barra estrecha queda solo el icono. */
   word?: string;
-  /** Tecla equivalente sobre la partitura (`aria-keyshortcuts`). */
-  keys?: string;
   /** Si es el valor que ya tiene el evento: un conmutador pulsado. */
   pressed?: boolean;
   target: EditTarget | null;
@@ -199,7 +196,6 @@ function CommandButton({
   label,
   icon,
   word,
-  keys,
   pressed,
   target,
   fifths,
@@ -217,7 +213,6 @@ function CommandButton({
       title={label}
       aria-pressed={pressed}
       aria-disabled={disabled}
-      aria-keyshortcuts={keys}
       onClick={() => {
         if (!disabled) onRun(command);
       }}
@@ -233,9 +228,18 @@ function CommandButton({
  * una edición completa, que se envía con el `base_seq` del estado que se ve y no se da por
  * guardada hasta el 201. Lo que pasa se anuncia en una región `aria-live`.
  */
-export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }: EditBarProps) {
+export function EditBar({
+  editor,
+  editable,
+  target,
+  available,
+  fifths,
+  multiStaff,
+  keysId,
+  focusScore,
+}: EditBarProps) {
   const groupId = useId();
-  const { status, blocked, retry } = editor;
+  const { status, refusal, blocked, retry } = editor;
   const { text, reload } = feedback(status, multiStaff, retry);
   const busy = status.kind === "saving" || status.kind === "reloading";
 
@@ -250,8 +254,29 @@ export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }
     },
   };
 
+  // Si desaparece el control que tenía el foco («Volver a aplicar» al enviarse, los botones al
+  // finalizarse la sesión), el foco no se queda en el documento: pasa a la partitura o, si no lo
+  // puede tomar, a lo que dice la barra.
+  const lastFocused = useRef<HTMLElement | null>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const last = lastFocused.current;
+    if (!last || last.isConnected) return;
+    lastFocused.current = null;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    if (!focusScore?.()) statusRef.current?.focus({ preventScroll: true });
+  });
+
   return (
-    <section className="editor" aria-label="Corregir la nota elegida" data-busy={busy}>
+    <section
+      className="editor"
+      aria-label="Corregir la nota elegida"
+      data-busy={busy}
+      onFocus={(event) => {
+        lastFocused.current = event.target;
+      }}
+    >
       {editable && (
         <>
           <div className="editor__groups">
@@ -276,7 +301,6 @@ export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }
                     command={{ kind: "accidental", accidental: button.accidental }}
                     label={button.label}
                     icon={button.icon}
-                    keys={button.keys}
                     pressed={accidental === button.accidental}
                     {...shared}
                   />
@@ -294,7 +318,6 @@ export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }
                     command={{ kind: "figure", figure: index }}
                     label={figure.name}
                     icon={FIGURE_ICONS[index] ?? "figure-quarter"}
-                    keys={figure.key}
                     pressed={current.figure === index}
                     {...shared}
                   />
@@ -303,20 +326,23 @@ export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }
                   command={{ kind: "dot" }}
                   label="Puntillo"
                   icon="figure-dot"
-                  keys="."
                   pressed={current.dotted}
                   {...shared}
                 />
               </div>
             </div>
           </div>
-          {hint(target) !== null && <p className="editor__hint">{hint(target)}</p>}
+          {hint(target, available) !== null && (
+            <p className="editor__hint">{hint(target, available)}</p>
+          )}
         </>
       )}
       <div className="editor__feedback">
-        <p className="editor__status" role="status">
-          {text}
-        </p>
+        <div className="editor__messages" role="status" ref={statusRef} tabIndex={-1}>
+          <p className="editor__status">{text}</p>
+          {/* Un rechazo no borra un aviso que hay que conservar, como el de un 409. */}
+          {refusal && <p className="editor__refusal">{distinct(refusal.message, refusal.nonce)}</p>}
+        </div>
         {retry?.plan.kind === "edit" && (
           <button
             type="button"
@@ -333,7 +359,7 @@ export function EditBar({ editor, editable, target, fifths, multiStaff, keysId }
             className="link-button"
             aria-disabled={busy}
             onClick={() => {
-              void editor.reload();
+              if (!busy) void editor.reload();
             }}
           >
             Recargar la sesión

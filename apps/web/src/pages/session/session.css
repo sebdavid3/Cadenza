@@ -404,14 +404,23 @@
   gap: var(--space-1) var(--space-4);
 }
 
-.editor__feedback:not(:has(.editor__status:not(:empty), button)) {
+.editor__feedback:not(:has(.editor__status:not(:empty), .editor__refusal, button)) {
   display: none;
 }
 
-.editor__status {
+.editor__messages {
+  display: grid;
+  gap: var(--space-1);
   max-width: 64ch;
   font-size: var(--text-small);
+}
+
+.editor__status {
   font-weight: 500;
+}
+
+.editor__refusal {
+  color: var(--color-ink-muted);
 }
 
 .editor[data-busy="true"] .editor__status {

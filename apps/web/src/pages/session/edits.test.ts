@@ -369,41 +369,71 @@ describe("teclas de edición sobre la partitura", () => {
 });
 
 describe("llevar un ancla a un estado posterior", () => {
-  function edit(seq: number, op: string): EditEventRead {
+  function edit(seq: number, op: string, at: AnchorPayload = anchor(1)): EditEventRead {
     return {
       id: `e${String(seq)}`,
       session_id: "s",
       seq,
       op,
       author: "ana",
-      anchor: anchor(1),
+      anchor: at,
       before: null,
       after: null,
       created_at: "2026-10-24T00:00:00Z",
     };
   }
-  function detail(seq: number, edits: EditEventRead[], events = [note("C4")]): SessionDetailRead {
+  function detail(
+    seq: number,
+    edits: EditEventRead[],
+    events = [note("C4"), note("D4"), note("E4")],
+  ): SessionDetailRead {
     return {
       current_seq: seq,
       edits,
-      current_score: score([{ events }]),
+      current_score: score([{ events }, { events: [note("F4")] }]),
     } as SessionDetailRead;
   }
 
   it("la conserva si en medio solo se cambiaron alturas, duraciones, claves o armaduras", () => {
     const later = detail(3, [edit(1, "SetPitch"), edit(2, "SetDuration"), edit(3, "SetKey")]);
-    expect(carryAnchor(anchor(1), 1, later)).toEqual(anchor(1));
+    expect(carryAnchor(anchor(1, 1), 1, later)).toEqual(anchor(1, 1));
   });
 
-  it("no la conserva si en medio se insertó o se borró un evento (las posiciones se mueven)", () => {
-    expect(
-      carryAnchor(anchor(1), 1, detail(2, [edit(1, "SetPitch"), edit(2, "InsertEvent")])),
-    ).toBe(null);
-    expect(carryAnchor(anchor(1), 0, detail(1, [edit(1, "DeleteEvent")]))).toBeNull();
+  it("la desplaza como ADR-0011: insertar en su posición o antes la retrasa", () => {
+    expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "InsertEvent", anchor(1, 1))]))).toEqual(
+      anchor(1, 2),
+    );
+    expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "InsertEvent", anchor(1, 2))]))).toEqual(
+      anchor(1, 1),
+    );
+  });
+
+  it("borrar antes la adelanta, en el orden del log", () => {
+    const later = detail(2, [
+      edit(2, "DeleteEvent", anchor(1, 0)),
+      edit(1, "InsertEvent", anchor(1, 0)),
+    ]);
+    // Insertar delante (1 → 2) y después borrar el primero (2 → 1).
+    expect(carryAnchor(anchor(1, 1), 0, later)).toEqual(anchor(1, 1));
+  });
+
+  it("no la mueven las inserciones ni los borrados de otra voz o de otro compás", () => {
+    const later = detail(2, [
+      edit(1, "InsertEvent", anchor(2, 0)),
+      edit(2, "DeleteEvent", anchor(1, 0, 1)),
+    ]);
+    expect(carryAnchor(anchor(1, 1), 0, later)).toEqual(anchor(1, 1));
+  });
+
+  it("no la conserva si se borró su evento o si una edición no se sabe desplazar", () => {
+    expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "DeleteEvent", anchor(1, 1))]))).toBe(
+      null,
+    );
+    expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "Desconocida")]))).toBeNull();
   });
 
   it("no la conserva si el evento ya no está", () => {
-    expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "SetPitch")]))).toBeNull();
+    expect(carryAnchor(anchor(1, 3), 0, detail(1, [edit(1, "SetPitch")]))).toBeNull();
   });
 
   it("no la lleva hacia atrás", () => {

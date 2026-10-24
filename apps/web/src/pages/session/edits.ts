@@ -198,10 +198,14 @@ const IN_PLACE: readonly string[] = [
   "SetKey",
 ] satisfies EditOp[];
 
+const sameVoice = (a: AnchorPayload, b: AnchorPayload) =>
+  a.part === b.part && a.staff === b.staff && a.measure === b.measure && a.voice === b.voice;
+
 /**
- * Ancla del mismo evento en el estado actual de `detail`, si el ancla de `fromSeq` sigue
- * designándolo: entre los dos estados no se insertó ni se borró nada y el evento sigue ahí.
- * Null si no se puede asegurar (o si el estado es anterior).
+ * Ancla del mismo evento en el estado actual de `detail`, a partir de su ancla en el estado
+ * `fromSeq`, con la regla de desplazamiento de ADR-0011 §2: en su misma voz y compás, insertar
+ * en su posición o antes la retrasa una y borrar antes la adelanta una. Null si se borró, si
+ * alguna edición no se sabe desplazar, si el evento ya no está o si el estado es anterior.
  */
 export function carryAnchor(
   anchor: AnchorPayload,
@@ -210,9 +214,24 @@ export function carryAnchor(
 ): AnchorPayload | null {
   const seq = detail.current_seq ?? 0;
   if (fromSeq > seq || !detail.current_score) return null;
-  const moved = detail.edits.some((edit) => edit.seq > fromSeq && !IN_PLACE.includes(edit.op));
-  if (moved || !eventAt(detail.current_score, anchor)) return null;
-  return anchor;
+  let index = anchor.event_index;
+  // Cada edición se interpreta sobre el estado anterior a ella: se recorren en orden.
+  const later = detail.edits.filter((edit) => edit.seq > fromSeq).sort((a, b) => a.seq - b.seq);
+  for (const edit of later) {
+    if (IN_PLACE.includes(edit.op)) continue;
+    if (edit.op !== "InsertEvent" && edit.op !== "DeleteEvent") return null;
+    if (!sameVoice(edit.anchor, anchor)) continue;
+    const at = edit.anchor.event_index;
+    if (edit.op === "InsertEvent") {
+      if (index >= at) index += 1;
+    } else if (index === at) {
+      return null;
+    } else if (index > at) {
+      index -= 1;
+    }
+  }
+  const carried = { ...anchor, event_index: index };
+  return eventAt(detail.current_score, carried) ? carried : null;
 }
 
 /** Orden de corrección, venga de un botón o de una tecla. */

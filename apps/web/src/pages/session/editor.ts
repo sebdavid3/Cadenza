@@ -31,8 +31,6 @@ export interface EditRequest extends DecidedEdit {
   change: string;
 }
 
-type Failure = "rejected" | "forbidden" | "missing" | "unknown";
-
 /**
  * Qué pasó con la última orden. Mientras se guarda o si no se sabe en qué estado quedó la sesión
  * (sin respuesta, o sin poder cargar el estado nuevo), no se edita: el `base_seq` podría no ser ya
@@ -42,48 +40,84 @@ export type EditorStatus =
   | { kind: "idle" }
   | { kind: "saving"; request: EditRequest }
   | { kind: "saved"; request: EditRequest }
-  | { kind: "refused"; message: string }
+  /** Una orden que no se envió (no se puede sobre esa nota); `nonce` distingue repeticiones. */
+  | { kind: "refused"; message: string; nonce: number }
   /** 409 porque otra pestaña o dispositivo editó antes: ya se recargó. */
   | { kind: "conflict"; request: EditRequest }
   /** 409 porque la sesión está finalizada (ADR-0014): ya se recargó. */
   | { kind: "closed"; request: EditRequest }
   /** 409, pero no se pudo cargar el estado actual. */
   | { kind: "outdated"; request: EditRequest }
-  /** 422, 403, 404 o sin respuesta clara (red, tiempo agotado, 5xx). */
-  | { kind: Failure; request: EditRequest }
+  /** 422 (u otro rechazo del servidor): no se guardó nada. */
+  | { kind: "rejected"; request: EditRequest }
+  /** 403: la sesión no es de quien la ve (ADR-0012). */
+  | { kind: "forbidden"; request: EditRequest }
+  /** 404: la sesión ya no existe o no se tiene acceso. */
+  | { kind: "missing"; request: EditRequest }
+  /**
+   * No se sabe si se guardó: sin respuesta (`silent`: red, tiempo agotado) o con una respuesta
+   * que no lo confirma (`server`: 5xx, respuesta inesperada).
+   */
+  | { kind: "unknown"; request: EditRequest; reason: "silent" | "server" }
   /** 201, pero no se pudo cargar el estado nuevo. */
   | { kind: "unsynced"; request: EditRequest }
   | { kind: "reloading" }
   | { kind: "reloaded" }
   | { kind: "reload-failed" };
 
-/** Estados en los que no se envía nada hasta recargar o hasta que acabe lo que está en curso. */
+/** Estados en los que no se envía nada: hasta recargar, hasta que acabe lo que está en curso o
+ * porque la sesión no se puede editar. */
 const BLOCKING = new Set<EditorStatus["kind"]>([
   "saving",
   "outdated",
+  "forbidden",
+  "missing",
   "unknown",
   "unsynced",
   "reloading",
   "reload-failed",
 ]);
 
-/** Qué dice un error de `POST /edits` que no es un 409, o null si no hay nada que decir. */
-function failure(error: unknown): Failure | "idle" | null {
+/** Avisos que no se pueden perder por una orden rechazada: el rechazo se dice aparte. */
+const LASTING = new Set<EditorStatus["kind"]>([
+  "conflict",
+  "closed",
+  "outdated",
+  "rejected",
+  "forbidden",
+  "missing",
+  "unknown",
+  "unsynced",
+  "reload-failed",
+]);
+
+/** Qué pasó según el error de un `POST /edits` que no es un 409, o null si no hay nada que decir. */
+function failure(
+  error: unknown,
+  request: EditRequest,
+): Exclude<EditorStatus, { kind: "refused" }> | null {
   const kind = error instanceof ApiError ? error.kind : "unexpected";
   switch (kind) {
     case "aborted":
       return null;
+    // El servidor lo rechazó: no se guardó nada.
     case "validation":
-      return "rejected";
+    case "payload-too-large":
+    case "unsupported-media-type":
+    case "rate-limited":
+      return { kind: "rejected", request };
     case "forbidden":
-      return "forbidden";
+      return { kind: "forbidden", request };
     case "not-found":
-      return "missing";
+      return { kind: "missing", request };
     // El cliente ya cierra la sesión del navegador ante un 401 (ADR-0020).
     case "unauthorized":
-      return "idle";
+      return { kind: "idle" };
+    case "network":
+    case "timeout":
+      return { kind: "unknown", request, reason: "silent" };
     default:
-      return "unknown";
+      return { kind: "unknown", request, reason: "server" };
   }
 }
 
@@ -100,9 +134,12 @@ export function useEditor(
 ) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<EditorStatus>({ kind: "idle" });
+  // Una orden rechazada mientras dura un aviso que no se puede perder (un 409, por ejemplo).
+  const [refusal, setRefusal] = useState<{ message: string; nonce: number } | null>(null);
   // Último estado que se sabe que tiene el servidor: hasta que la vista lo muestre no se edita.
   const [knownSeq, setKnownSeq] = useState<number | null>(null);
   const inFlight = useRef(false);
+  const nonce = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(
     () => () => {
@@ -110,6 +147,8 @@ export function useEditor(
     },
     [],
   );
+
+  const detailKey = sessionDetailQuery(api, sessionId).queryKey;
 
   /** Carga el estado actual del servidor con todo lo que la vista pide de él, y lo muestra. */
   async function refresh(signal: AbortSignal) {
@@ -122,9 +161,12 @@ export function useEditor(
       queryClient.query(sessionFindingsQuery(api, sessionId, seq)).catch(ignore),
       queryClient.query(sessionTimingQuery(api, sessionId, seq)).catch(ignore),
     ]);
+    // Una recarga del detalle que siguiera en curso (al recuperar la red, por ejemplo) traería
+    // un estado anterior y lo pondría encima de este.
+    await queryClient.cancelQueries({ queryKey: detailKey });
     if (signal.aborted) return null;
     setKnownSeq(seq);
-    queryClient.setQueryData(sessionDetailQuery(api, sessionId).queryKey, fresh);
+    queryClient.setQueryData(detailKey, fresh);
     return fresh;
   }
 
@@ -132,6 +174,7 @@ export function useEditor(
   function begin() {
     if (inFlight.current) return null;
     inFlight.current = true;
+    setRefusal(null);
     const controller = new AbortController();
     controllerRef.current = controller;
     return controller;
@@ -162,9 +205,10 @@ export function useEditor(
       } catch (error) {
         if (cancelled()) return;
         if (!(error instanceof ApiError && error.kind === "conflict")) {
-          const kind = failure(error);
-          if (kind === "idle") setStatus({ kind });
-          else if (kind) setStatus({ kind, request });
+          const next = failure(error, request);
+          if (next) setStatus(next);
+          // La sesión ya no está: la vista lo dice al volver a pedirla.
+          if (next?.kind === "missing") void queryClient.invalidateQueries({ queryKey: detailKey });
           return;
         }
         // 409: o se editó antes en otra parte o la sesión está cerrada. Lo dice el estado recargado.
@@ -204,7 +248,10 @@ export function useEditor(
     if (blocked || !score) return;
     const plan = planEdit(command, target, target ? activeFifths(score, target.anchor) : 0);
     if (plan.kind === "refused") {
-      setStatus({ kind: "refused", message: plan.message });
+      nonce.current += 1;
+      const refused = { message: plan.message, nonce: nonce.current };
+      if (LASTING.has(status.kind)) setRefusal(refused);
+      else setStatus({ kind: "refused", ...refused });
       return;
     }
     if (!target) return;
@@ -232,7 +279,7 @@ export function useEditor(
     void send({ op, after, anchor: retry.anchor, baseSeq: seq, change });
   }
 
-  return { status, blocked, run, reload, retry, reapply };
+  return { status, refusal, blocked, run, reload, retry, reapply };
 }
 
 export type Editor = ReturnType<typeof useEditor>;

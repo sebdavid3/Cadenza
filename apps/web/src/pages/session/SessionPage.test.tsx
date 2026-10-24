@@ -2111,4 +2111,279 @@ describe("corregir la nota elegida", () => {
     fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
     expect(server.bodies).toHaveLength(0);
   });
+
+  it("tras «Volver a aplicar», que desaparece al enviarse, el foco pasa a la partitura", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    server.respond((body) => {
+      server.replace(
+        apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+      );
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+    fireEvent.click(button("Subir un paso"));
+    const again = await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+    again.focus();
+
+    fireEvent.click(again);
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("si el 409 deja la sesión finalizada, el foco del botón que se va pasa a la partitura", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    server.respond(() => {
+      server.replace({ ...server.current(), status: "finalized" });
+      return jsonResponse({ detail: "cerrada" }, 409);
+    });
+    const up = button("Subir un paso");
+    up.focus();
+
+    fireEvent.click(up);
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/está finalizada/);
+    });
+    expect(document.activeElement).toBe(region);
+  });
+
+  it("un rechazo no borra el aviso de un 409 ni lo que se puede volver a aplicar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond((body) => {
+      server.replace(
+        apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+      );
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+    fireEvent.click(button("Subir un paso"));
+    await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+
+    // La nota ya es blanca con puntillo: pulsar «Blanca» no envía nada y lo dice aparte.
+    fireEvent.click(button("Blanca"));
+
+    expect(document.querySelector(".editor__refusal")).toHaveTextContent(
+      "La nota ya tiene ese valor.",
+    );
+    expect(editStatus()).toHaveTextContent(/No se guardó: altura Re 4/);
+    expect(within(editor()).getByRole("button", { name: "Volver a aplicar" })).toBeVisible();
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("un rechazo repetido se vuelve a anunciar", async () => {
+    editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    fireEvent.click(button("Blanca"));
+    const first = editStatus()?.textContent;
+    fireEvent.keyDown(region, { key: "6" });
+    const second = editStatus()?.textContent;
+
+    expect(first?.trim()).toBe("La nota ya tiene ese valor.");
+    expect(second?.trim()).toBe("La nota ya tiene ese valor.");
+    expect(second).not.toBe(first);
+  });
+
+  it("mantener una tecla pulsada no encadena ediciones", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true, repeat: true });
+    expect(server.bodies).toHaveLength(0);
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    expect(server.bodies).toHaveLength(1);
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+  });
+
+  it("un 5xx dice que el servidor no confirmó el cambio y pide recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "fallo interno" }, 500));
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "El servidor no confirmó el cambio (altura Re 4, compás 2, voz 1): puede que no se guardara. Recarga la sesión para comprobarlo.",
+      );
+    });
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    expect(within(editor()).getByRole("button", { name: "Recargar la sesión" })).toBeVisible();
+  });
+
+  it("tras un 403 no deja seguir enviando ediciones", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "no" }, 403));
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/solo la persona que hizo la transcripción/);
+    });
+
+    expect(button("Bajar un paso")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(button("Bajar un paso"));
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("un 404 lleva a la sesión no encontrada", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      server.detailRoute(() => jsonResponse({ detail: "Sesión no encontrada" }, 404));
+      return jsonResponse({ detail: "Sesión no encontrada" }, 404);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    expect(await screen.findByRole("heading", { name: "Sesión no encontrada" })).toBeVisible();
+  });
+
+  it("si tras un 409 no se puede cargar el estado actual, lo dice y pide recargar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      server.detailRoute(() => Promise.reject(new TypeError("Failed to fetch")));
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: altura Re 4 (compás 2, voz 1). La sesión cambió antes de guardarlo y no se pudo cargar su estado actual: recárgala para seguir.",
+      );
+    });
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+
+    // La recarga vuelve a fallar: lo dice y el botón sigue.
+    fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se pudo recargar la sesión. Comprueba la conexión e inténtalo de nuevo.",
+      );
+    });
+    expect(within(editor()).getByRole("button", { name: "Recargar la sesión" })).toBeVisible();
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("tras un 409 por una inserción delante, vuelve a aplicar sobre el ancla desplazada", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      // Otra pestaña insertó una nota delante de la elegida (ADR-0011 §2: la retrasa una).
+      const next = structuredClone(server.current());
+      next.current_score?.parts[0]?.staves[0]?.measures[1]?.events.unshift({
+        kind: "note",
+        voice: 0,
+        pitch: "E4",
+        duration_beats: "1",
+        tie: null,
+        is_chord: false,
+        bbox: null,
+        confidence: null,
+        ir_handle: null,
+      });
+      next.current_seq = 1;
+      next.edits = [
+        {
+          id: "otra",
+          session_id: ID,
+          seq: 1,
+          op: "InsertEvent",
+          author: "ana",
+          anchor: anchorOf(2),
+          before: null,
+          after: { kind: "note", pitch: "E4", duration_beats: "1" },
+          created_at: "2026-10-24T10:00:00Z",
+        },
+      ];
+      server.replace(next);
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(await within(editor()).findByRole("button", { name: "Volver a aplicar" }));
+
+    await waitFor(() => {
+      expect(server.bodies).toHaveLength(2);
+    });
+    expect(server.bodies[1]).toMatchObject({
+      base_seq: 1,
+      anchor: { measure: 2, event_index: 1 },
+      after: { pitch: "D4" },
+    });
+  });
+
+  it("tras un 409 que borró la nota elegida, lo dice y no ofrece volver a aplicar", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => {
+      const next = structuredClone(server.current());
+      const measure = next.current_score?.parts[0]?.staves[0]?.measures[1];
+      if (measure) measure.events = [];
+      next.current_seq = 1;
+      next.edits = [
+        {
+          id: "otra",
+          session_id: ID,
+          seq: 1,
+          op: "DeleteEvent",
+          author: "ana",
+          anchor: anchorOf(2),
+          before: null,
+          after: null,
+          created_at: "2026-10-24T10:00:00Z",
+        },
+      ];
+      server.replace(next);
+      return jsonResponse({ detail: "conflicto" }, 409);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "La nota que elegiste ya no está en el mismo sitio: elígela de nuevo si sigue haciendo falta.",
+      );
+    });
+    expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    expect(useSelectionStore.getState().selection).toBeNull();
+  });
+
+  it("al salir de la vista con una edición en curso, la cancela y no pide nada más", async () => {
+    const server = editableApi();
+    const router = renderPage();
+    await chooseMeasure(2);
+    let signal: AbortSignal | null | undefined;
+    server.respond(() => {
+      const call = server.calls.at(-1);
+      signal = call?.init?.signal;
+      return hangUntilAborted(call?.init);
+    });
+
+    fireEvent.click(button("Subir un paso"));
+    await router.navigate("/transcripcion");
+
+    await waitFor(() => {
+      expect(signal?.aborted).toBe(true);
+    });
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+  });
 });
