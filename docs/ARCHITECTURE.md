@@ -696,7 +696,7 @@ ScoreDocument
 │               │       dynamics, wedges)
 │               └── Event(kind, voice, pitch, duration_beats, tie,
 │                         bbox?, confidence?, ir_handle?,
-│                         articulations, fermata, slurs)
+│                         articulations, fermata, slurs, hidden)
 ├── anchors: AnchorIndex          # Anchor -> EventRef
 └── provenance: Provenance        # omr_engine, model_version, rules_version,
                                   # source_image_hash, created_at
@@ -719,6 +719,18 @@ son atributos y no cambian el `event_index` de las anclas:
 El `number` de una ligadura o de un regulador identifica la marca dentro de su
 parte y no se reutiliza. Vacías, las marcas no se serializan: un documento sin
 ellas es idéntico al de antes de ADR-0031.
+
+**Varias voces** ([ADR-0032](adr/ADR-0032-varias-voces-huecos-y-plicas.md)).
+Los eventos de cada voz van seguidos, y un hueco de la voz (entra a mitad del
+compás o calla entre dos notas: un `<forward>` o un `<backup>` que no vuelve al
+principio en MusicXML) es un **silencio invisible**, `Event.hidden`: un silencio
+que ocupa su tiempo, tiene ancla y cuenta en `event_index`, pero no se dibuja, no
+suena ni se elige. Solo un silencio puede serlo y, si no lo es, no se serializa.
+Lo que falta tras la última nota de una voz no es un evento. Las voces se numeran
+desde 0 en cada compás de cada pentagrama, en el orden de su número de MusicXML;
+al exportar, la voz `v` del pentagrama `s` es la `4s + v + 1`, y en un compás con
+varias voces con notas la de mayor altura media lleva la plica hacia arriba y las
+demás hacia abajo (el `ScoreIR` no guarda la plica).
 
 ### 7.2 Modelo relacional (PostgreSQL + JSONB)
 
@@ -854,6 +866,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 | M1 | Línea base `OemerEngine` | **Retirada** ([ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md)): el adaptador existió con extra opcional `oemer` y solo se probó con dobles, sin ejecutarse sobre el corpus. Se eliminó en #130; HOMR es el único motor | [#16](https://github.com/sebdavid3/Cadenza/issues/16), [#100](https://github.com/sebdavid3/Cadenza/issues/100) (no se hará), [#130](https://github.com/sebdavid3/Cadenza/issues/130) |
 | M1 | Confianza del modelo en las anclas | Investigado en INV-0001 (resultado negativo para probabilidades directas; incertidumbre neuro-simbólica guiada por densidad de errores) | [#31](https://github.com/sebdavid3/Cadenza/issues/31) |
 | Dominio | Piano simple (dos pentagramas) verificado | Implementado: fixtures de piano, ScoreIR con pentagramas/voces/acordes (`is_chord`), round-trip exacto en `interchange`, anclas ortogonales y balance por voz | [#32](https://github.com/sebdavid3/Cadenza/issues/32) |
+| Dominio | Varias voces con su ritmo: voces que entran, callan y salen a mitad del compás | Implementado: el hueco de una voz es un silencio invisible (`Event.hidden`) que conserva dónde empieza cada nota al importar y exportar, también las voces que HOMR intercala con `<backup>`; un silencio con `print-object="no"` de MusicXML es invisible; al exportar, voces numeradas por pentagrama y plicas por altura; una voz que sale antes no es error de balance si otra completa el compás; la selección salta los silencios invisibles; las cifras de los experimentos no cambian (D63 resuelta, [ADR-0032](adr/ADR-0032-varias-voces-huecos-y-plicas.md)) | [#218](https://github.com/sebdavid3/Cadenza/issues/218) |
 | M2 | Catálogo de cinco familias de reglas, con precisión y *recall* | Implementado: catálogo completo de cinco familias de reglas en `packages/validation` ([#17](https://github.com/sebdavid3/Cadenza/issues/17)) y evaluación compás a compás sobre 359 compases de PrIMuS con métricas globales P=64.52%, R=39.80%, F1=0.4923 y desglose por familias y categorías ([#18](https://github.com/sebdavid3/Cadenza/issues/18)) | [#17](https://github.com/sebdavid3/Cadenza/issues/17), [#18](https://github.com/sebdavid3/Cadenza/issues/18) |
 | M4 | `DatasetBuilder` alimentado desde la base de datos | Implementado: lector desacoplado `RepositoryDatasetReader` vía puertos `SessionRepository`, `EditEventRepository` y `UserRepository` (sin ORM directo), solo con las sesiones de las cuentas del estudio (D55, #191), cobertura de todas las operaciones de `EditOp` con magnitudes fundamentadas, referencia de imagen por `image_sha256` y `dataset_hash` determinista | [#19](https://github.com/sebdavid3/Cadenza/issues/19) |
 | M4 | Correcciones derivadas de errores reales de OMR | Implementado: derivación determinista en `packages/learning/src/cadenza/learning/alignment.py` (`align_voice_events`, `derive_edit_events`) con Needleman-Wunsch por compás y voz, verificación formal `materialize(predicted, edits) == ground_truth` sobre 91 incipits de PrIMuS (544 ediciones) y distribución clasificada | [#20](https://github.com/sebdavid3/Cadenza/issues/20) |
@@ -906,14 +919,16 @@ ver una sesión con la partitura (OSMD) y sus posibles errores, descargar el Mus
 reproducirla con el compás en curso resaltado y corregir la altura, la duración y la
 alteración de una nota; está publicada en el homelab (ADR-0023). La partitura muestra las
 articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores
-([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031). Lo
+([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031), y las varias voces de un
+pentagrama con su ritmo y con las plicas separadas
+([#218](https://github.com/sebdavid3/Cadenza/issues/218), ADR-0032). Lo
 que falta para alcanzar el Módulo 3 (§5) está planificado en issues; el detalle, las
 dependencias y el criterio de cierre, en
 [`phases/phase_8_web_interface/README.md`](phases/phase_8_web_interface/README.md).
 
 | Etapa | Issues | Brecha frente al objetivo |
 |---|---|---|
-| Corrección sobre la partitura | [#184](https://github.com/sebdavid3/Cadenza/issues/184)–[#186](https://github.com/sebdavid3/Cadenza/issues/186), [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Insertar y borrar eventos, la clave y la armadura, deshacer y rehacer, y gestión de hallazgos desde la interfaz. Ya existen la selección con el mapa `Anchor → caja` por evento ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) la corrección de la altura, la duración y la alteración ([#183](https://github.com/sebdavid3/Cadenza/issues/183), ADR-0030) y las marcas de notación guardadas y dibujadas ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031); añadirlas y quitarlas es #214 |
+| Corrección sobre la partitura | [#184](https://github.com/sebdavid3/Cadenza/issues/184)–[#186](https://github.com/sebdavid3/Cadenza/issues/186), [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Insertar y borrar eventos, la clave y la armadura, deshacer y rehacer, y gestión de hallazgos desde la interfaz. Ya existen la selección con el mapa `Anchor → caja` por evento ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) la corrección de la altura, la duración y la alteración ([#183](https://github.com/sebdavid3/Cadenza/issues/183), ADR-0030), las marcas de notación guardadas y dibujadas ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031) y las varias voces con su ritmo ([#218](https://github.com/sebdavid3/Cadenza/issues/218), ADR-0032); añadir y quitar marcas es #214, e `InsertEvent` ya admite el silencio invisible para deshacer su borrado |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
 | Reproducción | [#215](https://github.com/sebdavid3/Cadenza/issues/215) | Volumen según las dinámicas y los reguladores |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
@@ -959,6 +974,7 @@ con el alcance por decidir.
 | [ADR-0029](adr/ADR-0029-api-con-usuario-sin-privilegios.md) | La API corre con un usuario sin privilegios (UID 10001), con la migración de los volúmenes anteriores |
 | [ADR-0030](adr/ADR-0030-correccion-de-altura-duracion-y-alteracion.md) | Corrección de la altura, la duración y la alteración de la nota elegida: controles, teclado, `base_seq` sin envío optimista y el 409 recargado |
 | [ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md) | Marcas de notación en el `ScoreIR`: atributos del evento y del compás, extremos de ligadura y de regulador con número único por parte, deshacer exacto y métricas sin cambios (enmienda ADR-0010) |
+| [ADR-0032](adr/ADR-0032-varias-voces-huecos-y-plicas.md) | Varias voces: el hueco de una voz como silencio invisible (`Event.hidden`), plicas por altura y voces numeradas por pentagrama al exportar, y una voz que sale antes no es error de balance |
 
 
 ---
