@@ -9,9 +9,10 @@ manuscritos históricos) queda fuera.
 from __future__ import annotations
 
 import re
+import threading
 import xml.etree.ElementTree as ET
-import zipfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from fractions import Fraction
 from pathlib import Path
@@ -71,6 +72,9 @@ _ARTICULATIONS_TO_MUSIC21: Final[dict[Articulation, type]] = {
     value: cls for cls, value in _ARTICULATIONS_FROM_MUSIC21.items()
 }
 _DYNAMIC_MARKS: Final[frozenset[str]] = frozenset(mark.value for mark in DynamicMark)
+# MusicXML numera las ligaduras y los reguladores del 1 al 16 (`number-level`).
+_MUSICXML_NUMBERS: Final[range] = range(1, 17)
+_SPANNER_NUMBERS_LOCK: Final[threading.Lock] = threading.Lock()
 
 
 class InterchangeError(ValueError):
@@ -423,7 +427,9 @@ def _musicxml_wedges(
                         position += _xml_fraction(child.findtext("duration"))
                     elif child.tag == "direction":
                         wedges = child.findall("direction-type/wedge")
-                        staff = int(child.findtext("staff") or 1) if wedges else 0
+                        if not wedges:
+                            continue
+                        staff = int(child.findtext("staff") or 1)
                         if not 1 <= staff <= staves:
                             continue
                         offset = (position + _xml_fraction(child.findtext("offset"))) / divisions
@@ -569,7 +575,7 @@ def musicxml_to_score_ir(xml_text: str) -> ScoreIR:
     return _to_score_ir(parsed, xml_text)
 
 
-def _musicxml_source(path: Path) -> bytes | None:
+def _musicxml_source(path: Path) -> str | bytes | None:
     """El MusicXML de un archivo `.musicxml`/`.xml` o de un `.mxl` comprimido, para los
     reguladores; None si no lo es o no se puede leer (la partitura se lee igual sin ellos)."""
 
@@ -578,12 +584,11 @@ def _musicxml_source(path: Path) -> bytes | None:
         if suffix in (".musicxml", ".xml"):
             return path.read_bytes()
         if suffix == ".mxl":
-            with zipfile.ZipFile(path) as archive:
-                container = ET.fromstring(archive.read("META-INF/container.xml"))
-                rootfile = container.find("rootfiles/rootfile")
-                full_path = None if rootfile is None else rootfile.get("full-path")
-                return archive.read(full_path) if full_path else None
-    except (OSError, KeyError, zipfile.BadZipFile, ET.ParseError):
+            # El mismo documento del archivo que lee music21, no el que declare `container.xml`.
+            archive = converter.ArchiveManager(path)
+            data = archive.getData() if archive.isArchive() else None
+            return data if isinstance(data, str | bytes) else None
+    except (OSError, KeyError, ValueError, converter.ArchiveManagerException):
         return None
     return None
 
@@ -770,41 +775,76 @@ def _build_staff_measures(
     return built
 
 
+def _musicxml_numbers(spans: Sequence[tuple[int, int]]) -> list[int]:
+    """Número de MusicXML (del 1 al 16) para cada marca que abarca los compases dados.
+
+    En MusicXML, y en OSMD, los extremos de una ligadura o de un regulador se emparejan por
+    `number` en orden de lectura: dos marcas abiertas a la vez no pueden compartirlo. Dentro de
+    un compás ese orden depende de cómo music21 escribe las voces y los pentagramas, así que
+    dos marcas que tocan algún compás en común llevan números distintos. Por orden de inicio,
+    cada una toma el número libre más bajo; si los 16 están ocupados, el que antes se libera.
+    """
+
+    busy_until: dict[int, int] = {}
+    numbers = [0] * len(spans)
+    for index in sorted(range(len(spans)), key=lambda i: (min(spans[i]), max(spans[i]))):
+        first, last = min(spans[index]), max(spans[index])
+        free = [n for n in _MUSICXML_NUMBERS if busy_until.get(n, -1) < first]
+        number = free[0] if free else min(_MUSICXML_NUMBERS, key=busy_until.__getitem__)
+        busy_until[number] = last
+        numbers[index] = number
+    return numbers
+
+
 def _attach_slurs(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
     """Ligaduras de expresión completas de la parte (ADR-0031): un extremo huérfano no se dibuja."""
 
-    starts: dict[int, Any] = {}
-    stops: dict[int, Any] = {}
+    starts: dict[int, tuple[Any, int]] = {}
+    stops: dict[int, tuple[Any, int]] = {}
     for staff, built in zip(part.staves, built_staves, strict=True):
-        for measure, (_built_measure, owners) in zip(staff.measures, built, strict=True):
+        for measure_index, (measure, (_built_measure, owners)) in enumerate(
+            zip(staff.measures, built, strict=True)
+        ):
             for event, owner in zip(measure.events, owners, strict=True):
                 for slur in event.slurs:
                     ends = starts if slur.type is SlurType.START else stops
-                    ends.setdefault(slur.number, owner)
-    for number, first in starts.items():
-        last = stops.get(number)
-        if last is not None and last is not first:
-            out.insert(0, spanner.Slur(first, last))
+                    ends.setdefault(slur.number, (owner, measure_index))
+    pairs = [
+        (first, stops[number])
+        for number, first in starts.items()
+        if number in stops and stops[number][0] is not first[0]
+    ]
+    numbers = _musicxml_numbers([(first[1], last[1]) for first, last in pairs])
+    for ((first, _), (last, _)), number in zip(pairs, numbers, strict=True):
+        slur = spanner.Slur(first, last)
+        slur.idLocal = number
+        out.insert(0, slur)
 
 
 def _attach_wedges(out: stream.Score, part: Part, built_staves: Sequence[Sequence[Any]]) -> None:
     """Reguladores completos de la parte (ADR-0031), entre dos anclas en su posición exacta del
     compás, que el exportador sitúa con `<forward>`. Un extremo huérfano no se dibuja."""
 
-    starts: dict[int, tuple[WedgeType, Any, Fraction]] = {}
-    stops: dict[int, tuple[Any, Fraction]] = {}
+    starts: dict[int, tuple[WedgeType, Any, Fraction, int]] = {}
+    stops: dict[int, tuple[Any, Fraction, int]] = {}
     for staff, built in zip(part.staves, built_staves, strict=True):
-        for measure, (built_measure, _owners) in zip(staff.measures, built, strict=True):
+        for measure_index, (measure, (built_measure, _owners)) in enumerate(
+            zip(staff.measures, built, strict=True)
+        ):
             for wedge in measure.wedges:
                 if wedge.type is WedgeType.STOP:
-                    stops.setdefault(wedge.number, (built_measure, wedge.offset_beats))
+                    stops.setdefault(
+                        wedge.number, (built_measure, wedge.offset_beats, measure_index)
+                    )
                 else:
-                    starts.setdefault(wedge.number, (wedge.type, built_measure, wedge.offset_beats))
-    for number, (wedge_type, start_measure, start_offset) in starts.items():
-        stop = stops.get(number)
-        if stop is None:
-            continue
-        stop_measure, stop_offset = stop
+                    starts.setdefault(
+                        wedge.number, (wedge.type, built_measure, wedge.offset_beats, measure_index)
+                    )
+    pairs = [(start, stops[number]) for number, start in starts.items() if number in stops]
+    numbers = _musicxml_numbers([(start[3], stop[2]) for start, stop in pairs])
+    for (start, stop), number in zip(pairs, numbers, strict=True):
+        wedge_type, start_measure, start_offset, _ = start
+        stop_measure, stop_offset, _ = stop
         first = spanner.SpannerAnchor()
         start_measure.insert(start_offset, first)
         last = spanner.SpannerAnchor()
@@ -812,7 +852,9 @@ def _attach_wedges(out: stream.Score, part: Part, built_staves: Sequence[Sequenc
         wedge_class = (
             dynamics.Crescendo if wedge_type is WedgeType.CRESCENDO else dynamics.Diminuendo
         )
-        out.insert(0, wedge_class(first, last))
+        built_wedge = wedge_class(first, last)
+        built_wedge.idLocal = number
+        out.insert(0, built_wedge)
 
 
 def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
@@ -887,9 +929,42 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
         raise InterchangeError("La partitura no tiene partes que exportar")
     out = score_ir_to_music21(score)
     exporter = musicxml.m21ToXml.ScoreExporter(out, makeNotation=True)
-    _drop_placeholder_metadata(exporter.parse())
+    with _keeping_spanner_numbers():
+        root = exporter.parse()
+    _drop_placeholder_metadata(root)
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
+
+
+def _spanner_class_name(item: Any) -> str:
+    """La clase por la que music21 numera un spanner: crescendo y diminuendo comparten."""
+
+    return str(next(name for name in item.classes if name not in ("Crescendo", "Diminuendo")))
+
+
+@contextmanager
+def _keeping_spanner_numbers() -> Iterator[None]:
+    """Mientras se exporta, music21 respeta los números que ya llevan los spanners (ADR-0031).
+
+    `PartExporter.parse` llama a `SpannerBundle.setIdLocals`, que numera cada clase del 1 al 6
+    en ciclo, sin mirar si se solapan: una ligadura larga compartía número con otra abierta y
+    el MusicXML las emparejaba mal. Las ligaduras y los reguladores ya llevan el suyo
+    (`_musicxml_numbers`); music21 solo numera las clases con algún spanner sin número, como los
+    grupos de pentagramas. El cerrojo impide que dos exportaciones a la vez se pisen al cambiar
+    y restaurar el método.
+    """
+
+    def set_missing(bundle: spanner.SpannerBundle) -> None:
+        for name in {_spanner_class_name(item) for item in bundle if item.idLocal is None}:
+            bundle.setIdLocalByClass(name)
+
+    with _SPANNER_NUMBERS_LOCK:
+        original = spanner.SpannerBundle.setIdLocals
+        spanner.SpannerBundle.setIdLocals = set_missing
+        try:
+            yield
+        finally:
+            spanner.SpannerBundle.setIdLocals = original
 
 
 def score_ir_to_midi(score: ScoreIR) -> bytes:

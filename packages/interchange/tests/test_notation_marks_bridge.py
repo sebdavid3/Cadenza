@@ -309,6 +309,115 @@ def test_orphan_slur_and_wedge_ends_are_kept_but_not_drawn() -> None:
     assert list(root.iter("wedge")) == []
 
 
+def _unambiguous(root: ET.Element, tag: str) -> bool:
+    """Si emparejando por `number` en orden de lectura, como MusicXML y OSMD, cada inicio
+    encuentra libre su número y cada fin cierra uno abierto."""
+
+    for part in root.iter("part"):
+        open_numbers: set[str] = set()
+        for element in part.iter(tag):
+            number = element.get("number", "1")
+            if element.get("type") == "stop":
+                if number not in open_numbers:
+                    return False
+                open_numbers.remove(number)
+            elif element.get("type") in ("start", "crescendo", "diminuendo"):
+                if number in open_numbers:
+                    return False
+                open_numbers.add(number)
+    return True
+
+
+def test_overlapping_slurs_and_wedges_get_distinct_musicxml_numbers() -> None:
+    """music21 numera del 1 al 6 en ciclo, sin mirar solapes: una ligadura larga de la mano
+    izquierda compartía número con una abierta de la derecha y el MusicXML las emparejaba mal."""
+
+    right, left = [], []
+    for number in range(1, 9):
+        right.append(
+            Measure(
+                number=number,
+                time_signature=TimeSignature(2, 4),
+                events=(
+                    _note("C5", slurs=(Slur(SlurType.START, number),)),
+                    _note("D5", slurs=(Slur(SlurType.STOP, number),)),
+                ),
+                wedges=(
+                    Wedge(WedgeType.CRESCENDO, number, Fraction(0)),
+                    Wedge(WedgeType.STOP, number, Fraction(1)),
+                ),
+            )
+        )
+        left.append(
+            Measure(
+                number=number,
+                time_signature=TimeSignature(2, 4),
+                events=(
+                    _note("C3", slurs=(Slur(SlurType.START, 9),) if number == 1 else ()),
+                    _note("D3", slurs=(Slur(SlurType.STOP, 9),) if number == 3 else ()),
+                ),
+                wedges=(
+                    (Wedge(WedgeType.DIMINUENDO, 9, Fraction(0)),)
+                    if number == 1
+                    else (Wedge(WedgeType.STOP, 9, Fraction(2)),) if number == 3 else ()
+                ),
+            )
+        )
+    score = ScoreIR(
+        parts=(
+            Part(
+                id="part-0",
+                staves=(
+                    Staff(id="part-0-staff-0", measures=tuple(right)),
+                    Staff(id="part-0-staff-1", measures=tuple(left)),
+                ),
+            ),
+        )
+    )
+    xml_text = score_ir_to_musicxml(score)
+    root = ET.fromstring(xml_text.encode("utf-8"))
+    assert len(list(root.iter("slur"))) == 18
+    assert len(list(root.iter("wedge"))) == 18
+    assert _unambiguous(root, "slur")
+    assert _unambiguous(root, "wedge")
+
+    # Al volver a leerlo, cada ligadura y cada regulador unen los mismos puntos.
+    again = musicxml_to_score_ir(xml_text)
+    assert _span_ends(again) == _span_ends(score)
+    assert len(_span_ends(again)[0]) == 9
+    assert len(_span_ends(again)[1]) == 9
+
+
+def _span_ends(score: ScoreIR) -> tuple[list[tuple[Any, Any]], list[tuple[Any, Any]]]:
+    """Pares (inicio, fin) de ligaduras y de reguladores por su posición, sin su número."""
+
+    slur_ends: dict[tuple[int, str], list[tuple[int, int, int]]] = {}
+    wedge_ends: dict[tuple[int, str], list[tuple[int, int, Fraction, str]]] = {}
+    for staff_index, staff in enumerate(_staves(score)):
+        for measure in staff.measures:
+            for index, event in enumerate(measure.events):
+                for slur in event.slurs:
+                    slur_ends.setdefault((slur.number, slur.type.value), []).append(
+                        (staff_index, measure.number, index)
+                    )
+            for wedge in measure.wedges:
+                end = "stop" if wedge.type is WedgeType.STOP else "start"
+                wedge_ends.setdefault((wedge.number, end), []).append(
+                    (staff_index, measure.number, wedge.offset_beats, wedge.type.value)
+                )
+    slurs = sorted(
+        (ends[0], slur_ends[(number, "stop")][0])
+        for (number, kind), ends in slur_ends.items()
+        if kind == "start"
+    )
+    wedges = sorted(
+        (ends[0], wedge_ends[(number, "stop")][0])
+        for (number, kind), ends in wedge_ends.items()
+        if kind == "start"
+    )
+    return slurs, wedges
+
+
 def test_marks_on_a_chord_are_written_once_on_the_chord() -> None:
     score = _one_voice(
         Measure(
