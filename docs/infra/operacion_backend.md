@@ -11,7 +11,7 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | Variable | Tipo | Valor por defecto | Descripción |
 |---|---|---|---|
 | `CADENZA_DATABASE_URL` | `str` | `sqlite+pysqlite:///./cadenza.db` | URL de conexión SQLAlchemy (SQLite o PostgreSQL). |
-| `CADENZA_AUTH_SECRET_KEY` | `str` | *(vacío)* | Clave secreta criptográfica (mínimo 32 bytes) para firma de tokens JWT. |
+| `CADENZA_AUTH_SECRET_KEY` | `str` | *(vacío)* | Clave secreta para la firma de los tokens JWT, de 32 bytes como mínimo ([#193](https://github.com/sebdavid3/Cadenza/issues/193)). Con una más corta, la API no arranca y el error dice su longitud, nunca la clave; vacía, tampoco arranca. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `int` | `30` | Minutos de expiración para tokens de acceso. |
 | `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para la inferencia de HOMR, único motor OMR (ADR-0018), en el plano online. |
 | `CADENZA_ARTIFACTS_DIR` | `path` | `./data/artifacts` | Ruta raíz para el almacenamiento de archivos del `ArtifactStore`. |

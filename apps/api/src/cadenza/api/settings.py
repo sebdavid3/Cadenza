@@ -13,6 +13,10 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
 _ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
 
+# Longitud mínima de la clave de firma de los JWT, en bytes. El despliegue usa
+# `openssl rand -hex 32`, que da 64.
+MIN_AUTH_SECRET_KEY_BYTES = 32
+
 
 class Settings(BaseSettings):
     """Configuración de la API gobernada por variables de entorno CADENZA_*."""
@@ -20,6 +24,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="CADENZA_",
         case_sensitive=False,
+        # Un error de validación no repite el valor recibido: puede ser un secreto (D58).
+        hide_input_in_errors=True,
     )
 
     database_url: str = Field(
@@ -63,6 +69,23 @@ class Settings(BaseSettings):
             "Una lista vacía desactiva CORS."
         ),
     )
+
+    @field_validator("auth_secret_key")
+    @classmethod
+    def _check_auth_secret_key(cls, value: str) -> str:
+        """Rechaza una clave de firma corta, que se adivinaría por fuerza bruta (D58, #193).
+
+        Una clave vacía se acepta aquí: es «sin configurar», y `create_app` la rechaza salvo que
+        reciba un `token_service` propio. El mensaje dice la longitud, nunca la clave.
+        """
+
+        size = len(value.encode("utf-8"))
+        if value and size < MIN_AUTH_SECRET_KEY_BYTES:
+            raise ValueError(
+                f"CADENZA_AUTH_SECRET_KEY debe tener al menos {MIN_AUTH_SECRET_KEY_BYTES} bytes "
+                f"y tiene {size}: genera una con `openssl rand -hex 32`"
+            )
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

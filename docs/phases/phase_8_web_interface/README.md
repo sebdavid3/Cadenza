@@ -49,7 +49,7 @@ móvil: un navegador sin interfaz no la oye.
 | **Cuenta** | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña | — | — |
 | **Deuda** | [#191](https://github.com/sebdavid3/Cadenza/issues/191) | Excluir del dataset las sesiones de cuentas autorregistradas | conviene antes de #187 | D55 |
 | | [#192](https://github.com/sebdavid3/Cadenza/issues/192) | La imagen de la API sin ejecutarse como root | — | D57 |
-| | [#193](https://github.com/sebdavid3/Cadenza/issues/193) | Longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 |
+| | ~~[#193](https://github.com/sebdavid3/Cadenza/issues/193)~~ | **Hecho:** longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 (resuelta) |
 | | [#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto: **alcance por decidir** | decisión del responsable | D59 |
 
 ```mermaid
