@@ -36,7 +36,7 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0007](ADR-0007-edit-events-inmutables.md) | Correcciones HITL como eventos inmutables sobre anclas | Aceptado | M3, M4 |
 | [ADR-0008](ADR-0008-active-learning-model-registry.md) | Estrategia de Active Learning y Model Registry | Aceptado | M4 |
 | [ADR-0009](ADR-0009-capa-de-aplicacion.md) | Capa de aplicación con casos de uso | Aceptado | Transversal |
-| [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` | Aceptado | Dominio, M2, M3 |
+| [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md) | Atributos de compás en el `ScoreIR` y exportación en `interchange` | Aceptado, enmendado por ADR-0031 | Dominio, M2, M3 |
 | [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales | Aceptado | Dominio, M2, M3, M4 |
 | [ADR-0012](ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario | Aceptado | Transversal |
 | [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos | Aceptado | M2, M3, M4 |
@@ -57,5 +57,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md) | Notas sin duración como notas de adorno en el MusicXML | Aceptado | Interchange, Web |
 | [ADR-0029](ADR-0029-api-con-usuario-sin-privilegios.md) | La API corre con un usuario sin privilegios (UID 10001), con la migración de los volúmenes anteriores | Aceptado | Infra, API |
 | [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md) | Corrección de la altura, la duración y la alteración de la nota elegida: controles, teclado, `base_seq` sin envío optimista y el 409 recargado | Aceptado | Web |
+| [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md) | Marcas de notación en el `ScoreIR`: articulaciones y calderón en el evento, dinámicas y reguladores por posición del compás, extremos de ligadura con número único por parte (enmienda ADR-0010) | Aceptado | Dominio, Interchange, API |
 
 

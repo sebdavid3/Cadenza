@@ -215,7 +215,11 @@ al leer y genera MusicXML/MIDI al exportar
 ([ADR-0010](adr/ADR-0010-score-ir-atributos-y-exportacion.md)). Para que la
 exportación no pierda información, cada compás porta métrica, **clave** y
 **armadura**, y cada evento su altura, duración y ligadura (estructura completa
-en la sección [7.1](#71-modelo-simbólico)).
+en la sección [7.1](#71-modelo-simbólico)). También guarda las **marcas de
+notación** como atributos, nunca como eventos: articulaciones y calderón en el
+evento, dinámicas y reguladores en su posición del compás y los extremos de las
+ligaduras de expresión en sus eventos
+([ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md)).
 
 ### 2.2 `AnchorIndex` — identificadores estables de evento
 
@@ -688,9 +692,11 @@ ScoreDocument
 ├── score: ScoreIR
 │   └── Part(id)
 │       └── Staff(id)
-│           └── Measure(number, time_signature, clef, key_signature)
+│           └── Measure(number, time_signature, clef, key_signature,
+│               │       dynamics, wedges)
 │               └── Event(kind, voice, pitch, duration_beats, tie,
-│                         bbox?, confidence?, ir_handle?)
+│                         bbox?, confidence?, ir_handle?,
+│                         articulations, fermata, slurs)
 ├── anchors: AnchorIndex          # Anchor -> EventRef
 └── provenance: Provenance        # omr_engine, model_version, rules_version,
                                   # source_image_hash, created_at
@@ -698,6 +704,21 @@ ScoreDocument
 
 Todas las estructuras son inmutables y serializables con
 `to_primitive`/`from_primitive`. Las duraciones son fracciones exactas.
+
+Las marcas de notación ([ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md))
+son atributos y no cambian el `event_index` de las anclas:
+
+| Marca | Dónde | Forma |
+|---|---|---|
+| Articulaciones (staccato, staccatissimo, acento, marcato, tenuto) | `Event.articulations` | Conjunto en orden canónico; en un acorde, en su primera nota |
+| Calderón | `Event.fermata` | Booleano; también en un silencio |
+| Ligadura de expresión | `Event.slurs` de los eventos que une | Extremos `{type: start\|stop, number}` |
+| Dinámica (p, pp, ppp, mp, mf, f, ff, fff, sf, sfz, fp, fz) | `Measure.dynamics` | `{mark, offset_beats}`: ataque en negras desde el inicio del compás; rige el pentagrama |
+| Regulador | `Measure.wedges` de los compases de sus extremos | `{type: crescendo\|diminuendo\|stop, number, offset_beats}` |
+
+El `number` de una ligadura o de un regulador identifica la marca dentro de su
+parte y no se reutiliza. Vacías, las marcas no se serializan: un documento sin
+ellas es idéntico al de antes de ADR-0031.
 
 ### 7.2 Modelo relacional (PostgreSQL + JSONB)
 
@@ -811,6 +832,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 |---|---|---|---|
 | Aplicación | Casos de uso en `packages/application` | Implementado: `packages/application` con `transcribe_score`, `get_session`, `append_edit`, `list_findings`, puertos `SessionRepository` y `EditEventRepository` | [#7](https://github.com/sebdavid3/Cadenza/issues/7) |
 | Dominio | `ScoreIR` con clave, armadura y ligaduras | Implementado: `Clef`, `KeySignature` y `Tie` en `ScoreIR` (ADR-0010), round-trip en `packages/interchange` | [#2](https://github.com/sebdavid3/Cadenza/issues/2) |
+| Dominio | Marcas de notación en el `ScoreIR` (articulaciones, calderones, ligaduras de expresión, dinámicas y reguladores) | Implementado: atributos del evento y del compás, sin cambiar las anclas, leídos del MusicXML (los reguladores, del propio XML) y escritos al exportar; deshacer un borrado los devuelve; las métricas de los experimentos no cambian ([ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md)). Añadirlas y quitarlas desde la web, [#214](https://github.com/sebdavid3/Cadenza/issues/214); el volumen según las dinámicas, [#215](https://github.com/sebdavid3/Cadenza/issues/215) | [#213](https://github.com/sebdavid3/Cadenza/issues/213) |
 | Dominio | Las siete operaciones de edición son proyectables | Implementado: proyección determinista de las siete operaciones de `EditOp` (incluyendo `SetClef`, `SetKey` y semántica propia de `SetAccidental`) | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |
 | Datos | `ArtifactStore` direccionado por `sha256` y endpoint de imagen | Implementado: puerto `ArtifactStore`, adaptador `FilesystemArtifactStore` (`sha256/ab/cd/<hash>`), tabla `artifacts` (migración `0003`), persistencia activa en `transcribe_score` con deduplicación, validación HTTP 413/415 y endpoint `GET /sessions/{id}/image` con control de acceso ADR-0012 | [#4](https://github.com/sebdavid3/Cadenza/issues/4), [#9](https://github.com/sebdavid3/Cadenza/issues/9) |
 | Datos | Esquema de la sección 7.2 | Implementado: esquema relacional completo con `sessions` (`image_artifact` FK, `model_version`, `status`, `condition`, `test_score_id`), `findings` (`at_seq`, `status`, campos de descarte), `artifacts` (sha256), `users` (Argon2id, roles), `effort_metrics` (tiempo, intervenciones) y `model_versions` (ONNX en `artifacts`); migraciones Alembic 0001–0012 verificadas en SQLite y PostgreSQL | [#5](https://github.com/sebdavid3/Cadenza/issues/5), [#6](https://github.com/sebdavid3/Cadenza/issues/6), [#13](https://github.com/sebdavid3/Cadenza/issues/13), [#21](https://github.com/sebdavid3/Cadenza/issues/21), [#33](https://github.com/sebdavid3/Cadenza/issues/33), [#43](https://github.com/sebdavid3/Cadenza/issues/43) |
@@ -882,15 +904,18 @@ queda fuera de esta fase.
 La Fase 8 construye `apps/web` sobre la API v1 congelada. Ya permite transcribir por lotes,
 ver una sesión con la partitura (OSMD) y sus posibles errores, descargar el MusicXML,
 reproducirla con el compás en curso resaltado y corregir la altura, la duración y la
-alteración de una nota; está publicada en el homelab (ADR-0023). Lo
+alteración de una nota; está publicada en el homelab (ADR-0023). La partitura muestra las
+articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores
+([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031). Lo
 que falta para alcanzar el Módulo 3 (§5) está planificado en issues; el detalle, las
 dependencias y el criterio de cierre, en
 [`phases/phase_8_web_interface/README.md`](phases/phase_8_web_interface/README.md).
 
 | Etapa | Issues | Brecha frente al objetivo |
 |---|---|---|
-| Corrección sobre la partitura | [#184](https://github.com/sebdavid3/Cadenza/issues/184)–[#186](https://github.com/sebdavid3/Cadenza/issues/186) | Insertar y borrar eventos, la clave y la armadura, deshacer y rehacer, y gestión de hallazgos desde la interfaz. Ya existen la selección con el mapa `Anchor → caja` por evento ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) y la corrección de la altura, la duración y la alteración ([#183](https://github.com/sebdavid3/Cadenza/issues/183), ADR-0030) |
+| Corrección sobre la partitura | [#184](https://github.com/sebdavid3/Cadenza/issues/184)–[#186](https://github.com/sebdavid3/Cadenza/issues/186), [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Insertar y borrar eventos, la clave y la armadura, deshacer y rehacer, y gestión de hallazgos desde la interfaz. Ya existen la selección con el mapa `Anchor → caja` por evento ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) la corrección de la altura, la duración y la alteración ([#183](https://github.com/sebdavid3/Cadenza/issues/183), ADR-0030) y las marcas de notación guardadas y dibujadas ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031); añadirlas y quitarlas es #214 |
 | Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
+| Reproducción | [#215](https://github.com/sebdavid3/Cadenza/issues/215) | Volumen según las dinámicas y los reguladores |
 | Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
 | Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D59, con el alcance por decidir; D58, D55 y D57 resueltas en [#193](https://github.com/sebdavid3/Cadenza/issues/193), [#191](https://github.com/sebdavid3/Cadenza/issues/191) y [#192](https://github.com/sebdavid3/Cadenza/issues/192) |
 
@@ -933,6 +958,7 @@ con el alcance por decidir.
 | [ADR-0028](adr/ADR-0028-notas-sin-duracion-como-notas-de-adorno.md) | Notas sin duración como notas de adorno en el MusicXML |
 | [ADR-0029](adr/ADR-0029-api-con-usuario-sin-privilegios.md) | La API corre con un usuario sin privilegios (UID 10001), con la migración de los volúmenes anteriores |
 | [ADR-0030](adr/ADR-0030-correccion-de-altura-duracion-y-alteracion.md) | Corrección de la altura, la duración y la alteración de la nota elegida: controles, teclado, `base_seq` sin envío optimista y el 409 recargado |
+| [ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md) | Marcas de notación en el `ScoreIR`: atributos del evento y del compás, extremos de ligadura y de regulador con número único por parte, deshacer exacto y métricas sin cambios (enmienda ADR-0010) |
 
 
 ---
