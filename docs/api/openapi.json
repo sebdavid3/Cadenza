@@ -83,7 +83,7 @@
             }
           },
           "401": {
-            "description": "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una contraseña incorrecta y una cuenta desactivada responden igual",
+            "description": "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una contraseña incorrecta y una cuenta desactivada dan el mismo código y cuerpo",
             "content": {
               "application/json": {
                 "schema": {

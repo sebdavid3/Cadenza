@@ -371,19 +371,20 @@ Al invocar `POST /transcribe` a través de HTTP sobre la API en ejecución, la p
 1. **Timeout HTTP del cliente:** Configurar el *timeout* de la petición `fetch`/`axios` en **30 s**. Este valor ofrece amplio margen frente al peor caso medido en CPU (12,0 s para páginas de 12 pentagramas) y frente a GPU (máximo en caliente de 7,6 s y peor arranque en frío por HTTP de 11,29 s). Con la renuncia a EcoQoS activa (`CADENZA_DISABLE_POWER_THROTTLING=true`), 30 s es plenamente suficiente (ADR-0016).
 2. **Indicador de progreso:** El frontend debe mostrar un estado visual de carga explícito y no bloqueante (barra de progreso o indicador de actividad) mientras `POST /transcribe` resuelve la inferencia.
 
-### 5.8. Errores del Inicio de Sesión (`POST /auth/login`, [#143](https://github.com/sebdavid3/Cadenza/issues/143))
+### 5.8. Errores del Inicio de Sesión (`POST /auth/login`, #143)
 
-`POST /auth/login` recibe `username` y `password` como formulario `application/x-www-form-urlencoded` (OAuth2), que es el `requestBody` que declara el contrato. Sus respuestas, todas declaradas en `openapi.json` y comprobadas el 2026-10-24 contra la API en local:
+`POST /auth/login` recibe `username` y `password` como formulario `application/x-www-form-urlencoded` (OAuth2), que es el `requestBody` que declara el contrato. Sus respuestas, comprobadas el 2026-10-24 contra la API en local; los cuatro códigos están declarados en `openapi.json`, las cabeceras no:
 
 | Código | Cuándo | Cuerpo y cabeceras |
 | :--- | :--- | :--- |
 | 200 | Credenciales válidas de una cuenta activa | `TokenResponse`: `{"access_token": "<JWT>", "token_type": "bearer"}`, con validez de `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` (30 por defecto) |
 | 401 | Usuario inexistente, contraseña incorrecta o cuenta desactivada, sin distinguirlos | `{"detail": "Credenciales inválidas"}` y `WWW-Authenticate: Bearer` |
-| 422 | Falta `username` o `password` como campo del formulario: un cuerpo JSON, una petición sin cuerpo o un campo vacío | `detail` es una lista (§5.4), p. ej. `{"type": "missing", "loc": ["body", "password"], "msg": "Field required", "input": null}` |
-| 429 | Tras 5 intentos fallidos en 300 s con el mismo nombre desde la misma IP (o red /64 en IPv6) | `{"detail": "Demasiados intentos fallidos. Reintente en 299 segundos."}` y `Retry-After: 299` (segundos que faltan) |
+| 422 | Falta `username` o `password` como campo del formulario (un cuerpo JSON, una petición sin cuerpo o un campo vacío), o se envía un `grant_type` distinto de `password` | `detail` es una lista (§5.4), p. ej. `{"type": "missing", "loc": ["body", "password"], "msg": "Field required", "input": null}` |
+| 429 | Tras 5 intentos fallidos en 300 s con el mismo nombre desde la misma IP (o red /64 en IPv6) | P. ej. `{"detail": "Demasiados intentos fallidos. Reintente en 299 segundos."}` y `Retry-After: 299`: los segundos que faltan, que bajan con el tiempo |
 
 - **El 401 del login no es una sesión caducada.** Son unas credenciales inválidas o una cuenta desactivada, y el cliente no debe cerrar ninguna sesión por él. En `apps/web`, `logIn` envía la petición sin token (`auth: false`), y el cliente solo trata como caducada la sesión ante un 401 de una petición que llevaba token; la vista `/entrar` lo muestra como «Usuario o contraseña incorrectos, o la cuenta está desactivada.».
-- **El límite** (`CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` y `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS`): el intento siguiente al quinto fallo ya responde 429, también con la contraseña correcta, hasta que el fallo más antiguo sale de la ventana. Un inicio de sesión correcto borra los fallos de ese nombre, y un 422 no cuenta. Con la API en otro origen, el navegador no deja leer `Retry-After` (§6, registro y cuentas).
+- **El límite** (`CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS` y `CADENZA_LOGIN_RATE_LIMIT_WINDOW_SECONDS`): el intento siguiente al quinto fallo ya responde 429, también con la contraseña correcta, hasta que el fallo más antiguo sale de la ventana. Un inicio de sesión correcto borra los fallos de ese nombre desde esa IP (los de otras IP siguen contando), y un 422 no cuenta. Con la API en otro origen, el navegador no deja leer `Retry-After` (§6, registro y cuentas).
+- **En el despliegue,** Nginx limita además `/api/auth/login` a 10 peticiones por minuto por visitante, con ráfagas de 10 y cuerpos de hasta 16 KB ([`operacion_backend.md`](../infra/operacion_backend.md)), con cualquier nombre y salgan bien o mal. Ese 429 (o el 413 de un cuerpo mayor) es la página de error de Nginx, sin `detail` en JSON ni `Retry-After`: `deploy/nginx/cadenza.conf` no define `error_page`. El cliente de `apps/web` lo trata como cualquier 429.
 - **Otro tipo de cuerpo:** FastAPI también acepta los dos campos en `multipart/form-data` (responde 200), pero el contrato solo declara `application/x-www-form-urlencoded`, que es lo que debe enviar el cliente (`URLSearchParams`).
 
 ---

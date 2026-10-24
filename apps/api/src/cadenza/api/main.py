@@ -684,7 +684,7 @@ def create_app(
                 "model": ErrorDetail,
                 "description": (
                     "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una "
-                    "contraseña incorrecta y una cuenta desactivada responden igual"
+                    "contraseña incorrecta y una cuenta desactivada dan el mismo código y cuerpo"
                 ),
             },
             status.HTTP_429_TOO_MANY_REQUESTS: {
