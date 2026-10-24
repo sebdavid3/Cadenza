@@ -204,7 +204,7 @@ El 2026-10-23 la caché llegó a 42,43 GB (231 entradas, todas de Cadenza), con 
 **Tope.** `deploy/limpieza-docker.sh` deja la caché de construcción en `CADENZA_BUILD_CACHE_MAX` como mucho (10 GB por defecto), quedándose con lo usado más recientemente, y borra las imágenes colgantes.
 - No toca volúmenes, contenedores ni imágenes con nombre, tampoco las de otros proyectos del servidor. La caché de construcción y las imágenes colgantes sí son de todo el servidor.
 - El tope es un objetivo: la caché que respalda imágenes existentes no se libera. Con 3 GB, la prueba dejó 4,9 GB, y la reconstrucción siguiente tardó 9 s.
-- Corre después de cada actualización (el procedimiento de arriba) y cada domingo desde el cron de `papoi`, después de la copia diaria. La línea está también en `~/scripts/crontab-papoi.txt`, desde el que se instala ese crontab:
+- Corre después de cada actualización (el procedimiento de arriba) y, con esta línea en el cron de `papoi`, cada domingo después de la copia diaria. La línea se añade a `~/scripts/crontab-papoi.txt` y se instala con `crontab ~/scripts/crontab-papoi.txt`; la instala el responsable:
 
 ```cron
 45 4 * * 0 /bin/sh /opt/docker/cadenza/deploy/limpieza-docker.sh >> /opt/docker/cadenza/backups/limpieza-docker.log 2>&1
