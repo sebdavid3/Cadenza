@@ -11,7 +11,7 @@ import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
 import { useEditor } from "./editor";
-import { activeFifths, carryAnchor } from "./edits";
+import { carryAnchor } from "./edits";
 import { measureMarks, measuresPerStaff, splitFindings, staleValidationSeq } from "./findings";
 import { FindingsPanel } from "./FindingsPanel";
 import { buildPlayback, measureSlots } from "./playback";
@@ -131,7 +131,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
     const { selection } = useSelectionStore.getState();
     if (!detail.data || selection?.sessionId !== sessionId || selection.seq >= seq) return;
     const anchor = carryAnchor(selection.anchor, selection.seq, detail.data);
-    if (anchor) select({ sessionId, seq, anchor });
+    if (anchor) select({ ...selection, seq, anchor });
     else clearSelection();
   }, [detail.data, sessionId, seq, select, clearSelection]);
 
@@ -191,7 +191,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
         )}
         <p className="session__lead">
           {editable
-            ? "Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura. Los compases tramados en violeta son posibles errores que conviene revisar."
+            ? "Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura, inserta o borra notas y silencios, o cambia la clave y la armadura de su compás. Los compases tramados en violeta son posibles errores que conviene revisar."
             : `${
                 foreign
                   ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
@@ -256,7 +256,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           editable={editable}
                           target={target}
                           available={available}
-                          fifths={target && score ? activeFifths(score, target.anchor) : 0}
+                          score={snapshot.transcription}
                           multiStaff={expected.length > 1}
                           keysId={editKeysId}
                           focusScore={focusScore}
@@ -274,7 +274,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     editable={false}
                     target={null}
                     available={false}
-                    fifths={0}
+                    score={null}
                     multiStaff={expected.length > 1}
                     keysId={editKeysId}
                   />

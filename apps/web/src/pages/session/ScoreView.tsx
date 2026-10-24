@@ -367,9 +367,10 @@ export function ScoreView({
   }, [chosen]);
 
   // Se anuncia dónde se detiene la selección, no cada paso intermedio. Si la nota elegida cambia
-  // de valor (se corrigió), no se vuelve a anunciar: lo dice la barra de corrección.
+  // de valor (se corrigió), no se vuelve a anunciar: lo dice la barra de corrección. Tras insertar
+  // o borrar, la misma ancla puede ser otro evento: el que dejó elegido la edición se anuncia.
   const spoken = description?.spoken ?? null;
-  const chosenKey = target ? anchorKey(target.anchor) : null;
+  const chosenKey = target ? `${anchorKey(target.anchor)}|${String(ours?.placedBy ?? "")}` : null;
   const [announcement, setAnnouncement] = useState("");
   const lastAnnounced = useRef<string | null>(null);
   useEffect(() => {

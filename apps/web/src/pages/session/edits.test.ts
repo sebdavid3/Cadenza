@@ -8,20 +8,30 @@ import type {
 } from "../../types";
 import {
   accidentalOf,
+  activeClef,
   activeFifths,
   carryAnchor,
+  CLEFS,
   editCommand,
   eventAt,
   figureDuration,
   figureOf,
   FIGURES,
+  keyName,
   octavePitch,
   planAgain,
+  planClef,
+  planCommand,
+  planDelete,
   planEdit,
+  planInsert,
+  planKey,
+  replan,
   stepPitch,
   withAccidental,
   type DecidedEdit,
-  type EditCommand,
+  type ValueCommand,
+  type EditRequestLike,
   type EditTarget,
 } from "./edits";
 
@@ -243,7 +253,7 @@ describe("la armadura activa", () => {
 });
 
 describe("qué edición pide cada orden", () => {
-  const step = (direction: 1 | -1): EditCommand => ({ kind: "step", direction });
+  const step = (direction: 1 | -1): ValueCommand => ({ kind: "step", direction });
 
   it("una altura, con la grafía de la armadura", () => {
     expect(planEdit(step(1), target(note("E4")), 1)).toMatchObject({
@@ -296,7 +306,7 @@ describe("qué edición pide cada orden", () => {
     });
   });
 
-  it.each<[string, EditCommand, EditTarget | null, string]>([
+  it.each<[string, ValueCommand, EditTarget | null, string]>([
     ["sin nada elegido", step(1), null, "no-target"],
     ["un silencio no tiene altura", step(1), target(note(null)), "rest"],
     ["ni alteración", { kind: "accidental", accidental: "#" }, target(note(null)), "rest"],
@@ -352,6 +362,18 @@ describe("teclas de edición sobre la partitura", () => {
   });
 
   it.each([
+    // N inserta una nota y S un silencio, con Mayús o sin ella; Supr y Retroceso borran (#184).
+    [key("n"), { kind: "insert", rest: false }],
+    [key("N", { shiftKey: true }), { kind: "insert", rest: false }],
+    [key("s"), { kind: "insert", rest: true }],
+    [key("S", { shiftKey: true }), { kind: "insert", rest: true }],
+    [key("Delete"), { kind: "delete" }],
+    [key("Backspace"), { kind: "delete" }],
+  ])("%o es %o", (event, command) => {
+    expect(editCommand(event)).toEqual(command);
+  });
+
+  it.each([
     // Las flechas solas, y con Ctrl o ⌘, son de la selección (#182).
     key("ArrowUp"),
     key("ArrowRight", { shiftKey: true }),
@@ -363,6 +385,10 @@ describe("teclas de edición sobre la partitura", () => {
     key("ArrowUp", { shiftKey: true, ctrlKey: true }),
     key("8"),
     key("0"),
+    key("n", { ctrlKey: true }),
+    key("s", { metaKey: true }),
+    key("Backspace", { altKey: true }),
+    key("Delete", { ctrlKey: true }),
   ])("%o no edita", (event) => {
     expect(editCommand(event)).toBeNull();
   });
@@ -485,5 +511,492 @@ describe("volver a pedir una edición en otro estado", () => {
     ["si ya no hay evento", { op: "SetPitch", after: { pitch: "D4" } }, null, "no-target"],
   ])("no la pide %s", (_name, edit, edited, reason) => {
     expect(planAgain(edit, edited)).toMatchObject({ kind: "refused", reason });
+  });
+});
+
+/** Compás de prueba con lo que se le dé: eventos, clave o armadura propias. */
+interface MeasureSpec {
+  events: ScoreEventPayload[];
+  clef?: { sign: string; line: number } | null;
+  fifths?: number | null;
+  mode?: string | null;
+}
+
+/** Partitura de un pentagrama con compases numerados desde 1. */
+function staffScore(measures: MeasureSpec[]): ScoreIRPayload {
+  return {
+    parts: [
+      {
+        id: "part-0",
+        staves: [
+          {
+            id: "part-0-staff-0",
+            measures: measures.map((measure, index) => ({
+              number: index + 1,
+              events: measure.events,
+              clef: measure.clef ?? null,
+              key_signature:
+                measure.fifths === undefined || measure.fifths === null
+                  ? null
+                  : { fifths: measure.fifths, mode: measure.mode ?? null },
+            })),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** Evento elegido en un estado: su ancla, el evento y si es de un acorde. */
+function chosen(state: ScoreIRPayload, at: AnchorPayload): EditTarget {
+  const found = eventAt(state, at);
+  if (!found) throw new Error("ancla sin evento");
+  return { anchor: at, ...found };
+}
+
+const hiddenRest = (duration: string, voice = 0) => note(null, duration, { voice, hidden: true });
+
+describe("insertar un evento antes del elegido", () => {
+  const treble = { sign: "G", line: 2 };
+
+  it("una nota copia la altura y la figura de la nota elegida y queda elegida", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4", "1/2")], clef: treble }]);
+    const plan = planInsert(false, chosen(state, anchor(1, 1)), state);
+    expect(plan).toMatchObject({
+      kind: "edit",
+      op: "InsertEvent",
+      after: { kind: "note", duration_beats: "1/2", pitch: "D4" },
+      anchor: { ...anchor(1, 1), bbox: null, confidence: null },
+      select: anchor(1, 1),
+      change: "inserción de Re 4, corchea",
+    });
+  });
+
+  it("un silencio copia la figura y no lleva altura", () => {
+    const state = staffScore([{ events: [note("C4", "3/2")], clef: treble }]);
+    const plan = planInsert(true, chosen(state, anchor(1)), state);
+    expect(plan).toMatchObject({
+      kind: "edit",
+      op: "InsertEvent",
+      after: { kind: "rest", duration_beats: "3/2" },
+      change: "inserción de un silencio de negra con puntillo",
+    });
+    expect(plan.kind === "edit" && plan.after).not.toHaveProperty("pitch");
+  });
+
+  it.each([
+    ["en clave de sol, el Si4", treble, 0, "B4"],
+    ["en clave de fa, el Re3", { sign: "F", line: 4 }, 0, "D3"],
+    ["en clave de do en tercera, el Do4", { sign: "C", line: 3 }, 0, "C4"],
+    ["en clave de do en cuarta, el La3", { sign: "C", line: 4 }, 0, "A3"],
+    ["con la alteración de la armadura", treble, -1, "Bb4"],
+  ])("antes de un silencio, una nota en la línea central: %s", (_name, clef, fifths, pitch) => {
+    const state = staffScore([{ events: [note(null)], clef, fifths }]);
+    expect(planInsert(false, chosen(state, anchor(1)), state)).toMatchObject({
+      after: { kind: "note", pitch },
+    });
+  });
+
+  it("la línea central sigue la clave que rige el compás, aunque sea de uno anterior", () => {
+    const state = staffScore([
+      { events: [note("C3")], clef: { sign: "F", line: 4 } },
+      { events: [note(null)] },
+    ]);
+    expect(planInsert(false, chosen(state, anchor(2)), state)).toMatchObject({
+      after: { pitch: "D3" },
+    });
+  });
+
+  it("dentro de un acorde inserta antes del acorde entero, con su figura", () => {
+    const state = staffScore([
+      { events: [note("G3"), note("C4", "2"), note("E4", "2", { is_chord: true })], clef: treble },
+    ]);
+    expect(planInsert(false, chosen(state, anchor(1, 2)), state)).toMatchObject({
+      after: { kind: "note", duration_beats: "2", pitch: "E4" },
+      anchor: { event_index: 1 },
+      select: anchor(1, 1),
+    });
+  });
+
+  it("antes de una nota de adorno, o de una duración que no se admite, inserta una negra", () => {
+    const state = staffScore([{ events: [note("D4", "0"), note("E4", "1/17")], clef: treble }]);
+    expect(planInsert(false, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      after: { duration_beats: "1" },
+    });
+    expect(planInsert(true, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      after: { duration_beats: "1" },
+    });
+  });
+
+  it("tras un hueco de una voz secundaria, inserta entre el hueco y la nota (ADR-0032)", () => {
+    const state = staffScore([
+      { events: [note("E5", "4"), hiddenRest("2", 1), note("C5", "1", { voice: 1 })] },
+    ]);
+    expect(planInsert(false, chosen(state, anchor(1, 1, 1)), state)).toMatchObject({
+      anchor: { voice: 1, event_index: 1 },
+      after: { kind: "note", pitch: "C5", duration_beats: "1" },
+      select: anchor(1, 1, 1),
+    });
+  });
+
+  it("sin nada elegido no inserta", () => {
+    expect(planInsert(false, null, staffScore([{ events: [] }]))).toMatchObject({
+      kind: "refused",
+      reason: "no-target",
+    });
+  });
+});
+
+describe("borrar el evento elegido", () => {
+  it("borra el elegido y deja elegido el que pasa a ocupar su sitio", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4"), note("E4")] }]);
+    expect(planDelete(chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "edit",
+      op: "DeleteEvent",
+      after: null,
+      anchor: anchor(1, 1),
+      select: anchor(1, 1),
+      change: "borrado de Re 4, negra",
+    });
+  });
+
+  it("si era el último de su voz en el compás, deja elegido el anterior", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4", "1", { voice: 1 }), note("E4")] }]);
+    expect(planDelete(chosen(state, anchor(1, 1)), state)).toMatchObject({
+      select: anchor(1, 0),
+    });
+  });
+
+  it("salta los silencios invisibles, que no se eligen (ADR-0032)", () => {
+    const state = staffScore([
+      { events: [note("C4"), hiddenRest("1"), note("E4")] },
+      { events: [hiddenRest("2"), note("F4")] },
+    ]);
+    // Tras borrar Do4, el hueco pasa a la posición 0 y Mi4 a la 1.
+    expect(planDelete(chosen(state, anchor(1, 0)), state)).toMatchObject({
+      select: anchor(1, 1),
+    });
+    // Tras borrar Fa4 solo queda el hueco en su voz: se elige el último del compás anterior.
+    expect(planDelete(chosen(state, anchor(2, 1)), state)).toMatchObject({
+      select: anchor(1, 2),
+    });
+  });
+
+  it("si su voz se queda sin nada que se vea en el compás, pasa al compás siguiente", () => {
+    const state = staffScore([
+      { events: [note("C4", "3"), note("G3", "3", { voice: 1 })] },
+      { events: [note("D4", "3")] },
+    ]);
+    // La voz 2 no está en el compás 2: se elige el primero de la primera voz.
+    expect(planDelete(chosen(state, anchor(1, 0, 1)), state)).toMatchObject({
+      select: anchor(2, 0),
+    });
+  });
+
+  it("si no queda nada que elegir, la selección se quita", () => {
+    const state = staffScore([{ events: [note("C4")] }]);
+    expect(planDelete(chosen(state, anchor(1)), state)).toMatchObject({ select: null });
+  });
+
+  it("una nota de un acorde se borra sola; la primera, que lleva su figura, no", () => {
+    const state = staffScore([
+      { events: [note("C4"), note("E4", "1", { is_chord: true }), note("G4")] },
+    ]);
+    expect(planDelete(chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "edit",
+      select: anchor(1, 1),
+    });
+    const refused = planDelete(chosen(state, anchor(1, 0)), state);
+    expect(refused).toMatchObject({ kind: "refused", reason: "chord-head" });
+    expect(refused.kind === "refused" && refused.message).toBe(
+      "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
+    );
+  });
+
+  it("dice si la nota lleva un extremo de una ligadura de expresión, que dejará de dibujarse", () => {
+    const state = staffScore([
+      { events: [note("C4", "1", { slurs: [{ type: "start", number: 1 }] }), note("D4")] },
+      { events: [note("E4", "1", { slurs: [{ type: "stop", number: 1 }] })] },
+    ]);
+    expect(planDelete(chosen(state, anchor(1, 0)), state)).toMatchObject({
+      notice: "Su ligadura de expresión ya no se dibuja.",
+    });
+    expect(planDelete(chosen(state, anchor(2, 0)), state)).toMatchObject({
+      notice: "Su ligadura de expresión ya no se dibuja.",
+    });
+    // Un extremo que ya no tenía pareja no se dibujaba: no hay nada que decir.
+    const orphan = staffScore([
+      { events: [note("C4", "1", { slurs: [{ type: "start", number: 2 }] }), note("D4")] },
+    ]);
+    expect(planDelete(chosen(orphan, anchor(1, 0)), orphan)).not.toHaveProperty("notice");
+  });
+
+  it("un silencio se dice como silencio", () => {
+    const state = staffScore([{ events: [note(null, "2"), note("C4")] }]);
+    expect(planDelete(chosen(state, anchor(1, 0)), state)).toMatchObject({
+      change: "borrado de un silencio de blanca",
+    });
+  });
+
+  it("sin nada elegido no borra", () => {
+    expect(planDelete(null, staffScore([{ events: [] }]))).toMatchObject({
+      kind: "refused",
+      reason: "no-target",
+    });
+  });
+});
+
+describe("cambiar la clave del compás elegido", () => {
+  const G = { sign: "G", line: 2 };
+  const F = { sign: "F", line: 4 };
+  const clefOf = (word: string) => CLEFS.findIndex((clef) => clef.word === word);
+  const place = (measure: number) => anchor(measure);
+
+  it("ofrece sol, fa, do en tercera y do en cuarta", () => {
+    expect(CLEFS.map(({ word, sign, line }) => [word, sign, line])).toEqual([
+      ["Sol", "G", 2],
+      ["Fa", "F", 4],
+      ["Do 3", "C", 3],
+      ["Do 4", "C", 4],
+    ]);
+  });
+
+  it("la clave activa es la última hasta el compás, o la de sol si no hay ninguna", () => {
+    const state = staffScore([{ events: [note("C4")], clef: F }, { events: [note("C4")] }]);
+    expect(activeClef(state, place(2))).toEqual(F);
+    expect(activeClef(staffScore([{ events: [] }]), place(1))).toEqual(G);
+  });
+
+  it("pone la clave en el compás, anclada a su primer evento, y dice hasta dónde llega", () => {
+    const state = staffScore([
+      { events: [note("C4")], clef: G },
+      { events: [note("G3", "1", { voice: 1 }), note("C4")] },
+      { events: [note("C4")] },
+      { events: [note("C4")], clef: G },
+    ]);
+    expect(planClef(clefOf("Fa"), place(2), state)).toMatchObject({
+      kind: "edit",
+      op: "SetClef",
+      after: { sign: "F", line: 4 },
+      // ADR-0010: la clave es del compás; la edición se ancla a su primer evento.
+      anchor: anchor(2, 0, 1),
+      change: "clave de fa en los compases 2 a 3",
+      notice: "Las notas conservan su altura.",
+    });
+    expect(planClef(clefOf("Do 3"), place(4), state)).toMatchObject({
+      change: "clave de do en tercera en el compás 4",
+    });
+  });
+
+  it("si se elige la que trae del compás anterior, quita el cambio de clave del compás", () => {
+    const state = staffScore([
+      { events: [note("C4")], clef: G },
+      { events: [note("C4")], clef: F },
+    ]);
+    expect(planClef(clefOf("Sol"), place(2), state)).toMatchObject({
+      kind: "edit",
+      after: { clef: null },
+      change: "clave de sol en el compás 2",
+    });
+  });
+
+  it("en el primer compás la clave se escribe siempre", () => {
+    const state = staffScore([{ events: [note("C4")], clef: F }]);
+    expect(planClef(clefOf("Sol"), place(1), state)).toMatchObject({
+      after: { sign: "G", line: 2 },
+    });
+  });
+
+  it("no cambia la que ya rige el compás, ni sin nada elegido", () => {
+    const state = staffScore([{ events: [note("C4")], clef: F }, { events: [note("C4")] }]);
+    expect(planClef(clefOf("Fa"), place(2), state)).toMatchObject({ reason: "same" });
+    expect(planClef(clefOf("Fa"), null, state)).toMatchObject({ reason: "no-target" });
+  });
+
+  it("un compás sin eventos se ancla a la posición 0 de la primera voz", () => {
+    const state = staffScore([{ events: [note("C4")], clef: G }, { events: [] }]);
+    expect(planClef(clefOf("Fa"), place(2), state)).toMatchObject({ anchor: anchor(2, 0, 0) });
+  });
+});
+
+describe("cambiar la armadura del compás elegido", () => {
+  const place = (measure: number) => anchor(measure);
+
+  it("nombra las armaduras por sus alteraciones", () => {
+    expect([-7, -1, 0, 1, 2].map((fifths) => keyName(fifths))).toEqual([
+      "7 bemoles",
+      "1 bemol",
+      "sin alteraciones",
+      "1 sostenido",
+      "2 sostenidos",
+    ]);
+  });
+
+  it("pone la armadura en el compás, con el modo de la que rige, y dice hasta dónde llega", () => {
+    const state = staffScore([
+      { events: [note("C4")], fifths: 1, mode: "minor" },
+      { events: [note("C4")] },
+      { events: [note("C4")] },
+    ]);
+    expect(planKey(2, place(2), state)).toMatchObject({
+      kind: "edit",
+      op: "SetKey",
+      after: { fifths: 2, mode: "minor" },
+      anchor: anchor(2),
+      change: "armadura de 2 sostenidos en los compases 2 a 3",
+      notice: "Las notas conservan su altura.",
+    });
+  });
+
+  it("sin modo en la armadura que rige, no lo inventa", () => {
+    const state = staffScore([{ events: [note("C4")] }]);
+    const plan = planKey(-3, place(1), state);
+    expect(plan).toMatchObject({
+      after: { fifths: -3 },
+      change: "armadura de 3 bemoles en el compás 1",
+    });
+    expect(plan.kind === "edit" && plan.after).not.toHaveProperty("mode");
+  });
+
+  it("si se elige la que trae del compás anterior, quita el cambio de armadura", () => {
+    const state = staffScore([
+      { events: [note("C4")], fifths: 1 },
+      { events: [note("C4")], fifths: 3 },
+    ]);
+    expect(planKey(1, place(2), state)).toMatchObject({ after: { key_signature: null } });
+    // Sin armadura antes, «sin alteraciones» también es quitarla.
+    const first = staffScore([{ events: [note("C4")], fifths: 2 }]);
+    expect(planKey(0, place(1), first)).toMatchObject({
+      after: { key_signature: null },
+      change: "armadura sin alteraciones en el compás 1",
+    });
+  });
+
+  it("no cambia la que ya rige el compás", () => {
+    const state = staffScore([{ events: [note("C4")], fifths: 2 }, { events: [note("C4")] }]);
+    expect(planKey(2, place(2), state)).toMatchObject({ reason: "same" });
+    expect(planKey(0, place(1), staffScore([{ events: [note("C4")] }]))).toMatchObject({
+      reason: "same",
+    });
+  });
+});
+
+describe("cada orden pide su edición", () => {
+  it("las de altura, alteración y figura, con la armadura del compás", () => {
+    const state = staffScore([{ events: [note("E4")], fifths: 1 }]);
+    const target = chosen(state, anchor(1));
+    expect(planCommand({ kind: "step", direction: 1 }, target, state)).toMatchObject({
+      op: "SetPitch",
+      after: { pitch: "F#4" },
+    });
+  });
+
+  it("las de insertar, borrar, clave y armadura", () => {
+    const state = staffScore([{ events: [note("E4"), note("F4")] }]);
+    const target = chosen(state, anchor(1, 1));
+    expect(planCommand({ kind: "insert", rest: true }, target, state)).toMatchObject({
+      op: "InsertEvent",
+    });
+    expect(planCommand({ kind: "delete" }, target, state)).toMatchObject({ op: "DeleteEvent" });
+    expect(planCommand({ kind: "clef", clef: 1 }, target, state)).toMatchObject({ op: "SetClef" });
+    expect(planCommand({ kind: "key", fifths: 1 }, target, state)).toMatchObject({ op: "SetKey" });
+  });
+});
+
+describe("volver a pedir una edición de estructura tras un 409", () => {
+  function edit(seq: number, op: string, at: AnchorPayload): EditEventRead {
+    return {
+      id: `e${String(seq)}`,
+      session_id: "s",
+      seq,
+      op,
+      author: "ana",
+      anchor: at,
+      before: null,
+      after: null,
+      created_at: "2026-10-24T00:00:00Z",
+    };
+  }
+  const reloaded = (state: ScoreIRPayload, edits: EditEventRead[]) =>
+    ({ current_seq: edits.length, edits, current_score: state }) as SessionDetailRead;
+
+  it("inserta lo mismo antes del mismo evento, en su posición nueva", () => {
+    const request: EditRequestLike = {
+      op: "InsertEvent",
+      after: { kind: "note", duration_beats: "1", pitch: "D4" },
+      anchor: { ...anchor(1, 1), bbox: null, confidence: null },
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó una nota al principio del compás: el evento pasa a la posición 2.
+    const state = staffScore([{ events: [note("B3"), note("C4"), note("E4")] }]);
+    const { plan, anchor: carried } = replan(
+      request,
+      reloaded(state, [edit(1, "InsertEvent", anchor(1, 0))]),
+    );
+    expect(carried).toMatchObject({ event_index: 2 });
+    expect(plan).toMatchObject({
+      kind: "edit",
+      op: "InsertEvent",
+      after: request.after,
+      anchor: { event_index: 2 },
+      select: { event_index: 2 },
+    });
+  });
+
+  it("borra el mismo evento si sigue, y si no, dice por qué no", () => {
+    const request: EditRequestLike = {
+      op: "DeleteEvent",
+      after: null,
+      anchor: anchor(1, 0),
+      baseSeq: 0,
+    };
+    const state = staffScore([{ events: [note("C4"), note("D4")] }]);
+    expect(
+      replan(request, reloaded(state, [edit(1, "SetPitch", anchor(1, 1))])).plan,
+    ).toMatchObject({ kind: "edit", op: "DeleteEvent", anchor: anchor(1, 0) });
+    const gone = replan(request, reloaded(state, [edit(1, "DeleteEvent", anchor(1, 0))]));
+    expect(gone.anchor).toBeNull();
+    expect(gone.plan).toMatchObject({ kind: "refused", reason: "no-target" });
+  });
+
+  it("la clave y la armadura se vuelven a calcular sobre el compás en el estado recargado", () => {
+    const state = staffScore([{ events: [note("C4")], clef: { sign: "F", line: 4 } }]);
+    const clef: EditRequestLike = {
+      op: "SetClef",
+      after: { sign: "F", line: 4 },
+      clef: 1,
+      anchor: anchor(1),
+      baseSeq: 0,
+    };
+    // La otra pestaña ya puso la clave de fa: no hay nada que volver a aplicar.
+    expect(replan(clef, reloaded(state, [edit(1, "SetClef", anchor(1))])).plan).toMatchObject({
+      reason: "same",
+    });
+    const key: EditRequestLike = {
+      op: "SetKey",
+      after: { fifths: 2 },
+      fifths: 2,
+      anchor: anchor(1),
+      baseSeq: 0,
+    };
+    // Aunque se borrara el primer evento del compás, la armadura sigue siendo del compás.
+    const empty = staffScore([{ events: [] }]);
+    expect(replan(key, reloaded(empty, [edit(1, "DeleteEvent", anchor(1))])).plan).toMatchObject({
+      kind: "edit",
+      after: { fifths: 2 },
+    });
+  });
+
+  it("las de altura siguen pidiendo el mismo valor final", () => {
+    const state = staffScore([{ events: [note("E4")] }]);
+    const request: EditRequestLike = {
+      op: "SetPitch",
+      after: { pitch: "D4" },
+      anchor: anchor(1),
+      baseSeq: 0,
+    };
+    expect(
+      replan(request, reloaded(state, [edit(1, "SetDuration", anchor(1))])).plan,
+    ).toMatchObject({ kind: "edit", op: "SetPitch", after: { pitch: "D4" } });
   });
 });

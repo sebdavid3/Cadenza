@@ -1661,15 +1661,34 @@ describe("corregir la nota elegida", () => {
     return [Number(numerator), Number(denominator) * 4];
   }
 
-  /** Lo que dibujaría OSMD para un detalle: una figura por evento de cada compás. */
+  /**
+   * Lo que dibujaría OSMD para un detalle: una figura por nota, acorde o silencio de cada compás,
+   * con su voz; un silencio invisible, guardado pero sin dibujar (ADR-0032).
+   */
   function draw(current: SessionDetailRead) {
     osmd.figures =
-      current.current_score?.parts[0]?.staves[0]?.measures.map((measure) =>
-        measure.events.map((event) => ({
-          pitch: event.pitch,
-          whole: whole(event.duration_beats ?? "0"),
-        })),
-      ) ?? null;
+      current.current_score?.parts[0]?.staves[0]?.measures.map((measure) => {
+        const figures: NonNullable<typeof osmd.figures>[number] = [];
+        for (const event of measure.events) {
+          const previous = figures.at(-1);
+          if (
+            event.is_chord &&
+            event.pitch &&
+            previous?.pitch &&
+            previous.voice === event.voice + 1
+          ) {
+            previous.chord = [...(previous.chord ?? []), event.pitch];
+            continue;
+          }
+          figures.push({
+            pitch: event.pitch,
+            whole: whole(event.duration_beats ?? "0"),
+            voice: event.voice + 1,
+            hidden: event.hidden === true,
+          });
+        }
+        return figures;
+      }) ?? null;
   }
 
   /** Aplica una edición al detalle como lo haría el servidor y devuelve el evento guardado. */
@@ -1677,14 +1696,42 @@ describe("corregir la nota elegida", () => {
     const next = structuredClone(current);
     const seq = (current.current_seq ?? 0) + 1;
     const measureNumber = body.anchor.measure;
-    const event = next.current_score?.parts[0]?.staves[0]?.measures.find(
+    const measure = next.current_score?.parts[0]?.staves[0]?.measures.find(
       (candidate) => candidate.number === measureNumber,
-    )?.events[body.anchor.event_index];
-    if (!event) throw new Error("ancla sin evento");
+    );
+    if (!measure) throw new Error("ancla sin compás");
+    // El `event_index` cuenta los eventos de su voz (ADR-0011).
+    const positions = measure.events.flatMap((candidate, index) =>
+      candidate.voice === body.anchor.voice ? [index] : [],
+    );
+    const position = positions[body.anchor.event_index];
+    const event = position === undefined ? undefined : measure.events[position];
     const after = body.after ?? {};
-    if (body.op === "SetPitch") event.pitch = String(after.pitch);
-    if (body.op === "SetDuration") event.duration_beats = String(after.duration_beats);
-    if (body.op === "SetAccidental") {
+    if (body.op === "SetClef") {
+      measure.clef =
+        "clef" in after ? null : { sign: String(after.sign), line: Number(after.line) };
+    } else if (body.op === "SetKey") {
+      measure.key_signature = "key_signature" in after ? null : { fifths: Number(after.fifths) };
+    } else if (body.op === "InsertEvent") {
+      measure.events.splice(position ?? (positions.at(-1) ?? -1) + 1, 0, {
+        kind: after.kind === "rest" ? "rest" : "note",
+        voice: body.anchor.voice,
+        pitch: typeof after.pitch === "string" ? after.pitch : null,
+        duration_beats: String(after.duration_beats),
+        tie: null,
+        is_chord: false,
+        bbox: null,
+        confidence: null,
+        ir_handle: null,
+      });
+    } else if (!event || position === undefined) {
+      throw new Error("ancla sin evento");
+    } else if (body.op === "DeleteEvent") {
+      measure.events.splice(position, 1);
+    }
+    if (event && body.op === "SetPitch") event.pitch = String(after.pitch);
+    if (event && body.op === "SetDuration") event.duration_beats = String(after.duration_beats);
+    if (event && body.op === "SetAccidental") {
       const accidental = after.accidental === "natural" ? "" : String(after.accidental);
       event.pitch = (event.pitch ?? "").replace(/^([A-G])[#b]*(\d)$/, `$1${accidental}$2`);
     }
@@ -2419,5 +2466,446 @@ describe("corregir la nota elegida", () => {
       expect(signal?.aborted).toBe(true);
     });
     expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+  });
+
+  describe("insertar, borrar y cambiar la clave y la armadura (#184)", () => {
+    const live = () => document.querySelector(".selection [role='status']");
+    const note = (
+      pitch: string | null,
+      duration: string,
+      changes: Partial<ScoreEventPayload> = {},
+    ) =>
+      ({
+        kind: pitch === null ? "rest" : "note",
+        voice: 0,
+        pitch,
+        duration_beats: duration,
+        tie: null,
+        is_chord: false,
+        bbox: null,
+        confidence: null,
+        ir_handle: null,
+        ...changes,
+      }) satisfies ScoreEventPayload;
+    /** Detalle con los eventos dados en el compás 2. */
+    function withSecond(events: ScoreEventPayload[]) {
+      const start = detail();
+      const second = start.current_score?.parts[0]?.staves[0]?.measures[1];
+      if (!second) throw new Error("sin compás 2");
+      second.events = events;
+      return start;
+    }
+
+    it("inserta una nota antes de la elegida, sin darla por insertada antes del 201, y la elige", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+
+      fireEvent.click(button("Insertar una nota antes"));
+
+      expect(server.bodies).toEqual([
+        {
+          base_seq: 0,
+          op: "InsertEvent",
+          anchor: anchorOf(2),
+          before: null,
+          after: { kind: "note", duration_beats: "3", pitch: "C4" },
+        },
+      ]);
+      expect(editStatus()).toHaveTextContent("Guardando…");
+      expect(osmd.figures?.[1]).toHaveLength(1);
+      // Otra orden mientras tanto no sale.
+      fireEvent.click(button("Borrar"));
+      expect(server.bodies).toHaveLength(1);
+
+      const body = server.bodies[0];
+      if (!body) throw new Error("sin edición");
+      pending.resolve(server.accept(body));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, blanca con puntillo.");
+      });
+      expect(useSelectionStore.getState().selection).toEqual({
+        sessionId: ID,
+        seq: 1,
+        anchor: anchorOf(2),
+        placedBy: 1,
+      });
+      // El compás 2 dibuja ya las dos notas y la marca está sobre la nueva, la primera.
+      await waitFor(() => {
+        expect(selection()).not.toBeNull();
+      });
+      expect(osmd.figures?.[1]).toHaveLength(2);
+      // La primera figura del compás 2 empieza en x = 35 unidades; la segunda, en 40.
+      expect(Number.parseFloat(selection()?.style.left ?? "")).toBeLessThan(37 * 7.5);
+    });
+
+    it("con el teclado: N inserta una nota, S un silencio, y Supr y Retroceso borran", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+
+      fireEvent.keyDown(region, { key: "s" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: inserción de un silencio de blanca con puntillo.",
+        );
+      });
+      expect(screen.getByText("Silencio de blanca con puntillo")).toBeVisible();
+
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: borrado de un silencio de blanca con puntillo.",
+        );
+      });
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+
+      fireEvent.keyDown(region, { key: "N", shiftKey: true });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, blanca con puntillo.");
+      });
+      fireEvent.keyDown(region, { key: "Backspace" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, blanca con puntillo.");
+      });
+
+      expect(server.bodies.map(({ op, base_seq }) => [op, base_seq])).toEqual([
+        ["InsertEvent", 0],
+        ["DeleteEvent", 1],
+        ["InsertEvent", 2],
+        ["DeleteEvent", 3],
+      ]);
+      expect(server.bodies[0]?.after).toEqual({ kind: "rest", duration_beats: "3" });
+      expect(document.activeElement).toBe(region);
+      // Con Ctrl, ⌘ o Alt no es de la vista.
+      fireEvent.keyDown(region, { key: "Backspace", altKey: true });
+      fireEvent.keyDown(region, { key: "n", ctrlKey: true });
+      expect(server.bodies).toHaveLength(4);
+    });
+
+    it("al borrar deja elegido el evento que ocupa su sitio y lo anuncia", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      await chooseMeasure(2);
+      expect(screen.getByText("Do4 · negra con puntillo")).toBeVisible();
+
+      fireEvent.click(button("Borrar"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, negra con puntillo.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "DeleteEvent",
+        anchor: anchorOf(2),
+        before: null,
+        after: null,
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: anchorOf(2),
+        placedBy: 1,
+      });
+      expect(screen.getByText("Re4 · negra con puntillo")).toBeVisible();
+      // Con la misma ancla es otro evento: se anuncia.
+      await waitFor(() => {
+        expect(live()).toHaveTextContent("Compás 2, voz 1: Re 4, negra con puntillo.");
+      });
+    });
+
+    it("si se elige otra nota mientras se guarda el borrado, se respeta", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+
+      fireEvent.click(button("Borrar"));
+      fireEvent.keyDown(region, { key: "ArrowLeft" });
+      expect(screen.getByText("Compás 1 · Voz 1")).toBeVisible();
+      const body = server.bodies[0];
+      if (!body) throw new Error("sin edición");
+      pending.resolve(server.accept(body));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, negra con puntillo.");
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: anchorOf(1),
+      });
+    });
+
+    it("no borra la primera nota de un acorde y dice por qué", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+
+      expect(button("Borrar")).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Borrar"));
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
+        );
+      });
+      expect(server.bodies).toHaveLength(0);
+
+      // Mi4, la otra nota del acorde, sí se borra.
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+      expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
+      fireEvent.click(button("Borrar"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Mi 4, blanca con puntillo.");
+      });
+      expect(server.bodies[0]).toMatchObject({ op: "DeleteEvent", anchor: { event_index: 1 } });
+    });
+
+    it("insertar ante una nota de un acorde inserta antes del acorde entero", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+
+      fireEvent.click(button("Insertar un silencio antes"));
+
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(1);
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "InsertEvent",
+        anchor: { measure: 2, event_index: 0 },
+        after: { kind: "rest", duration_beats: "3" },
+      });
+    });
+
+    it("al borrar una nota con ligadura de expresión dice que la ligadura ya no se dibuja", async () => {
+      const start = withSecond([note("C4", "3", { slurs: [{ type: "start", number: 1 }] })]);
+      const third = start.current_score?.parts[0]?.staves[0]?.measures[2]?.events[0];
+      if (!third) throw new Error("sin compás 3");
+      third.slurs = [{ type: "stop", number: 1 }];
+      editableApi(start);
+      renderPage();
+      await chooseMeasure(2);
+
+      fireEvent.click(button("Borrar"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: borrado de Do 4, blanca con puntillo. Su ligadura de expresión ya no se dibuja.",
+        );
+      });
+    });
+
+    it("en una voz secundaria inserta tras su hueco, antes de la nota elegida (ADR-0032)", async () => {
+      const server = editableApi(
+        withSecond([
+          note("E5", "3"),
+          note(null, "1", { voice: 1, hidden: true }),
+          note("C4", "2", { voice: 1 }),
+        ]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.keyDown(region, { key: "ArrowDown" });
+      expect(screen.getByText("Compás 2 · Voz 2")).toBeVisible();
+
+      fireEvent.keyDown(region, { key: "n" });
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, blanca.");
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "InsertEvent",
+        anchor: { measure: 2, voice: 1, event_index: 1 },
+        after: { kind: "note", pitch: "C4", duration_beats: "2" },
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        anchor: { measure: 2, voice: 1, event_index: 1 },
+      });
+    });
+
+    it("cambia la clave del compás elegido, dice hasta dónde llega y que las notas no cambian", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      expect(button("Clave de sol")).toHaveAttribute("aria-pressed", "true");
+      expect(within(editor()).getByText("Clave · compases 2 a 3")).toBeVisible();
+
+      fireEvent.click(button("Clave de fa"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: clave de fa en los compases 2 a 3. Las notas conservan su altura.",
+        );
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "SetClef",
+        anchor: anchorOf(2),
+        before: null,
+        after: { sign: "F", line: 4 },
+      });
+      expect(button("Clave de fa")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Clave de sol")).toHaveAttribute("aria-pressed", "false");
+      // La nota elegida sigue elegida, con su altura.
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    });
+
+    it("cambia la armadura con el desplegable y «Cambiar armadura»", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      const picker = within(editor()).getByRole("combobox", { name: "Armadura · compases 2 a 3" });
+      expect(picker).toHaveValue("0");
+      expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Cambiar armadura"));
+      expect(server.bodies).toHaveLength(0);
+
+      fireEvent.change(picker, { target: { value: "2" } });
+      expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "false");
+      button("Cambiar armadura").focus();
+      fireEvent.click(button("Cambiar armadura"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: armadura de 2 sostenidos en los compases 2 a 3. Las notas conservan su altura.",
+        );
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "SetKey",
+        anchor: anchorOf(2),
+        after: { fifths: 2 },
+      });
+      expect(
+        within(editor()).getByRole("combobox", { name: "Armadura · compases 2 a 3" }),
+      ).toHaveValue("2");
+      expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "true");
+      // El botón no se monta de nuevo al cambiar la armadura: el foco sigue en él.
+      expect(document.activeElement).toBe(button("Cambiar armadura"));
+    });
+
+    it("sin nota elegida, insertar, borrar, la clave y la armadura esperan", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+
+      for (const name of [
+        "Insertar una nota antes",
+        "Insertar un silencio antes",
+        "Borrar",
+        "Clave de fa",
+        "Cambiar armadura",
+      ]) {
+        expect(button(name)).toHaveAttribute("aria-disabled", "true");
+      }
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Elige primero una nota o un silencio.");
+      });
+      expect(server.bodies).toHaveLength(0);
+    });
+
+    it("tras un 409, vuelve a aplicar el borrado sobre el ancla desplazada", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() => {
+        // Otra pestaña insertó una nota delante de la elegida (ADR-0011 §2: la retrasa una).
+        server.replace(
+          apply(server.current(), {
+            base_seq: 0,
+            op: "InsertEvent",
+            anchor: anchorOf(2),
+            before: null,
+            after: { kind: "note", pitch: "E4", duration_beats: "1" },
+          }).next,
+        );
+        return jsonResponse({ detail: "conflicto" }, 409);
+      });
+
+      fireEvent.click(button("Borrar"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "No se guardó: borrado de Do 4, blanca con puntillo (compás 2, voz 1). La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.",
+        );
+      });
+      fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4, blanca con puntillo.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "DeleteEvent",
+        anchor: { measure: 2, event_index: 1 },
+        after: null,
+      });
+      // Queda elegida la nota anterior de su voz, la que insertó la otra pestaña.
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 2,
+        anchor: { measure: 2, event_index: 0 },
+      });
+    });
+
+    it("un 409 de la clave dice el compás, no la voz", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() => jsonResponse({ detail: "conflicto" }, 409));
+
+      fireEvent.click(button("Clave de fa"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "No se guardó: clave de fa en los compases 2 a 3 (compás 2).",
+        );
+      });
+      expect(server.bodies).toHaveLength(1);
+    });
+
+    it("un 422 de una inserción no guarda nada y lo dice sin el detail", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() =>
+        jsonResponse({ detail: "InsertEvent de una nota requiere 'pitch'" }, 422),
+      );
+
+      fireEvent.click(button("Insertar una nota antes"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "El servidor no aceptó el cambio (inserción de Do 4, blanca con puntillo, compás 2, voz 1): no se guardó nada.",
+        );
+      });
+      expect(screen.queryByText(/requiere/)).toBeNull();
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 0, anchor: anchorOf(2) });
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+    });
+
+    it("en solo lectura no se inserta ni se borra, tampoco con el teclado", async () => {
+      const server = editableApi(detail({ owner_id: LUIS.id }));
+      renderPage(INVESTIGADORA);
+      const region = await chooseMeasure(2);
+
+      expect(screen.queryByRole("button", { name: "Borrar" })).toBeNull();
+      fireEvent.keyDown(region, { key: "n" });
+      fireEvent.keyDown(region, { key: "s" });
+      fireEvent.keyDown(region, { key: "Delete" });
+      fireEvent.keyDown(region, { key: "Backspace" });
+      expect(server.bodies).toHaveLength(0);
+      // La selección sigue: las teclas de edición no la tocan.
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+    });
   });
 });
