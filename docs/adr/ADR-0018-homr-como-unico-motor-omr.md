@@ -97,3 +97,16 @@ flowchart LR
    disponible.
 3. **Conservar oemer como extra opcional sin usarlo.** Descartada: es código sin
    ejecución real que la documentación presentaba como línea base.
+
+## Notas posteriores
+
+- **2026-10-26, Audiveris como motor complementario ([INV-0002](../investigaciones/INV-0002-audiveris-frente-a-homr.md)).**
+  Se midió Audiveris 5.11.0 junto a HOMR, en pocas páginas, para leer lo que HOMR no da
+  (matices, el numerador y el símbolo del compás, y los tresillos implícitos). En esas
+  páginas acertó en los reguladores de una página impresa limpia, en el ¢ y en los
+  tresillos implícitos de la Sonata *Claro de luna*. En cambio, leyó 3/4 en un autógrafo
+  en ¢, acertó poco en las dinámicas sin OCR y leyó peor las notas. Además, tardó 35–51 s
+  por página en CPU. Esta decisión sigue vigente: Audiveris no se integra en la entrega de
+  noviembre de 2026. Su integración como fuente de propuestas queda como trabajo futuro
+  ([#262](https://github.com/sebdavid3/Cadenza/issues/262)) y necesitaría un ADR que
+  modifique este.
