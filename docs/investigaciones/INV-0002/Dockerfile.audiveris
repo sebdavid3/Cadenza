@@ -1,0 +1,22 @@
+# Imagen desechable de Audiveris 5.11.0 usada en INV-0002 (2026-10-24), sin interfaz gráfica.
+# No forma parte del despliegue de Cadenza.
+#
+#   docker build -t audiveris-prueba:5.11.0 -f Dockerfile.audiveris .
+#   docker run --rm -v "$PWD:/w" audiveris-prueba:5.11.0 /opt/audiveris/bin/Audiveris \
+#       -batch [-constant org.audiveris.omr.sheet.ProcessingSwitches.implicitTuplets=true] \
+#       -transcribe -export -output /w/out -- /w/<imagen>
+#
+# Audiveris se distribuye bajo AGPL-3.0; el .deb es el del release oficial y se comprueba su sha256.
+FROM ubuntu:24.04
+ARG DEB=Audiveris-5.11.0-ubuntu24.04-x86_64.deb
+# Dependencias que declara el paquete, sin xdg-utils (su postinst solo registra el menú de
+# escritorio y falla sin escritorio), y GTK 3, que Audiveris carga al arrancar aunque vaya
+# sin interfaz. Por eso el .deb se extrae con dpkg-deb -x en lugar de instalarse.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates \
+        libasound2t64 libbsd0 libmd0 libx11-6 libxau6 libxcb1 libxdmcp6 libxext6 libxi6 libxrender1 \
+        libxtst6 zlib1g fontconfig libfreetype6 libgtk-3-0t64 >/dev/null \
+    && curl -fsSL -o /tmp/$DEB https://github.com/Audiveris/audiveris/releases/download/5.11.0/$DEB \
+    && echo "f20113aaa33b3149ec8d6a09b2a7963360e65fafd92d69389987a85bbc3ec7a3  /tmp/$DEB" | sha256sum -c - \
+    && dpkg-deb -x /tmp/$DEB / \
+    && rm /tmp/$DEB && rm -rf /var/lib/apt/lists/*
+ENV JAVA_TOOL_OPTIONS=-Djava.awt.headless=true
