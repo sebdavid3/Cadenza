@@ -17,7 +17,8 @@ Referencias:
 
 Seguimiento: milestones
 [Fase 8: Interfaz web (apps/web)](https://github.com/sebdavid3/Cadenza/milestone/3) y
-[Despliegue público (homelab)](https://github.com/sebdavid3/Cadenza/milestone/4).
+[Despliegue público (homelab)](https://github.com/sebdavid3/Cadenza/milestone/4). Plan de cierre:
+[`../plan_de_cierre/README.md`](../plan_de_cierre/README.md).
 
 ---
 
@@ -36,6 +37,11 @@ móvil: un navegador sin interfaz no la oye.
 
 ## Siguientes etapas
 
+El alcance final y el calendario los fija el plan de cierre
+([`../plan_de_cierre/README.md`](../plan_de_cierre/README.md),
+[#231](https://github.com/sebdavid3/Cadenza/issues/231)): esta fase entra en el congelado del
+2026-11-08, salvo #189 y #190, que no afectan al estudio y se despliegan después.
+
 | Etapa | Issue | Contenido | Depende de | Deuda |
 |---|---|---|---|---|
 | **Corrección** | ~~[#182](https://github.com/sebdavid3/Cadenza/issues/182)~~ | **Hecho:** seleccionar una nota sobre la partitura, con el mapa ancla→caja por evento (ADR-0027) | — | D11 (resuelta) |
@@ -45,49 +51,67 @@ móvil: un navegador sin interfaz no la oye.
 | | ~~[#184](https://github.com/sebdavid3/Cadenza/issues/184)~~ | **Hecho:** insertar y borrar eventos, y cambiar la clave y la armadura (ADR-0033) | #183, #213, #218 | D61 (ampliada: la primera nota de un acorde), D62 (sin selección tampoco se edita) |
 | | ~~[#185](https://github.com/sebdavid3/Cadenza/issues/185)~~ | **Hecho:** deshacer en el servidor y rehacer, con la historia de ediciones (ADR-0034) | #183 | — |
 | | ~~[#186](https://github.com/sebdavid3/Cadenza/issues/186)~~ | **Hecho:** descartar, restaurar y revalidar los posibles errores (ADR-0035) | #183 | D64 |
-| | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista | #213; conviene después de #184 y #185 | — |
-| **Cierre** | [#187](https://github.com/sebdavid3/Cadenza/issues/187) | Finalizar y reabrir una sesión | #183 | — |
-| | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo; decidir cómo cuentan las ediciones compensatorias y las que rehacen otra (ADR-0034) | #183, #187 | D38 |
+| | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista; es la forma de poner los matices, que no se reconocen ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Su ADR fija la política de `EditOp` para el dataset y las métricas | #213 | — |
+| | [#241](https://github.com/sebdavid3/Cadenza/issues/241) | Cambiar el compás (números, C o ¢) y poner tresillos desde la barra de corrección | [#236](https://github.com/sebdavid3/Cadenza/issues/236) | — |
+| | [#243](https://github.com/sebdavid3/Cadenza/issues/243) | Cambiar la figura de un acorde entero | — | D61 |
+| **Datos de la partitura** | [#235](https://github.com/sebdavid3/Cadenza/issues/235) | Título, compositor e instrumento de cada parte en la API, el MusicXML y el MIDI | — | — |
+| | [#240](https://github.com/sebdavid3/Cadenza/issues/240) | Formulario antes de transcribir con esos datos | #235 | — |
+| **Reproducción** | [#242](https://github.com/sebdavid3/Cadenza/issues/242) | Que cada parte suene con su instrumento | #235 | — |
+| **Cierre** | [#187](https://github.com/sebdavid3/Cadenza/issues/187) | Finalizar y reabrir una sesión; finalizar conserva los descartes | #183 | D65 |
+| | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo, con las definiciones que cierre [#244](https://github.com/sebdavid3/Cadenza/issues/244) | #187, #244 | D38 |
 | | [#189](https://github.com/sebdavid3/Cadenza/issues/189) | Descargar el MIDI | — | — |
-| **Reproducción** | [#215](https://github.com/sebdavid3/Cadenza/issues/215) | Volumen según las dinámicas y los reguladores | #213 | — |
 | **Cuenta** | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña | — | — |
-| **Deuda** | ~~[#191](https://github.com/sebdavid3/Cadenza/issues/191)~~ | **Hecho:** excluir del dataset las sesiones de cuentas autorregistradas | conviene antes de #187 | D55 (resuelta) |
+| **Deuda** | ~~[#191](https://github.com/sebdavid3/Cadenza/issues/191)~~ | **Hecho:** excluir del dataset las sesiones de cuentas autorregistradas | — | D55 (resuelta) |
 | | ~~[#192](https://github.com/sebdavid3/Cadenza/issues/192)~~ | **Hecho:** la imagen de la API sin ejecutarse como root | — | D57 (resuelta) |
 | | ~~[#193](https://github.com/sebdavid3/Cadenza/issues/193)~~ | **Hecho:** longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 (resuelta) |
-| | [#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto: **alcance por decidir** | decisión del responsable | D59 |
+
+Lo que esta fase necesita de otras: [#236](https://github.com/sebdavid3/Cadenza/issues/236)
+(Fase 9) para #241, y [#244](https://github.com/sebdavid3/Cadenza/issues/244) (Fase 10) para
+#188. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #236 → #243.
 
 ```mermaid
 flowchart LR
-    S182["#182 seleccionar una nota"] --> S183["#183 altura, duración y alteración"]
-    S183 --> S213["#213 marcas de notación"]
-    S213 --> S218["#218 varias voces"]
-    S218 --> S184["#184 insertar, borrar, clave y armadura"]
-    S213 --> S214["#214 añadir y quitar marcas"]
-    S213 --> S215["#215 volumen según las dinámicas"]
-    S183 --> S185["#185 deshacer y rehacer"]
-    S183 --> S186["#186 posibles errores"]
+    S183["#183 altura, duración y alteración"] --> S214["#214 añadir y quitar marcas"]
     S183 --> S187["#187 finalizar y reabrir"]
-    S191["#191 dataset sin cuentas del registro"] -.-> S187
     S187 --> S188["#188 métricas de esfuerzo"]
+    S244["#244 protocolo"] --> S188
+    S214 -->|política de EditOp| S236["#236 compás y tresillos en el dominio"]
+    S236 --> S241["#241 compás y tresillos en la barra"]
+    S235["#235 título, compositor e instrumentos"] --> S240["#240 formulario"]
+    S235 --> S242["#242 sonido por instrumento"]
+    S243["#243 figura de un acorde"]
     S189["#189 descargar el MIDI"]
     S190["#190 cambiar la contraseña"]
 ```
 
 ## Fuera de alcance
 
+Fuera de la entrega de noviembre de 2026 (milestone «Trabajo futuro», plan de cierre):
+
+- Matices reconocidos automáticamente con Audiveris
+  ([#262](https://github.com/sebdavid3/Cadenza/issues/262),
+  [INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)); se ponen a mano con #214.
+- Volumen de la reproducción según los matices ([#215](https://github.com/sebdavid3/Cadenza/issues/215)).
+- Título y letra leídos de la imagen ([#263](https://github.com/sebdavid3/Cadenza/issues/263)).
+- D62 y D64 ([#264](https://github.com/sebdavid3/Cadenza/issues/264)) y las políticas completas
+  del registro abierto ([#194](https://github.com/sebdavid3/Cadenza/issues/194); para el estudio,
+  [#248](https://github.com/sebdavid3/Cadenza/issues/248) lo cierra).
 - Evaluación sobre SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y
-  ajuste fino real del modelo OMR ([#103](https://github.com/sebdavid3/Cadenza/issues/103), D14
-  y D53): alcance por decidir, fuera de la Fase 8.
+  reentrenar HOMR ([#103](https://github.com/sebdavid3/Cadenza/issues/103), D14 y D53).
 - Marcas sobre la imagen original: HOMR no da coordenadas por nota (INV-0001).
 - Entrada PDF y partituras de varias páginas ([#38](https://github.com/sebdavid3/Cadenza/issues/38)).
-- El estudio de esfuerzo con participantes (D38): va después de esta fase y necesita
-  [#188](https://github.com/sebdavid3/Cadenza/issues/188).
+
+El estudio de esfuerzo con participantes (D38) ya no va después de esta fase: es la Fase 10 del
+plan de cierre ([#253](https://github.com/sebdavid3/Cadenza/issues/253)), con el sistema
+congelado el 2026-11-08.
 
 ## Criterio de cierre
 
-1. Desde la interfaz, una persona transcribe, revisa, corrige con las siete operaciones de
-   `EditOp`, deshace y rehace, gestiona los posibles errores, finaliza, reabre y exporta a MusicXML y
-   MIDI. Se verifica contra la API real con HOMR a 1440 y 390 px y en el despliegue público.
+1. Desde la interfaz, una persona transcribe con el título, el compositor y los instrumentos;
+   revisa; corrige con todas las operaciones de `EditOp` (las siete de hoy y las que añadan
+   #214, #236 y #243); deshace y rehace; gestiona los posibles errores; finaliza; reabre; y
+   exporta a MusicXML y MIDI. Cada parte suena con su instrumento. Se verifica contra la API
+   real con HOMR a 1440 y 390 px y en el despliegue público.
 2. Las métricas de esfuerzo se registran como pide el protocolo, y las sesiones de cuentas del
    registro no llegan ni al estudio ni al dataset (D55).
 3. D11 queda resuelta y cada decisión tiene su ADR.

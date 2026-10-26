@@ -926,21 +926,30 @@ sus posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), A
 articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores
 ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031), y las varias voces de un
 pentagrama con su ritmo y con las plicas separadas
-([#218](https://github.com/sebdavid3/Cadenza/issues/218), ADR-0032). Lo
-que falta para alcanzar el Módulo 3 (§5) está planificado en issues; el detalle, las
-dependencias y el criterio de cierre, en
-[`phases/phase_8_web_interface/README.md`](phases/phase_8_web_interface/README.md).
+([#218](https://github.com/sebdavid3/Cadenza/issues/218), ADR-0032).
 
-| Etapa | Issues | Brecha frente al objetivo |
+Lo que falta lo fija el plan de cierre
+([`phases/plan_de_cierre/README.md`](phases/plan_de_cierre/README.md),
+[#231](https://github.com/sebdavid3/Cadenza/issues/231)), con el congelado del sistema el
+2026-11-08 y el estudio con participantes del 9 al 15 de noviembre de 2026. El detalle de la
+Fase 8 está en [`phases/phase_8_web_interface/README.md`](phases/phase_8_web_interface/README.md).
+
+| Fase | Issues | Brecha frente al objetivo |
 |---|---|---|
-| Corrección sobre la partitura | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación. Ya existen la selección con el mapa `Anchor → caja` por evento ([#182](https://github.com/sebdavid3/Cadenza/issues/182), ADR-0027, D11 resuelta) la corrección de la altura, la duración y la alteración ([#183](https://github.com/sebdavid3/Cadenza/issues/183), ADR-0030), las marcas de notación guardadas y dibujadas ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031) las varias voces con su ritmo ([#218](https://github.com/sebdavid3/Cadenza/issues/218), ADR-0032) insertar y borrar eventos y cambiar la clave y la armadura ([#184](https://github.com/sebdavid3/Cadenza/issues/184), ADR-0033) deshacer y rehacer ([#185](https://github.com/sebdavid3/Cadenza/issues/185), ADR-0034) y descartar, restaurar y revalidar los posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), ADR-0035); añadir y quitar marcas es #214, e `InsertEvent` ya admite el silencio invisible para deshacer su borrado |
-| Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir (ADR-0014), métricas de esfuerzo y descarga del MIDI |
-| Reproducción | [#215](https://github.com/sebdavid3/Cadenza/issues/215) | Volumen según las dinámicas y los reguladores |
-| Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambio de contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | D59, con el alcance por decidir; D58, D55 y D57 resueltas en [#193](https://github.com/sebdavid3/Cadenza/issues/193), [#191](https://github.com/sebdavid3/Cadenza/issues/191) y [#192](https://github.com/sebdavid3/Cadenza/issues/192) |
+| Fase 8: interfaz web | [#214](https://github.com/sebdavid3/Cadenza/issues/214), [#235](https://github.com/sebdavid3/Cadenza/issues/235), [#240](https://github.com/sebdavid3/Cadenza/issues/240)–[#243](https://github.com/sebdavid3/Cadenza/issues/243), [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#190](https://github.com/sebdavid3/Cadenza/issues/190) | Añadir y quitar marcas (los matices se ponen a mano); título, compositor e instrumento de cada parte, con su formulario y su sonido; compás y tresillos en la barra; figura de un acorde (D61); finalizar y reabrir (D65); métricas de esfuerzo; MIDI; contraseña |
+| Fase 9: reconocimiento y reglas | [#234](https://github.com/sebdavid3/Cadenza/issues/234), [#236](https://github.com/sebdavid3/Cadenza/issues/236)–[#239](https://github.com/sebdavid3/Cadenza/issues/239), [#245](https://github.com/sebdavid3/Cadenza/issues/245), [#246](https://github.com/sebdavid3/Cadenza/issues/246) | Numerador del compás por tramos, C y ¢, tresillos implícitos y cambios de armadura sobre la salida de HOMR, medidos; voz superior y piano; reglas con mensajes en lenguaje musical, con `exp_06` medido de nuevo |
+| Fase 10: estudio de esfuerzo | [#244](https://github.com/sebdavid3/Cadenza/issues/244), [#247](https://github.com/sebdavid3/Cadenza/issues/247)–[#254](https://github.com/sebdavid3/Cadenza/issues/254), [#226](https://github.com/sebdavid3/Cadenza/issues/226) | El estudio con participantes (D38): definiciones del protocolo, banco de partituras, cuentas y sesiones, fidelidad residual y NASA-TLX, piloto, congelado, sesiones y análisis |
+| Fase 11: aprendizaje de las correcciones | [#255](https://github.com/sebdavid3/Cadenza/issues/255)–[#258](https://github.com/sebdavid3/Cadenza/issues/258) | Capa de post-corrección que aprende de las correcciones y propone, sin reentrenar HOMR, evaluada con validación cruzada y curva de aprendizaje |
 
-El estudio de esfuerzo con participantes (D38) va después de la Fase 8. #102 y #103 siguen
-con el alcance por decidir.
+Quedan fuera de esta entrega (milestone «Trabajo futuro»): los matices reconocidos con Audiveris
+([#262](https://github.com/sebdavid3/Cadenza/issues/262),
+[INV-0002](investigaciones/INV-0002-audiveris-frente-a-homr.md)), reentrenar HOMR
+([#103](https://github.com/sebdavid3/Cadenza/issues/103), D14 y D53), SMB y MUSCIMA++
+([#102](https://github.com/sebdavid3/Cadenza/issues/102)), el título y la letra leídos de la
+imagen ([#263](https://github.com/sebdavid3/Cadenza/issues/263)), las políticas completas del
+registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen según los matices
+([#215](https://github.com/sebdavid3/Cadenza/issues/215)) y D62 y D64
+([#264](https://github.com/sebdavid3/Cadenza/issues/264)).
 
 ---
 
