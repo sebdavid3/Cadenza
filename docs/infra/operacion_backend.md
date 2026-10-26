@@ -230,7 +230,7 @@ docker compose --profile batch run --rm ml-batch run --config configs/learning/d
 ```
 
 > [!WARNING]
-> Hoy la imagen `Dockerfile.ml-cuda` no se construye (deuda D53): pide `--extra torch --extra metrics` a la raíz del workspace, que no define extras (también en su alternativa `|| uv sync ...`), fija uv 0.5.21, anterior al formato del lockfile, y copia el `pyproject.toml` de `apps/api`, miembro del workspace, pero no su código. Su arreglo depende del alcance del ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)).
+> Hoy la imagen `Dockerfile.ml-cuda` no se construye (deuda D53): pide `--extra torch --extra metrics` a la raíz del workspace, que no define extras (también en su alternativa `|| uv sync ...`), fija uv 0.5.21, anterior al formato del lockfile, y copia el `pyproject.toml` de `apps/api`, miembro del workspace, pero no su código. Su arreglo va con el ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)), que queda fuera de la entrega de noviembre de 2026 (trabajo futuro).
 
 ---
 

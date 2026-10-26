@@ -79,8 +79,8 @@ flowchart LR
 | Contrato de la API v1 (OpenAPI 3.1.0, 25 endpoints) | Congelado en [`docs/api/openapi.json`](docs/api/openapi.json) |
 | Interfaz web en `apps/web` (fase 8) | En construcción. Listos: landing, registro y acceso, transcripción por lotes, vista de una sesión con la partitura (OSMD), los posibles errores, la descarga del MusicXML, la reproducción (Tone.js), la selección de notas y la corrección de su altura, su duración y su alteración, las marcas de notación y las varias voces, insertar y borrar eventos, cambiar la clave y la armadura, deshacer y rehacer con la historia de ediciones, descartar, restaurar y revalidar los posibles errores, y moderación de cuentas ([#144](https://github.com/sebdavid3/Cadenza/issues/144)–[#186](https://github.com/sebdavid3/Cadenza/issues/186), [#213](https://github.com/sebdavid3/Cadenza/issues/213), [#218](https://github.com/sebdavid3/Cadenza/issues/218)). Falta el resto de la corrección sobre la partitura (ver [Siguientes etapas](#siguientes-etapas)) |
 | Despliegue público | En **https://r2d2.tailcacb19.ts.net**, en el homelab ([ADR-0023](docs/adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)) |
-| Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Alcance por decidir |
-| Estudio de esfuerzo con participantes | Protocolo listo, estudio no realizado |
+| Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Fuera de la entrega de noviembre de 2026 (trabajo futuro) |
+| Estudio de esfuerzo con participantes | Protocolo listo; el estudio está previsto del 9 al 15 de noviembre de 2026 ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) |
 
 El entrenamiento del plano offline usa hoy un entrenador de prueba (`FakeTrainer`); el
 ajuste fino real del modelo OMR es [#103](https://github.com/sebdavid3/Cadenza/issues/103).
@@ -91,19 +91,23 @@ produce cada una.
 
 ### Siguientes etapas
 
-Planificadas en issues de los milestones de la
-[Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3) y del
-[despliegue público](https://github.com/sebdavid3/Cadenza/milestone/4) (#192, #193 y #194). El
-detalle, las dependencias y el criterio de cierre están en
-[`docs/phases/phase_8_web_interface/README.md`](docs/phases/phase_8_web_interface/README.md).
+El plan de cierre (26 de octubre – 15 de noviembre de 2026) fija el resultado final, lo que
+queda fuera y el orden: [`docs/phases/plan_de_cierre/README.md`](docs/phases/plan_de_cierre/README.md),
+con su seguimiento en [#231](https://github.com/sebdavid3/Cadenza/issues/231). El sistema se
+congela el 8 de noviembre y el estudio con participantes va del 9 al 15.
 
-| Etapa | Issues | Contenido |
-|---|---|---|
-| Corrección sobre la partitura | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación (ya están hechos seleccionar una nota, corregir su altura, su duración y su alteración, insertar y borrar, la clave y la armadura, deshacer y rehacer, y descartar, restaurar y revalidar los posibles errores: de [#182](https://github.com/sebdavid3/Cadenza/issues/182) a [#186](https://github.com/sebdavid3/Cadenza/issues/186), D11 resuelta) |
-| Cierre de la sesión | [#187](https://github.com/sebdavid3/Cadenza/issues/187)–[#189](https://github.com/sebdavid3/Cadenza/issues/189) | Finalizar y reabrir, métricas de esfuerzo y descarga del MIDI |
-| Cuenta | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña |
-| Deuda | [#191](https://github.com/sebdavid3/Cadenza/issues/191)–[#194](https://github.com/sebdavid3/Cadenza/issues/194) | Límites del registro abierto (D59, alcance por decidir). Ya están hechas la longitud mínima de la clave de firma (D58), el dataset sin las cuentas del registro (D55) y la API sin root (D57) |
-| Después de la fase 8 | — | Estudio de esfuerzo con participantes (D38) |
+| Fase | Contenido |
+|---|---|
+| [Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3): interfaz web | Añadir y quitar marcas (los matices se ponen a mano); título, compositor e instrumento de cada parte, con su formulario y su sonido; compás y tresillos en la barra; figura de un acorde; finalizar y reabrir; métricas de esfuerzo; MIDI; contraseña |
+| [Fase 9](https://github.com/sebdavid3/Cadenza/milestone/5): reconocimiento y reglas | Compás por tramos, C y ¢, tresillos implícitos y cambios de armadura sobre la salida de HOMR; voz superior y piano; reglas con mensajes en lenguaje musical |
+| [Fase 10](https://github.com/sebdavid3/Cadenza/milestone/6): estudio de esfuerzo | Protocolo, banco de partituras, cuentas y sesiones, piloto, congelado, sesiones con 8 participantes y análisis |
+| [Fase 11](https://github.com/sebdavid3/Cadenza/milestone/7): aprendizaje de las correcciones | Capa de post-corrección que aprende de las correcciones y propone, sin reentrenar HOMR, con su evaluación |
+| [Cierre del proyecto](https://github.com/sebdavid3/Cadenza/milestone/8) | Licencia, documentación final, despliegue final y promoción de `dev` a `main` |
+
+Fuera de la entrega ([trabajo futuro](https://github.com/sebdavid3/Cadenza/milestone/9)): los
+matices reconocidos automáticamente (Audiveris,
+[INV-0002](docs/investigaciones/INV-0002-audiveris-frente-a-homr.md)), reentrenar HOMR, SMB y
+MUSCIMA++, el título y la letra leídos de la imagen, y el volumen según los matices.
 
 ---
 
@@ -483,11 +487,11 @@ Cadenza/
 |---|---|
 | [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md) | Estado vivo: fase, deuda técnica, resultados y bitácora |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura objetivo, casos de uso, modelo de datos y estado real |
-| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0029) |
-| [`docs/phases/`](docs/phases) | Alcance y criterio de cierre de cada fase; la vigente es la [Fase 8](docs/phases/phase_8_web_interface/README.md) |
+| [`docs/adr/`](docs/adr) | Decisiones de arquitectura (ADR-0001 a ADR-0035) |
+| [`docs/phases/`](docs/phases) | Alcance y criterio de cierre de cada fase; lo vigente es el [plan de cierre](docs/phases/plan_de_cierre/README.md) |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de integración de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
-| [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR) |
+| [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (INV-0001: cajas y confianza de HOMR; INV-0002: Audiveris frente a HOMR) |
 | [`docs/experimentos/`](docs/experimentos) | Protocolo del estudio de esfuerzo |
 | [`docs/literatura/`](docs/literatura) | Estado del arte y corpus |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Convenciones de Git y definición de terminado |

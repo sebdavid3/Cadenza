@@ -67,12 +67,12 @@ El alcance final y el calendario los fija el plan de cierre
 
 Lo que esta fase necesita de otras: [#236](https://github.com/sebdavid3/Cadenza/issues/236)
 (Fase 9) para #241, y [#244](https://github.com/sebdavid3/Cadenza/issues/244) (Fase 10) para
-#188. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #236 → #243.
+#188. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #236 → #243 (si cambia el contrato) → #258 (Fase 11).
 
 ```mermaid
 flowchart LR
-    S183["#183 altura, duración y alteración"] --> S214["#214 añadir y quitar marcas"]
-    S183 --> S187["#187 finalizar y reabrir"]
+    S213["#213 marcas de notación"] --> S214["#214 añadir y quitar marcas"]
+    S183["#183 altura, duración y alteración"] --> S187["#187 finalizar y reabrir"]
     S187 --> S188["#188 métricas de esfuerzo"]
     S244["#244 protocolo"] --> S188
     S214 -->|política de EditOp| S236["#236 compás y tresillos en el dominio"]

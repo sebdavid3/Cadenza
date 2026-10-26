@@ -43,8 +43,8 @@ Al 15 de noviembre de 2026:
 
 | Fuera | Por qué | Issue |
 |---|---|---|
-| Matices reconocidos automáticamente (Audiveris) | HOMR 0.7.0 no los reconoce; Audiveris acierta poco en las dinámicas sin OCR y tarda 35–51 s por página ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Los matices se ponen a mano | [#262](https://github.com/sebdavid3/Cadenza/issues/262); a mano, [#214](https://github.com/sebdavid3/Cadenza/issues/214) |
-| Reentrenar HOMR (D14, D53) | Necesita su código de entrenamiento, GPU durante semanas y más datos de los que dará el estudio. «Aprender de las correcciones» se cubre con la capa de [#256](https://github.com/sebdavid3/Cadenza/issues/256) | [#103](https://github.com/sebdavid3/Cadenza/issues/103) |
+| Matices reconocidos automáticamente (Audiveris) | HOMR 0.7.0 no los reconoce; Audiveris acierta poco en las dinámicas sin OCR y tarda 35–51 s por página real en CPU, 75 s un autógrafo ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Los matices se ponen a mano | [#262](https://github.com/sebdavid3/Cadenza/issues/262); a mano, [#214](https://github.com/sebdavid3/Cadenza/issues/214) |
+| Reentrenar HOMR (D14) y la imagen del plano offline (D53) | Necesita el código de entrenamiento de HOMR, GPU y muchos más datos que las 32 sesiones del estudio (8 participantes por 4 partituras); no cabe en el plazo. «Aprender de las correcciones» se cubre con la capa de [#256](https://github.com/sebdavid3/Cadenza/issues/256) | [#103](https://github.com/sebdavid3/Cadenza/issues/103) |
 | Evaluar sobre SMB y MUSCIMA++ (D34) | Plazo | [#102](https://github.com/sebdavid3/Cadenza/issues/102) |
 | Título y letra leídos de la imagen | El OCR del título de HOMR alargaba la latencia (#106) y HOMR no lee la letra. El título y el compositor se escriben en un formulario ([#240](https://github.com/sebdavid3/Cadenza/issues/240)) | [#263](https://github.com/sebdavid3/Cadenza/issues/263) |
 | Volumen de la reproducción según los matices | Sin matices reconocidos, solo afectaría a los puestos a mano | [#215](https://github.com/sebdavid3/Cadenza/issues/215) |
@@ -67,13 +67,15 @@ estudio ([#261](https://github.com/sebdavid3/Cadenza/issues/261)).
 
 ## Carriles
 
-Una persona por carril, en carpetas distintas, para que los PR no choquen:
+Una persona por carril, cada una con sus carpetas principales, para que los PR choquen lo menos posible:
 
 | Carril | Etiqueta | Carpetas |
 |---|---|---|
 | A · Reconocimiento y aprendizaje | `carril A: reconocimiento` | `packages/omr`, `packages/interchange`, `packages/domain`, `packages/learning` |
 | B · Web | `carril B: web` | `apps/web` y la parte de API de sus issues |
 | C · Reglas y estudio | `carril C: reglas y estudio` | `packages/validation`, `ml/experiments`, `docs/experimentos` |
+
+Algunos issues cruzan carpetas: #235 y #243 tocan el dominio; #236 y #248, la API; #239 y #248, la web; y #250 usa las métricas de `packages/learning`. Quien los hace avisa antes al carril dueño de la carpeta.
 
 ## Orden de los issues
 
@@ -87,7 +89,7 @@ Una persona por carril, en carpetas distintas, para que los PR no choquen:
 
 - **Contrato de la API.** Los PR que regeneran `openapi.json` y `types.ts` se fusionan de uno
   en uno, en este orden: #214 → #235 → #236 → #243 (si cambia el contrato) → #258. Cada uno se
-  rebasa sobre `dev` y regenera con `scripts/generate_openapi_and_types.py` antes de fusionar.
+  rebasa sobre `dev` y regenera con `scripts/generate_openapi_and_types.py` antes de fusionar. Si otro PR necesita regenerar el contrato (por ejemplo #246 o #248), se avisa en #231 y entra en la misma cola, de uno en uno.
 - **`EditOp`.** Las operaciones nuevas siguen la política que fije el ADR de #214 para el
   dataset y las métricas (`alignment.py`, la cobertura de `exp_02` con `len(EditOp)` y
   `test_edit_event.py`); las cifras de `results/` no cambian.
@@ -99,7 +101,7 @@ Una persona por carril, en carpetas distintas, para que los PR no choquen:
 ## Criterio de cierre
 
 1. Los seis puntos del resultado final, con evidencia.
-2. Los issues de las Fases 8 a 11 y de «Cierre del proyecto» cerrados; los de «Trabajo
-   futuro», abiertos con la etiqueta `fuera de alcance` y citados como límites en la
-   documentación final.
+2. Los issues de las Fases 8 a 11 y de «Cierre del proyecto» cerrados, salvo #258, que es
+   opcional: si no se hace, pasa a «Trabajo futuro». Los de «Trabajo futuro», abiertos con la
+   etiqueta `fuera de alcance` y citados como límites en la documentación final.
 3. Las puertas de `CLAUDE.md` §6 en verde, y `dev` promovido a `main` por el responsable.
