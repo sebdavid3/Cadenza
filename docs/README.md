@@ -16,7 +16,8 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Documento arquitectónico oficial** (v1.2): filosofía de diseño, `ScoreDocument`, separación de planos, stack justificado, módulos de investigación, capa de aplicación y funciones, organización de los datos y brechas frente a la implementación. |
 | [`PROJECT_STATE.md`](PROJECT_STATE.md) | Estado vivo del proyecto: fase actual, deuda técnica y bitácora de hitos. |
-| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase (la vigente es la [Fase 8](phases/phase_8_web_interface/README.md): interfaz web, con lo hecho y las siguientes etapas). |
+| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase. Lo vigente es el [plan de cierre](phases/plan_de_cierre/README.md) (26 de octubre – 15 de noviembre de 2026), con las Fases 8 a 11; el detalle de la interfaz web, en la [Fase 8](phases/phase_8_web_interface/README.md). |
+| [`investigaciones/`](investigaciones/) | Investigaciones técnicas: coordenadas y confianza de HOMR (INV-0001) y Audiveris frente a HOMR (INV-0002). |
 | [`api/`](api/) | Contrato congelado de la API v1 (`openapi.json`) y guía de integración del frontend (`frontend-handoff.md`). |
 | [`infra/`](infra/) | Operación: despliegue local y público, salud, registros, copias de seguridad y GPU. |
 | [`adr/`](adr/) | Registro de decisiones arquitectónicas (ADR): contexto, decisión, consecuencias y alternativas de cada elección de diseño. |
