@@ -98,10 +98,10 @@ congela el 8 de noviembre y el estudio con participantes va del 9 al 15.
 
 | Fase | Contenido |
 |---|---|
-| [Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3): interfaz web | Añadir y quitar marcas (los matices se ponen a mano); título, compositor e instrumento de cada parte, con su formulario y su sonido; compás y tresillos en la barra; figura de un acorde; finalizar y reabrir; métricas de esfuerzo; MIDI; contraseña |
+| [Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3): interfaz web | Añadir y quitar marcas (los matices se ponen a mano); título, compositor e instrumento de cada parte, con su formulario y su sonido; compás y tresillos en la barra; figura de un acorde; finalizar y reabrir; métricas de esfuerzo; MIDI; contraseña; una edición en un solo viaje, sin parpadeos ni órdenes perdidas; subir desde la portada |
 | [Fase 9](https://github.com/sebdavid3/Cadenza/milestone/5): reconocimiento y reglas | Compás por tramos, C y ¢, tresillos implícitos y cambios de armadura sobre la salida de HOMR; voz superior y piano; reglas con mensajes en lenguaje musical |
 | [Fase 10](https://github.com/sebdavid3/Cadenza/milestone/6): estudio de esfuerzo | Protocolo, banco de partituras, cuentas y sesiones, piloto, congelado, sesiones con 8 participantes y análisis |
-| [Fase 11](https://github.com/sebdavid3/Cadenza/milestone/7): aprendizaje de las correcciones | Capa de post-corrección que aprende de las correcciones y propone, sin reentrenar HOMR, con su evaluación |
+| [Fase 11](https://github.com/sebdavid3/Cadenza/milestone/7): aprendizaje de las correcciones | **El estandarte:** una capa que aprende de las correcciones, sugiere el arreglo de cada posible error y señala errores que las reglas no ven, sin reentrenar HOMR; la persona aplica o rechaza cada sugerencia. Con su evaluación |
 | [Cierre del proyecto](https://github.com/sebdavid3/Cadenza/milestone/8) | Licencia, documentación final, despliegue final y promoción de `dev` a `main` |
 
 Fuera de la entrega ([trabajo futuro](https://github.com/sebdavid3/Cadenza/milestone/9)): los

@@ -40,7 +40,7 @@ móvil: un navegador sin interfaz no la oye.
 El alcance final y el calendario los fija el plan de cierre
 ([`../plan_de_cierre/README.md`](../plan_de_cierre/README.md),
 [#231](https://github.com/sebdavid3/Cadenza/issues/231)): esta fase entra en el congelado del
-2026-11-08, salvo #189 y #190, que no afectan al estudio y se despliegan después.
+2026-11-08, salvo #189, #190 y #278, que no afectan al estudio y se despliegan después.
 
 | Etapa | Issue | Contenido | Depende de | Deuda |
 |---|---|---|---|---|
@@ -54,8 +54,12 @@ El alcance final y el calendario los fija el plan de cierre
 | | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista; es la forma de poner los matices, que no se reconocen ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Su ADR fija la política de `EditOp` para el dataset y las métricas | #213 | — |
 | | [#241](https://github.com/sebdavid3/Cadenza/issues/241) | Cambiar el compás (números, C o ¢) y poner tresillos desde la barra de corrección | [#236](https://github.com/sebdavid3/Cadenza/issues/236) | — |
 | | [#243](https://github.com/sebdavid3/Cadenza/issues/243) | Cambiar la figura de un acorde entero | — | D61 |
+| | [#275](https://github.com/sebdavid3/Cadenza/issues/275) | Una edición en un solo viaje, sin rehacer el estado en el servidor, medida antes y después (**prioridad alta**: el estudio mide tiempos) | — | — |
+| | [#276](https://github.com/sebdavid3/Cadenza/issues/276) | Redibujar la partitura tras una edición sin parpadeos ni órdenes perdidas (**prioridad alta**) | #275 | — |
 | **Datos de la partitura** | [#235](https://github.com/sebdavid3/Cadenza/issues/235) | Título, compositor e instrumento de cada parte en la API, el MusicXML y el MIDI | — | — |
-| | [#240](https://github.com/sebdavid3/Cadenza/issues/240) | Formulario antes de transcribir con esos datos | #235 | — |
+| | [#240](https://github.com/sebdavid3/Cadenza/issues/240) | Nombre e instrumento antes de transcribir; el nombre es el de la sesión | #235 | — |
+| **Portada** | [#277](https://github.com/sebdavid3/Cadenza/issues/277) | Subir una imagen y ver su transcripción desde la portada; para editar, se entra a la sesión | #240 | — |
+| | [#278](https://github.com/sebdavid3/Cadenza/issues/278) | Transcribir sin cuenta desde la portada y entrar para editar; se despliega después del estudio | #277, #248 | — |
 | **Reproducción** | [#242](https://github.com/sebdavid3/Cadenza/issues/242) | Que cada parte suene con su instrumento | #235 | — |
 | **Cierre** | [#187](https://github.com/sebdavid3/Cadenza/issues/187) | Finalizar y reabrir una sesión; finalizar conserva los descartes | #183 | D65 |
 | | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo, con las definiciones que cierre [#244](https://github.com/sebdavid3/Cadenza/issues/244) | #187, #244 | D38 |
@@ -66,8 +70,8 @@ El alcance final y el calendario los fija el plan de cierre
 | | ~~[#193](https://github.com/sebdavid3/Cadenza/issues/193)~~ | **Hecho:** longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 (resuelta) |
 
 Lo que esta fase necesita de otras: [#236](https://github.com/sebdavid3/Cadenza/issues/236)
-(Fase 9) para #241, y [#244](https://github.com/sebdavid3/Cadenza/issues/244) (Fase 10) para
-#188. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #236 → #243 (si cambia el contrato) → #258 (Fase 11).
+(Fase 9) para #241; [#244](https://github.com/sebdavid3/Cadenza/issues/244) (Fase 10) para
+#188; y [#248](https://github.com/sebdavid3/Cadenza/issues/248) (Fase 10) para #278. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #275 → #236 → #243 (si cambia el contrato) → #256 → #258 (Fase 11) → #278.
 
 ```mermaid
 flowchart LR
@@ -77,7 +81,10 @@ flowchart LR
     S244["#244 protocolo"] --> S188
     S214 -->|política de EditOp| S236["#236 compás y tresillos en el dominio"]
     S236 --> S241["#241 compás y tresillos en la barra"]
-    S235["#235 título, compositor e instrumentos"] --> S240["#240 formulario"]
+    S235["#235 título, compositor e instrumentos"] --> S240["#240 nombre e instrumento"]
+    S240 --> S277["#277 subir desde la portada"]
+    S277 --> S278["#278 sin cuenta"]
+    S275["#275 edición en un solo viaje"] --> S276["#276 redibujar sin parpadeos"]
     S235 --> S242["#242 sonido por instrumento"]
     S243["#243 figura de un acorde"]
     S189["#189 descargar el MIDI"]
