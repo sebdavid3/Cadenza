@@ -40,7 +40,7 @@ móvil: un navegador sin interfaz no la oye.
 El alcance final y el calendario los fija el plan de cierre
 ([`../plan_de_cierre/README.md`](../plan_de_cierre/README.md),
 [#231](https://github.com/sebdavid3/Cadenza/issues/231)): esta fase entra en el congelado del
-2026-11-08, salvo #189, #190 y #278, que no afectan al estudio y se despliegan después.
+2026-11-08, salvo #277, #189, #190 y #278, que no afectan al estudio y se despliegan después.
 
 | Etapa | Issue | Contenido | Depende de | Deuda |
 |---|---|---|---|---|
@@ -71,7 +71,7 @@ El alcance final y el calendario los fija el plan de cierre
 
 Lo que esta fase necesita de otras: [#236](https://github.com/sebdavid3/Cadenza/issues/236)
 (Fase 9) para #241; [#244](https://github.com/sebdavid3/Cadenza/issues/244) (Fase 10) para
-#188; y [#248](https://github.com/sebdavid3/Cadenza/issues/248) (Fase 10) para #278. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #275 → #236 → #243 (si cambia el contrato) → #256 → #258 (Fase 11) → #278.
+#188; y [#248](https://github.com/sebdavid3/Cadenza/issues/248) (Fase 10) para #278. Los PR que regeneran el contrato se fusionan de uno en uno: #214 → #235 → #275 → #236 → #256 → #258 (Fase 11) → #243 (si cambia el contrato) → #278.
 
 ```mermaid
 flowchart LR
