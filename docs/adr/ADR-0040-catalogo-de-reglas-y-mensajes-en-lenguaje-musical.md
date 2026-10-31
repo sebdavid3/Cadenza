@@ -1,6 +1,6 @@
 # ADR-0040: Catálogo de reglas del validador y mensajes en lenguaje musical
 
-- **Estado:** Propuesto. Pasa a Aceptado cuando el responsable revise los ejemplos del §12 (criterio de aceptación de [#245](https://github.com/sebdavid3/Cadenza/issues/245)) y decida lo del §14 (qué parte de las alteraciones se atribuye a la capa de sugerencias). El resto es técnico y compatible con los ADR vigentes.
+- **Estado:** Aceptado (2026-10-31). El responsable dio por buenos los ejemplos del §12 (criterio de aceptación de [#245](https://github.com/sebdavid3/Cadenza/issues/245)) y eligió la opción A del §14: `accidental.repeated` entra en el catálogo. El resto es técnico y compatible con los ADR vigentes.
 - **Fecha:** 2026-10-31
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0003, ADR-0011, ADR-0013, ADR-0017, ADR-0021, ADR-0028, ADR-0032, ADR-0033, ADR-0035 y ADR-0036, CLAUDE.md §9 y §10). Los ejemplos de los mensajes y el §14, el responsable.
 - **Relacionado:** [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md), [ADR-0035](ADR-0035-descartar-restaurar-y-revalidar-desde-la-vista.md), [ADR-0036](ADR-0036-capa-de-sugerencias-aprendida.md), [#245](https://github.com/sebdavid3/Cadenza/issues/245), [#246](https://github.com/sebdavid3/Cadenza/issues/246), [#236](https://github.com/sebdavid3/Cadenza/issues/236), [#237](https://github.com/sebdavid3/Cadenza/issues/237), [#238](https://github.com/sebdavid3/Cadenza/issues/238), [#239](https://github.com/sebdavid3/Cadenza/issues/239), [#244](https://github.com/sebdavid3/Cadenza/issues/244), [#187](https://github.com/sebdavid3/Cadenza/issues/187), [#257](https://github.com/sebdavid3/Cadenza/issues/257), [#258](https://github.com/sebdavid3/Cadenza/issues/258), [#270](https://github.com/sebdavid3/Cadenza/issues/270)
@@ -413,7 +413,7 @@ Las ligaduras no se pueden editar (no hay `EditOp` para ellas), así que «Qué 
 
 ### 12. Ejemplos
 
-Cada fila da lo leído en un compás de partida, con el mensaje y el «Qué revisar» que debe dar. Salvo que se diga otra cosa, el compás no es el primero ni el último de su pentagrama y tiene una sola voz. Son los casos que #246 convierte en pruebas por regla. **Están pendientes de la revisión del responsable** (criterio de #245).
+Cada fila da lo leído en un compás de partida, con el mensaje y el «Qué revisar» que debe dar. Salvo que se diga otra cosa, el compás no es el primero ni el último de su pentagrama y tiene una sola voz. Son los casos que #246 convierte en pruebas por regla. El responsable los dio por buenos el 2026-10-31 (criterio de #245).
 
 | Regla | Compás de partida (lo leído) | Mensaje | Qué revisar |
 |---|---|---|---|
@@ -455,7 +455,7 @@ En una sesión `unassisted` el validador **no se ejecuta** (protocolo §2.2), y 
    - Lo hace #246. Es un criterio que **hay que añadirle**.
 3. **Las reglas nuevas no cambian la condición no asistida**, porque no hay mensajes que mostrar. Sí cambian la asistida, así que la versión de las reglas que se congela el 8 de noviembre vale para todo el estudio.
 
-### 14. La capa de sugerencias y las alteraciones (decide el responsable)
+### 14. La capa de sugerencias y las alteraciones (decidido: opción A)
 
 **Lo que no cambia de la capa** (ADR-0036):
 
@@ -477,6 +477,8 @@ En una sesión `unassisted` el validador **no se ejecuta** (protocolo §2.2), y 
   - Lo propio de la capa se mide en dos planos: frente a las reglas de la versión 1 (lo que ya midió #257) y frente a las de la versión 2, con el orden y el nivel de las sugerencias de alteración.
   - El criterio de promoción frente a la versión activa se compara siempre con la misma versión de las reglas.
 - **B. Dejar ese caso a la capa.** Se queda fuera del catálogo. El estudio solo lo ve si la capa está promovida y encendida en la condición asistida, y las reglas no atacan los errores de alteración que pide #245.
+
+**Decisión del responsable (2026-10-31): opción A.** `accidental.repeated` entra en el catálogo, y lo propio de la capa se mide en los dos planos descritos en A.
 
 #246 implementa la regla detrás de su sitio en `DEFAULT_RULES_CATALOG`, así que pasar de A a B es quitarla del catálogo.
 
