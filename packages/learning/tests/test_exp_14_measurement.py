@@ -21,6 +21,7 @@ from cadenza.domain import (
     ScoreDocument,
     ScoreIR,
     SuggestedEdit,
+    SuggestionResult,
     build_anchor_index,
 )
 from cadenza.learning import (
@@ -35,6 +36,8 @@ from cadenza.learning.suggestion_measurement import (
     IncipitCase,
     RuleOrderModel,
     apply_suggestions,
+    classify_suggestions,
+    is_true_fix,
     measure_cases,
     measure_errors,
     measure_incipit,
@@ -46,10 +49,12 @@ from cadenza.learning.suggestion_measurement import (
 from cadenza.learning.suggestions import load_suggestions_config, train
 from cadenza.learning.validation_metrics import evaluate_measures
 from cadenza.validation import ValidationEngine
-from cadenza.validation.learned import FrequencyBackoffModel
+from cadenza.validation.learned import FrequencyBackoffModel, ScoreFeatures
 
 from .suggestions_support import (
     SPLIT_SEED,
+    _note,
+    _score,
     corpus_records,
     incipit_id,
     incipit_pair,
@@ -164,14 +169,15 @@ def test_the_layer_flags_an_accidental_the_rules_do_not_see(model: FrequencyBack
     selected = select_suggestions(measured.suggested, "first")
     assert [s.op for s in selected] == [EditOp.SET_ACCIDENTAL]
     fixed, applied, skipped = apply_suggestions(case.score, selected, document_id="x")
-    assert (applied, skipped) == (1, 0)
+    assert (len(applied), skipped) == (1, 0)
     _, sounding, _ = _records(work, index)
     # Las alturas del ScoreIR son las que suenan: la SER se mide sin aplicar la armadura.
     assert score_ser_pair(sounding, case.score, apply_key_signature=False).ser > 0
     assert score_ser_pair(sounding, fixed, apply_key_signature=False).ser == 0
-    assert measured.policies["first"]["correct"] == 1
-    assert measured.policies["first"]["damaged_correct_events"] == 0
-    assert measured.policies["high"]["selected"] <= measured.policies["first"]["selected"]
+    assert measured.applied["first"]["correct"] == 1
+    assert measured.applied["first"]["damaged_correct_events"] == 0
+    assert measured.selected["high"]["suggestions"] <= measured.selected["first"]["suggestions"]
+    assert measured.fixed["first"] == fixed
 
 
 def test_a_suggestion_on_a_correct_note_is_damage(model: FrequencyBackoffModel) -> None:
@@ -180,8 +186,9 @@ def test_a_suggestion_on_a_correct_note_is_damage(model: FrequencyBackoffModel) 
     measured = measure_incipit(_case(work, index), model, ValidationEngine())
     assert measured.counts["learned_findings"] == 1
     assert measured.counts["learned_correct"] == 0
-    assert measured.policies["first"]["damaged_correct_events"] == 1
-    assert measured.policies["first"]["correct"] == 0
+    assert measured.applied["first"]["damaged_correct_events"] == 1
+    assert measured.applied["first"]["damaged_correct_attributes"] == 1
+    assert measured.applied["first"]["correct"] == 0
     assert measured.counts["correct_events"] == 8
 
 
@@ -233,7 +240,7 @@ def test_applying_translates_anchors_and_skips_what_does_not_fit() -> None:
         op=EditOp.SET_ACCIDENTAL, anchor=_anchor(1, 6), after={"accidental": "#"}
     )
     fixed, applied, skipped = apply_suggestions(read, [insert, flat, outside], document_id="x")
-    assert (applied, skipped) == (2, 1)
+    assert (applied, skipped) == ([insert, flat], 1)
     events = fixed.parts[0].staves[0].measures[0].events
     assert events[0].kind is EventKind.REST and events[0].duration_beats == Fraction(1, 2)
     # El bemol cae en el Si leído, desplazado por la inserción.
@@ -299,7 +306,10 @@ def test_the_summary_is_measured_and_without_fallback_values(model: FrequencyBac
     )
     assert measures["measures_with_error_unseen_by_rules"] > 0
     assert summary["rule_suggestions"]["top1"]["over_true_candidate"]["accuracy"] is not None
-    assert summary["damage"]["first"]["selected"] > 0
+    first = summary["damage"]["first"]
+    assert first["applied"]["suggestions"] > 0
+    assert first["applied"]["suggestions"] <= first["selected"]["suggestions"]
+    assert first["applied"]["damaged_correct_attributes"] >= 0
     metrics = principal_metrics(summary)
     assert metrics["measure_recall_rules"] == rules["recall"]
     assert metrics["measure_recall_rules_and_layer"] == layered["recall"]
@@ -309,6 +319,17 @@ def test_the_summary_is_measured_and_without_fallback_values(model: FrequencyBac
     assert empty["incipits"] == 0
     assert empty["rule_suggestions"]["top1"]["over_true_candidate"]["accuracy"] is None
     assert empty["learned_findings"]["precision"] is None
+    # Sin denominador no hay cifra: None, nunca 0.0.
+    for side in ("rules", "rules_and_layer"):
+        metrics = empty["rule_blind_measures"][side]["global_metrics"]
+        assert metrics["precision"] is None and metrics["recall"] is None
+        assert metrics["f1"] is None
+    coverage = empty["rule_blind_measures"]["coverage_by_category"]["accidental"]
+    assert coverage["rules"]["coverage_rate"] is None
+    assert empty["damage"]["high"]["applied"]["precision"] is None
+    empty_metrics = principal_metrics(empty)
+    assert empty_metrics["rule_top1_accuracy"] is None
+    assert empty_metrics["measure_recall_rules"] is None
 
 
 def test_works_are_subsampled_nested_and_seeded() -> None:
@@ -322,3 +343,108 @@ def test_works_are_subsampled_nested_and_seeded() -> None:
     assert subsample_works(works, 0.5, seed=6) != half
     with pytest.raises(ValueError):
         subsample_works(works, 0.0, seed=5)
+
+
+# --- Tras la revisión independiente -------------------------------------------------------
+
+
+def _pair_records(read: ScoreIR, truth: ScoreIR) -> list[dict[str, Any]]:
+    return build_correction_records(read, truth, incipit_id="x", split="test", verified=True)
+
+
+def _edit(op: EditOp, index: int, after: dict[str, Any] | None) -> SuggestedEdit:
+    return SuggestedEdit(op=op, anchor=_anchor(1, index), after=after)
+
+
+class _Broken:
+    version = "broken"
+
+    def suggest(self, document: ScoreDocument, findings: Any) -> SuggestionResult:
+        raise RuntimeError("la capa se rompió")
+
+
+class _Dropping:
+    version = "dropping"
+
+    def suggest(self, document: ScoreDocument, findings: Any) -> SuggestionResult:
+        return SuggestionResult(findings=())
+
+
+def test_a_layer_that_fails_stops_the_measurement() -> None:
+    """En producción, la capa que falla deja los hallazgos sin sugerencias; medirlo así
+    contaría una capa rota como una capa que no sugiere nada."""
+    work, index = _find(lambda w, i: _has_eighth(w, i))
+    case = _case(work, index)
+    with pytest.raises(RuntimeError, match="se rompió"):
+        measure_incipit(case, _Broken(), ValidationEngine())
+    with pytest.raises(ValueError, match="hallazgos de las reglas"):
+        measure_incipit(case, _Dropping(), ValidationEngine())
+
+
+def test_a_true_fix_has_the_value_of_the_truth() -> None:
+    """La altura y el evento insertado se comparan con los de la verdad, no solo la familia."""
+    read = _score((_note("F4"), _note("G4"), _note("A4"), _note("B4")))
+    truth = _score((_note("F4"), _note("G4"), _note("A4"), _note("D5")))
+    known, features = truth_of(_pair_records(read, truth)), ScoreFeatures.of(read)
+    assert is_true_fix(_edit(EditOp.SET_PITCH, 3, {"pitch": "D5"}), features, known)
+    # Una tercera arriba, como la verdad, pero no la misma altura.
+    assert not is_true_fix(_edit(EditOp.SET_PITCH, 3, {"pitch": "D#5"}), features, known)
+
+    read = _score((_note("F4"), _note("G4"), _note("A4")))
+    truth = _score((_note("F4"), _note("G4"), _note("A4"), _note("C5")))
+    known, features = truth_of(_pair_records(read, truth)), ScoreFeatures.of(read)
+    note = {"kind": "note", "duration_beats": "1", "voice": 0}
+    assert is_true_fix(_edit(EditOp.INSERT_EVENT, 3, {**note, "pitch": "C5"}), features, known)
+    assert not is_true_fix(_edit(EditOp.INSERT_EVENT, 3, {**note, "pitch": "D5"}), features, known)
+
+
+def test_damage_is_counted_by_event_and_by_attribute() -> None:
+    read = _score((_note("F4"), _note("G4"), _note("A4"), _note("B4")))
+    truth = _score((_note("F4"), _note("G4"), _note("A4")))
+    known = truth_of(_pair_records(read, truth))
+    deleted = next(p for p, labels in known.labels.items() if labels.get("delete") == "delete")
+    features = ScoreFeatures.of(read)
+    counts = classify_suggestions(
+        [
+            # La alteración de un evento que la verdad borra: daño del atributo, no del evento.
+            _edit(EditOp.SET_ACCIDENTAL, deleted[4], {"accidental": "#"}),
+            # La duración de una nota correcta: daño del evento y del atributo.
+            _edit(EditOp.SET_DURATION, 0, {"duration_beats": "2"}),
+            _edit(EditOp.DELETE_EVENT, deleted[4], None),
+            _edit(EditOp.INSERT_EVENT, 0, {"kind": "rest", "duration_beats": "1", "voice": 0}),
+        ],
+        features,
+        known,
+    )
+    assert counts["suggestions"] == 4
+    assert counts["correct"] == 1 and counts["attribute_correct"] == 1
+    assert counts["damaged_correct_events"] == 1
+    assert counts["wrong_fix_on_erroneous_event"] == 1
+    assert counts["damaged_correct_attributes"] == 2
+    assert counts["insertion_where_nothing_is_missing"] == 1
+
+    # La duración de una nota cuyo único error es la altura daña un atributo correcto.
+    read = _score((_note("F4"), _note("G4"), _note("A4"), _note("B4")))
+    truth = _score((_note("F4"), _note("G4"), _note("A4"), _note("D5")))
+    known, features = truth_of(_pair_records(read, truth)), ScoreFeatures.of(read)
+    counts = classify_suggestions(
+        [
+            _edit(EditOp.SET_DURATION, 3, {"duration_beats": "2"}),
+            _edit(EditOp.SET_PITCH, 3, {"pitch": "E5"}),
+        ],
+        features,
+        known,
+    )
+    assert counts["wrong_fix_on_erroneous_event"] == 2
+    assert counts["damaged_correct_attributes"] == 1
+    assert counts["wrong_value_on_erroneous_attribute"] == 1
+
+    read = _score((_note("F4"), _note("G4"), _note("A4")))
+    truth = _score((_note("F4"), _note("G4"), _note("A4"), _note("C5")))
+    known, features = truth_of(_pair_records(read, truth)), ScoreFeatures.of(read)
+    counts = classify_suggestions(
+        [_edit(EditOp.INSERT_EVENT, 3, {"kind": "note", "duration_beats": "1", "pitch": "D5"})],
+        features,
+        known,
+    )
+    assert counts["insertion_with_wrong_event"] == 1

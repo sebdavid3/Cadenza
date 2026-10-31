@@ -16,8 +16,9 @@ import math
 import random
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from fractions import Fraction
 from typing import Any, Final, Literal
 
 from cadenza.application.suggestions import LEARNED_PREFIX, suggest
@@ -35,6 +36,7 @@ from cadenza.domain import (
     SuggestionResult,
     apply_edit,
     build_anchor_index,
+    normalize_accidental,
     snapshot_before,
     translate_anchor,
     validate_after,
@@ -47,6 +49,7 @@ from cadenza.validation.learned import (
     insertion_label,
     label_of_edit,
     labels_from_correction,
+    split_pitch,
 )
 
 from .validation_metrics import (
@@ -97,6 +100,10 @@ class IncipitTruth:
     correct_events: frozenset[Position]
     gaps: Mapping[Position, frozenset[str]]
     errors: tuple[MeasureError, ...]
+    # La corrección de cada evento leído (la altura y la duración verdaderas) y los eventos
+    # que faltan en cada hueco, para comparar el valor de una sugerencia y no solo su familia.
+    corrections: Mapping[Position, Mapping[str, Any]]
+    inserted: Mapping[Position, tuple[Mapping[str, Any], ...]]
 
 
 def measure_errors(records: Iterable[Mapping[str, Any]]) -> list[MeasureError]:
@@ -125,6 +132,8 @@ def truth_of(records: Iterable[Mapping[str, Any]]) -> IncipitTruth:
     labels: dict[Position, Mapping[str, str]] = {}
     correct: set[Position] = set()
     gaps: dict[Position, set[str]] = {}
+    corrections: dict[Position, Mapping[str, Any]] = {}
+    inserted: dict[Position, list[Mapping[str, Any]]] = {}
     for record in rows:
         kind = record.get("record")
         if kind == "event" and record.get("aligned"):
@@ -133,31 +142,89 @@ def truth_of(records: Iterable[Mapping[str, Any]]) -> IncipitTruth:
             labels[position] = labels_from_correction(record["read"], record["context"], correction)
             if correction is None:
                 correct.add(position)
+            else:
+                corrections[position] = correction
         elif kind == "insertion":
             event = (record.get("correction") or {}).get("event") or {}
             label = insertion_label(event.get("kind"), event.get("duration_beats"))
             if label is not None:
-                gaps.setdefault(_position(record["anchor"]), set()).add(label)
+                position = _position(record["anchor"])
+                gaps.setdefault(position, set()).add(label)
+                inserted.setdefault(position, []).append(event)
     return IncipitTruth(
         labels=labels,
         correct_events=frozenset(correct),
         gaps={position: frozenset(found) for position, found in gaps.items()},
         errors=tuple(measure_errors(rows)),
+        corrections=corrections,
+        inserted={position: tuple(events) for position, events in inserted.items()},
     )
 
 
+def _pitch_key(pitch: object) -> tuple[str, str, str] | None:
+    if not isinstance(pitch, str):
+        return None
+    letter, accidental, octave = split_pitch(pitch)
+    if not letter:
+        return None
+    return (letter, normalize_accidental(accidental) or accidental, octave)
+
+
+def _duration(value: object) -> Fraction | None:
+    if value is None:
+        return None
+    try:
+        return Fraction(str(value))
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _resulting_pitch(edit: SuggestedEdit, read_pitch: str | None) -> str | None:
+    after = edit.after or {}
+    if edit.op is EditOp.SET_PITCH:
+        target = after.get("pitch")
+        return None if target is None else str(target)
+    letter, _, octave = split_pitch(read_pitch)
+    accidental = normalize_accidental(after.get("accidental"))
+    if not letter or accidental is None:
+        return None
+    return f"{letter}{accidental}{octave}"
+
+
 def is_true_fix(edit: SuggestedEdit, features: ScoreFeatures, truth: IncipitTruth) -> bool:
-    """Si la edición propuesta es la corrección del corrector ideal (de su familia)."""
+    """Si la edición propuesta es la corrección del corrector ideal: su familia y su valor
+    (la altura o la duración resultantes, o el evento insertado) son los de la verdad."""
     position = _position(edit.anchor)
+    after = edit.after or {}
     if edit.op is EditOp.INSERT_EVENT:
-        after = edit.after or {}
         label = insertion_label(after.get("kind"), after.get("duration_beats"))
-        return label is not None and label in truth.gaps.get(position, frozenset())
-    labelled = label_of_edit(edit.op, edit.after, features.events.get(position))
-    if labelled is None:
+        if label is None:
+            return False
+        return any(
+            insertion_label(event.get("kind"), event.get("duration_beats")) == label
+            and (
+                event.get("kind") != "note"
+                or _pitch_key(after.get("pitch")) == _pitch_key(event.get("pitch"))
+            )
+            for event in truth.inserted.get(position, ())
+        )
+    view = features.events.get(position)
+    labelled = label_of_edit(edit.op, edit.after, view)
+    if labelled is None or view is None:
         return False
     family, label = labelled
-    return truth.labels.get(position, {}).get(family) == label
+    if truth.labels.get(position, {}).get(family) != label:
+        return False
+    correction = truth.corrections.get(position) or {}
+    if edit.op in (EditOp.SET_PITCH, EditOp.SET_ACCIDENTAL):
+        resulting = _pitch_key(_resulting_pitch(edit, view.event.pitch))
+        return resulting is not None and resulting == _pitch_key(correction.get("pitch"))
+    if edit.op is EditOp.SET_DURATION:
+        resulting_duration = _duration(after.get("duration_beats"))
+        return resulting_duration is not None and resulting_duration == _duration(
+            correction.get("duration_beats")
+        )
+    return True
 
 
 # --- La línea base: los candidatos de la regla en su orden ---------------------------------
@@ -206,11 +273,12 @@ def select_suggestions(suggested: SuggestedList, policy: Policy) -> list[Suggest
 
 def apply_suggestions(
     score: ScoreIR, suggestions: Sequence[SuggestedEdit], *, document_id: str
-) -> tuple[ScoreIR, int, int]:
+) -> tuple[ScoreIR, list[SuggestedEdit], int]:
     """Aplica las sugerencias, con anclas relativas al estado leído, como lo haría una persona
     una tras otra: cada ancla se traduce al estado anterior (ADR-0011) y la edición pasa
-    `validate_after` sobre él. Devuelve el estado final, las aplicadas y las descartadas."""
+    `validate_after` sobre él. Devuelve el estado final, las aplicadas y cuántas no cupieron."""
     applied: list[EditEvent] = []
+    kept: list[SuggestedEdit] = []
     current = score
     skipped = 0
     for suggestion in suggestions:
@@ -237,28 +305,62 @@ def apply_suggestions(
             skipped += 1
             continue
         applied.append(edit)
-    return current, len(applied), skipped
+        kept.append(suggestion)
+    return current, kept, skipped
 
 
 def classify_suggestions(
     suggestions: Sequence[SuggestedEdit], features: ScoreFeatures, truth: IncipitTruth
 ) -> Counter[str]:
-    """Qué haría aplicar cada sugerencia: arreglar, estropear una nota correcta, arreglar mal
-    un evento con error o insertar un evento que no falta."""
+    """Qué haría aplicar cada sugerencia, por evento y por atributo.
+
+    Por evento: arreglarlo (`correct`), estropear un evento correcto
+    (`damaged_correct_events`), cambiar mal un evento con algún error
+    (`wrong_fix_on_erroneous_event`) o, una inserción, insertar donde no falta nada
+    (`insertion_where_nothing_is_missing`) o un evento distinto del que falta
+    (`insertion_with_wrong_event`).
+
+    Por atributo (las que no son inserciones): el valor verdadero (`attribute_correct`),
+    estropear un atributo correcto (`damaged_correct_attributes`: su familia no tenía error, o
+    el evento debía borrarse) o un valor equivocado de un atributo con error
+    (`wrong_value_on_erroneous_attribute`).
+    """
     counts: Counter[str] = Counter()
     for suggestion in suggestions:
-        counts["selected"] += 1
+        counts["suggestions"] += 1
         position = _position(suggestion.anchor)
-        if is_true_fix(suggestion, features, truth):
+        correct = is_true_fix(suggestion, features, truth)
+        if suggestion.op is EditOp.INSERT_EVENT:
+            if correct:
+                counts["correct"] += 1
+            elif position in truth.gaps:
+                counts["insertion_with_wrong_event"] += 1
+            else:
+                counts["insertion_where_nothing_is_missing"] += 1
+            continue
+        if correct:
             counts["correct"] += 1
-        elif suggestion.op is EditOp.INSERT_EVENT:
-            counts["spurious_insertion"] += 1
         elif position in truth.correct_events:
             counts["damaged_correct_events"] += 1
         elif position in truth.labels:
             counts["wrong_fix_on_erroneous_event"] += 1
         else:
             counts["unlabelled"] += 1
+        labels = truth.labels.get(position)
+        labelled = label_of_edit(suggestion.op, suggestion.after, features.events.get(position))
+        family = None if labelled is None else labelled[0]
+        if correct:
+            counts["attribute_correct"] += 1
+        elif labels is None or family is None:
+            counts["attribute_unlabelled"] += 1
+        elif labels.get(family) == NONE_LABEL or (
+            family != "delete" and labels.get("delete") == "delete"
+        ):
+            counts["damaged_correct_attributes"] += 1
+        elif family in labels:
+            counts["wrong_value_on_erroneous_attribute"] += 1
+        else:
+            counts["attribute_unlabelled"] += 1
     return counts
 
 
@@ -272,11 +374,43 @@ class IncipitMeasurement:
     measures_rules: list[MeasureEvaluationRecord]
     measures_with_layer: list[MeasureEvaluationRecord]
     suggested: list[tuple[Finding, tuple[SuggestedEdit, ...]]]
-    policies: dict[str, Counter[str]] = field(default_factory=dict)
+    # Por política: lo que haría aplicar las elegidas, lo que hacen las que se aplicaron, el
+    # estado resultante y cuántas no cupieron.
+    selected: dict[str, Counter[str]]
+    applied: dict[str, Counter[str]]
+    fixed: dict[str, ScoreIR]
+    skipped: dict[str, int]
 
 
 def _is_learned(finding: Finding) -> bool:
     return finding.rule_id.startswith(LEARNED_PREFIX)
+
+
+class _Answered:
+    """La respuesta ya calculada de una capa, para pasarla por el filtro de `suggest`."""
+
+    def __init__(self, version: str, result: SuggestionResult) -> None:
+        self.version = version
+        self._result = result
+
+    def suggest(self, document: ScoreDocument, findings: Sequence[Finding]) -> SuggestionResult:
+        return self._result
+
+
+def _suggest_strictly(
+    document: ScoreDocument, findings: Sequence[Finding], model: Any
+) -> list[tuple[Finding, tuple[SuggestedEdit, ...]]]:
+    """`suggest` de producción, pero sin su red: si la capa falla o pierde hallazgos de las
+    reglas, producción valida sin capa y lo registra; aquí la medición falla, para no contar
+    una capa rota como una capa que no sugiere nada."""
+    result = model.suggest(document, findings)
+    ruled = [item.finding for item in result.findings if not _is_learned(item.finding)]
+    if ruled != list(findings):
+        raise ValueError(
+            f"la capa {model.version} no devolvió, en su orden, los hallazgos de las reglas de "
+            f"{document.id}"
+        )
+    return suggest(document, findings, _Answered(str(model.version), result))
 
 
 def measure_incipit(
@@ -291,8 +425,8 @@ def measure_incipit(
         provenance=Provenance(omr_engine="homr"),
     )
     findings = validator.validate(document)
-    suggested = suggest(document, findings, model)
-    baseline = suggest(document, findings, RuleOrderModel())
+    suggested = _suggest_strictly(document, findings, model)
+    baseline = _suggest_strictly(document, findings, RuleOrderModel())
     features = ScoreFeatures.of(case.score)
     counts: Counter[str] = Counter()
     counts["correct_events"] = len(truth.correct_events)
@@ -367,10 +501,17 @@ def measure_incipit(
                 counts["blind_flagged_with_correct_fix"] += int(learned[1])
                 counts[f"blind_flagged_with_correct_fix:{family}"] += int(learned[1])
 
-    policies: dict[str, Counter[str]] = {
-        policy: classify_suggestions(select_suggestions(suggested, policy), features, truth)
-        for policy in POLICIES
-    }
+    selected: dict[str, Counter[str]] = {}
+    applied: dict[str, Counter[str]] = {}
+    fixed: dict[str, ScoreIR] = {}
+    skipped: dict[str, int] = {}
+    for policy in POLICIES:
+        chosen = select_suggestions(suggested, policy)
+        fixed[policy], kept, skipped[policy] = apply_suggestions(
+            case.score, chosen, document_id=case.incipit_id
+        )
+        selected[policy] = classify_suggestions(chosen, features, truth)
+        applied[policy] = classify_suggestions(kept, features, truth)
     return IncipitMeasurement(
         incipit_id=case.incipit_id,
         counts=counts,
@@ -379,7 +520,10 @@ def measure_incipit(
             case.incipit_id, case.score, [*findings, *learned_findings], truth.errors
         ),
         suggested=[(finding, tuple(suggestions)) for finding, suggestions in suggested],
-        policies=policies,
+        selected=selected,
+        applied=applied,
+        fixed=fixed,
+        skipped=skipped,
     )
 
 
@@ -397,13 +541,16 @@ def _share(numerator: int, denominator: int) -> float | None:
 def summarize(measurements: Sequence[IncipitMeasurement]) -> dict[str, Any]:
     """Las métricas de un conjunto de incipits, a partir de los recuentos."""
     counts: Counter[str] = Counter()
-    policies: dict[str, Counter[str]] = {policy: Counter() for policy in POLICIES}
+    stages: dict[tuple[str, str], Counter[str]] = {
+        (policy, stage): Counter() for policy in POLICIES for stage in ("selected", "applied")
+    }
     rules: list[MeasureEvaluationRecord] = []
     layered: list[MeasureEvaluationRecord] = []
     for measured in measurements:
         counts.update(measured.counts)
         for policy in POLICIES:
-            policies[policy].update(measured.policies.get(policy, Counter()))
+            stages[(policy, "selected")].update(measured.selected[policy])
+            stages[(policy, "applied")].update(measured.applied[policy])
         rules.extend(measured.measures_rules)
         layered.extend(measured.measures_with_layer)
 
@@ -494,8 +641,8 @@ def summarize(measurements: Sequence[IncipitMeasurement]) -> dict[str, Any]:
         "rules_and_layer": _measure_report(layer_report),
         "coverage_by_category": {
             category: {
-                "rules": rules_report.coverage_by_category[category].to_dict(),
-                "rules_and_layer": layer_report.coverage_by_category[category].to_dict(),
+                "rules": _coverage(rules_report.coverage_by_category[category]),
+                "rules_and_layer": _coverage(layer_report.coverage_by_category[category]),
             }
             for category in CATEGORIES
             if category in rules_report.coverage_by_category
@@ -505,22 +652,13 @@ def summarize(measurements: Sequence[IncipitMeasurement]) -> dict[str, Any]:
         "measures_without_error_flagged_only_by_layer": added_alarms,
     }
 
-    damage: dict[str, Any] = {}
-    for policy in POLICIES:
-        found = policies[policy]
-        damage[policy] = {
-            "selected": found["selected"],
-            "correct": found["correct"],
-            "damaged_correct_events": found["damaged_correct_events"],
-            "wrong_fix_on_erroneous_event": found["wrong_fix_on_erroneous_event"],
-            "spurious_insertion": found["spurious_insertion"],
-            "unlabelled": found["unlabelled"],
-            "precision": _share(found["correct"], found["selected"]),
-            "damaged_share_of_selected": _share(found["damaged_correct_events"], found["selected"]),
-            "damaged_share_of_correct_events": _share(
-                found["damaged_correct_events"], counts["correct_events"]
-            ),
+    damage: dict[str, Any] = {
+        policy: {
+            stage: _damage(stages[(policy, stage)], counts["correct_events"])
+            for stage in ("selected", "applied")
         }
+        for policy in POLICIES
+    }
 
     return {
         "incipits": len(measurements),
@@ -539,12 +677,82 @@ def summarize(measurements: Sequence[IncipitMeasurement]) -> dict[str, Any]:
     }
 
 
+_DAMAGE_KEYS: Final[tuple[str, ...]] = (
+    "suggestions",
+    "correct",
+    "damaged_correct_events",
+    "wrong_fix_on_erroneous_event",
+    "insertion_where_nothing_is_missing",
+    "insertion_with_wrong_event",
+    "unlabelled",
+    "attribute_correct",
+    "damaged_correct_attributes",
+    "wrong_value_on_erroneous_attribute",
+    "attribute_unlabelled",
+)
+
+
+def _damage(found: Counter[str], correct_events: int) -> dict[str, Any]:
+    suggestions = found["suggestions"]
+    return {
+        **{key: found[key] for key in _DAMAGE_KEYS},
+        "precision": _share(found["correct"], suggestions),
+        "damaged_events_share_of_suggestions": _share(found["damaged_correct_events"], suggestions),
+        "damaged_events_share_of_correct_events": _share(
+            found["damaged_correct_events"], correct_events
+        ),
+        "damaged_attributes_share_of_suggestions": _share(
+            found["damaged_correct_attributes"], suggestions
+        ),
+    }
+
+
+def binary_metrics(tp: int, fp: int, fn: int, tn: int) -> dict[str, Any]:
+    """Las métricas binarias de `exp_06`, pero None sin denominador (no 0.0, CLAUDE.md §8).
+
+    `BinaryMetrics` las da como 0.0 y `exp_06` las escribe así; aquí se recalculan.
+    """
+    precision = _share(tp, tp + fp)
+    recall = _share(tp, tp + fn)
+    f1: float | None = None
+    if precision is not None and recall is not None:
+        f1 = (
+            0.0
+            if precision + recall == 0
+            else round(2 * precision * recall / (precision + recall), 4)
+        )
+    total = tp + fp + fn + tn
+    return {
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "total": total,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "accuracy": _share(tp + tn, total),
+        "specificity": _share(tn, tn + fp),
+    }
+
+
+def _coverage(coverage: Any) -> dict[str, Any]:
+    return {
+        "category": coverage.category,
+        "total_measures_with_error": coverage.total_measures_with_error,
+        "detected_measures": coverage.detected_measures,
+        "coverage_rate": _share(coverage.detected_measures, coverage.total_measures_with_error),
+        "detected_by_rules": coverage.detected_by_rules,
+    }
+
+
 def _measure_report(report: Any) -> dict[str, Any]:
+    metrics = report.global_metrics
     return {
         "total_measures": report.total_measures,
         "measures_with_real_errors": report.measures_with_real_errors,
         "measures_flagged": report.measures_flagged,
-        "global_metrics": report.global_metrics.to_dict(),
+        "global_metrics": binary_metrics(metrics.tp, metrics.fp, metrics.fn, metrics.tn),
     }
 
 
@@ -581,10 +789,14 @@ def principal_metrics(summary: Mapping[str, Any]) -> dict[str, float | int | Non
         "measure_precision_rules_and_layer": measures["rules_and_layer"]["global_metrics"][
             "precision"
         ],
-        "high_selected": damage["high"]["selected"],
-        "high_precision": damage["high"]["precision"],
-        "high_damaged_correct_events": damage["high"]["damaged_correct_events"],
-        "first_damaged_correct_events": damage["first"]["damaged_correct_events"],
+        "high_applied": damage["high"]["applied"]["suggestions"],
+        "high_precision": damage["high"]["applied"]["precision"],
+        "high_damaged_correct_events": damage["high"]["applied"]["damaged_correct_events"],
+        "high_damaged_correct_attributes": damage["high"]["applied"]["damaged_correct_attributes"],
+        "first_damaged_correct_events": damage["first"]["applied"]["damaged_correct_events"],
+        "first_damaged_correct_attributes": damage["first"]["applied"][
+            "damaged_correct_attributes"
+        ],
     }
 
 
