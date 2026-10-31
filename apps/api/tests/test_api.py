@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,9 @@ ANCHOR = {
 
 
 class _UnbalancedEngine(OMREngine):
-    """Fake con el primer compás desbalanceado para ejercitar la validación."""
+    """Fake con el primer compás desbalanceado para ejercitar la validación: su silencio de
+    blanca, leído como redonda, hace que se pase (un primer compás corto sería la anacrusa, que
+    no se señala: ADR-0040 §4)."""
 
     def __init__(self) -> None:
         self._fake = FakeOMREngine()
@@ -47,7 +50,9 @@ class _UnbalancedEngine(OMREngine):
         part = document.score.parts[0]
         staff = part.staves[0]
         measures = staff.measures
-        broken = replace(measures[0], events=measures[0].events[:-1])
+        events = measures[0].events
+        longer = replace(events[-1], duration_beats=Fraction(4))
+        broken = replace(measures[0], events=(*events[:-1], longer))
         new_staff = replace(staff, measures=(broken, *measures[1:]))
         score = replace(document.score, parts=(replace(part, staves=(new_staff,)),))
         return replace(document, score=score, anchors=build_anchor_index(score))

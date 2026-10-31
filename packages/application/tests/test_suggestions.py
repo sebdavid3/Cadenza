@@ -58,8 +58,9 @@ STAFF = "P1-S1"
 
 
 class ThreeQuartersEngine(OMREngine):
-    """4/4 con tres negras: a measure.balance le falta una negra; el Si natural en Fa mayor
-    es un error que las reglas no ven."""
+    """El Si natural del compás 1, en Fa mayor, es un error que las reglas no ven; al último
+    compás, con tres negras, a measure.balance le falta una negra (un primer compás corto
+    sería la anacrusa, que no se señala: ADR-0040 §4)."""
 
     @property
     def engine_id(self) -> str:
@@ -71,7 +72,7 @@ class ThreeQuartersEngine(OMREngine):
                 number=1,
                 events=tuple(
                     Event(kind=EventKind.NOTE, pitch=p, duration_beats=Fraction(1))
-                    for p in ("C4", "D4", "E4")
+                    for p in ("B4", "A4", "G4", "F4")
                 ),
                 time_signature=TimeSignature(4, 4),
                 key_signature=KeySignature(fifths=-1),
@@ -80,8 +81,9 @@ class ThreeQuartersEngine(OMREngine):
                 number=2,
                 events=tuple(
                     Event(kind=EventKind.NOTE, pitch=p, duration_beats=Fraction(1))
-                    for p in ("B4", "A4", "G4", "F4")
+                    for p in ("C4", "D4", "E4")
                 ),
+                time_signature=TimeSignature(4, 4),
             ),
         )
         score = ScoreIR(parts=(Part(id="P1", staves=(Staff(id=STAFF, measures=measures),)),))
@@ -98,7 +100,7 @@ def _anchor(measure: int, index: int) -> Anchor:
 
 
 class FakeModel:
-    """Puntúa los candidatos por su orden inverso y señala el Si natural del compás 2."""
+    """Puntúa los candidatos por su orden inverso y señala el Si natural del compás 1."""
 
     version = "sug-fake"
 
@@ -127,7 +129,7 @@ class FakeModel:
                     ),
                 )
             )
-        b_natural = _anchor(2, 0)
+        b_natural = _anchor(1, 0)
         after = {"accidental": "zz"} if self.invalid else {"accidental": "b"}
         learned = SuggestedFinding(
             Finding(
@@ -342,7 +344,7 @@ def test_apply_checks_base_seq_then_staleness_then_the_proposal(
     with pytest.raises(StaleSuggestion):
         append_edit(
             session_id,
-            anchor=_anchor(2, 0),
+            anchor=_anchor(1, 0),
             op=EditOp.SET_ACCIDENTAL,
             after={"accidental": "b"},
             base_seq=0,
@@ -355,7 +357,7 @@ def test_apply_checks_base_seq_then_staleness_then_the_proposal(
     with pytest.raises(InvalidEdit):
         _apply(sessions, edits, owner, session_id, sid, base_seq=0, after={"accidental": "#"})
     with pytest.raises(InvalidEdit):
-        _apply(sessions, edits, owner, session_id, sid, base_seq=0, anchor=_anchor(2, 1))
+        _apply(sessions, edits, owner, session_id, sid, base_seq=0, anchor=_anchor(1, 1))
     assert edits.list_events(session_id) == ()
     # La propuesta se compara normalizada: «-» es «b».
     _apply(sessions, edits, owner, session_id, sid, base_seq=0, after={"accidental": "-"})

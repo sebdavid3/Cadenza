@@ -54,14 +54,15 @@ STAFF = "P1-S1"
 
 
 def _score() -> ScoreIR:
-    """4/4 en Fa mayor: el compás 1 tiene tres negras (a `measure.balance` le falta una) y el
-    2, un Si natural que las reglas no ven."""
+    """4/4 en Fa mayor: el compás 1 tiene un Si natural que las reglas no ven y el último,
+    tres negras (a `measure.balance` le falta una; un primer compás corto sería la anacrusa,
+    que no se señala: ADR-0040 §4)."""
     measures = (
         Measure(
             number=1,
             events=tuple(
                 Event(kind=EventKind.NOTE, pitch=p, duration_beats=Fraction(1))
-                for p in ("C4", "D4", "E4")
+                for p in ("B4", "A4", "G4", "F4")
             ),
             time_signature=TimeSignature(4, 4),
             key_signature=KeySignature(fifths=-1),
@@ -70,8 +71,9 @@ def _score() -> ScoreIR:
             number=2,
             events=tuple(
                 Event(kind=EventKind.NOTE, pitch=p, duration_beats=Fraction(1))
-                for p in ("B4", "A4", "G4", "F4")
+                for p in ("C4", "D4", "E4")
             ),
+            time_signature=TimeSignature(4, 4),
         ),
     )
     return ScoreIR(parts=(Part(id="P1", staves=(Staff(id=STAFF, measures=measures),)),))
@@ -157,19 +159,19 @@ class MixedModel:
                 *ranked,
                 _learned(
                     "accidental",
-                    _edit(EditOp.SET_ACCIDENTAL, _anchor(2, 0), {"accidental": "b"}, "high"),
+                    _edit(EditOp.SET_ACCIDENTAL, _anchor(1, 0), {"accidental": "b"}, "high"),
                 ),
                 _learned(
                     "accidental",
-                    _edit(EditOp.SET_ACCIDENTAL, _anchor(2, 1), {"accidental": "#"}, "medium"),
+                    _edit(EditOp.SET_ACCIDENTAL, _anchor(1, 1), {"accidental": "#"}, "medium"),
                 ),
                 _learned(
                     "duration",
-                    _edit(EditOp.SET_DURATION, _anchor(2, 2), {"duration_beats": "2"}, "high"),
+                    _edit(EditOp.SET_DURATION, _anchor(1, 2), {"duration_beats": "2"}, "high"),
                 ),
                 _learned(
                     "pitch",
-                    _edit(EditOp.SET_PITCH, _anchor(2, 3), {"pitch": "E4"}, "high"),
+                    _edit(EditOp.SET_PITCH, _anchor(1, 3), {"pitch": "E4"}, "high"),
                 ),
             )
         )
@@ -253,16 +255,16 @@ def test_only_high_accidentals_are_shown_and_rule_findings_stay() -> None:
     # El hallazgo de la regla sigue, con solo la alteración de confianza alta; de los propios
     # queda la alteración alta: la media, la duración y la altura no se emiten.
     assert shown == [
-        ("measure.balance", 1, [("SetAccidental", "high")]),
-        ("learned.accidental", 2, [("SetAccidental", "high")]),
+        ("measure.balance", 2, [("SetAccidental", "high")]),
+        ("learned.accidental", 1, [("SetAccidental", "high")]),
     ]
 
 
 def test_a_rule_finding_without_suggestions_that_pass_stays_without_them() -> None:
     shown = _shown(SuggestionPolicy(min_level="high", families=frozenset({"pitch"})))
     assert shown == [
-        ("measure.balance", 1, []),
-        ("learned.pitch", 2, [("SetPitch", "high")]),
+        ("measure.balance", 2, []),
+        ("learned.pitch", 1, [("SetPitch", "high")]),
     ]
 
 
@@ -273,11 +275,11 @@ def test_medium_shows_both_levels_of_the_allowed_families() -> None:
     assert shown == [
         (
             "measure.balance",
-            1,
+            2,
             [("SetAccidental", "medium"), ("InsertEvent", "high"), ("SetAccidental", "high")],
         ),
-        ("learned.accidental", 2, [("SetAccidental", "high")]),
-        ("learned.accidental", 2, [("SetAccidental", "medium")]),
+        ("learned.accidental", 1, [("SetAccidental", "high")]),
+        ("learned.accidental", 1, [("SetAccidental", "medium")]),
     ]
 
 
@@ -301,9 +303,9 @@ def test_an_unscored_candidate_counts_as_medium() -> None:
             )
 
     accidental = frozenset({"accidental"})
-    assert _shown(SuggestionPolicy("high", accidental), Unscored()) == [("measure.balance", 1, [])]
+    assert _shown(SuggestionPolicy("high", accidental), Unscored()) == [("measure.balance", 2, [])]
     assert _shown(SuggestionPolicy("medium", accidental), Unscored()) == [
-        ("measure.balance", 1, [("SetAccidental", None)])
+        ("measure.balance", 2, [("SetAccidental", None)])
     ]
 
 

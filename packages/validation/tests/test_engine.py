@@ -8,6 +8,7 @@ from cadenza.domain import Finding, ScoreDocument, Severity
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import (
     DEFAULT_RULES_CATALOG,
+    RULES_CATALOG_VERSION,
     ValidationEngine,
     ValidationRule,
     get_default_rules,
@@ -63,26 +64,31 @@ def test_validation_does_not_mutate_document(tmp_path: Path) -> None:
     assert document == snapshot
 
 
-def test_default_rules_catalog_has_five_families() -> None:
-    assert len(DEFAULT_RULES_CATALOG) == 5
-    default_rules = get_default_rules()
-    assert len(default_rules) == 5
-    rule_ids = {r.rule_id for r in default_rules}
-    assert rule_ids == {
-        "key.consistency",
-        "measure.balance",
-        "pitch.range",
-        "tie.resolution",
-        "voice.collision",
-    }
+CATALOG = (
+    "accidental.repeated",
+    "key.consistency",
+    "measure.balance",
+    "pitch.range",
+    "tie.resolution",
+    "time.signature",
+    "tuplet.incomplete",
+    "voice.collision",
+)
+
+
+def test_default_rules_catalog_is_the_one_of_adr_0040() -> None:
+    assert len(DEFAULT_RULES_CATALOG) == 8
+    assert tuple(sorted(rule.rule_id for rule in get_default_rules())) == CATALOG
+    assert RULES_CATALOG_VERSION == 2
 
 
 def test_engine_initializes_with_default_rules() -> None:
+    """`rules_version` sigue siendo la lista de identificadores ordenada: `exp_06` la separa por
+    comas para saber qué reglas medir (ADR-0040 §3)."""
     engine = ValidationEngine()
-    assert len(engine.rules) == 5
-    assert engine.rules_version == (
-        "key.consistency,measure.balance,pitch.range,tie.resolution,voice.collision"
-    )
+    assert len(engine.rules) == 8
+    assert engine.rules_version == ",".join(CATALOG)
+    assert engine.rules_version.split(",") == list(CATALOG)
 
 
 def test_default_engine_validates_fake_omr_cleanly(tmp_path: Path) -> None:

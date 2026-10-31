@@ -22,7 +22,7 @@ from cadenza.domain import (
     build_anchor_index,
     validate_after,
 )
-from cadenza.validation import KeyConsistencyRule, MeasureBalanceRule
+from cadenza.validation import AccidentalRepeatedRule, MeasureBalanceRule
 
 
 def _note(pitch: str, beats: str) -> Event:
@@ -93,10 +93,12 @@ def test_every_balance_candidate_is_a_valid_edit_that_balances_the_measure() -> 
         assert MeasureBalanceRule().evaluate(repaired) == []
 
 
-def test_flat_in_a_sharp_key_offers_the_key_accidental_and_natural() -> None:
-    # Re mayor (2 sostenidos): un Fa bemol leído; la armadura pide Fa sostenido.
-    document = _document(_note("Fb4", "4"), fifths=2)
-    findings = KeyConsistencyRule().evaluate(document)
-    (finding,) = [f for f in findings if "bemol inconsistente" in f.message]
+def test_a_repeated_accidental_offers_the_key_accidental() -> None:
+    """`accidental.repeated` propone la alteración de la armadura (ADR-0040 §7): en Re mayor,
+    un segundo Fa natural leído como el primero, con bemol, vuelve a ser Fa sostenido."""
+    document = _document(_note("Fb4", "2"), _note("Fb4", "2"), fifths=2)
+    (finding,) = AccidentalRepeatedRule().evaluate(document)
     targets = [(c.op, (c.after or {}).get("accidental")) for c in finding.candidates]
-    assert targets == [(EditOp.SET_ACCIDENTAL, "#"), (EditOp.SET_ACCIDENTAL, "")]
+    assert targets == [(EditOp.SET_ACCIDENTAL, "#")]
+    (candidate,) = finding.candidates
+    validate_after(document.score, candidate.anchor, candidate.op, candidate.after)

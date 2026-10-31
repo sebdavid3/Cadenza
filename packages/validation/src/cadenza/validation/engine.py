@@ -17,7 +17,7 @@ class ValidationEngine:
     """Ejecuta las reglas inyectadas sobre un `ScoreDocument` (solo lectura).
 
     Si no se proporciona una secuencia de reglas explícita (`rules is None`),
-    inicializa el catálogo completo de las cinco familias de reglas por defecto.
+    inicializa el catálogo completo de reglas (`DEFAULT_RULES_CATALOG`, ADR-0040).
     Ejecuta `evaluate` en cada regla y devuelve la lista **aplanada** de `Finding`
     en orden determinista. El documento nunca se muta.
     """
