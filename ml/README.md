@@ -188,7 +188,11 @@ El corpus (`results/correction_corpus.jsonl`) tiene un registro por evento leíd
 falta y compás con la clave o la armadura mal leídas: lo que leyó HOMR, su corrección o
 ninguna, y el contexto leído (armadura, compás, clave, posición, lo que le sobra o le falta
 al compás y las notas vecinas). La partición fija (`correction_corpus_split.json`) depende
-solo del identificador y la semilla (`cadenza.learning.assign_split`).
+solo de la obra del incipit (su registro RISM, `cadenza.learning.primus_work_id`) y de la
+semilla de la muestra (`cadenza.learning.assign_split`): los incipits de una misma obra caen
+del mismo lado. Lo que no se puede leer (un MEI o una predicción que el dominio no admite,
+o un `.semantic` que no describe las mismas notas) se registra por incipit y no entra en
+el corpus.
 
 ## CLI de Jobs Offline (Fase 7, #22)
 
