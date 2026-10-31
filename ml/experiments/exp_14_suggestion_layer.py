@@ -43,7 +43,9 @@ mide con la capa envuelta en la política de qué se muestra de la API (`Suggest
 confianza y de esas familias, y los hallazgos de las reglas, aunque se queden sin ellas. Lo
 que no se da no filtra; sin ninguna de las dos, se mide todo lo admisible, como en #287. La
 línea base del orden de la regla y las métricas de la promoción (`evaluate`) no pasan por la
-política: son las del modelo.
+política: son las del modelo. Por eso, con política, la comparación de la primera y las tres
+primeras sugerencias con la línea base mide el filtro y no el orden, y no vale. Con política,
+`--output-dir` es obligatorio: la salida por defecto, `results/`, es la evidencia de #287.
 
 Decisiones de la medición:
 - La SER se calcula sin aplicar la armadura (`apply_key_signature=False`): las alturas del
@@ -463,6 +465,12 @@ def _policy_report(policy: SuggestionPolicy | None) -> dict[str, Any] | None:
             "(PolicySuggestionModel, ADR-0036 enmienda 19); la línea base del orden de la regla "
             "y promotion_metrics, sin ella"
         ),
+        "baseline_comparison_valid": False,
+        "warning": (
+            "rule_suggestions.top1/top3 (y rule_top1_accuracy) cuentan solo las sugerencias "
+            "que deja la política, con el denominador de todos los candidatos, mientras que "
+            "baseline_rule_order no pasa por ella: su comparación mide el filtro, no el orden"
+        ),
     }
 
 
@@ -508,6 +516,12 @@ def run(
     display_policy: SuggestionPolicy | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
+    if display_policy is not None and output_dir is None:
+        # `results/` guarda la medición de #287, de la que sale la decisión de #244.
+        raise ValueError(
+            "exp_14 con una política de qué se muestra necesita --output-dir: no sobrescribe "
+            "la medición de results/"
+        )
     results = RESULTS_DIR if output_dir is None else output_dir
     corpus_path = corpus_path or RESULTS_DIR / "correction_corpus.jsonl"
     split_path = split_path or RESULTS_DIR / "correction_corpus_split.json"
@@ -746,7 +760,11 @@ def run(
     summary: dict[str, Any] = {
         "experiment": "exp_14_suggestion_layer",
         "issue": 257,
-        "measurement": "primera medición (A7): decide si la capa entra en el estudio (#244)",
+        "measurement": (
+            "primera medición (A7): decide si la capa entra en el estudio (#244)"
+            if display_policy is None
+            else "la capa con la política de qué se muestra de la API (ADR-0036, enmienda 19)"
+        ),
         "simulated": False,
         "corpus": {
             side: {
@@ -879,6 +897,8 @@ def main() -> None:
         display_policy = display_policy_of(args.min_level, args.families)
     except ValueError as exc:
         parser.error(str(exc))
+    if display_policy is not None and args.output_dir is None:
+        parser.error("con --min-level o --families, indica --output-dir (no sobrescribe results/)")
 
     _worker_init()
     summary = run(

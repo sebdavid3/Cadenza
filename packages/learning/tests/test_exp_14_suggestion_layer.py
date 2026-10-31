@@ -278,6 +278,21 @@ def test_the_experiment_can_measure_the_display_policy_of_production(
     )
     # Las métricas de la promoción son las del modelo, sin la política (ADR-0036 §9).
     assert shown["promotion_metrics"] == everything["promotion_metrics"]
+    assert shown["display_policy"]["baseline_comparison_valid"] is False
+
+
+def test_with_a_display_policy_the_output_dir_is_required(world: dict[str, Path]) -> None:
+    """La salida por defecto es `results/`, con la medición de #287: no se sobrescribe."""
+    policy = SuggestionPolicy(min_level="high", families=frozenset({"accidental"}))
+    with pytest.raises(ValueError, match="--output-dir"):
+        exp_14.run(
+            corpus_path=world["corpus"],
+            split_path=world["split"],
+            data_dir=world["data"],
+            config_path=world["config"],
+            output_dir=None,
+            display_policy=policy,
+        )
 
 
 def test_the_display_policy_comes_from_the_command_line() -> None:

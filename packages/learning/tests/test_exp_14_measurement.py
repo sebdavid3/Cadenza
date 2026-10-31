@@ -12,7 +12,7 @@ from fractions import Fraction
 from typing import Any
 
 import pytest
-from cadenza.application import PolicySuggestionModel, SuggestionPolicy
+from cadenza.application import SUGGESTION_FAMILIES, PolicySuggestionModel, SuggestionPolicy
 from cadenza.application.suggestions import suggest
 from cadenza.domain import (
     Anchor,
@@ -220,6 +220,18 @@ def test_the_measurement_follows_the_display_policy_of_production(
     )
     assert shown.counts["learned_findings"] == everything.counts["learned_findings:accidental"]
     assert shown.selected["first"]["suggestions"] < everything.selected["first"]["suggestions"]
+
+
+def test_the_widest_policy_measures_the_same_as_no_policy(model: FrequencyBackoffModel) -> None:
+    """Cualquier nivel y todas las familias es medir sin política, como #287: ninguna regla
+    propone una operación sin familia."""
+    widest = SuggestionPolicy.parse("medium", ",".join(SUGGESTION_FAMILIES))
+    for work, index in [(0, 0), (1, 1), (4, 1), (9, 0)]:
+        case = _case(work, index)
+        everything = measure_incipit(case, model, ValidationEngine())
+        shown = measure_incipit(case, PolicySuggestionModel(model, widest), ValidationEngine())
+        assert shown.suggested == everything.suggested
+        assert shown.counts == everything.counts
 
 
 def test_rule_suggestions_are_scored_top1_and_top3_against_the_rule_order(
