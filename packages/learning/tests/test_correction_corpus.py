@@ -28,6 +28,7 @@ from cadenza.learning import (
     count_edits_by_op,
     derive_edit_events,
     is_structurally_equal,
+    primus_work_id,
     semantic_note_pitches,
     with_sounding_pitches,
 )
@@ -109,6 +110,35 @@ def test_with_sounding_pitches_refuses_a_ground_truth_that_does_not_match(
     gt_from_mei = _score(_measure(1, _note("B4"), _note("E5"), _note("B4"), key=-3))
     with pytest.raises(SemanticMismatch, match=message):
         with_sounding_pitches(gt_from_mei, pitches)
+
+
+def _grace(pitch: str) -> Event:
+    return Event(kind=EventKind.NOTE, pitch=pitch, duration_beats=Fraction(0))
+
+
+def test_with_sounding_pitches_pairs_a_grace_group_by_letter_and_octave() -> None:
+    """En un grupo de adornos, el MEI y el `.semantic` no siempre dan el mismo orden."""
+    gt_from_mei = _score(
+        _measure(1, _grace("C5"), _grace("B4"), _note("C5"), _grace("F4"), _note("B4"), key=-1)
+    )
+    sounding = with_sounding_pitches(gt_from_mei, ["Bb4", "C5", "C5", "F#4", "Bb4"])
+    pitches = [e.pitch for m in sounding.parts[0].staves[0].measures for e in m.events]
+    assert pitches == ["C5", "Bb4", "C5", "F#4", "Bb4"]
+
+
+def test_with_sounding_pitches_refuses_an_ambiguous_grace_group() -> None:
+    """Dos adornos de la misma letra y octava con distinta alteración: no se adivina."""
+    gt_from_mei = _score(_measure(1, _grace("F4"), _grace("F4"), _note("G4")))
+    with pytest.raises(SemanticMismatch, match="ambiguo"):
+        with_sounding_pitches(gt_from_mei, ["F#4", "F4", "G4"])
+    # Fuera de un grupo de adornos el orden sigue siendo el de la partitura.
+    with pytest.raises(SemanticMismatch, match="nota 1"):
+        with_sounding_pitches(_score(_measure(1, _note("F4"), _note("G4"))), ["G4", "F4"])
+
+
+def test_primus_work_id_is_the_rism_record() -> None:
+    assert primus_work_id("000051650-1_1_2") == "000051650"
+    assert primus_work_id("201008211-1_1_1_") == "201008211"
 
 
 # --- Partición fija por incipit -------------------------------------------------------
@@ -229,6 +259,49 @@ def test_records_give_each_read_note_its_correction_or_none() -> None:
     g5 = events[5]
     assert g5["correction"] == {"ops": ["DeleteEvent"]}
     assert g5["anchor"] == {"part": 0, "staff": 0, "measure": 2, "voice": 0, "event_index": 2}
+
+
+def test_record_context_is_what_was_read_not_the_truth() -> None:
+    """El contexto es lo que verá la capa: la clave, la armadura y el compás leídos."""
+    predicted = _score(
+        _measure(
+            1,
+            _note("F4", "1"),
+            _note("A4", "1"),
+            key=0,
+            time=TimeSignature(2, 4),
+            clef=Clef.treble(),
+        )
+    )
+    truth = _score(
+        _measure(
+            1,
+            _note("F#4", "1/2"),
+            _note("A4", "1/2"),
+            _note("B4", "1"),
+            key=2,
+            time=TimeSignature(4, 4),
+            clef=Clef.bass(),
+        )
+    )
+    records = build_correction_records(
+        predicted, truth, incipit_id="leak", split="train", verified=True
+    )
+    for record in records:
+        context = record["context"]
+        if context is None:
+            continue
+        assert context["key_fifths"] == 0
+        assert context["time_signature"] == "2/4"
+        assert context["clef"] == "G2"
+        assert context["measure_beats_read"] == "2"
+        assert context["measure_balance_beats"] == "0"
+        assert context["events_in_voice"] == 2
+        for neighbour in (context["prev"], context["next"]):
+            assert neighbour is None or neighbour["pitch"] in {"F4", "A4"}
+    f4 = next(r for r in records if r["record"] == "event")
+    assert f4["context"]["key_accidental"] == ""
+    assert f4["context"]["accidental_vs_key"] == "in_key"
 
 
 def test_records_carry_insertions_and_measure_corrections() -> None:

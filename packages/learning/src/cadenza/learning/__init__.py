@@ -47,7 +47,12 @@ from .evaluation import (
 )
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
-from .primus import SemanticMismatch, semantic_note_pitches, with_sounding_pitches
+from .primus import (
+    SemanticMismatch,
+    primus_work_id,
+    semantic_note_pitches,
+    with_sounding_pitches,
+)
 from .registry import (
     EvaluationMetrics,
     ModelRegistry,
@@ -138,6 +143,7 @@ __all__ = [
     "omr_ned_batch",
     "omr_ned_pair",
     "pitch_to_midi",
+    "primus_work_id",
     "resolve_pitch_with_key_signature",
     "score_ser_pair",
     "score_to_symbol_sequence",

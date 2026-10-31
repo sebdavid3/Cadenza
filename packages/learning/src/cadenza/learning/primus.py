@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from typing import Final
 
-from cadenza.domain import EventKind, Measure, ScoreIR
+from cadenza.domain import Event, EventKind, Measure, ScoreIR
 
 from .alignment import split_pitch
 
@@ -55,24 +55,73 @@ def semantic_note_pitches(semantic: str) -> list[str]:
     return pitches
 
 
+def primus_work_id(incipit_id: str) -> str:
+    """La obra de un incipit de PrIMuS: su registro RISM, lo que va antes del primer `-`.
+
+    Los incipits de una misma obra (`000051650-1_1_1` y `000051650-1_1_2`, por ejemplo,
+    dos pentagramas suyos) se parecen; la partición los pone del mismo lado.
+    """
+    return incipit_id.split("-", 1)[0]
+
+
+def _is_grace(event: Event) -> bool:
+    return event.duration_beats == 0
+
+
+def _assign_pitches(notes: Sequence[Event], pitches: Sequence[str]) -> list[str]:
+    """La altura de cada nota: por posición, y por letra y octava dentro de un grupo de adornos."""
+    assigned = list(pitches)
+    start = 0
+    while start < len(notes):
+        if not _is_grace(notes[start]):
+            start += 1
+            continue
+        end = start
+        while end < len(notes) and _is_grace(notes[end]):
+            end += 1
+        pool = list(pitches[start:end])
+        for position in range(start, end):
+            letter, _, octave = split_pitch(notes[position].pitch)
+            candidates = [p for p in pool if split_pitch(p)[0::2] == (letter, octave)]
+            if not candidates:
+                raise SemanticMismatch(
+                    f"nota {position + 1}: el MEI dice {notes[position].pitch} y el .semantic "
+                    f"no tiene esa letra y octava en su grupo de adornos ({pitches[start:end]})"
+                )
+            if len(set(candidates)) > 1:
+                raise SemanticMismatch(
+                    f"nota {position + 1}: grupo de adornos ambiguo ({pitches[start:end]})"
+                )
+            pool.remove(candidates[0])
+            assigned[position] = candidates[0]
+        start = end
+    return assigned
+
+
 def with_sounding_pitches(score: ScoreIR, pitches: Sequence[str]) -> ScoreIR:
     """Devuelve `score` con la altura que suena de cada nota, tomada de `pitches`.
 
     Recorre las notas en orden de partes, pentagramas, compases y eventos. Cada altura
     debe tener la letra y la octava de la nota leída: solo cambia la alteración.
+
+    Dentro de un grupo seguido de notas de adorno (sin duración, ADR-0028), el MEI y el
+    `.semantic` no siempre dan el mismo orden, así que el grupo se empareja por letra y
+    octava. Si dos adornos del grupo tienen la misma letra y octava con distinta
+    alteración, el emparejamiento es ambiguo y no se adivina.
     """
-    note_count = sum(
-        1
+    notes = [
+        event
         for part in score.parts
         for staff in part.staves
         for measure in staff.measures
         for event in measure.events
         if event.kind is EventKind.NOTE
-    )
-    if note_count != len(pitches):
-        raise SemanticMismatch(f"{len(pitches)} alturas para {note_count} notas")
+    ]
+    if len(notes) != len(pitches):
+        raise SemanticMismatch(f"{len(pitches)} alturas para {len(notes)} notas")
+    assigned = _assign_pitches(notes, pitches)
 
-    remaining = iter(enumerate(pitches, start=1))
+    remaining = iter(enumerate(assigned, start=1))
     parts = []
     for part in score.parts:
         staves = []
