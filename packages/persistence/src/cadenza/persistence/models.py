@@ -245,3 +245,78 @@ class ModelVersionRecord(Base):
     )
 
     artifact: Mapped[ArtifactRecord] = relationship("ArtifactRecord", foreign_keys=[artifact_hash])
+
+
+class SuggestionRecord(Base):
+    """Sugerencia de la capa: una edición propuesta y la respuesta de la persona (ADR-0036 §4).
+
+    `finding_id` queda en NULL al sustituirse su hallazgo si ya tenía respuesta: las
+    respuestas nunca se pierden. Quién respondió lo fija el servidor (ADR-0012).
+    """
+
+    __tablename__ = "suggestions"
+    # Sin reutilizar ids en SQLite: revalidar cambia los ids y responder a uno viejo es un 404,
+    # nunca otra sugerencia (ADR-0036 §4). PostgreSQL no los reutiliza.
+    __table_args__ = ({"sqlite_autoincrement": True},)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE", name="fk_suggestions_session_id"),
+        index=True,
+        nullable=False,
+    )
+    finding_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("findings.id", ondelete="SET NULL", name="fk_suggestions_finding_id"),
+        index=True,
+        nullable=True,
+    )
+    at_seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    op: Mapped[str] = mapped_column(String(32), nullable=False)
+    anchor: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    response: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    responded_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    applied_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SuggestionModelVersionRecord(Base):
+    """Versión registrada de la capa de sugerencias: otro tipo de modelo, separado del motor
+    OMR (tabla model_versions), con sus propias métricas medidas (ADR-0036 §8)."""
+
+    __tablename__ = "suggestion_model_versions"
+
+    version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_hash: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "artifacts.sha256",
+            ondelete="RESTRICT",
+            name="fk_suggestion_model_versions_artifact_hash",
+        ),
+        nullable=False,
+    )
+    dataset_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    feature_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    promoted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

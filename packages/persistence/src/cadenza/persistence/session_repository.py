@@ -7,21 +7,74 @@ from datetime import UTC, datetime
 
 from cadenza.application import (
     FindingNotFound,
+    NewSuggestion,
     PersistedFinding,
+    PersistedSuggestion,
     SessionData,
     SessionNotFound,
     SessionRepository,
     SessionSummary,
+    SuggestionNotFound,
 )
 from cadenza.domain import Finding
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session as DbSession
 
-from .models import EditEventRecord, FindingRecord
+from .models import EditEventRecord, FindingRecord, SuggestionRecord
 from .models import Session as SessionRecord
 
 
-def _to_persisted_finding(record: FindingRecord) -> PersistedFinding:
+def _to_persisted_suggestion(record: SuggestionRecord) -> PersistedSuggestion:
+    return PersistedSuggestion(
+        id=record.id,
+        session_id=record.session_id,
+        finding_id=record.finding_id,
+        at_seq=record.at_seq,
+        rank=record.rank,
+        op=record.op,
+        anchor=record.anchor,
+        before=record.before,
+        after=record.after,
+        confidence=record.confidence,
+        confidence_level=record.confidence_level,
+        explanation=record.explanation,
+        source=record.source,
+        model_version=record.model_version,
+        response=record.response,
+        responded_by=record.responded_by,
+        responded_at=record.responded_at,
+        applied_seq=record.applied_seq,
+    )
+
+
+def _suggestion_record(
+    new: NewSuggestion, *, session_id: str, finding_id: int, at_seq: int, rank: int
+) -> SuggestionRecord:
+    edit = new.edit
+    inherited = new.inherited
+    return SuggestionRecord(
+        session_id=session_id,
+        finding_id=finding_id,
+        at_seq=at_seq,
+        rank=rank,
+        op=edit.op.value,
+        anchor=edit.anchor.to_primitive(),
+        before=None if edit.before is None else dict(edit.before),
+        after=None if edit.after is None else dict(edit.after),
+        confidence=edit.confidence,
+        confidence_level=edit.confidence_level or "medium",
+        explanation=edit.explanation,
+        source=edit.source,
+        model_version=edit.model_version,
+        response=None if inherited is None else inherited.response,
+        responded_by=None if inherited is None else inherited.responded_by,
+        responded_at=None if inherited is None else inherited.responded_at,
+    )
+
+
+def _to_persisted_finding(
+    record: FindingRecord, suggestions: Sequence[PersistedSuggestion] = ()
+) -> PersistedFinding:
     return PersistedFinding(
         id=record.id,
         rule_id=record.rule_id,
@@ -34,6 +87,7 @@ def _to_persisted_finding(record: FindingRecord) -> PersistedFinding:
         dismissed_at=record.dismissed_at,
         dismissed_by=record.dismissed_by,
         dismissal_reason=record.dismissal_reason,
+        suggestions=tuple(suggestions),
     )
 
 
@@ -43,7 +97,51 @@ class SqlAlchemySessionRepository(SessionRepository):
     def __init__(self, session: DbSession) -> None:
         self._session = session
 
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
+    def _store_suggestions(
+        self,
+        session_id: str,
+        records: Sequence[FindingRecord],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None,
+    ) -> None:
+        if not suggestions:
+            return
+        rows = [
+            _suggestion_record(
+                new, session_id=session_id, finding_id=record.id, at_seq=record.at_seq, rank=rank
+            )
+            for record, news in zip(records, suggestions, strict=False)
+            for rank, new in enumerate(news)
+        ]
+        self._session.add_all(rows)
+        self._session.flush()
+
+    def _attach(
+        self, session_id: str, records: Sequence[FindingRecord]
+    ) -> tuple[PersistedFinding, ...]:
+        ids = [record.id for record in records]
+        by_finding: dict[int, list[PersistedSuggestion]] = {}
+        if ids:
+            stmt = (
+                select(SuggestionRecord)
+                .where(
+                    SuggestionRecord.session_id == session_id,
+                    SuggestionRecord.finding_id.in_(ids),
+                )
+                .order_by(SuggestionRecord.finding_id, SuggestionRecord.rank)
+            )
+            for row in self._session.scalars(stmt).all():
+                assert row.finding_id is not None
+                by_finding.setdefault(row.finding_id, []).append(_to_persisted_suggestion(row))
+        return tuple(
+            _to_persisted_finding(record, by_finding.get(record.id, ())) for record in records
+        )
+
+    def add(
+        self,
+        session: SessionData,
+        findings: Sequence[Finding],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
+    ) -> SessionData:
         record = SessionRecord(
             id=session.id,
             owner_id=session.owner_id,
@@ -72,6 +170,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         ]
         self._session.add(record)
         self._session.flush()
+        self._store_suggestions(session.id, record.findings, suggestions)
         return session
 
     def get(self, session_id: str) -> SessionData | None:
@@ -151,11 +250,30 @@ class SqlAlchemySessionRepository(SessionRepository):
         *,
         at_seq: int,
         dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         record = self._session.get(SessionRecord, session_id)
         if record is None:
             raise SessionNotFound(session_id)
         record.validated_at_seq = at_seq
+
+        # Las sugerencias de ese estado: sin respuesta se van con su hallazgo; con respuesta se
+        # conservan desvinculadas (ADR-0036 §4).
+        self._session.execute(
+            delete(SuggestionRecord).where(
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.at_seq == at_seq,
+                SuggestionRecord.response.is_(None),
+            )
+        )
+        self._session.execute(
+            update(SuggestionRecord)
+            .where(
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.at_seq == at_seq,
+            )
+            .values(finding_id=None)
+        )
 
         # Re-evaluar el mismo estado sustituye sus hallazgos (idempotencia por
         # `(session_id, at_seq)`); los de otros estados se conservan (ADR-0013).
@@ -190,8 +308,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             )
         self._session.add_all(new_records)
         self._session.flush()
+        self._store_suggestions(session_id, new_records, suggestions)
 
-        return tuple(_to_persisted_finding(r) for r in new_records)
+        return self._attach(session_id, new_records)
 
     def dismiss_finding(
         self,
@@ -219,7 +338,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         finding_row.dismissal_reason = reason
         self._session.flush()
 
-        return _to_persisted_finding(finding_row)
+        return self._attach(session_id, [finding_row])[0]
 
     def restore_finding(
         self,
@@ -244,7 +363,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         finding_row.dismissal_reason = None
         self._session.flush()
 
-        return _to_persisted_finding(finding_row)
+        return self._attach(session_id, [finding_row])[0]
 
     def list_findings(
         self,
@@ -266,7 +385,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(FindingRecord.at_seq == record.validated_at_seq)
 
         rows = self._session.scalars(stmt.order_by(FindingRecord.id)).all()
-        return tuple(_to_persisted_finding(row) for row in rows)
+        return self._attach(session_id, rows)
 
     def list_dismissed_findings(
         self,
@@ -284,7 +403,41 @@ class SqlAlchemySessionRepository(SessionRepository):
             .order_by(FindingRecord.id)
         )
         rows = self._session.scalars(stmt).all()
-        return tuple(_to_persisted_finding(row) for row in rows)
+        return self._attach(session_id, rows)
+
+    def get_suggestion(self, session_id: str, suggestion_id: int) -> PersistedSuggestion | None:
+        row = self._session.get(SuggestionRecord, suggestion_id)
+        if row is None or row.session_id != session_id:
+            return None
+        return _to_persisted_suggestion(row)
+
+    def respond_suggestion(
+        self,
+        session_id: str,
+        suggestion_id: int,
+        *,
+        response: str,
+        user: str,
+        applied_seq: int | None = None,
+    ) -> PersistedSuggestion:
+        row = self._session.get(SuggestionRecord, suggestion_id)
+        if row is None or row.session_id != session_id:
+            raise SuggestionNotFound(suggestion_id)
+        row.response = response
+        row.responded_by = user
+        row.responded_at = datetime.now(UTC)
+        row.applied_seq = applied_seq
+        self._session.flush()
+        return _to_persisted_suggestion(row)
+
+    def list_suggestions(
+        self, session_id: str, *, at_seq: int | None = None
+    ) -> tuple[PersistedSuggestion, ...]:
+        stmt = select(SuggestionRecord).where(SuggestionRecord.session_id == session_id)
+        if at_seq is not None:
+            stmt = stmt.where(SuggestionRecord.at_seq == at_seq)
+        rows = self._session.scalars(stmt.order_by(SuggestionRecord.id)).all()
+        return tuple(_to_persisted_suggestion(row) for row in rows)
 
     def list_summaries(
         self,

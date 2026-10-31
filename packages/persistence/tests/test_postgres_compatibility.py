@@ -95,6 +95,9 @@ def test_alembic_migrations_offline_sql_generation_for_postgresql() -> None:
     assert "0010_model_versions" in generated_sql
     assert "0011_condition_and_test_score" in generated_sql
     assert "0012_users_self_registered" in generated_sql
+    assert "CREATE TABLE suggestions" in generated_sql
+    assert "CREATE TABLE suggestion_model_versions" in generated_sql
+    assert "0013_suggestions" in generated_sql
 
 
 def _get_live_postgres_url() -> str | None:
@@ -152,6 +155,8 @@ def test_postgres_live_migrations_and_jsonb_types(postgres_engine: Any) -> None:
     assert "artifacts" in table_names
     assert "effort_metrics" in table_names
     assert "model_versions" in table_names
+    assert "suggestions" in table_names
+    assert "suggestion_model_versions" in table_names
 
     # Verificar que las columnas JSON son JSONB en PostgreSQL
     # y que las migraciones alcanzaron head (0011)
