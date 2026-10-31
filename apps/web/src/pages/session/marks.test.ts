@@ -9,8 +9,8 @@ afterEach(() => {
 describe("marcas de rendimiento de una orden (#275)", () => {
   it("marca el envío, la respuesta y el dibujo, y mide la orden entera", () => {
     const order = markSent("edit", 3, "web-0123456789abcdef0123");
-    markReceived(order, 4);
-    markDrawn(4);
+    markReceived(order, "s1", 4);
+    markDrawn("s1", 4);
 
     const sent = performance.getEntriesByName(`${order}:enviar`, "mark")[0] as PerformanceMark;
     expect(sent.detail).toEqual({
@@ -25,13 +25,15 @@ describe("marcas de rendimiento de una orden (#275)", () => {
   });
 
   it("un dibujo que no creó una orden no mide nada, y cada estado se mide una vez", () => {
-    markDrawn(9);
+    markDrawn("s1", 9);
     expect(performance.getEntriesByType("measure")).toHaveLength(0);
 
     const order = markSent("undo", 9, "web-1");
-    markReceived(order, 10);
-    markDrawn(10);
-    markDrawn(10);
+    markReceived(order, "s1", 10);
+    markDrawn("otra", 10);
+    expect(performance.getEntriesByName(order, "measure")).toHaveLength(0);
+    markDrawn("s1", 10);
+    markDrawn("s1", 10);
     expect(performance.getEntriesByName(order, "measure")).toHaveLength(1);
   });
 });

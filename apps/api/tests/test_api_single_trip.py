@@ -6,6 +6,7 @@ El 201 de `POST /edits` y la respuesta de `POST /undo` traen el estado nuevo; el
 
 from __future__ import annotations
 
+import re
 import secrets
 from pathlib import Path
 from typing import Any
@@ -266,3 +267,41 @@ def test_the_cache_serves_the_state_the_edit_created(tmp_path: Path) -> None:
     names = {i.split(";")[0].strip() for i in exported.headers["server-timing"].split(",")}
     assert "materialize" not in names
     assert "export" not in names
+
+
+def _stable(musicxml: str) -> str:
+    """El MusicXML sin lo que music21 cambia en cada exportación: ids de parte y fecha."""
+    without_ids = re.sub(r"P[0-9a-f]{32}", "P", musicxml)
+    return re.sub(r"<encoding-date>[^<]*</encoding-date>", "", without_ids)
+
+
+def test_cached_states_match_an_api_without_cache(tmp_path: Path) -> None:
+    """Editar, deshacer, rehacer y deshacer: lo que devuelve la API con caché es lo que daría
+    sin ella, es decir, `materialize` sobre el log guardado."""
+    cached = Api(tmp_path / "con", cache=InMemoryScoreStateCache())
+    plain = Api(tmp_path / "sin", cache=InMemoryScoreStateCache(max_entries=0))
+
+    def undo(api: Api, base_seq: int) -> Any:
+        return api.client.post(f"{api.base}/undo", json={"base_seq": base_seq}, headers=api.headers)
+
+    steps: list[tuple[str, Any]] = [
+        ("edit", {"base_seq": 0, "op": "SetDuration", "after": {"duration_beats": "2"}}),
+        ("undo", 1),
+        ("edit", {"base_seq": 2, "op": "SetDuration", "after": {"duration_beats": "2"}}),
+        ("edit", {"base_seq": 3, "op": "SetPitch", "after": {"pitch": "A4"}}),
+        ("undo", 4),
+    ]
+    for kind, arg in steps:
+        results = [
+            api.edit(**arg).json() if kind == "edit" else undo(api, arg).json()
+            for api in (cached, plain)
+        ]
+        with_cache, without = results
+        for key in ("current_seq", "current_score", "status"):
+            assert with_cache[key] == without[key], (kind, key)
+        assert _stable(with_cache["musicxml"]) == _stable(without["musicxml"]), kind
+        assert (with_cache["timing"] is None) == (without["timing"] is None)
+        if with_cache["timing"] is not None:
+            assert with_cache["timing"]["events"] == without["timing"]["events"]
+        for api, body in ((cached, with_cache), (plain, without)):
+            assert api.get(api.base).json()["current_score"] == body["current_score"]

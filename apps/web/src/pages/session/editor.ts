@@ -334,6 +334,12 @@ export function useEditor(
     // Una recarga del detalle que siguiera en curso traería un estado anterior.
     await queryClient.cancelQueries({ queryKey: detailKey, exact: true });
     if (signal.aborted) return null;
+    // Mientras tanto pudo llegar un estado posterior (de otra pestaña): no se vuelve atrás.
+    const latest = queryClient.getQueryData<SessionViewRead>(detailKey);
+    if (latest && (latest.current_seq ?? 0) > state.seq) {
+      setKnownSeq(latest.current_seq ?? 0);
+      return latest;
+    }
     const fresh: SessionViewRead = {
       ...previous,
       current_seq: state.seq,
@@ -377,7 +383,7 @@ export function useEditor(
       let outcome: Outcome;
       try {
         outcome = await post(signal, requestId);
-        markReceived(order, outcome.seq);
+        markReceived(order, sessionId, outcome.seq);
       } catch (error) {
         if (cancelled()) return;
         if (!(error instanceof ApiError && error.kind === "conflict")) {

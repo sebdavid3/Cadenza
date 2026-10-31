@@ -12,8 +12,11 @@
 
 const PREFIX = "cadenza:orden-";
 let counter = 0;
-/** Órdenes recibidas cuyo estado aún no está dibujado: `seq` → nombre de la orden. */
-const awaitingDraw = new Map<number, string>();
+/** Órdenes recibidas cuyo estado aún no está dibujado: `sesión:seq` → nombre de la orden. */
+const awaitingDraw = new Map<string, string>();
+/** Como mucho, las órdenes de las últimas sesiones: un estado que no se dibuja no se queda. */
+const MAX_AWAITING = 16;
+const stateKey = (sessionId: string, seq: number) => `${sessionId}:${String(seq)}`;
 
 function mark(name: string, detail?: unknown): boolean {
   try {
@@ -41,18 +44,23 @@ export function markSent(kind: string, baseSeq: number, requestId: string): stri
   return order;
 }
 
-/** Marca la respuesta de la orden, que crea el estado `seq`. */
-export function markReceived(order: string, seq: number) {
+/** Marca la respuesta de la orden, que crea el estado `seq` de la sesión. */
+export function markReceived(order: string, sessionId: string, seq: number) {
   if (!mark(`${order}:recibir`, { seq })) return;
   measure(`${order}:servidor`, `${order}:enviar`, `${order}:recibir`);
-  awaitingDraw.set(seq, order);
+  awaitingDraw.set(stateKey(sessionId, seq), order);
+  for (const key of awaitingDraw.keys()) {
+    if (awaitingDraw.size <= MAX_AWAITING) break;
+    awaitingDraw.delete(key);
+  }
 }
 
-/** Marca que el estado `seq` está dibujado y, si lo creó una orden, mide la orden entera. */
-export function markDrawn(seq: number) {
-  const order = awaitingDraw.get(seq);
+/** Marca que el estado `seq` de la sesión está dibujado y, si lo creó una orden, la mide entera. */
+export function markDrawn(sessionId: string, seq: number) {
+  const key = stateKey(sessionId, seq);
+  const order = awaitingDraw.get(key);
   if (order === undefined) return;
-  awaitingDraw.delete(seq);
+  awaitingDraw.delete(key);
   if (!mark(`${order}:dibujado`, { seq })) return;
   measure(order, `${order}:enviar`, `${order}:dibujado`);
 }

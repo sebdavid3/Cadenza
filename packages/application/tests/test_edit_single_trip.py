@@ -30,7 +30,6 @@ from cadenza.application import (
     timed_stage,
     undo_edit,
 )
-from cadenza.application import score_state as score_state_module
 from cadenza.domain import (
     Anchor,
     Clef,
@@ -249,13 +248,13 @@ def test_edit_reuses_the_cached_state_and_never_rematerializes(
     _edit(sessions, edits, user, base_seq=0, cache=cache, exporter=exporter)
 
     calls: list[int] = []
-    real = score_state_module.materialize
+    real = materialize
 
     def counting(score: ScoreIR, log: Any) -> ScoreIR:
         calls.append(1)
         return real(score, log)
 
-    monkeypatch.setattr(score_state_module, "materialize", counting)
+    monkeypatch.setattr("cadenza.application.score_state.materialize", counting)
     second = _edit(
         sessions, edits, user, base_seq=1, after={"pitch": "A4"}, cache=cache, exporter=exporter
     )

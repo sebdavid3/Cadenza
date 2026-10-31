@@ -471,7 +471,7 @@ def create_app(
 
     @app.middleware("http")
     async def request_id_and_access_log_middleware(request: Request, call_next: Any) -> Response:
-        # El de la web (#275) relaciona en el registro las peticiones de una misma orden.
+        # El que envía la web (#275) relaciona su medida de una orden con este registro.
         incoming = request.headers.get("X-Request-ID") or ""
         req_id = (
             incoming if _REQUEST_ID_PATTERN.fullmatch(incoming) is not None else uuid.uuid4().hex
@@ -1226,7 +1226,9 @@ def create_app(
 
     @app.get(
         "/sessions/{session_id}",
-        response_model=SessionDetailRead | SessionViewRead,
+        # El contrato por defecto no cambia; `fields=view` responde SessionViewRead, que se
+        # declara en los componentes (custom_openapi) y en la descripción del parámetro.
+        response_model=SessionDetailRead,
         tags=["Sessions"],
         summary="Detalle completo de sesión con estado materializado",
         description=(
@@ -1709,6 +1711,16 @@ def create_app(
             tags=app.openapi_tags,
         )
         components = openapi_schema.setdefault("components", {})
+        # `GET /sessions/{id}?fields=view` (#275, ADR-0037): su esquema, para los clientes.
+        schemas = components.setdefault("schemas", {})
+        if "SessionViewRead" not in schemas:
+            view_schema = SessionViewRead.model_json_schema(
+                ref_template="#/components/schemas/{model}"
+            )
+            # Sus modelos anidados son los del detalle, ya en los componentes.
+            for name, definition in view_schema.pop("$defs", {}).items():
+                schemas.setdefault(name, definition)
+            schemas["SessionViewRead"] = view_schema
         security_schemes = components.setdefault("securitySchemes", {})
         security_schemes["BearerAuth"] = {
             "type": "http",

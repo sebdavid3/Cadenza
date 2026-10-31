@@ -968,15 +968,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/SessionDetailRead"
-                    },
-                    {
-                      "$ref": "#/components/schemas/SessionViewRead"
-                    }
-                  ],
-                  "title": "Response Get Session Sessions  Session Id  Get"
+                  "$ref": "#/components/schemas/SessionDetailRead"
                 }
               }
             }
@@ -3686,115 +3678,6 @@
         "title": "SessionSummaryRead",
         "description": "Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."
       },
-      "SessionViewRead": {
-        "properties": {
-          "session_id": {
-            "type": "string",
-            "title": "Session Id"
-          },
-          "document_id": {
-            "type": "string",
-            "title": "Document Id"
-          },
-          "omr_engine": {
-            "type": "string",
-            "title": "Omr Engine"
-          },
-          "findings": {
-            "items": {
-              "$ref": "#/components/schemas/FindingRead"
-            },
-            "type": "array",
-            "title": "Findings"
-          },
-          "edits": {
-            "items": {
-              "$ref": "#/components/schemas/EditEventRead"
-            },
-            "type": "array",
-            "title": "Edits"
-          },
-          "current_score": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ScoreIRPayload"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "current_seq": {
-            "type": "integer",
-            "title": "Current Seq",
-            "default": 0
-          },
-          "image_artifact": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Image Artifact"
-          },
-          "model_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model Version"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status",
-            "default": "transcribed"
-          },
-          "condition": {
-            "type": "string",
-            "title": "Condition",
-            "default": "assisted"
-          },
-          "test_score_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Test Score Id"
-          },
-          "owner_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Owner Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "session_id",
-          "document_id",
-          "omr_engine",
-          "findings",
-          "edits"
-        ],
-        "title": "SessionViewRead",
-        "description": "Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).\n\nLos campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`\n(cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia."
-      },
       "SlurPayload": {
         "properties": {
           "type": {
@@ -4311,6 +4194,120 @@
         ],
         "title": "WedgePayload",
         "description": "Extremo de un regulador en una posición del compás (ADR-0031)."
+      },
+      "SessionViewRead": {
+        "description": "Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).\n\nLos campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`\n(cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "omr_engine": {
+            "title": "Omr Engine",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/EditEventRead"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "current_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoreIRPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "current_seq": {
+            "default": 0,
+            "title": "Current Seq",
+            "type": "integer"
+          },
+          "image_artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Artifact"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Version"
+          },
+          "status": {
+            "default": "transcribed",
+            "title": "Status",
+            "type": "string"
+          },
+          "condition": {
+            "default": "assisted",
+            "title": "Condition",
+            "type": "string"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Test Score Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner Id"
+          }
+        },
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "findings",
+          "edits"
+        ],
+        "title": "SessionViewRead",
+        "type": "object"
       }
     },
     "securitySchemes": {

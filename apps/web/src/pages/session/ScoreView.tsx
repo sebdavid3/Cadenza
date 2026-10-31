@@ -186,7 +186,7 @@ export function ScoreView({
         shownRef.current = shown;
         setState({ drawing: { score, snapshot, layout: 0 }, failed: null });
         // Fin de la orden que creó este estado, si la hubo (#275).
-        markDrawn(snapshot.seq);
+        markDrawn(sessionId, snapshot.seq);
         if (!("ResizeObserver" in window)) return;
         let width = target.clientWidth;
         shown.observer = new ResizeObserver(() => {
@@ -227,7 +227,7 @@ export function ScoreView({
       // El dibujo a la vista se queda hasta que llegue el siguiente o se salga de la vista.
       if (shownRef.current?.target !== target) target.remove();
     };
-  }, [snapshot]);
+  }, [snapshot, sessionId]);
 
   useEffect(
     () => () => {
