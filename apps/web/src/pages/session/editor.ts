@@ -234,6 +234,8 @@ export function useEditor(
   const inFlight = useRef(false);
   // Como mucho una orden espera a que se guarde la que está en curso (ADR-0038).
   const [queued, setQueued] = useState<QueuedOrder | null>(null);
+  // La misma orden, al instante: dos órdenes en el mismo evento no esperan a otro render.
+  const queuedRef = useRef<QueuedOrder | null>(null);
   // Una orden guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
   const pendingPlacement = useRef<{ request: EditorRequest; seq: number } | null>(null);
   const nonce = useRef(0);
@@ -479,20 +481,27 @@ export function useEditor(
   const stopped = held || BLOCKING.has(status.kind) || lagging;
   const blocked = stopped && !waiting;
 
+  /**
+   * Si una orden que llega ahora tiene que esperar: lo dice el render o, si aún no ha llegado el
+   * render de la que acaba de salir, que hay una petición en curso.
+   */
+  const mustWait = () => waiting || (!held && inFlight.current);
+
   /** Dice por qué una orden no sale, sin borrar un aviso que hay que conservar. */
   function refuse(message: string) {
     nonce.current += 1;
     const refused = { message, nonce: nonce.current };
-    if (LASTING.has(status.kind) || waiting) setRefusal(refused);
+    if (LASTING.has(status.kind) || mustWait()) setRefusal(refused);
     else setStatus({ kind: "refused", ...refused });
   }
 
   /** Deja esperando una orden; si ya hay otra, no se envía y se dice (ADR-0038). */
   function enqueue(order: QueuedOrder) {
-    if (queued) {
+    if (queuedRef.current) {
       refuse("Ya hay una orden esperando a que se guarde la anterior: esta no se envió.");
       return;
     }
+    queuedRef.current = order;
     setQueued(order);
   }
 
@@ -513,6 +522,7 @@ export function useEditor(
   useEffect(() => {
     if (!queued || waiting) return;
     const timer = setTimeout(() => {
+      queuedRef.current = null;
       setQueued(null);
       if (status.kind !== "saved") {
         refuse("No se envió la orden que esperaba: la anterior no se guardó.");
@@ -538,7 +548,7 @@ export function useEditor(
   /** Una orden sobre el evento elegido: se envía, espera su turno o se dice por qué no. */
   function run(command: EditCommand, target: EditTarget | null) {
     if (!score) return;
-    if (waiting) {
+    if (mustWait()) {
       enqueue({ kind: "command", command });
       return;
     }
@@ -584,7 +594,7 @@ export function useEditor(
    */
   function undo() {
     if (!detail) return;
-    if (waiting) {
+    if (mustWait()) {
       enqueue({ kind: "undo" });
       return;
     }
@@ -645,7 +655,7 @@ export function useEditor(
    */
   function redo() {
     if (!detail) return;
-    if (waiting) {
+    if (mustWait()) {
       enqueue({ kind: "redo" });
       return;
     }

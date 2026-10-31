@@ -2280,6 +2280,29 @@ describe("corregir la nota elegida", () => {
     expect(server.count(`GET /sessions/${ID}`)).toBe(1);
   });
 
+  it("dos órdenes en el mismo instante, antes de que la vista se vuelva a pintar, no pierden la segunda", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    // Las dos teclas llegan antes de que React vuelva a pintar la vista tras la primera.
+    act(() => {
+      for (let press = 0; press < 2; press += 1) {
+        region.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowUp", shiftKey: true, bubbles: true }),
+        );
+      }
+    });
+
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Mi 4.");
+    });
+    expect(server.bodies.map((sent) => [sent.base_seq, sent.after])).toEqual([
+      [0, { pitch: "D4" }],
+      [1, { pitch: "E4" }],
+    ]);
+  });
+
   it("una tercera orden mientras otra espera no se envía, y se dice", async () => {
     const server = editableApi();
     renderPage();
