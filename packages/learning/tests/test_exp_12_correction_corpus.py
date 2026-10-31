@@ -90,9 +90,13 @@ def test_sample_is_seeded_complete_and_disjoint_from_exp_03(tmp_path: Path) -> N
 
     written = json.loads((data / "primus" / "exp_12" / "manifest.json").read_text("utf-8"))
     assert [e["id"] for e in written["entries"]] == chosen
+    # No se sustituye una muestra que ya existe: sus predicciones son de ella.
+    with pytest.raises(FileExistsError, match="--force"):
+        exp_12.select_sample(data, size=12, seed=8)
     # La misma semilla da la misma muestra; otra semilla, otra.
-    assert exp_12.select_sample(data, size=12, seed=7)["entries"] == manifest["entries"]
-    other = exp_12.select_sample(data, size=12, seed=8)
+    again = exp_12.select_sample(data, size=12, seed=7, force=True)
+    assert again["entries"] == manifest["entries"]
+    other = exp_12.select_sample(data, size=12, seed=8, force=True)
     assert [e["id"] for e in other["entries"]] != chosen
 
 
@@ -320,7 +324,7 @@ def test_build_fails_without_manifest_or_predictions(tmp_path: Path) -> None:
         exp_12.build(tmp_path / "manifest.json", seed=1)
     manifest = _corpus(tmp_path, {"failed": None})
     with pytest.raises(ValueError, match="ninguna predicción"):
-        exp_12.build(manifest, seed=1)
+        exp_12.build(manifest)
     assert not (common.RESULTS_DIR / "correction_corpus.jsonl").exists()
 
 
@@ -329,8 +333,45 @@ def test_build_fails_when_an_entry_was_never_transcribed(tmp_path: Path) -> None
     manifest = _corpus(tmp_path, {"ok": good, "pending": good})
     (manifest.parent / "predictions" / "pending.musicxml").unlink()
     with pytest.raises(ValueError, match="sin predicción ni fallo"):
-        exp_12.build(manifest, seed=1)
+        exp_12.build(manifest)
     # Con `limit`, solo cuentan las primeras entradas, las que ya se transcribieron.
-    summary = exp_12.build(manifest, seed=1, limit=1)
+    summary = exp_12.build(manifest, limit=1)
     assert summary["sample"]["size"] == 1
     assert summary["verification"]["verified_count"] == 1
+
+
+def test_build_takes_the_split_seed_from_the_sample(tmp_path: Path) -> None:
+    """La partición usa la semilla con que se eligió la muestra; otra es un error."""
+    good = _musicxml(1, [("G", 0, 4, 1), ("A", 0, 4, 1), ("F", 1, 4, 1), ("G", 0, 4, 1)])
+    manifest = _corpus(tmp_path, {"000000001-1_1_1": good})
+    with pytest.raises(ValueError, match="semilla 5"):
+        exp_12.build(manifest, seed=7)
+    assert not (common.RESULTS_DIR / "correction_corpus.jsonl").exists()
+    assert exp_12.build(manifest)["seed"] == 5
+
+
+def test_build_puts_the_incipits_of_a_work_on_the_same_side(tmp_path: Path) -> None:
+    good = _musicxml(1, [("G", 0, 4, 1), ("A", 0, 4, 1), ("F", 1, 4, 1), ("G", 0, 4, 1)])
+    siblings = [f"{work:09d}-1_1_{staff}" for work in range(1, 21) for staff in (1, 2)]
+    manifest = _corpus(tmp_path, dict.fromkeys(siblings, good))
+    exp_12.build(manifest, with_omr_ned=False)
+    split = json.loads((common.RESULTS_DIR / "correction_corpus_split.json").read_text("utf-8"))
+    side = {incipit: name for name in ("train", "test") for incipit in split[name]}
+    for work in range(1, 21):
+        assert side[f"{work:09d}-1_1_1"] == side[f"{work:09d}-1_1_2"]
+    assert set(side.values()) == {"train", "test"}
+
+
+def test_build_registers_a_prediction_the_domain_cannot_read(tmp_path: Path) -> None:
+    """Lo que escribió HOMR y el dominio no admite se registra y no detiene el cálculo."""
+    good = _musicxml(1, [("G", 0, 4, 1), ("A", 0, 4, 1), ("F", 1, 4, 1), ("G", 0, 4, 1)])
+    odd = good.replace("<beat-type>4</beat-type>", "<beat-type>3</beat-type>")
+    manifest = _corpus(tmp_path, {"ok": good, "odd": odd})
+
+    summary = exp_12.build(manifest, with_omr_ned=False)
+
+    transcription = summary["transcription"]
+    assert transcription["prediction_unreadable_count"] == 1
+    assert list(transcription["prediction_unreadable"]) == ["odd"]
+    assert summary["verification"]["derived_count"] == 1
+    assert summary["verification"]["derive_errors_count"] == 0

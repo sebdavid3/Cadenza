@@ -61,6 +61,7 @@ from cadenza.learning import (
     is_structurally_equal,
     key_accidental,
     omr_ned_pair,
+    primus_work_id,
     semantic_note_pitches,
     split_pitch,
     with_sounding_pitches,
@@ -176,9 +177,22 @@ def _complete_incipits(primus_dir: Path) -> dict[str, Path]:
 
 
 def select_sample(
-    data_dir: Path = DATA_DIR, *, size: int = SAMPLE_SIZE, seed: int = DEFAULT_SEED
+    data_dir: Path = DATA_DIR,
+    *,
+    size: int = SAMPLE_SIZE,
+    seed: int = DEFAULT_SEED,
+    force: bool = False,
 ) -> dict[str, Any]:
-    """Elige `size` incipits completos al azar con `seed`, fuera de los de `exp_03`."""
+    """Elige `size` incipits completos al azar con `seed`, fuera de los de `exp_03`.
+
+    No sustituye una muestra que ya existe salvo con `force`: sus predicciones son de ella.
+    """
+    target = data_dir / "primus" / "exp_12" / "manifest.json"
+    if target.is_file() and not force:
+        raise FileExistsError(
+            f"Ya hay una muestra en {target}; sus predicciones son de ella. Repite con "
+            "--force para sustituirla."
+        )
     exp_03_manifest = data_dir / "manifest.json"
     if not exp_03_manifest.is_file():
         raise FileNotFoundError(
@@ -231,7 +245,7 @@ def select_sample(
         "count": len(entries),
         "entries": entries,
     }
-    _write_json(data_dir / "primus" / "exp_12" / "manifest.json", manifest)
+    _write_json(target, manifest)
     return manifest
 
 
@@ -321,7 +335,11 @@ def transcribe(
             target.unlink(missing_ok=True)
         else:
             failures.pop(incipit, None)
-            target.write_text(xml_text, encoding="utf-8")
+            # Se escribe aparte y se renombra: una interrupción no deja una predicción a medias
+            # que la reanudación daría por hecha.
+            partial = target.with_suffix(".musicxml.tmp")
+            partial.write_text(xml_text, encoding="utf-8")
+            partial.replace(target)
             written += 1
         _write_json(
             failures_file,
@@ -552,7 +570,7 @@ def _incipit_analysis(
 def build(
     manifest_path: Path,
     *,
-    seed: int = DEFAULT_SEED,
+    seed: int | None = None,
     test_fraction: float = DEFAULT_TEST_FRACTION,
     with_omr_ned: bool = True,
     limit: int | None = None,
@@ -560,8 +578,18 @@ def build(
     """Deriva y verifica las correcciones, escribe el corpus y analiza los errores.
 
     Con `limit`, solo las primeras entradas de la muestra, en el orden en que se transcriben.
+    La semilla de la partición es la de la muestra; una `seed` distinta es un error.
     """
     manifest = _load_manifest(manifest_path)
+    sample_seed = manifest.get("seed")
+    if sample_seed is None:
+        raise ValueError(f"La muestra {manifest_path} no dice con qué semilla se eligió")
+    if seed is not None and seed != sample_seed:
+        raise ValueError(
+            f"La muestra se eligió con la semilla {sample_seed} y se pide la partición con "
+            f"{seed}: usa la de la muestra."
+        )
+    seed = int(sample_seed)
     entries: list[dict[str, Any]] = manifest["entries"][:limit]
     root = _data_root(manifest_path)
     predictions = manifest_path.parent / "predictions"
@@ -599,6 +627,8 @@ def build(
     key_rows: list[dict[str, Any]] = []
     mismatches: dict[str, str] = {}
     unreadable: dict[str, str] = {}
+    pred_unreadable: dict[str, str] = {}
+    derive_errors: dict[str, str] = {}
     ops_sounding: Counter[str] = Counter()
     ops_mei: Counter[str] = Counter()
     ops_verified_by_split: dict[str, Counter[str]] = {"train": Counter(), "test": Counter()}
@@ -609,7 +639,7 @@ def build(
 
     for position, entry in enumerate(entries, start=1):
         incipit = entry["id"]
-        split = assign_split(incipit, seed=seed, test_fraction=test_fraction)
+        split = assign_split(primus_work_id(incipit), seed=seed, test_fraction=test_fraction)
         row: dict[str, Any] = dict.fromkeys(CSV_FIELDS, "")
         row.update({"id": incipit, "split": split})
         pred_file = predictions / f"{incipit}.musicxml"
@@ -619,7 +649,14 @@ def build(
             continue
 
         gt_file = root / entry["ground_truth"]
-        predicted = read_score(pred_file)
+        try:
+            predicted = read_score(pred_file)
+        except ValueError as exc:
+            # Lo que escribió HOMR no lo admite el dominio: tampoco lo leería la API.
+            pred_unreadable[incipit] = f"{type(exc).__name__}: {exc}"
+            row.update({"status": "prediction_unreadable", "error": pred_unreadable[incipit]})
+            rows.append(row)
+            continue
         try:
             mei = read_score(gt_file)
         except ValueError as exc:
@@ -640,8 +677,14 @@ def build(
             rows.append(row)
             continue
 
-        edits = derive_edit_events(predicted, sounding, document_id=incipit)
-        verified = is_structurally_equal(materialize(predicted, edits), sounding)
+        try:
+            edits = derive_edit_events(predicted, sounding, document_id=incipit)
+            verified = is_structurally_equal(materialize(predicted, edits), sounding)
+        except (ValueError, IndexError) as exc:
+            derive_errors[incipit] = f"{type(exc).__name__}: {exc}"
+            row.update({"status": "derive_error", "error": derive_errors[incipit]})
+            rows.append(row)
+            continue
         records = build_correction_records(
             predicted, sounding, incipit_id=incipit, split=split, verified=verified
         )
@@ -701,8 +744,10 @@ def build(
         "seed": seed,
         "test_fraction": test_fraction,
         "rule": (
-            "test si int.from_bytes(sha256(f'{seed}:{id}')[:8], 'big') / 2**64 < "
-            "test_fraction (cadenza.learning.assign_split); no depende del resto de la muestra"
+            "test si int.from_bytes(sha256(f'{seed}:{obra}')[:8], 'big') / 2**64 < "
+            "test_fraction (cadenza.learning.assign_split), con la obra el registro RISM del "
+            "incipit (lo que va antes del primer '-', cadenza.learning.primus_work_id): los "
+            "incipits de una misma obra caen del mismo lado; no depende del resto de la muestra"
         ),
         "train": sorted(row["id"] for row in rows if row["split"] == "train"),
         "test": sorted(row["id"] for row in rows if row["split"] == "test"),
@@ -725,6 +770,8 @@ def build(
             "failures_by_error": dict(
                 Counter(failures[e["id"]] for e in entries if e["id"] in failures)
             ),
+            "prediction_unreadable_count": len(pred_unreadable),
+            "prediction_unreadable": dict(sorted(pred_unreadable.items())),
         },
         "ground_truth": {
             "source": "MEI de PrIMuS con la altura que suena del .semantic",
@@ -755,6 +802,8 @@ def build(
             },
             "unverified_ids": unverified,
             "unverified_with_measure_count_mismatch": unverified_measure_mismatch,
+            "derive_errors_count": len(derive_errors),
+            "derive_errors": dict(sorted(derive_errors.items())),
         },
         "edit_distribution": {
             "verified": _distribution(ops_verified),
@@ -849,10 +898,16 @@ def main() -> None:
         description="Corpus de correcciones a escala y errores de HOMR (#255)"
     )
     parser.add_argument("--data", type=Path, default=DATA_DIR)
-    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=f"Semilla de la muestra (por defecto {DEFAULT_SEED}); build usa la de la muestra",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     sample_parser = sub.add_parser("sample", help="Elige la muestra")
     sample_parser.add_argument("--size", type=int, default=SAMPLE_SIZE)
+    sample_parser.add_argument("--force", action="store_true", help="Sustituir la muestra")
     transcribe_parser = sub.add_parser("transcribe", help="Transcribe la muestra con HOMR")
     transcribe_parser.add_argument("--gpu", action="store_true", help="Usar la GPU")
     transcribe_parser.add_argument("--force", action="store_true")
@@ -868,7 +923,12 @@ def main() -> None:
     logging.getLogger("converter21").setLevel(logging.ERROR)
     manifest_path = args.data / "primus" / "exp_12" / "manifest.json"
     if args.command == "sample":
-        manifest = select_sample(args.data, size=args.size, seed=args.seed)
+        manifest = select_sample(
+            args.data,
+            size=args.size,
+            seed=DEFAULT_SEED if args.seed is None else args.seed,
+            force=args.force,
+        )
         print(f"[exp_12] muestra de {manifest['count']} incipits -> {manifest_path}")
     elif args.command == "transcribe":
         result = transcribe(
