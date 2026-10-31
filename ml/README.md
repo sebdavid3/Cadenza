@@ -194,6 +194,55 @@ del mismo lado. Lo que no se puede leer (un MEI o una predicción que el dominio
 o un `.semantic` que no describe las mismas notas) se registra por incipit y no entra en
 el corpus.
 
+### `exp_14_suggestion_layer.py` — medición de la capa de sugerencias (#257)
+
+La primera medición de la capa de sugerencias (#256, ADR-0036), con la que el responsable
+decide si entra en el estudio (#244). Entrena la capa con la partición `train` del corpus de
+`exp_12` y la mide en `test` por el camino de producción: las reglas y después la capa, con el
+filtro de admisibilidad de los casos de uso (`validate_after`, sin duplicados, tres por
+hallazgo), sobre el `ScoreIR` que leyó HOMR. La verdad es la del corpus (el corrector ideal
+frente a la altura que suena). Necesita el corpus, su partición, la muestra de `exp_12` con sus
+predicciones y la verdad (MEI y `.semantic`); sin alguno de ellos, o si la predicción y la
+verdad no dan los registros del corpus, falla.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py            # results/
+uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py --output-dir <dir> --seed 20260920
+```
+
+Mide, en `results/suggestion_layer_summary.json` (con `run_info`):
+
+- **Validación cruzada** de 5 pliegues agrupados por obra dentro de `train` (media y desviación
+  de las métricas principales; cada pliegue elige sus umbrales con su propia validación
+  cruzada interna, como `ml suggestions train`).
+- **Sugerencias a los posibles errores de las reglas:** acierto de la primera y de las tres
+  primeras, sobre los hallazgos con sugerencias y sobre los que tienen el arreglo verdadero
+  entre sus candidatos, frente al orden de la propia regla.
+- **Errores que las reglas no ven:** precisión y *recall* por compás con la definición de
+  `exp_06` (`cadenza.learning.evaluate_measures`), con las reglas solas y con las reglas más los
+  posibles errores propios de la capa, y su cobertura por categoría; también por evento.
+- **Antes y después:** SER y OMR-NED frente a la verdad con HOMR solo, con las sugerencias de
+  confianza alta aplicadas y con todas las primeras sugerencias aplicadas (una tras otra, con
+  el ancla traducida y `validate_after`).
+- **Daño:** notas correctas que cambiaría aplicar esas sugerencias, y cuántas arreglarían,
+  arreglarían mal o insertarían un evento que no falta.
+- **Curva de aprendizaje** con el 10, el 25, el 50 y el 100 % de las obras de `train`
+  (submuestreo anidado con la semilla), medida en `test`, con las correcciones de cada punto.
+- **Sesiones del estudio:** todavía no hay; el resultado lo dice (`study_sessions`).
+- Las métricas de `ml suggestions evaluate` (`promotion_metrics`).
+
+Decisiones de la medición: la SER se calcula sin aplicar la armadura, porque las alturas del
+`ScoreIR` son las que suenan (aplicándola, un Si natural leído donde suena Si bemol no contaría);
+el OMR-NED compara MusicXML exportados del `ScoreIR` (verdad y cada variante), para que el antes
+y el después pasen por el mismo camino, así que no es el de `exp_12`; las correcciones por
+compás salen de los registros del corpus, que son las de `derive_edit_events` frente a la altura
+que suena, no frente al MEI tal cual como en `exp_06`; los pliegues y la curva usan la semilla
+del experimento (`--seed`), y los umbrales, la de la configuración. El artefacto entrenado se
+guarda en la salida (`suggestion_layer_artifact.json`) y no se registra ni se promueve. Salen
+también `suggestion_layer_incipits.csv` (una fila por incipit de prueba) y
+`exp_14_run_info.json` (commit, semilla, sha256 del corpus, de la partición y del artefacto,
+versión de rasgos y configuración). `--no-omr-ned` omite el OMR-NED (solo para depurar).
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
