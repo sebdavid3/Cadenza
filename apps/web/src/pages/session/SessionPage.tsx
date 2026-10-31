@@ -25,6 +25,8 @@ import {
 import { FindingsPanel } from "./FindingsPanel";
 import { historyKey, isTextField } from "./history";
 import { HistoryPanel } from "./HistoryPanel";
+import { useLifecycle } from "./lifecycle";
+import { LifecyclePanel } from "./LifecyclePanel";
 import { buildPlayback, measureSlots } from "./playback";
 import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
@@ -94,8 +96,12 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const ownerId = detail.data?.owner_id ?? null;
   const foreign = isResearcher && ownerId !== null && ownerId !== user.id;
   const finalized = detail.data?.status === "finalized";
-  // Solo edita quien la transcribió; a un investigador, una sesión ajena le responde 403 (ADR-0012).
-  const editable = user !== null && ownerId === user.id && !finalized;
+  // Solo edita, finaliza y reabre quien la transcribió; a un investigador, una sesión ajena le
+  // responde 403 (ADR-0012).
+  const owned = user !== null && ownerId === user.id;
+  const editable = owned && !finalized;
+  // En una sesión no asistida no se habla del validador (ADR-0040 §13).
+  const assisted = detail.data?.condition !== "unassisted";
   const users = useQuery({
     queryKey: ["users"],
     queryFn: ({ signal }) => listUsers(api, signal),
@@ -170,8 +176,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
     labelOf: (finding) => findingLabel(score, finding, multiStaff),
     reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
   });
-  // Mientras se revalida, las correcciones esperan: cambiarían el estado validado (ADR-0035).
-  const editor = useEditor(api, sessionId, detail.data, findingActions.revalidating);
+  const lifecycle = useLifecycle(api, sessionId, {
+    seq,
+    assisted,
+    reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
+  });
+  // Mientras se revalida o se finaliza, las correcciones esperan: cambiarían el estado validado
+  // (ADR-0035, ADR-0043).
+  const editor = useEditor(
+    api,
+    sessionId,
+    detail.data,
+    findingActions.revalidating || lifecycle.finalizing,
+  );
   const editKeysId = useId();
   // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y
   // rehacer (con la partitura dibujada o sin poder dibujarse, no mientras carga), salvo en un
@@ -258,10 +275,28 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 foreign
                   ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
                   : finalized
-                    ? "Sesión finalizada: solo lectura."
+                    ? owned
+                      ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
+                      : "Sesión finalizada: solo lectura."
                     : "Solo lectura."
               } Compara la imagen original con la transcripción de HOMR; los compases tramados en violeta son posibles errores que conviene revisar.`}
         </p>
+        {owned && detail.data && (
+          <LifecyclePanel
+            finalized={finalized}
+            assisted={assisted}
+            busy={lifecycle.busy}
+            waiting={
+              editor.status.kind === "saving" ||
+              editor.status.kind === "reloading" ||
+              editor.queued ||
+              findingActions.busy
+            }
+            message={lifecycle.message}
+            onFinalize={lifecycle.finalize}
+            onReopen={lifecycle.reopen}
+          />
+        )}
       </header>
 
       <div className="session__body">
@@ -392,7 +427,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
             actions={
               editable
                 ? {
-                    busy: findingActions.busy,
+                    busy: findingActions.busy || lifecycle.busy,
                     editorBusy:
                       editor.status.kind === "saving" ||
                       editor.status.kind === "reloading" ||

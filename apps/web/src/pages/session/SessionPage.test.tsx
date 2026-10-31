@@ -5362,4 +5362,407 @@ describe("corregir la nota elegida", () => {
       expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
     });
   });
+
+  describe("finalizar y reabrir la sesión (#187)", () => {
+    type LifecycleRoute = () => Response | Promise<Response>;
+    const findingsPanel = () => screen.getByRole("region", { name: "Posibles errores" });
+    const lifecycleStatus = () => document.querySelector(".lifecycle__status");
+    const finalizeButton = () => screen.getByRole("button", { name: "Finalizar la corrección" });
+    const confirmButton = () => screen.getByRole("button", { name: "Sí, finalizar" });
+    const confirmation = () => screen.queryByRole("group", { name: "Confirmar la finalización" });
+    const reopenButton = () => screen.getByRole("button", { name: "Reabrir la sesión" });
+    const meta = () => document.querySelector(".session__meta");
+    const dismissedFinding = (id: number, measureNumber: number) =>
+      finding(id, measureNumber, {
+        status: "dismissed",
+        dismissed_at: "2026-10-24T11:00:00",
+        dismissed_by: "ana",
+        dismissal_reason: null,
+      });
+
+    /**
+     * La API editable con finalizar y reabrir como el servidor: finalizar valida el estado actual
+     * conservando los descartes (D65) y responde solo los activos, o 409 si ya está finalizada.
+     */
+    function lifecycleApi(
+      start: SessionDetailRead = detail(),
+      options: { findings?: FindingRead[] } = {},
+    ) {
+      const server = editableApi(start, { findings: options.findings });
+      const inner = server.fetchMock.getMockImplementation();
+      if (!inner) throw new Error("falta la API");
+      const lifecycleCalls: string[] = [];
+      const finalizeQueue: LifecycleRoute[] = [];
+      const acceptFinalize = () => {
+        const current = server.current();
+        if (current.status === "finalized") {
+          return jsonResponse({ detail: "La sesión está finalizada" }, 409);
+        }
+        const seq = current.current_seq ?? 0;
+        const final = (options.findings ?? []).map((candidate) => ({ ...candidate, at_seq: seq }));
+        server.setFindings(final);
+        server.replace({ ...current, status: "finalized" });
+        return jsonResponse({
+          session_id: ID,
+          status: "finalized",
+          final_seq: seq,
+          findings: final.filter((candidate) => candidate.status === "active"),
+        });
+      };
+      const acceptReopen = () => {
+        const current = server.current();
+        const status = current.edits.length > 0 ? "correcting" : "transcribed";
+        server.replace({ ...current, status });
+        return jsonResponse({ session_id: ID, status, current_seq: current.current_seq ?? 0 });
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const href =
+            input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+          const path = new URL(href, "http://localhost").pathname.replace(/^\/api/, "");
+          if (init?.method === "POST" && path === `/sessions/${ID}/finalize`) {
+            lifecycleCalls.push("finalize");
+            return Promise.resolve((finalizeQueue.shift() ?? acceptFinalize)());
+          }
+          if (init?.method === "POST" && path === `/sessions/${ID}/reopen`) {
+            lifecycleCalls.push("reopen");
+            return Promise.resolve(acceptReopen());
+          }
+          return inner(input, init);
+        }),
+      );
+      return {
+        ...server,
+        lifecycleCalls,
+        acceptFinalize,
+        respondFinalize(route: LifecycleRoute) {
+          finalizeQueue.push(route);
+        },
+      };
+    }
+
+    async function finalize() {
+      await userEvent.click(await screen.findByRole("button", { name: "Finalizar la corrección" }));
+      await userEvent.click(confirmButton());
+    }
+
+    it("finaliza tras confirmarlo, con la validación final a la vista y en solo lectura", async () => {
+      const server = lifecycleApi(detail(), {
+        findings: [finding(1, 1), dismissedFinding(2, 3)],
+      });
+      renderPage();
+      await chooseMeasure(2);
+      expect(button("Subir un paso")).toBeVisible();
+
+      // Nada sale sin confirmarlo, y la confirmación se puede cancelar con Esc.
+      await userEvent.click(finalizeButton());
+      expect(finalizeButton()).toHaveAttribute("aria-expanded", "true");
+      expect(confirmButton()).toHaveFocus();
+      expect(confirmation()).toHaveTextContent(
+        "Se validará la partitura tal como está y la sesión quedará en solo lectura",
+      );
+      expect(confirmation()).toHaveTextContent("Si se te pasó algo, podrás reabrirla.");
+      await userEvent.keyboard("{Escape}");
+      expect(confirmation()).toBeNull();
+      expect(finalizeButton()).toHaveFocus();
+      expect(server.lifecycleCalls).toEqual([]);
+
+      await userEvent.click(finalizeButton());
+      const pending = deferred<Response>();
+      server.respondFinalize(() => pending.promise);
+      await userEvent.click(confirmButton());
+
+      // Sin la respuesta no se da por finalizada; mientras tanto, nada más sale.
+      expect(lifecycleStatus()).toHaveTextContent("Finalizando…");
+      expect(meta()).toHaveTextContent("Transcrita");
+      expect(confirmButton()).toHaveAttribute("aria-disabled", "true");
+      expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+      expect(
+        within(findingsPanel()).getByRole("button", {
+          name: "Descartar como falso positivo · Duración del compás, compás 1",
+        }),
+      ).toHaveAttribute("aria-disabled", "true");
+      fireEvent.click(button("Subir un paso"));
+
+      pending.resolve(server.acceptFinalize());
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "Sesión finalizada. Validación final: 1 posible error. 1 sigue descartado como falso positivo porque su nota no cambió. Si se te pasó algo, puedes reabrirla.",
+        );
+      });
+      expect(meta()).toHaveTextContent("Finalizada");
+      expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeVisible();
+      expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+      expect(within(findingsPanel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
+      expect(
+        within(findingsPanel()).getByText(/descartados como falso positivo · 1/i),
+      ).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Finalizar la corrección" })).toBeNull();
+      expect(reopenButton()).toHaveFocus();
+      // Una sola finalización y ninguna corrección; no se recarga la sesión, solo su lista.
+      expect(server.lifecycleCalls).toEqual(["finalize"]);
+      expect(server.bodies).toHaveLength(0);
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+      expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
+    });
+
+    it("tras finalizar, la barra deja de hablar de la última corrección; reabrir la vuelve editable", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await chooseMeasure(2);
+      fireEvent.click(button("Subir un paso"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(meta()).toHaveTextContent("Finalizada");
+      });
+      expect(lifecycleStatus()).toHaveTextContent(
+        "Sesión finalizada. Validación final: el validador no señala ningún compás. Que no señale ninguno no garantiza que la transcripción esté bien.",
+      );
+      expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+      expect(screen.queryByText(/Guardado/)).toBeNull();
+      // Sin posibles errores, la lista es la de la partitura actual (ADR-0035 §7).
+      expect(
+        within(findingsPanel()).getByText(
+          "El validador no señala ningún compás en la partitura actual.",
+        ),
+      ).toBeVisible();
+
+      await userEvent.click(reopenButton());
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent("Sesión reabierta: puedes seguir corrigiendo.");
+      });
+      expect(meta()).toHaveTextContent("En corrección");
+      expect(finalizeButton()).toHaveFocus();
+      expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
+      expect(server.lifecycleCalls).toEqual(["finalize", "reopen"]);
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+    });
+
+    it("tras un 409 de una corrección en una sesión finalizada, reabrir quita el aviso", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() => {
+        server.replace({ ...server.current(), status: "finalized" });
+        return jsonResponse({ detail: "La sesión está cerrada" }, 409);
+      });
+      fireEvent.click(button("Subir un paso"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "La sesión está finalizada y ya no admite correcciones.",
+        );
+      });
+
+      await userEvent.click(reopenButton());
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent("Sesión reabierta: puedes seguir corrigiendo.");
+      });
+      expect(screen.queryByText(/ya no admite correcciones/)).toBeNull();
+      expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
+    });
+
+    it("si ya estaba finalizada en otra pestaña, lo dice con su mensaje y la deja en solo lectura", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      server.respondFinalize(() => {
+        server.replace({ ...server.current(), status: "finalized" });
+        return jsonResponse(
+          { detail: "La sesión está finalizada y no admite más ediciones." },
+          409,
+        );
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo. Ya ves su estado.",
+        );
+      });
+      expect(meta()).toHaveTextContent("Finalizada");
+      expect(screen.queryByText(/no admite más ediciones/)).toBeNull();
+      expect(reopenButton()).toHaveFocus();
+      expect(server.lifecycleCalls).toEqual(["finalize"]);
+    });
+
+    it("si el servidor iba por un estado posterior, finaliza ese estado y lo carga", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await screen.findByRole("button", { name: "Finalizar la corrección" });
+      server.respondFinalize(() => {
+        // Otra pestaña editó: el servidor finaliza su estado, no el que se ve.
+        server.replace(
+          apply(server.current(), {
+            base_seq: 0,
+            op: "SetPitch",
+            anchor: anchorOf(1),
+            before: null,
+            after: { pitch: "D4" },
+          }).next,
+        );
+        return server.acceptFinalize();
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "La sesión iba por un estado posterior al que se veía (tras 1 edición): se finalizó ese estado, que ya ves. Validación final: el validador no señala ningún compás.",
+        );
+      });
+      expect(meta()).toHaveTextContent("Finalizada");
+      expect(meta()).toHaveTextContent(/Ediciones\s*1/);
+      expect(reopenButton()).toHaveFocus();
+    });
+
+    it("sin respuesta dice que no se sabe si se finalizó y deja volver a intentarlo", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      server.respondFinalize(() => Promise.reject(new TypeError("Failed to fetch")));
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "No llegó la confirmación: no se sabe si se finalizó.",
+        );
+      });
+      expect(lifecycleStatus()).toHaveTextContent("Puedes volver a intentarlo.");
+      // Se vuelve a pedir el detalle por si se finalizó: no, y sigue abierta.
+      await waitFor(() => {
+        expect(server.count(`GET /sessions/${ID}`)).toBe(2);
+      });
+      expect(meta()).toHaveTextContent("Transcrita");
+      expect(finalizeButton()).toHaveFocus();
+      expect(confirmation()).toBeNull();
+    });
+
+    it("tras el 409, la lista que se ve es la de la finalización que ya había, no la vieja", async () => {
+      const server = lifecycleApi(detail(), { findings: [finding(1, 1)] });
+      renderPage();
+      await screen.findByRole("button", { name: /^compás 1/i });
+      server.respondFinalize(() => {
+        // Otra pestaña descartó el posible error y finalizó: su lista final tiene otro id.
+        server.setFindings([dismissedFinding(7, 1)]);
+        server.replace({ ...server.current(), status: "finalized" });
+        return jsonResponse({ detail: "La sesión está finalizada" }, 409);
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent("Ya ves su estado.");
+      });
+      expect(within(findingsPanel()).queryByRole("button", { name: /^compás 1/i })).toBeNull();
+      expect(
+        within(findingsPanel()).getByText(/descartados como falso positivo · 1/i),
+      ).toBeVisible();
+    });
+
+    it("sin respuesta, si la sesión sí quedó finalizada, lo dice y muestra su lista final", async () => {
+      const server = lifecycleApi(detail(), { findings: [finding(1, 1)] });
+      renderPage();
+      await screen.findByRole("button", { name: /^compás 1/i });
+      server.respondFinalize(() => {
+        server.setFindings([dismissedFinding(7, 1)]);
+        server.replace({ ...server.current(), status: "finalized" });
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "No llegó la confirmación, pero la sesión está finalizada: ya ves su estado y la lista de su validación final.",
+        );
+      });
+      expect(meta()).toHaveTextContent("Finalizada");
+      expect(within(findingsPanel()).queryByRole("button", { name: /^compás 1/i })).toBeNull();
+      expect(reopenButton()).toHaveFocus();
+    });
+
+    it("tras un 409 de otra pestaña, finalizar quita «Volver a aplicar»", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond((body) => {
+        server.replace(
+          apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+        );
+        return jsonResponse({ detail: "conflicto" }, 409);
+      });
+      fireEvent.click(button("Subir un paso"));
+      await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(meta()).toHaveTextContent("Finalizada");
+      });
+      expect(screen.queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+    });
+
+    it("mientras se guarda una corrección, finalizar espera", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await chooseMeasure(2);
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+      fireEvent.click(button("Subir un paso"));
+      await userEvent.click(finalizeButton());
+
+      expect(confirmButton()).toHaveAttribute("aria-disabled", "true");
+      expect(confirmation()).toHaveTextContent("Espera a que termine lo que está en curso.");
+      await userEvent.click(confirmButton());
+      expect(server.lifecycleCalls).toEqual([]);
+
+      const [sent] = server.bodies;
+      if (!sent) throw new Error("no salió la corrección");
+      pending.resolve(server.accept(sent));
+      await waitFor(() => {
+        expect(confirmButton()).not.toHaveAttribute("aria-disabled");
+      });
+      await userEvent.click(confirmButton());
+      await waitFor(() => {
+        expect(meta()).toHaveTextContent("Finalizada");
+      });
+      expect(server.lifecycleCalls).toEqual(["finalize"]);
+    });
+
+    it("en una sesión no asistida no habla del validador (ADR-0040 §13)", async () => {
+      const server = lifecycleApi(detail({ condition: "unassisted" }));
+      renderPage();
+      await userEvent.click(await screen.findByRole("button", { name: "Finalizar la corrección" }));
+      expect(confirmation()).toHaveTextContent(
+        "¿Das por terminada la corrección? La sesión quedará en solo lectura. Si se te pasó algo, podrás reabrirla.",
+      );
+
+      await userEvent.click(confirmButton());
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          /^Sesión finalizada\. Si se te pasó algo, puedes reabrirla\.\s?$/,
+        );
+      });
+      expect(server.lifecycleCalls).toEqual(["finalize"]);
+    });
+
+    it("solo la persona que la transcribió puede finalizarla o reabrirla", async () => {
+      lifecycleApi(detail({ status: "finalized" }));
+      renderPage(INVESTIGADORA);
+      await screen.findByText(/sesión de otra persona/i);
+      expect(screen.queryByRole("button", { name: "Reabrir la sesión" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Finalizar la corrección" })).toBeNull();
+    });
+  });
 });

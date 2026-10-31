@@ -73,7 +73,7 @@ const plural = (count: number, one: string, many: string) =>
  * Qué dejó la revalidación, sin prometer más de lo que sabe el validador (ADR-0021 §4): que no
  * señale nada no garantiza que la transcripción esté bien.
  */
-function summary(findings: readonly FindingRead[]): string {
+export function summary(findings: readonly FindingRead[]): string {
   const dismissed = findings.filter((finding) => finding.status === "dismissed").length;
   const active = findings.length - dismissed;
   const kept =

@@ -40,7 +40,7 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md) | Semántica de las anclas ante ediciones estructurales | Aceptado | Dominio, M2, M3, M4 |
 | [ADR-0012](ADR-0012-autenticacion-e-identidad.md) | Autenticación e identidad de usuario | Aceptado | Transversal |
 | [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md) | Revalidación bajo demanda y versionado de hallazgos | Aceptado | M2, M3, M4 |
-| [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) | Aceptado | M2, M3, M4 |
+| [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md) | Ciclo de vida de la sesión (estados, finalización y reapertura) | Aceptado, enmendado por ADR-0043 | M2, M3, M4 |
 | [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md) | Operación y despliegue del backend | Aceptado | API, Infra |
 | [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md) | Transcripción síncrona de página única frente a colas asíncronas | Aceptado | API, Plano Online |
 | [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md) | Validación del contenido de las ediciones y estado previo fijado por el servidor | Aceptado | Dominio, API, M3, M4 |
@@ -68,5 +68,6 @@ El documento maestro que integra y da coherencia a todas estas decisiones es
 | [ADR-0039](ADR-0039-anadir-y-quitar-marcas-de-notacion.md) | Añadir y quitar marcas de notación: cuatro operaciones de tipo «fijar» (`SetNoteMarks`, `SetDynamic`, `SetSlur`, `SetWedge`), ligaduras y reguladores con sus dos extremos en una edición, y la política de `EditOp` para el dataset y las métricas (`CONTENT_EDIT_OPS` y `MARK_EDIT_OPS`) | Aceptado | Dominio, Aprendizaje, API, Web |
 | [ADR-0040](ADR-0040-catalogo-de-reglas-y-mensajes-en-lenguaje-musical.md) | Catálogo de reglas del validador y mensajes en lenguaje musical: figuras, tiempos y nombres de notas sin fracciones, «Qué revisar» en la vista, `time.signature`, `tuplet.incomplete` y `accidental.repeated` nuevas, `key.consistency` reducida a las armaduras de un piano, anacrusa, último compás, silencio de compás y notas de adorno sin falsos positivos, y la condición no asistida sin nada del validador | Aceptado | Validación, Web, Aplicación |
 | [ADR-0042](ADR-0042-login-con-el-mismo-trabajo-de-hash.md) | El inicio de sesión hace el mismo trabajo de hash en los tres casos del 401: una verificación siempre, contra el hash de la cuenta o el de relleno que `PasswordHasher.dummy_hash()` calcula con los parámetros reales | Aceptado | Aplicación, API |
+| [ADR-0043](ADR-0043-finalizar-y-reabrir-desde-la-vista.md) | Finalizar y reabrir una sesión desde la vista: finalizar valida como una revalidación (conserva los descartes de la validación vigente, D65; nada en `unassisted`), devuelve los activos y da 409 si ya está finalizada; confirmación, resultado de la validación final, solo lectura y «Reabrir» en la web | Aceptado | Aplicación, API, Web |
 
 

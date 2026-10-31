@@ -1538,7 +1538,11 @@ def create_app(
         summary="Finalizar sesión y cerrar corrección",
         description=(
             "Ejecuta revalidación final y cierra la sesión "
-            "contra nuevas ediciones humanas (ADR-0014, #34)."
+            "contra nuevas ediciones humanas (ADR-0014, #34). Valida como POST /validate: "
+            "conserva los descartes de la validación vigente si su evento no cambió y "
+            "devuelve solo los hallazgos activos; en una sesión no asistida no ejecuta las "
+            "reglas y guarda los hallazgos vacíos. 409 si la sesión ya está finalizada "
+            "(#187, ADR-0043)."
         ),
         responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
     )

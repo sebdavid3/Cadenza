@@ -252,3 +252,75 @@ def test_session_lifecycle_authorization(tmp_path: Path) -> None:
     # Sesión inexistente -> 404
     assert client.post("/sessions/nonexistent/finalize", headers=owner_headers).status_code == 404
     assert client.post("/sessions/nonexistent/reopen", headers=owner_headers).status_code == 404
+
+
+def test_finalize_keeps_dismissals_and_returns_active_findings(tmp_path: Path) -> None:
+    """D65: finalizar conserva el descarte de la validación vigente, como una revalidación."""
+    client, tokens = _setup_api(tmp_path)
+    owner_headers = {"Authorization": f"Bearer {tokens['owner']}"}
+    files = {"file": ("test.png", PNG_BYTES, "image/png")}
+    session_id = client.post("/transcribe", files=files, headers=owner_headers).json()["session_id"]
+    [finding] = client.get(f"/sessions/{session_id}/findings", headers=owner_headers).json()
+    res_dismiss = client.post(
+        f"/sessions/{session_id}/findings/{finding['id']}/dismiss",
+        headers=owner_headers,
+        json={"reason": "Anacrusa"},
+    )
+    assert res_dismiss.status_code == 200
+
+    res_finalize = client.post(f"/sessions/{session_id}/finalize", headers=owner_headers)
+
+    assert res_finalize.status_code == 200, res_finalize.text
+    assert res_finalize.json()["findings"] == []
+    stored = client.get(
+        f"/sessions/{session_id}/findings",
+        headers=owner_headers,
+        params={"latest_only": True, "include_dismissed": True},
+    ).json()
+    assert [(f["rule_id"], f["status"], f["dismissal_reason"]) for f in stored] == [
+        ("measure.balance", "dismissed", "Anacrusa")
+    ]
+    [summary] = client.get("/sessions", headers=owner_headers).json()
+    assert summary["status"] == "finalized"
+    assert summary["findings_count"] == 0
+
+
+def test_finalize_a_finalized_session_returns_409(tmp_path: Path) -> None:
+    client, tokens = _setup_api(tmp_path)
+    owner_headers = {"Authorization": f"Bearer {tokens['owner']}"}
+    files = {"file": ("test.png", PNG_BYTES, "image/png")}
+    session_id = client.post("/transcribe", files=files, headers=owner_headers).json()["session_id"]
+    assert client.post(f"/sessions/{session_id}/finalize", headers=owner_headers).status_code == 200
+    before = client.get(f"/sessions/{session_id}/findings", headers=owner_headers).json()
+
+    res_again = client.post(f"/sessions/{session_id}/finalize", headers=owner_headers)
+
+    assert res_again.status_code == 409
+    assert "finalizada" in res_again.json()["detail"].lower()
+    # La validación final no se rehízo: los mismos hallazgos, con los mismos id.
+    assert client.get(f"/sessions/{session_id}/findings", headers=owner_headers).json() == before
+    # Reabierta, se vuelve a poder finalizar.
+    assert client.post(f"/sessions/{session_id}/reopen", headers=owner_headers).status_code == 200
+    assert client.post(f"/sessions/{session_id}/finalize", headers=owner_headers).status_code == 200
+
+
+def test_finalize_an_unassisted_session_stores_no_findings(tmp_path: Path) -> None:
+    """ADR-0040 §13: en una sesión no asistida, finalizar no ejecuta las reglas."""
+    client, tokens = _setup_api(tmp_path)
+    owner_headers = {"Authorization": f"Bearer {tokens['owner']}"}
+    files = {"file": ("test.png", PNG_BYTES, "image/png")}
+    res_tx = client.post("/transcribe?condition=unassisted", files=files, headers=owner_headers)
+    assert res_tx.status_code == 201, res_tx.text
+    session_id = res_tx.json()["session_id"]
+
+    res_finalize = client.post(f"/sessions/{session_id}/finalize", headers=owner_headers)
+
+    assert res_finalize.status_code == 200, res_finalize.text
+    assert res_finalize.json()["status"] == "finalized"
+    assert res_finalize.json()["findings"] == []
+    stored = client.get(
+        f"/sessions/{session_id}/findings",
+        headers=owner_headers,
+        params={"latest_only": False, "include_dismissed": True},
+    ).json()
+    assert stored == []
