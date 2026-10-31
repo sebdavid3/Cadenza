@@ -55,6 +55,22 @@ def split_pitch(pitch: str | None) -> tuple[str, str, str]:
     return (letter, acc, octave)
 
 
+def classify_pitch_change(before: str | None, after: str | None) -> EditOp | None:
+    """Operación que corrige `before` para que suene `after`, o None si no cambia.
+
+    Con la misma letra y la misma octava es una corrección de alteración
+    (`SetAccidental`); si no, un cambio de altura (`SetPitch`). La derivación y el corpus
+    de correcciones (#255) clasifican con esta misma función.
+    """
+    if before == after:
+        return None
+    b_let, _, b_oct = split_pitch(before)
+    a_let, _, a_oct = split_pitch(after)
+    if b_let and a_let and b_let == a_let and b_oct == a_oct:
+        return EditOp.SET_ACCIDENTAL
+    return EditOp.SET_PITCH
+
+
 @dataclass(frozen=True, slots=True)
 class EditDistribution:
     """Distribución de eventos de edición clasificados por tipo de operación."""
@@ -237,10 +253,11 @@ def _derive_voice_edits(
             current_target = current_events[curr_idx]
 
             # 1. Pitch / Accidental
-            if current_target.pitch != g.pitch:
+            pitch_op = classify_pitch_change(current_target.pitch, g.pitch)
+            if pitch_op is not None:
                 p_let, p_acc, p_oct = split_pitch(current_target.pitch)
-                g_let, g_acc, g_oct = split_pitch(g.pitch)
-                if p_let and g_let and p_let == g_let and p_oct == g_oct:
+                _, g_acc, _ = split_pitch(g.pitch)
+                if pitch_op is EditOp.SET_ACCIDENTAL:
                     # Misma letra y octava: corrección de alteración puntual
                     edits.append(
                         _make_edit(
