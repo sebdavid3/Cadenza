@@ -196,20 +196,21 @@ El primer acceso público, mientras Funnel obtenía el certificado, cortó el ha
 
 Durante el estudio ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) el registro está cerrado: solo entran las cuentas que crea un investigador (D59 en su mínimo; los límites completos del registro abierto quedan para [#194](https://github.com/sebdavid3/Cadenza/issues/194)). Se cierra antes del congelado ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y se reabre, si se quiere, al acabar el estudio.
 
-Una sola línea del `.env` del servidor, `CADENZA_REGISTRATION_ENABLED`, gobierna las dos mitades. La API la lee al arrancar: cerrado, `POST /auth/register` responde 404 sea cual sea el cuerpo. La web la recibe como argumento del build (`VITE_REGISTRATION_ENABLED`): cerrado, ni la landing ni `/entrar` enlazan al registro, `/registro` dice «Registro cerrado» y lleva a entrar, sin formulario, y `/cuentas` lo indica. El contrato de la API no cambia. Como la web la fija al construirse, **cambiarla exige reconstruir `web`**: un `up -d` sin `build` deja la interfaz anterior, que enlazaría un registro que la API ya rechaza (la vista lo traduce por «El registro de cuentas no está abierto en este servidor»). Solo admite `true` o `false`, como se explica arriba.
+Una sola línea del `.env` del servidor, `CADENZA_REGISTRATION_ENABLED`, gobierna las dos mitades. La API la lee al arrancar: cerrado, `POST /auth/register` responde 404 sea cual sea el cuerpo. La web la recibe como argumento del build (`VITE_REGISTRATION_ENABLED`): cerrado, ni la landing ni `/entrar` enlazan al registro, `/registro` dice «Registro cerrado» y lleva a entrar, sin formulario, y `/cuentas` lo indica. El contrato de la API no cambia. Como la web la fija al construirse, **cambiarla exige reconstruir `web`**: un `up -d` sin `build` deja la interfaz anterior, que enlazaría un registro que la API ya rechaza (la vista lo traduce por «El registro de cuentas no está abierto en este servidor»). Solo admite `true` o `false`, como se explica arriba. Si el `.env` no tiene la línea, el `sed` no hace nada: al cerrar da igual, porque el compose toma `false` por defecto, pero al reabrir hay que añadirla. `up -d api web` reinicia la API: corta las transcripciones en curso y `/api` responde 502 hasta que carga HOMR (hasta 2 minutos), así que se hace sin nadie trabajando, antes del piloto ([#251](https://github.com/sebdavid3/Cadenza/issues/251)) o del congelado.
 
 ```bash
 DC="docker compose -f docker-compose.prod.yml --env-file .env"
 
 # Cerrar: la variable a false, la imagen de la web reconstruida y las dos recreadas
 sed -i 's/^CADENZA_REGISTRATION_ENABLED=.*/CADENZA_REGISTRATION_ENABLED=false/' .env
-grep '^CADENZA_REGISTRATION_ENABLED=' .env    # una sola línea, con false
+grep '^CADENZA_REGISTRATION_ENABLED=' .env    # una sola línea, con false; si no sale nada, añadirla
 $DC build web
 $DC up -d api web                             # recrea la API (cambió su entorno) y la web (su imagen)
 
-# Comprobar: cerrado da 404; abierto, 422 (un cuerpo vacío no crea nada ni cuenta en el límite)
-curl -s -o /dev/null -w '%{http_code}
-' -X POST http://127.0.0.1:8380/api/auth/register   -H 'Content-Type: application/json' -d '{}'
+# Comprobar, en el puerto de CADENZA_WEB_PORT (8380 por defecto): cerrado da 404; abierto, 422
+# (un cuerpo vacío no crea nada ni cuenta en el límite de la API)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/auth/register \
+  -H 'Content-Type: application/json' -d '{}'
 
 # Reabrir: lo mismo con true
 sed -i 's/^CADENZA_REGISTRATION_ENABLED=.*/CADENZA_REGISTRATION_ENABLED=true/' .env
