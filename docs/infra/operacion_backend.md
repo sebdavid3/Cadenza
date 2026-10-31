@@ -88,7 +88,7 @@ sudo tailscale funnel --bg 8380
 - **Cabeceras**: política de seguridad de contenido (`script-src 'self'`; `style-src` con `'unsafe-inline'` porque OSMD dibuja con atributos `style`), `nosniff`, `X-Frame-Options: DENY` y `Referrer-Policy: same-origin`; gzip para JavaScript, CSS, JSON y SVG. `/api/docs`, `/api/redoc` y `/api/openapi.json` responden 404: el contrato está en el repositorio.
 - **Contenedores**: registros con rotación (5 archivos de 10 MB), `no-new-privileges` en los tres y, en `api` y `web`, sin capacidades de Linux. Ni la API ni Nginx corren como root; la API, con el usuario `cadenza` ([ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)). La interfaz no espera a que la API esté sana: con la API caída, `/` sigue respondiendo y `/api/*` da 502.
 - **CORS** limitado a `CADENZA_PUBLIC_ORIGIN`; el navegador llama a la API en el mismo origen, bajo `/api`.
-- **Registro** abierto, sin aprobación (ADR-0025): `CADENZA_REGISTRATION_ENABLED` enciende la ruta de la API y, como argumento del build de `web`, los enlaces de la interfaz. Solo admite `true` o `false`: la API aceptaría también `1`, `yes` u `on`, pero el build compara con `true` y dejaría ocultos los enlaces.
+- **Registro** abierto, sin aprobación (ADR-0025): `CADENZA_REGISTRATION_ENABLED` enciende la ruta de la API y, como argumento del build de `web`, los enlaces de la interfaz; cerrarlo y reabrirlo, en «Cerrar y reabrir el registro», más abajo. Solo admite `true` o `false`: la API aceptaría también `1`, `yes` u `on`, pero el build compara con `true` y dejaría ocultos los enlaces.
 - **Secretos** solo en el `.env` del servidor (`chmod 600`), a partir de `deploy/.env.example`; nunca salen del servidor. `docker compose config` imprime el compose con los secretos ya sustituidos: no se pega su salida en ningún sitio.
 
 Comprobado el 2026-10-23 en el servidor del despliegue (i5-10300H, 7,1 GiB de RAM), con proyectos desechables en `127.0.0.1:18380` que se retiraron después; las cifras son de la última prueba, con esta configuración:
@@ -191,6 +191,38 @@ Comprobado al publicar, desde fuera del tailnet. Se usó otra IP pública, conec
 | Copias | la primera copia (1 s, `verify` válida) se restauró en una base aparte con los mismos recuentos que producción; la base de prueba se borró después |
 
 El primer acceso público, mientras Funnel obtenía el certificado, cortó el handshake TLS. Unos minutos después ya respondía.
+
+#### Cerrar y reabrir el registro ([#248](https://github.com/sebdavid3/Cadenza/issues/248))
+
+Durante el estudio ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) el registro está cerrado: solo entran las cuentas que crea un investigador (D59 en su mínimo; los límites completos del registro abierto quedan para [#194](https://github.com/sebdavid3/Cadenza/issues/194)). Se cierra antes del congelado ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y se reabre, si se quiere, al acabar el estudio.
+
+Una sola línea del `.env` del servidor, `CADENZA_REGISTRATION_ENABLED`, gobierna las dos mitades. La API la lee al arrancar: cerrado, `POST /auth/register` responde 404 sea cual sea el cuerpo. La web la recibe como argumento del build (`VITE_REGISTRATION_ENABLED`): cerrado, ni la landing ni `/entrar` enlazan al registro, `/registro` dice «Registro cerrado» y lleva a entrar, sin formulario, y `/cuentas` lo indica. El contrato de la API no cambia. Como la web la fija al construirse, **cambiarla exige reconstruir `web`**: un `up -d` sin `build` deja la interfaz anterior, que enlazaría un registro que la API ya rechaza (la vista lo traduce por «El registro de cuentas no está abierto en este servidor»). Solo admite `true` o `false`, como se explica arriba.
+
+```bash
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+
+# Cerrar: la variable a false, la imagen de la web reconstruida y las dos recreadas
+sed -i 's/^CADENZA_REGISTRATION_ENABLED=.*/CADENZA_REGISTRATION_ENABLED=false/' .env
+grep '^CADENZA_REGISTRATION_ENABLED=' .env    # una sola línea, con false
+$DC build web
+$DC up -d api web                             # recrea la API (cambió su entorno) y la web (su imagen)
+
+# Comprobar: cerrado da 404; abierto, 422 (un cuerpo vacío no crea nada ni cuenta en el límite)
+curl -s -o /dev/null -w '%{http_code}
+' -X POST http://127.0.0.1:8380/api/auth/register   -H 'Content-Type: application/json' -d '{}'
+
+# Reabrir: lo mismo con true
+sed -i 's/^CADENZA_REGISTRATION_ENABLED=.*/CADENZA_REGISTRATION_ENABLED=true/' .env
+$DC build web
+$DC up -d api web
+```
+
+Después de cerrarlo:
+- **En el navegador**, en escritorio y en móvil: la landing y `/entrar` sin «Créala» ni «Crear una cuenta», y `/registro` con «Registro cerrado». `index.html` no se guarda en caché, pero una pestaña que ya estaba abierta conserva la interfaz anterior hasta recargarla.
+- **Las cuentas que ya se crearon desde el registro siguen activas**: cerrar no las borra ni las desactiva, así que pueden entrar y ocupar los huecos de transcripción ([ADR-0024](../adr/ADR-0024-transcripciones-simultaneas.md)). Un investigador las revisa en `/cuentas` (origen «Registro») y desactiva las que no deban entrar durante el estudio. Desactivar es reversible y no borra sus sesiones; un token ya emitido deja de valer en la petición siguiente. Sus sesiones ya quedan fuera del dataset del plano offline (`build-dataset` excluye las cuentas autorregistradas). Las de los participantes las crea el investigador ([#249](https://github.com/sebdavid3/Cadenza/issues/249)).
+- **En el congelado** ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) se anota que `CADENZA_REGISTRATION_ENABLED=false`, el código del `curl` (404) y las cuentas del registro que se desactivaron. Al reabrirlo, se reactivan las que se quiera desde `/cuentas`.
+
+Comprobado en local el 2026-10-31 con la API en `127.0.0.1` y SQLite en disco, y la web de desarrollo de Vite con la variable del build a `true` y a `false` ([#248](https://github.com/sebdavid3/Cadenza/issues/248)): con los dos abiertos, la landing enlaza el registro y una cuenta se crea y entra; con la API cerrada y la web todavía abierta, `POST /auth/register` da 404 con cualquier cuerpo y el formulario dice «El registro de cuentas no está abierto en este servidor»; con los dos cerrados, ni la landing ni `/entrar` enlazan el registro y `/registro` dice «Registro cerrado», sin formulario, a 1440 y 390 px y sin desplazamiento horizontal. La cuenta creada desde el registro siguió entrando hasta que un investigador la desactivó en `/cuentas`; después, su acceso dio 401.
 
 #### Espacio en disco de Docker ([#205](https://github.com/sebdavid3/Cadenza/issues/205))
 
