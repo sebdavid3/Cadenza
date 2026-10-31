@@ -5646,6 +5646,72 @@ describe("corregir la nota elegida", () => {
       expect(confirmation()).toBeNull();
     });
 
+    it("tras el 409, la lista que se ve es la de la finalización que ya había, no la vieja", async () => {
+      const server = lifecycleApi(detail(), { findings: [finding(1, 1)] });
+      renderPage();
+      await screen.findByRole("button", { name: /^compás 1/i });
+      server.respondFinalize(() => {
+        // Otra pestaña descartó el posible error y finalizó: su lista final tiene otro id.
+        server.setFindings([dismissedFinding(7, 1)]);
+        server.replace({ ...server.current(), status: "finalized" });
+        return jsonResponse({ detail: "La sesión está finalizada" }, 409);
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent("Ya ves su estado.");
+      });
+      expect(within(findingsPanel()).queryByRole("button", { name: /^compás 1/i })).toBeNull();
+      expect(
+        within(findingsPanel()).getByText(/descartados como falso positivo · 1/i),
+      ).toBeVisible();
+    });
+
+    it("sin respuesta, si la sesión sí quedó finalizada, lo dice y muestra su lista final", async () => {
+      const server = lifecycleApi(detail(), { findings: [finding(1, 1)] });
+      renderPage();
+      await screen.findByRole("button", { name: /^compás 1/i });
+      server.respondFinalize(() => {
+        server.setFindings([dismissedFinding(7, 1)]);
+        server.replace({ ...server.current(), status: "finalized" });
+        return Promise.reject(new TypeError("Failed to fetch"));
+      });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(
+          "No llegó la confirmación, pero la sesión está finalizada: ya ves su estado y la lista de su validación final.",
+        );
+      });
+      expect(meta()).toHaveTextContent("Finalizada");
+      expect(within(findingsPanel()).queryByRole("button", { name: /^compás 1/i })).toBeNull();
+      expect(reopenButton()).toHaveFocus();
+    });
+
+    it("tras un 409 de otra pestaña, finalizar quita «Volver a aplicar»", async () => {
+      const server = lifecycleApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond((body) => {
+        server.replace(
+          apply(server.current(), { ...body, anchor: anchorOf(1), after: { pitch: "E4" } }).next,
+        );
+        return jsonResponse({ detail: "conflicto" }, 409);
+      });
+      fireEvent.click(button("Subir un paso"));
+      await within(editor()).findByRole("button", { name: "Volver a aplicar" });
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(meta()).toHaveTextContent("Finalizada");
+      });
+      expect(screen.queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
+    });
+
     it("mientras se guarda una corrección, finalizar espera", async () => {
       const server = lifecycleApi();
       renderPage();

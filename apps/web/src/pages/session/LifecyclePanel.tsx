@@ -40,6 +40,7 @@ export function LifecyclePanel({
   const [confirming, setConfirming] = useState(false);
   const confirmId = useId();
   const noteId = useId();
+  const waitId = useId();
   const finalizeRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const reopenRef = useRef<HTMLButtonElement>(null);
@@ -140,6 +141,7 @@ export function LifecyclePanel({
               type="button"
               className="button button--compact button--primary"
               aria-disabled={blocked || undefined}
+              aria-describedby={waiting && !busy ? waitId : undefined}
               onClick={() => void finalize()}
             >
               Sí, finalizar
@@ -158,7 +160,9 @@ export function LifecyclePanel({
             </button>
           </div>
           {waiting && !busy && (
-            <p className="lifecycle__wait">Espera a que termine lo que está en curso.</p>
+            <p id={waitId} className="lifecycle__wait">
+              Espera a que termine lo que está en curso.
+            </p>
           )}
         </div>
       )}

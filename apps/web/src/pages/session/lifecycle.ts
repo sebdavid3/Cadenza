@@ -86,6 +86,9 @@ function failureText(action: LifecycleAction, error: unknown): string | null {
   }
 }
 
+/** Errores tras los que no se sabe si la orden se hizo. */
+const UNKNOWN = new Set(["network", "timeout", "server", "unexpected"]);
+
 const plural = (count: number, one: string, many: string) =>
   `${String(count)} ${count === 1 ? one : many}`;
 
@@ -169,7 +172,34 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
     );
   }
 
-  /** Lo que dejó la validación final, sin prometer más de lo que sabe el validador. */
+  /** Da por vieja la lista de todos los estados sin pedirla ahora (la pide quien la necesite). */
+  function forgetFindings() {
+    void queryClient.invalidateQueries({
+      queryKey: sessionFindingsKey(sessionId),
+      refetchType: "none",
+    });
+  }
+
+  /**
+   * Tras una orden sin respuesta, vuelve a pedir el detalle y dice si la sesión quedó como la
+   * orden la habría dejado (`finalized`): entonces se vuelve a pedir también la lista, que sería
+   * la de otra validación. No hace nada tras un 404 del detalle: la vista lo dice.
+   */
+  async function settledAs(finalized: boolean): Promise<boolean> {
+    await queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+    const fresh = queryClient.getQueryData<SessionViewRead>(detailKey);
+    if (!fresh || (fresh.status === "finalized") !== finalized) return false;
+    await queryClient.invalidateQueries({ queryKey: sessionFindingsKey(sessionId) });
+    const seq = fresh.current_seq ?? 0;
+    if (listed(seq)) remember(seq);
+    return true;
+  }
+
+  /**
+   * Lo que dejó la validación final, sin prometer más de lo que sabe el validador. Si la lista no
+   * se pudo volver a pedir, se resume la respuesta, que solo trae los activos: el resumen no dice
+   * entonces cuántos descartes se conservaron.
+   */
   function finalText(result: FinalizeResponse): string {
     if (!optionsRef.current.assisted) return "";
     const findings = listed(result.final_seq) ?? result.findings;
@@ -190,11 +220,17 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
         // El único 409 de esta ruta: ya estaba finalizada (en otra pestaña, o una petición
         // anterior sin respuesta). Se carga su estado, que es de solo lectura.
         if (kind === "conflict") {
+          // La lista que se ve puede ser de antes de esa finalización: se carga con el estado.
+          forgetFindings();
+          const loaded = await optionsRef.current.reload();
+          if (loaded !== null && listed(loaded)) remember(loaded);
+          if (cancelled()) return "ignored";
           say(
-            "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo. Ya ves su estado.",
+            loaded === null
+              ? "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo, pero no se pudo cargar su estado: recarga la página para verlo."
+              : "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo. Ya ves su estado.",
             null,
           );
-          await optionsRef.current.reload();
           return "closed";
         }
         if (kind === "not-found") {
@@ -203,13 +239,21 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
           return "failed";
         }
         const text = failureText("finalize", error);
-        if (text) say(text);
-        else setStatus({ kind: "idle" });
-        // Sin respuesta pudo finalizarse: el detalle se vuelve a pedir y, si lo está, la vista
-        // pasa a solo lectura sola.
-        if (kind !== "aborted" && kind !== "unauthorized") {
-          void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+        if (!text) {
+          setStatus({ kind: "idle" });
+          return "failed";
         }
+        // Sin respuesta pudo finalizarse: se vuelve a pedir el detalle y, si lo está, se dice y
+        // se pide la lista de la validación final.
+        if (UNKNOWN.has(kind) && (await settledAs(true))) {
+          say(
+            "No llegó la confirmación, pero la sesión está finalizada: ya ves su estado y la lista de su validación final.",
+            null,
+          );
+          return "closed";
+        }
+        if (cancelled()) return "ignored";
+        say(text);
         return "failed";
       }
       refreshSessions(queryClient);
@@ -219,10 +263,7 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
       const edits = plural(result.final_seq, "edición", "ediciones");
       if (result.final_seq !== shown) {
         // El servidor iba por otro estado (se editó en otra pestaña): se finalizó ese, y se carga.
-        void queryClient.invalidateQueries({
-          queryKey: sessionFindingsKey(sessionId),
-          refetchType: "none",
-        });
+        forgetFindings();
         const loaded = await optionsRef.current.reload();
         if (loaded !== null && listed(result.final_seq)) remember(result.final_seq);
         if (cancelled()) return "ignored";
@@ -268,11 +309,16 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
           return "failed";
         }
         const text = failureText("reopen", error);
-        if (text) say(text);
-        else setStatus({ kind: "idle" });
-        if (kind !== "aborted" && kind !== "unauthorized") {
-          void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+        if (!text) {
+          setStatus({ kind: "idle" });
+          return "failed";
         }
+        if (UNKNOWN.has(kind) && (await settledAs(false))) {
+          say("No llegó la confirmación, pero la sesión está abierta: puedes seguir corrigiendo.");
+          return "done";
+        }
+        if (cancelled()) return "ignored";
+        say(text);
         return "failed";
       }
       refreshSessions(queryClient);

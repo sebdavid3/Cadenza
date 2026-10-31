@@ -147,7 +147,15 @@ const LASTING = new Set<EditorStatus["kind"]>([
 ]);
 
 /** Avisos de una corrección que caducan al finalizar la sesión (#187). */
-const STALE_ON_FINALIZE = new Set<EditorStatus["kind"]>(["saved", "reloaded", "refused", "noted"]);
+const STALE_ON_FINALIZE = new Set<EditorStatus["kind"]>([
+  "saved",
+  "reloaded",
+  "refused",
+  "noted",
+  // Un 409 de otra pestaña o un 422 anteriores: su «Volver a aplicar» ya no tendría sentido.
+  "conflict",
+  "rejected",
+]);
 
 /** Avisos que caducan al reabrirla: también el de que estaba finalizada. */
 const STALE_ON_REOPEN = new Set<EditorStatus["kind"]>([...STALE_ON_FINALIZE, "closed"]);
