@@ -144,7 +144,7 @@ def measured(
     world: dict[str, Path], tmp_path_factory: pytest.TempPathFactory
 ) -> tuple[dict[str, Any], Path]:
     output = tmp_path_factory.mktemp("measured") / "out"
-    return _run(world, output), output
+    return _run(world, output, workers=2), output
 
 
 def _side(paths: dict[str, Path], side: str) -> list[str]:

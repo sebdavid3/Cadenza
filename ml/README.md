@@ -243,6 +243,11 @@ también `suggestion_layer_incipits.csv` (una fila por incipit de prueba) y
 `exp_14_run_info.json` (commit, semilla, sha256 del corpus, de la partición y del artefacto,
 versión de rasgos y configuración). `--no-omr-ned` omite el OMR-NED (solo para depurar).
 
+El OMR-NED de `musicdiff` tarda segundos por par (el `build` de `exp_12` tardó horas por él):
+`--workers` (por defecto, los núcleos menos uno) reparte la lectura de las partituras y el
+OMR-NED entre procesos, y una variante idéntica a otra del mismo incipit (sin sugerencias
+aplicadas) reutiliza su valor. El resultado no depende del número de procesos.
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible

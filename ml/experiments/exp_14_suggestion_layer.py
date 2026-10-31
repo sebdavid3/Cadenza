@@ -63,11 +63,13 @@ import csv
 import hashlib
 import json
 import logging
+import os
 import statistics
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -292,6 +294,53 @@ def _check_read(incipit: str, predicted: ScoreIR, records: Sequence[Mapping[str,
         )
 
 
+# --- En paralelo ------------------------------------------------------------------------
+
+
+def _worker_init() -> None:
+    logging.getLogger("converter21").setLevel(logging.ERROR)
+    try:
+        from cadenza.omr.power import disable_power_throttling
+
+        disable_power_throttling()  # un cálculo largo en segundo plano no se frena (EcoQoS)
+    except ImportError:
+        pass
+
+
+def _map[T, R](function: Callable[[T], R], items: Iterable[T], workers: int) -> list[R]:
+    """`map` en orden, en `workers` procesos si son más de uno. Una excepción de un elemento
+    detiene el experimento, como en serie."""
+    tasks = list(items)
+    if workers <= 1 or len(tasks) <= 1:
+        return [function(task) for task in tasks]
+    with ProcessPoolExecutor(max_workers=workers, initializer=_worker_init) as pool:
+        return list(pool.map(function, tasks, chunksize=max(1, len(tasks) // (workers * 8))))
+
+
+LoadTask = tuple[str, str, tuple[Mapping[str, Any], ...], str, str, Mapping[str, Any] | None]
+
+
+def _load(task: LoadTask) -> tuple[str, ScoreIR, ScoreIR | None]:
+    """Lee la predicción de un incipit (y, en prueba, su verdad) y comprueba que dan sus
+    registros del corpus."""
+    incipit, side, rows, predictions, root, entry = task
+    predicted = _prediction(Path(predictions), incipit)
+    if side != "test":
+        _check_read(incipit, predicted, rows)
+        return incipit, predicted, None
+    sounding = _truth(Path(root), entry, incipit)
+    _check_test_records(incipit, predicted, sounding, rows)
+    return incipit, predicted, sounding
+
+
+def _omr_ned(task: tuple[str, str]) -> tuple[float | None, str]:
+    """El OMR-NED de un par de MusicXML, o el error si musicdiff no lo puede comparar."""
+    try:
+        return omr_ned_pair(Path(task[0]), Path(task[1])).omr_ned, ""
+    except Exception as exc:  # un par que musicdiff no lee se registra, no se imputa
+        return None, f"{type(exc).__name__}: {exc}"
+
+
 # --- Métricas ----------------------------------------------------------------------------
 
 
@@ -378,6 +427,7 @@ def run(
     output_dir: Path | None = None,
     seed: int = DEFAULT_SEED,
     with_omr_ned: bool = True,
+    workers: int = 1,
 ) -> dict[str, Any]:
     started = time.monotonic()
     results = RESULTS_DIR if output_dir is None else output_dir
@@ -407,22 +457,26 @@ def run(
     }
     cases: dict[str, list[IncipitCase]] = {"train": [], "test": []}
     truths: dict[str, ScoreIR] = {}
-    for position, (incipit, rows) in enumerate(sorted(verified.items()), start=1):
-        side = str(rows[0]["split"])
-        predicted = _prediction(predictions, incipit)
-        if side == "test":
-            sounding = _truth(root, entries.get(incipit), incipit)
-            _check_test_records(incipit, predicted, sounding, rows)
-            truths[incipit] = sounding
-        else:
-            _check_read(incipit, predicted, rows)
-        cases[side].append(
-            IncipitCase(
-                incipit_id=incipit, work=work_of(rows[0]), score=predicted, records=tuple(rows)
-            )
+    tasks: list[LoadTask] = [
+        (
+            incipit,
+            str(rows[0]["split"]),
+            tuple(rows),
+            str(predictions),
+            str(root),
+            entries.get(incipit),
         )
-        if position % 250 == 0:
-            print(f"[exp_14] leídos {position}/{len(verified)} incipits", flush=True)
+        for incipit, rows in sorted(verified.items())
+    ]
+    for (incipit, side, rows, *_), (_, predicted, sounding) in zip(
+        tasks, _map(_load, tasks, workers), strict=True
+    ):
+        if sounding is not None:
+            truths[incipit] = sounding
+        cases[side].append(
+            IncipitCase(incipit_id=incipit, work=work_of(rows[0]), score=predicted, records=rows)
+        )
+    print(f"[exp_14] leídos {len(tasks)} incipits verificados", flush=True)
     if not cases["test"]:
         raise ValueError(f"exp_14: el corpus {corpus_path} no tiene incipits verificados de prueba")
 
@@ -448,7 +502,11 @@ def run(
     ned_failures: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="exp_14_") as scratch:
         workdir = Path(scratch)
-        for case, measurement in zip(cases["test"], measured, strict=True):
+        # Los pares de OMR-NED de cada incipit: una variante igual a otra no se recalcula
+        # (sin sugerencias aplicadas, «HOMR con sugerencias» es HOMR).
+        pairs: list[tuple[str, str]] = []
+        pair_of: list[dict[str, int]] = []
+        for number, (case, measurement) in enumerate(zip(cases["test"], measured, strict=True)):
             truth = truths[case.incipit_id]
             variants: dict[str, ScoreIR] = {"homr": case.score}
             row: dict[str, Any] = {
@@ -474,23 +532,34 @@ def run(
                 ser[variant].append(value)
                 row[f"ser_{variant}"] = round(value, 4)
             if with_omr_ned:
-                try:
-                    truth_file = _export(truth, workdir / "truth.musicxml", exporter)
-                    values = {
-                        variant: omr_ned_pair(
-                            _export(score, workdir / f"{variant}.musicxml", exporter), truth_file
-                        ).omr_ned
-                        for variant, score in variants.items()
-                    }
-                except Exception as exc:  # un par que musicdiff no lee se registra
-                    ned_failures[case.incipit_id] = f"{type(exc).__name__}: {exc}"
-                    values = {}
+                truth_file = _export(truth, workdir / f"{number}_truth.musicxml", exporter)
+                index: dict[str, int] = {}
+                distinct: list[tuple[ScoreIR, int]] = []
                 for variant in VARIANTS:
-                    value = values.get(variant)
-                    ned[variant].append(value)
-                    row[f"omr_ned_{variant}"] = "" if value is None else round(value, 4)
-                row["omr_ned_error"] = ned_failures.get(case.incipit_id, "")
+                    score = variants[variant]
+                    same = next((i for other, i in distinct if other == score), None)
+                    if same is None:
+                        path = _export(score, workdir / f"{number}_{variant}.musicxml", exporter)
+                        pairs.append((str(path), str(truth_file)))
+                        same = len(pairs) - 1
+                        distinct.append((score, same))
+                    index[variant] = same
+                pair_of.append(index)
             rows_csv.append(row)
+        if with_omr_ned:
+            print(f"[exp_14] OMR-NED de {len(pairs)} pares", flush=True)
+            computed = _map(_omr_ned, pairs, workers)
+            for case, row, index in zip(cases["test"], rows_csv, pair_of, strict=True):
+                errors = sorted({computed[i][1] for i in index.values() if computed[i][1]})
+                if errors:
+                    ned_failures[case.incipit_id] = "; ".join(errors)
+                for variant in VARIANTS:
+                    measured_ned = computed[index[variant]][0]
+                    ned[variant].append(measured_ned)
+                    row[f"omr_ned_{variant}"] = (
+                        "" if measured_ned is None else round(measured_ned, 4)
+                    )
+                row["omr_ned_error"] = ned_failures.get(case.incipit_id, "")
 
     def report(values: Mapping[str, list[float | None]]) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -517,8 +586,10 @@ def run(
                 "failures": dict(sorted(ned_failures.items())),
                 "definition": (
                     "omr_ned_pair (musicdiff) entre MusicXML exportados del ScoreIR de la "
-                    "variante y de la verdad (Music21ScoreExporter)"
+                    "variante y de la verdad (Music21ScoreExporter); una variante idéntica a "
+                    "otra del mismo incipit reutiliza su valor"
                 ),
+                "pairs_computed": len(pairs),
             }
             if with_omr_ned
             else None
@@ -671,6 +742,7 @@ def run(
         "folds": FOLDS,
         "fractions": list(FRACTIONS),
         "omr_ned": with_omr_ned,
+        "workers": workers,
         "duration_seconds": round(time.monotonic() - started, 1),
     }
     summary["run_info"] = run_info
@@ -707,15 +779,15 @@ def main() -> None:
         help=f"Semilla de los pliegues y de la curva (por defecto {DEFAULT_SEED})",
     )
     parser.add_argument("--no-omr-ned", action="store_true", help="sin OMR-NED (depuración)")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, (os.cpu_count() or 2) - 1),
+        help="procesos para leer las partituras y calcular el OMR-NED",
+    )
     args = parser.parse_args()
 
-    logging.getLogger("converter21").setLevel(logging.ERROR)
-    try:
-        from cadenza.omr.power import disable_power_throttling
-
-        disable_power_throttling()  # un cálculo largo en segundo plano no se frena (EcoQoS)
-    except ImportError:
-        pass
+    _worker_init()
     summary = run(
         corpus_path=args.corpus,
         split_path=args.split,
@@ -724,6 +796,7 @@ def main() -> None:
         output_dir=args.output_dir,
         seed=args.seed,
         with_omr_ned=not args.no_omr_ned,
+        workers=args.workers,
     )
     test = summary["test"]
     ranking = test["rule_suggestions"]
