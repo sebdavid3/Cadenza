@@ -301,7 +301,7 @@ class InMemorySessionRepository(SessionRepository):
         if suggestions is None:
             return
         rows = self.suggestions.setdefault(session_id, [])
-        for finding, news in zip(persisted, suggestions, strict=False):
+        for finding, news in zip(persisted, suggestions, strict=True):
             for rank, new in enumerate(news):
                 rows.append(
                     suggestion_from_new(

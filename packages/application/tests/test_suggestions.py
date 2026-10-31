@@ -630,3 +630,98 @@ def test_a_layer_that_drops_rule_findings_is_ignored(
     session_id = _transcribe(tmp_path, sessions, owner, Forgetful())
     findings = sessions.list_findings(session_id)
     assert [(f.rule_id, f.suggestions) for f in findings] == [("measure.balance", ())]
+
+
+def test_a_rejection_the_current_validation_did_not_show_is_not_inherited(
+    tmp_path: Path, repos: Repos, owner: User
+) -> None:
+    """V1 (con capa) rechaza; V2 (sin capa) no la muestra; V3 (con capa) no hereda (§4)."""
+    sessions, edits = repos
+    model = FakeModel()
+    session_id = _transcribe(tmp_path, sessions, owner, model)
+    balance = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
+    reject_suggestion(
+        session_id, balance.suggestions[0].id, session_repository=sessions, current_user=owner
+    )
+
+    def run(layer: SuggestionModel | None) -> None:
+        revalidate(
+            session_id,
+            validator=ValidationEngine(),
+            session_repository=sessions,
+            edit_repository=edits,
+            current_user=owner,
+            suggestion_model=layer,
+        )
+
+    run(None)
+    assert all(f.suggestions == () for f in sessions.list_findings(session_id))
+    run(model)
+    again = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
+    assert again.suggestions and all(s.response is None for s in again.suggestions)
+
+
+def test_applying_an_answered_suggestion_with_the_current_base_seq_is_stale(
+    tmp_path: Path, repos: Repos, owner: User
+) -> None:
+    sessions, edits = repos
+    session_id = _transcribe(tmp_path, sessions, owner, FakeModel())
+    sid = _learned_fix(sessions, session_id)
+    reject_suggestion(session_id, sid, session_repository=sessions, current_user=owner)
+    with pytest.raises(StaleSuggestion):
+        _apply(sessions, edits, owner, session_id, sid, base_seq=0)
+    assert edits.list_events(session_id) == ()
+
+
+class _StaleReads(InMemorySessionRepository):
+    """La primera lectura de cada sugerencia es de antes de que otra petición la respondiera;
+    las siguientes ven lo guardado."""
+
+    stale: set[int]
+
+    def get_suggestion(self, session_id: str, suggestion_id: int) -> PersistedSuggestion | None:
+        found = super().get_suggestion(session_id, suggestion_id)
+        if found is None or suggestion_id in self.stale:
+            return found
+        self.stale.add(suggestion_id)
+        return replace(found, response=None)
+
+
+def test_two_simultaneous_rejections_both_answer_with_the_rejection(
+    tmp_path: Path, owner: User
+) -> None:
+    edits = InMemoryEditEventRepository()
+    sessions = _StaleReads(edit_repository=edits)
+    sessions.stale = set()
+    session_id = _transcribe(tmp_path, sessions, owner, FakeModel())
+    sid = _learned_fix(sessions, session_id)
+    sessions.stale.clear()
+    sessions.respond_suggestion(session_id, sid, response="rejected", user="ana")
+    # La segunda petición leyó la sugerencia sin respuesta: el repositorio da conflicto y el
+    # caso de uso devuelve el rechazo guardado.
+    second = reject_suggestion(session_id, sid, session_repository=sessions, current_user=owner)
+    assert second.response == "rejected"
+    # Si la otra la aplicó, el conflicto se mantiene.
+    other = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
+    applied = other.suggestions[0].id
+    sessions.respond_suggestion(session_id, applied, response="accepted", user="ana")
+    with pytest.raises(SuggestionConflict):
+        reject_suggestion(session_id, applied, session_repository=sessions, current_user=owner)
+
+
+def test_normalize_after_keeps_a_voice_zero() -> None:
+    from cadenza.application.suggestions import normalize_after
+
+    insert = {
+        "kind": "rest",
+        "duration_beats": "1/2",
+        "voice": 0,
+        "pitch": None,
+        "is_chord": False,
+        "articulations": [],
+    }
+    assert normalize_after(EditOp.INSERT_EVENT, insert) == {
+        "kind": "rest",
+        "duration_beats": "1/2",
+        "voice": 0,
+    }

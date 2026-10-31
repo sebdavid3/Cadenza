@@ -94,8 +94,16 @@ def normalize_after(op: EditOp, after: Mapping[str, Any] | None) -> Any:
     if op is EditOp.SET_ACCIDENTAL:
         data["accidental"] = normalize_accidental(data.get("accidental"))
     if op is EditOp.INSERT_EVENT:
-        data = {key: value for key, value in data.items() if value not in (None, False, [], ())}
+        # Sin los valores que equivalen a no darlos (None, False, una lista vacía); un 0 sí
+        # cuenta (`voice: 0`).
+        data = {key: value for key, value in data.items() if not _is_absent(value)}
     return data
+
+
+def _is_absent(value: object) -> bool:
+    if value is None or value is False:
+        return True
+    return isinstance(value, list | tuple | dict) and len(value) == 0
 
 
 def same_after(op: EditOp, a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> bool:
@@ -179,7 +187,9 @@ def with_inherited_rejections(
     traducida al estado actual, es la suya, y cuyo evento no se ha modificado desde el
     rechazo. Cada rechazo se hereda una vez.
     """
-    pending = [s for s in rejected if s.response == REJECTED]
+    # Solo las que mostró la validación vigente: una fila desvinculada es de una validación
+    # anterior del mismo estado, que ya no manda (ADR-0035, ADR-0036 §4).
+    pending = [s for s in rejected if s.response == REJECTED and s.finding_id is not None]
     used: set[int] = set()
     stored: list[list[NewSuggestion]] = []
     for _, edits_of_finding in suggested:
