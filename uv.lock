@@ -303,6 +303,7 @@ source = { editable = "packages/learning" }
 dependencies = [
     { name = "cadenza-application" },
     { name = "cadenza-domain" },
+    { name = "cadenza-validation" },
 ]
 
 [package.optional-dependencies]
@@ -318,6 +319,7 @@ torch = [
 requires-dist = [
     { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
+    { name = "cadenza-validation", editable = "packages/validation" },
     { name = "converter21", marker = "extra == 'metrics'", specifier = ">=4.0.1" },
     { name = "musicdiff", marker = "extra == 'metrics'", specifier = ">=5.2" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2.0" },

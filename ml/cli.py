@@ -7,6 +7,9 @@ Comandos implementados:
   - evaluate      : evalúa las métricas simbólicas (SER, OMR-NED) contra el umbral de promoción.
   - promote       : registra y activa la versión en el ModelRegistry persistente.
   - run           : ejecuta el pipeline completo de punta a punta de forma encadenada.
+  - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
+                    (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
+                    red de `PyTorchTrainer`, que se retira del código con #271.
 """
 
 from __future__ import annotations
@@ -881,6 +884,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
 
+    # 8. suggestions (capa de sugerencias, ADR-0036)
+    from ml import suggestions_cli
+
+    suggestions_cli.add_parser(subparsers)
+
     return parser
 
 
@@ -921,6 +929,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_command(args)
     if args.subcommand == "export-effort":
         return export_effort_command(args)
+    if args.subcommand == "suggestions":
+        from ml import suggestions_cli
+
+        return suggestions_cli.run(args)
 
     parser.print_help()
     return 1

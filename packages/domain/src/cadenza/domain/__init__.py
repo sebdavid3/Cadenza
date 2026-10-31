@@ -18,7 +18,13 @@ from .edit_payload import (
     snapshot_before,
     validate_after,
 )
-from .finding import Finding, Severity, translate_finding
+from .finding import (
+    Finding,
+    Severity,
+    SuggestedFinding,
+    SuggestionResult,
+    translate_finding,
+)
 from .key_signature import KeySignature
 from .notation_marks import (
     Articulation,
@@ -46,11 +52,14 @@ from .score import (
     Staff,
     build_anchor_index,
 )
+from .suggestion import CONFIDENCE_LEVELS, SUGGESTION_SOURCES, SuggestedEdit
 from .tie import Tie
 from .time_signature import TimeSignature
 from .timing import EventTiming, TimingMap, compute_timing_map
 
 __all__ = [
+    "CONFIDENCE_LEVELS",
+    "SUGGESTION_SOURCES",
     "Anchor",
     "AnchorIndex",
     "Articulation",
@@ -76,6 +85,9 @@ __all__ = [
     "Slur",
     "SlurType",
     "Staff",
+    "SuggestedEdit",
+    "SuggestedFinding",
+    "SuggestionResult",
     "Tie",
     "TimeSignature",
     "TimingMap",

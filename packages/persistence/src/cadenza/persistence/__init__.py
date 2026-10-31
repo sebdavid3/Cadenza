@@ -22,10 +22,13 @@ from .models import (
     ImmutableEditEventError,
     ModelVersionRecord,
     Session,
+    SuggestionModelVersionRecord,
+    SuggestionRecord,
     UserRecord,
 )
 from .repository import EditEventRepository, SqlAlchemyEditEventRepository
 from .session_repository import SqlAlchemySessionRepository
+from .suggestion_model_registry import SqlAlchemySuggestionModelRegistry
 from .user_repository import SqlAlchemyUserRepository
 
 __all__ = [
@@ -44,7 +47,10 @@ __all__ = [
     "SqlAlchemyEffortRepository",
     "SqlAlchemyModelRegistry",
     "SqlAlchemySessionRepository",
+    "SqlAlchemySuggestionModelRegistry",
     "SqlAlchemyUserRepository",
+    "SuggestionModelVersionRecord",
+    "SuggestionRecord",
     "UserRecord",
     "create_engine_for_url",
     "create_memory_engine",

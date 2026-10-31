@@ -37,10 +37,18 @@ from .security import (
 )
 from .session_repository import (
     InMemorySessionRepository,
+    NewSuggestion,
     PersistedFinding,
+    PersistedSuggestion,
     SessionData,
     SessionRepository,
     SessionSummary,
+)
+from .suggestion_model import (
+    InMemorySuggestionModelRegistry,
+    SuggestionModel,
+    SuggestionModelRegistry,
+    SuggestionModelVersionData,
 )
 from .user_repository import InMemoryUserRepository, UserRepository
 
@@ -59,12 +67,15 @@ __all__ = [
     "InMemoryScoreExporter",
     "InMemoryScoreStateCache",
     "InMemorySessionRepository",
+    "InMemorySuggestionModelRegistry",
     "InMemoryTokenService",
     "InMemoryUserRepository",
     "ModelRegistry",
     "ModelVersionData",
+    "NewSuggestion",
     "PasswordHasher",
     "PersistedFinding",
+    "PersistedSuggestion",
     "PromotionRejected",
     "PromotionThreshold",
     "ScoreExporter",
@@ -73,6 +84,9 @@ __all__ = [
     "SessionData",
     "SessionRepository",
     "SessionSummary",
+    "SuggestionModel",
+    "SuggestionModelRegistry",
+    "SuggestionModelVersionData",
     "TokenPayload",
     "TokenService",
     "UserRepository",

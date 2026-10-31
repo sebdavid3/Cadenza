@@ -17,7 +17,9 @@ from cadenza.validation import ValidationEngine
 from ..exceptions import Forbidden, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
+from ..ports.suggestion_model import SuggestionModel
 from ..session_status import SessionStatus
+from ..suggestions import suggest, with_inherited_rejections
 from ..user import Role, User
 
 
@@ -38,6 +40,7 @@ def finalize_session(
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
     current_user: User,
+    suggestion_model: SuggestionModel | None = None,
 ) -> FinalizeResult:
     """Finaliza una sesión marcándola como cerrada para nuevas ediciones.
 
@@ -45,6 +48,10 @@ def finalize_session(
     2. Revalida el documento sobre su estado materializado actual (#11, #34).
     3. Actualiza el estado a `finalized` (#34).
     4. Devuelve el estado, el seq final y los hallazgos vigentes.
+
+    Con `suggestion_model` (y fuera de `unassisted`), la capa corre tras las reglas y las
+    sugerencias heredan los rechazos de la validación vigente, como en `revalidate`
+    (ADR-0036 §4).
     """
 
     session_data = session_repository.get(session_id)
@@ -91,13 +98,22 @@ def finalize_session(
 
     # 3. Evaluar reglas sobre el documento materializado
     evaluated_findings: list[Finding] = validator.validate(current_doc)
-    findings_with_seq = [replace(f, at_seq=current_seq) for f in evaluated_findings]
+    model = None if session_data.condition == "unassisted" else suggestion_model
+    suggested = suggest(current_doc, evaluated_findings, model)
+    findings_with_seq = [replace(f, at_seq=current_seq) for f, _ in suggested]
+    suggestions = with_inherited_rejections(
+        suggested,
+        session_repository.list_suggestions(session_id, at_seq=session_data.validated_at_seq),
+        current_seq=current_seq,
+        edits=edits,
+    )
 
     # 4. Persistir hallazgos y actualizar validated_at_seq
     persisted = session_repository.replace_findings(
         session_id,
         findings_with_seq,
         at_seq=current_seq,
+        suggestions=suggestions,
     )
 
     # 5. Marcar estado como finalizado

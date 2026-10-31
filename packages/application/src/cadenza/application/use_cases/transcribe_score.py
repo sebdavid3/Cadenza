@@ -12,7 +12,9 @@ from cadenza.omr import OMREngine
 from cadenza.validation import ValidationEngine
 
 from ..ports.artifact_store import ArtifactStore, compute_sha256, detect_image_media_type
-from ..ports.session_repository import SessionData, SessionRepository
+from ..ports.session_repository import NewSuggestion, SessionData, SessionRepository
+from ..ports.suggestion_model import SuggestionModel
+from ..suggestions import suggest
 from ..user import User
 
 
@@ -52,8 +54,13 @@ def transcribe_score(
     image_artifact: str | None = None,
     condition: str = "assisted",
     test_score_id: str | None = None,
+    suggestion_model: SuggestionModel | None = None,
 ) -> TranscribeResult:
-    """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión."""
+    """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión.
+
+    Con `suggestion_model`, la capa de sugerencias corre tras las reglas y la procedencia
+    guarda su versión (ADR-0036 §3, §11). En `unassisted` no corre ni una cosa ni otra (D38).
+    """
 
     norm_condition = normalize_condition(condition)
 
@@ -66,9 +73,11 @@ def transcribe_score(
         actual_image_artifact = compute_sha256(image_path.read_bytes())
 
     document = omr_engine.transcribe(image_path)
-    findings: Sequence[Finding] = (
-        () if norm_condition == "unassisted" else validator.validate(document)
-    )
+    assisted = norm_condition != "unassisted"
+    rule_findings: Sequence[Finding] = validator.validate(document) if assisted else ()
+    model = suggestion_model if assisted else None
+    suggested = suggest(document, rule_findings, model)
+    findings = [finding for finding, _ in suggested]
 
     document = replace(
         document,
@@ -76,6 +85,7 @@ def transcribe_score(
             document.provenance,
             source_image_hash=actual_image_artifact or document.provenance.source_image_hash,
             rules_version=validator.rules_version if norm_condition != "unassisted" else None,
+            suggestions_version=None if model is None else model.version,
         ),
     )
 
@@ -93,7 +103,11 @@ def transcribe_score(
         test_score_id=test_score_id,
     )
 
-    session_repository.add(session_data, findings)
+    session_repository.add(
+        session_data,
+        findings,
+        [[NewSuggestion(edit=edit) for edit in edits] for _, edits in suggested],
+    )
 
     return TranscribeResult(
         session_id=actual_session_id,

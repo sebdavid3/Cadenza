@@ -1,0 +1,43 @@
+{
+  "seed": 42,
+  "alpha": 2.0,
+  "min_support": 20,
+  "folds": 5,
+  "target_precision": 0.7,
+  "high_precision": 0.9,
+  "min_alarms": 20,
+  "learned_families": ["accidental"],
+  "levels": {
+    "accidental": [
+      ["letter", "accidental", "key_fifths", "prev_acc"],
+      ["acc_vs_key", "prev_acc"],
+      ["acc_vs_key"],
+      []
+    ],
+    "duration": [
+      ["figure", "dots", "balance_sign", "balance", "on_beat"],
+      ["figure", "dots", "balance_sign", "balance"],
+      ["figure", "balance_sign"],
+      ["balance_sign"],
+      []
+    ],
+    "pitch": [
+      ["letter", "octave", "clef", "prev_step"],
+      ["clef", "prev_step"],
+      ["prev_step"],
+      []
+    ],
+    "delete": [
+      ["kind", "figure", "balance_sign", "balance"],
+      ["kind", "balance_sign"],
+      ["balance_sign"],
+      []
+    ],
+    "insertion": [
+      ["balance_sign", "balance", "prev_kind", "next_kind"],
+      ["balance_sign", "balance"],
+      ["balance_sign"],
+      []
+    ]
+  }
+}

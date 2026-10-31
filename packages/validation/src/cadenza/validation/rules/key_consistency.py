@@ -12,13 +12,41 @@ Comprueba que:
 
 from __future__ import annotations
 
-from cadenza.domain import EventKind, Finding, KeySignature, ScoreDocument, Severity
+from cadenza.domain import (
+    Anchor,
+    EditOp,
+    EventKind,
+    Finding,
+    KeySignature,
+    ScoreDocument,
+    Severity,
+    SuggestedEdit,
+)
 
+from ..learned.features import key_accidental
 from ..pitch import parse_pitch
 from .base import ValidationRule
 from .utils import build_event_anchor_map, find_measure_first_anchor
 
 RULE_ID = "key.consistency"
+_ALTER_TO_ACCIDENTAL = {-2: "bb", -1: "b", 0: "", 1: "#", 2: "##"}
+
+
+def _accidental_candidates(
+    anchor: Anchor, current: int, targets: tuple[str, ...]
+) -> tuple[SuggestedEdit, ...]:
+    """Cambiar la alteración de la nota a cada una de `targets` (ADR-0036 §3), sin repetir y
+    sin la que ya tiene."""
+    seen: set[str] = {_ALTER_TO_ACCIDENTAL.get(current, "?")}
+    candidates: list[SuggestedEdit] = []
+    for target in targets:
+        if target in seen:
+            continue
+        seen.add(target)
+        candidates.append(
+            SuggestedEdit(op=EditOp.SET_ACCIDENTAL, anchor=anchor, after={"accidental": target})
+        )
+    return tuple(candidates)
 
 
 def _key_name(fifths: int) -> str:
@@ -125,7 +153,11 @@ class KeyConsistencyRule(ValidationRule):
                         if anchor is None:
                             continue
 
-                        # A. Coherencia con la armadura:
+                        # A. Coherencia con la armadura. Los arreglos que cuadran: la alteración
+                        # que pide la armadura o ninguna.
+                        in_key = _accidental_candidates(
+                            anchor, alter, (key_accidental(step, current_key.fifths), "")
+                        )
                         if current_key.fifths > 0 and alter < 0:
                             findings.append(
                                 Finding(
@@ -140,6 +172,7 @@ class KeyConsistencyRule(ValidationRule):
                                         f"Revisar la alteración de {event.pitch} o sustituirla "
                                         "por su enarmónico con sostenido."
                                     ),
+                                    candidates=in_key,
                                 )
                             )
                         elif current_key.fifths < 0 and alter > 0:
@@ -157,6 +190,7 @@ class KeyConsistencyRule(ValidationRule):
                                         f"Revisar la alteración de {event.pitch} o sustituirla "
                                         "por su enarmónico con bemol."
                                     ),
+                                    candidates=in_key,
                                 )
                             )
 
@@ -178,6 +212,11 @@ class KeyConsistencyRule(ValidationRule):
                                         suggested_fix=(
                                             f"Unificar la notación enarmónica de las alteraciones "
                                             f"de {step} en el compás {measure.number}."
+                                        ),
+                                        candidates=_accidental_candidates(
+                                            anchor,
+                                            alter,
+                                            (_ALTER_TO_ACCIDENTAL.get(prev_alt, ""),),
                                         ),
                                     )
                                 )

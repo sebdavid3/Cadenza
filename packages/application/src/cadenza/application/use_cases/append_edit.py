@@ -31,6 +31,9 @@ from ..exceptions import (
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
+    StaleSuggestion,
+    SuggestionConflict,
+    SuggestionNotFound,
 )
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.score_exporter import ScoreExporter
@@ -39,6 +42,7 @@ from ..ports.session_repository import SessionRepository
 from ..score_state import load_state, store_state, timing_of, try_musicxml_of
 from ..session_status import SessionStatus
 from ..stage_timing import timed_stage
+from ..suggestions import ACCEPTED, anchors_match_position, same_after
 from ..user import Role, User
 
 
@@ -236,6 +240,7 @@ def _append(
     after: Mapping[str, Any] | None,
     created_at: datetime | None,
     score_cache: ScoreStateCache | None,
+    suggestion_id: int | None = None,
 ) -> _Appended:
     with timed_stage("db"):
         session_data = session_repository.get(session_id)
@@ -265,6 +270,29 @@ def _append(
                 f"el estado actual de la sesión (seq={current_seq})"
             ),
         )
+
+    # 2b. Aplicar una sugerencia (ADR-0036 §5): tras `base_seq`, que sea de esta sesión, de
+    #     la validación de `base_seq` y sin respuesta (409 `stale_suggestion`); después, que la
+    #     edición sea la propuesta (422).
+    if suggestion_id is not None:
+        with timed_stage("db"):
+            suggestion = session_repository.get_suggestion(session_id, suggestion_id)
+        if (
+            suggestion is None
+            or suggestion.finding_id is None
+            or suggestion.at_seq != base_seq
+            or suggestion.response is not None
+        ):
+            raise StaleSuggestion(suggestion_id)
+        if (
+            suggestion.op != op.value
+            or not anchors_match_position(Anchor.from_primitive(suggestion.anchor), anchor)
+            or not same_after(op, suggestion.after, after)
+        ):
+            raise InvalidEdit(
+                f"La edición no es la que propone la sugerencia {suggestion_id}: "
+                "se aplica tal cual o se edita sin suggestion_id."
+            )
 
     # 3. Estado materializado previo a la edición: de la caché o reconstruido desde el log
     #    (#275, ADR-0037). La validación de la edición se hace siempre sobre él.
@@ -318,6 +346,21 @@ def _append(
         # 7. Persistir la edición en el log append-only
         appended = edit_repository.append(session_id, edit)
 
+        # La sugerencia aplicada pasa a aceptada en la misma transacción (ADR-0036 §5).
+        if suggestion_id is not None:
+            try:
+                session_repository.respond_suggestion(
+                    session_id,
+                    suggestion_id,
+                    response=ACCEPTED,
+                    user=current_user.username,
+                    applied_seq=appended.seq,
+                )
+            except (SuggestionConflict, SuggestionNotFound) as exc:
+                # Otra petición la respondió entre la comprobación y aquí: la transacción no
+                # se confirma y la edición no queda guardada.
+                raise StaleSuggestion(suggestion_id) from exc
+
         # 8. Si la sesión estaba en 'transcribed', pasa a 'correcting' (#34, ADR-0014)
         status = str(session_data.status)
         if session_data.status == SessionStatus.TRANSCRIBED:
@@ -352,6 +395,7 @@ def append_edit(
     after: Mapping[str, Any] | None = None,
     created_at: datetime | None = None,
     score_cache: ScoreStateCache | None = None,
+    suggestion_id: int | None = None,
 ) -> EditEvent:
     """Añade un nuevo evento inmutable al log de la sesión verificando su existencia y propiedad.
 
@@ -362,6 +406,8 @@ def append_edit(
     del estado que fija el servidor, para que deshacer sea exacto (ADR-0017, #117).
     Con `score_cache`, el estado previo sale de la caché si está y el nuevo se guarda en ella
     (#275, ADR-0037); la validación es la misma.
+    Con `suggestion_id`, la edición aplica una sugerencia y la marca como aceptada
+    (ADR-0036 §5); rehacer la reenvía sin él.
     """
 
     return _append(
@@ -378,6 +424,7 @@ def append_edit(
         after=after,
         created_at=created_at,
         score_cache=score_cache,
+        suggestion_id=suggestion_id,
     ).edit
 
 
@@ -394,6 +441,7 @@ def append_edit_with_state(
     before: Mapping[str, Any] | None = None,
     after: Mapping[str, Any] | None = None,
     score_cache: ScoreStateCache | None = None,
+    suggestion_id: int | None = None,
 ) -> AppliedEdit:
     """`append_edit` y, además, el estado que crea, para que la vista lo muestre sin volver a
     pedirlo (#275, ADR-0037).
@@ -417,6 +465,7 @@ def append_edit_with_state(
         after=after,
         created_at=None,
         score_cache=score_cache,
+        suggestion_id=suggestion_id,
     )
     state, musicxml = try_musicxml_of(done.key, done.state, exporter, score_cache)
     _, previous_timing = timing_of(done.previous_key, done.previous, score_cache)

@@ -250,6 +250,51 @@ la guarda. `promote` registra siempre las métricas del artefacto que recibe, no
 procedan del artefacto) y, como `exp_03`, exige que cada entrada sin predicción figure en
 `failures.json`.
 
+### Capa de sugerencias (`ml suggestions`, #256, ADR-0036)
+
+La capa que aprende de las correcciones sustituye en el flujo de aprendizaje a la red de
+`PyTorchTrainer`, que se retira del código con
+[#271](https://github.com/sebdavid3/Cadenza/issues/271). Ningún comando escribe por defecto en
+`results/` ni en `data/`: las rutas se dan siempre.
+
+```powershell
+# 1. Entrenar: frecuencias por contexto de la partición `train` y umbrales por validación
+#    cruzada de 5 pliegues agrupados por obra. Mismo corpus y configuración, mismos bytes.
+uv run --no-sync python -m ml suggestions train --corpus <corpus.jsonl> `
+  --config configs/learning/suggestions.json --output <modelo.json>
+
+# 2. Evaluar sobre la partición de prueba fija de #255, frente a no tener capa.
+uv run --no-sync python -m ml suggestions evaluate --model <modelo.json> `
+  --corpus <corpus.jsonl> --output <informe.json>
+
+# 3. Promover solo si mejora a la activa (o, la primera, a no tener capa) en la misma
+#    partición de prueba. Entra en vigor al reiniciar la API con CADENZA_SUGGESTIONS_ENABLED.
+uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report <informe.json> `
+  --db-url <url> --artifacts-dir <dir de artefactos de la API> --version <versión>
+
+# 4. Bucle de aprendizaje: el corpus de exp_12, sin modificarlo, más las sesiones finalizadas
+#    de Cadenza (partidas por página de origen) y las respuestas a sus sugerencias.
+uv run --no-sync python -m ml suggestions build-dataset --corpus <corpus de exp_12> `
+  --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición>
+```
+
+| Comando | Entrada | Salida | Trazabilidad |
+|---|---|---|---|
+| `suggestions train` | corpus JSONL | artefacto JSON | `training.dataset_hash` (sha256 del corpus), `config_hash`, `seed`, curva de la validación cruzada |
+| `suggestions evaluate` | artefacto y corpus | informe JSON | `model_sha256`, `evaluation_dataset_hash`, métricas medidas (`simulated: false`) |
+| `suggestions promote` | artefacto e informe | `suggestion_model_versions` (BD) y el artefacto en el ArtifactStore | versión, `sha256`, hashes, semilla, `feature_version`, métricas |
+| `suggestions build-dataset` | corpus de exp_12 y BD | corpus JSONL | `dataset_hash` propio; registros `source: cadenza` y `suggestion` |
+
+El informe de `evaluate` mide, por familia, la precisión, el *recall* y el F1 de los posibles
+errores propios; cuántos de los errores que las reglas no ven señala la capa; y la exactitud de
+la primera sugerencia en los hallazgos de regla cuyo arreglo verdadero está entre los
+candidatos, frente al primer candidato de la regla. Si no hay con qué medir, falla o deja la
+métrica en `null`, y la promoción se rechaza: nunca hay cifras de reserva (CLAUDE.md §8).
+Entre el congelado (#252) y el final del estudio no se promueve ninguna versión.
+
+El coste en línea se mide con `scripts/measure_suggestion_cost.py` sobre una página real (no
+escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
+
 ## Reproducibilidad
 
 Los experimentos de Fase 5 usan `SEED = 20260920` y no dependen de red, GPU ni

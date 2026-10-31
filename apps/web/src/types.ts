@@ -129,6 +129,8 @@ export interface EditEventCreate {
   anchor: AnchorPayload;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /** Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición debe ser la propuesta (si no, 422). Rehacer la reenvía sin él. */
+  suggestion_id?: number | null;
 }
 
 export interface EditEventRead {
@@ -275,6 +277,8 @@ export interface FindingRead {
   dismissed_at?: string | null;
   dismissed_by?: string | null;
   dismissal_reason?: string | null;
+  /** De cero a tres sugerencias ordenadas por confianza; vacía sin capa de sugerencias (ADR-0036 §4) */
+  suggestions?: SuggestionRead[];
 }
 
 export interface HTTPValidationError {
@@ -357,6 +361,8 @@ export interface ProvenancePayload {
   device?: string | null;
   /** Metadatos y configuración de la etapa de preprocesado aplicada */
   preprocessing?: Record<string, unknown> | null;
+  /** Versión de la capa de sugerencias activa al transcribir, o null si no corrió (ADR-0036 §11) */
+  suggestions_version?: string | null;
 }
 
 /**
@@ -536,6 +542,27 @@ export interface StaffPayload {
 export interface StatusResponse {
   status: string;
   message?: string | null;
+}
+
+/**
+ * Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).
+ * 
+ * `op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla
+ * es relativa al `at_seq` de su hallazgo (ADR-0011).
+ */
+export interface SuggestionRead {
+  id: number;
+  op: EditOp;
+  anchor: AnchorPayload;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  /** Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato */
+  confidence?: number | null;
+  confidence_level: "high" | "medium";
+  explanation: string;
+  source: "rule" | "learned";
+  model_version?: string | null;
+  response?: "accepted" | "rejected" | null;
 }
 
 /**

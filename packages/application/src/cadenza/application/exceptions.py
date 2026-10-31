@@ -140,3 +140,35 @@ class FindingNotFound(ApplicationError):
         super().__init__(msg)
         self.finding_id = finding_id
         self.message = msg
+
+
+class SuggestionNotFound(ApplicationError):
+    """La sugerencia no existe en la sesión (ADR-0036 §5)."""
+
+    def __init__(self, suggestion_id: int) -> None:
+        msg = f"Sugerencia no encontrada: {suggestion_id}"
+        super().__init__(msg)
+        self.suggestion_id = suggestion_id
+        self.message = msg
+
+
+class StaleSuggestion(ApplicationError):
+    """La sugerencia que se quiere aplicar no es de la validación de `base_seq` o ya tiene
+    respuesta: la web la marca como antigua y ofrece revalidar (ADR-0036 §5)."""
+
+    detail = "stale_suggestion"
+
+    def __init__(self, suggestion_id: int) -> None:
+        msg = f"La sugerencia {suggestion_id} es antigua o ya tiene respuesta"
+        super().__init__(msg)
+        self.suggestion_id = suggestion_id
+        self.message = msg
+
+
+class SuggestionConflict(ApplicationError):
+    """La sugerencia no admite esa respuesta: rechazar una ya aceptada (ADR-0036 §5)."""
+
+    def __init__(self, suggestion_id: int, message: str) -> None:
+        super().__init__(message)
+        self.suggestion_id = suggestion_id
+        self.message = message
