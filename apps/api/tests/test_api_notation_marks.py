@@ -209,3 +209,134 @@ def test_insert_event_accepts_marks_and_rejects_invalid_ones(tmp_path: Path) -> 
     events = _measures(client.get(f"/sessions/{sid}", headers=headers).json()["current_score"], 0)
     assert events[2]["events"][0]["articulations"] == ["staccato"]
     assert events[2]["events"][0]["fermata"] is True
+
+
+# --- Añadir y quitar marcas (ADR-0039, #214) ----------------------------------------------
+
+
+def _post_edit(
+    client: TestClient,
+    headers: dict[str, str],
+    sid: str,
+    base_seq: int,
+    op: str,
+    anchor: dict[str, Any],
+    after: dict[str, Any] | None,
+    before: dict[str, Any] | None = None,
+) -> Any:
+    return client.post(
+        f"/sessions/{sid}/edits",
+        json={"base_seq": base_seq, "op": op, "anchor": anchor, "before": before, "after": after},
+        headers=headers,
+    )
+
+
+def _slot(measure: int, event_index: int) -> dict[str, int]:
+    return {"staff": 0, "measure": measure, "voice": 0, "event_index": event_index}
+
+
+def test_marks_are_added_exported_and_undone(tmp_path: Path) -> None:
+    client, headers = _client(tmp_path, FakeOMREngine())
+    sid = _transcribe(client, headers)
+    original = client.get(f"/sessions/{sid}", headers=headers).json()["current_score"]
+
+    edits: list[tuple[str, dict[str, Any], dict[str, Any]]] = [
+        (
+            "SetNoteMarks",
+            _anchor(0, 1, 0),
+            {"articulations": ["accent", "staccato"], "fermata": True},
+        ),
+        ("SetDynamic", _anchor(0, 1, 0), {"offset_beats": "1", "mark": "mf"}),
+        ("SetSlur", _anchor(0, 1, 0), {"number": 1, "start": _slot(1, 0), "stop": _slot(2, 0)}),
+        (
+            "SetWedge",
+            _anchor(0, 1, 0),
+            {
+                "number": 1,
+                "start": {"staff": 0, "measure": 1, "offset_beats": "0", "type": "diminuendo"},
+                "stop": {"staff": 0, "measure": 2, "offset_beats": "0"},
+            },
+        ),
+    ]
+    for seq, (op, anchor, after) in enumerate(edits):
+        res = _post_edit(client, headers, sid, seq, op, anchor, after)
+        assert res.status_code == 201, res.text
+        assert res.json()["op"] == op
+        # El 201 trae el estado nuevo (ADR-0037) y la instantánea del servidor (ADR-0017).
+        assert res.json()["current_seq"] == seq + 1
+        assert res.json()["before"] is not None
+
+    score = client.get(f"/sessions/{sid}", headers=headers).json()["current_score"]
+    first, second = _measures(score, 0)
+    assert first["events"][0]["articulations"] == ["staccato", "accent"]
+    assert first["events"][0]["fermata"] is True
+    assert first["events"][0]["slurs"] == [{"type": "start", "number": 1}]
+    assert second["events"][0]["slurs"] == [{"type": "stop", "number": 1}]
+    assert first["dynamics"] == [{"mark": "mf", "offset_beats": "1"}]
+    assert first["wedges"] == [{"type": "diminuendo", "number": 1, "offset_beats": "0"}]
+    assert second["wedges"] == [{"type": "stop", "number": 1, "offset_beats": "0"}]
+
+    exported = client.get(f"/sessions/{sid}/export?format=musicxml", headers=headers)
+    tags = {element.tag for element in ET.fromstring(exported.content).iter()}
+    assert {"staccato", "accent", "fermata", "slur", "wedge", "dynamics", "mf"} <= tags
+
+    # Cada compensatoria es una edición más del log (ADR-0007).
+    for base_seq in range(len(edits), 2 * len(edits)):
+        undone = client.post(f"/sessions/{sid}/undo", json={"base_seq": base_seq}, headers=headers)
+        assert undone.status_code == 200, undone.text
+    assert client.get(f"/sessions/{sid}", headers=headers).json()["current_score"] == original
+
+
+def test_removing_a_slur_removes_both_ends_and_undo_restores_them(tmp_path: Path) -> None:
+    client, headers = _client(tmp_path, _MarkedEngine())
+    sid = _transcribe(client, headers)
+    original = client.get(f"/sessions/{sid}", headers=headers).json()["current_score"]
+
+    removed = _post_edit(
+        client,
+        headers,
+        sid,
+        0,
+        "SetSlur",
+        _anchor(0, 1, 0),
+        {"number": 1, "start": None, "stop": None},
+    )
+    assert removed.status_code == 201, removed.text
+    assert removed.json()["before"]["start"] == _slot(1, 0)
+    assert removed.json()["before"]["stop"] is not None
+    score = removed.json()["current_score"]
+    assert all(
+        slur["number"] != 1
+        for measure in _measures(score, 0) + _measures(score, 1)
+        for event in measure["events"]
+        for slur in event["slurs"]
+    )
+
+    undone = client.post(f"/sessions/{sid}/undo", json={"base_seq": 1}, headers=headers)
+    assert undone.status_code == 200, undone.text
+    assert undone.json()["current_score"] == original
+
+
+def test_invalid_mark_edits_answer_422_and_stale_ones_409(tmp_path: Path) -> None:
+    client, headers = _client(tmp_path, FakeOMREngine())
+    sid = _transcribe(client, headers)
+    rejected: list[tuple[str, dict[str, Any], dict[str, Any]]] = [
+        ("SetNoteMarks", _anchor(0, 1, 2), {"articulations": ["staccato"], "fermata": False}),
+        ("SetDynamic", _anchor(0, 1, 0), {"offset_beats": "7", "mark": "p"}),
+        ("SetSlur", _anchor(0, 1, 0), {"number": 1, "start": _slot(1, 0), "stop": None}),
+        ("SetSlur", _anchor(0, 1, 0), {"number": 1, "start": _slot(1, 0), "stop": _slot(1, 2)}),
+        ("SetWedge", _anchor(0, 1, 0), {"number": 3, "start": None, "stop": None}),
+    ]
+    for op, anchor, after in rejected:
+        res = _post_edit(client, headers, sid, 0, op, anchor, after)
+        assert res.status_code == 422, (op, res.text)
+    assert client.get(f"/sessions/{sid}", headers=headers).json()["current_seq"] == 0
+
+    ok = _post_edit(
+        client, headers, sid, 0, "SetDynamic", _anchor(0, 2, 0), {"offset_beats": "0", "mark": "p"}
+    )
+    assert ok.status_code == 201
+    stale = _post_edit(
+        client, headers, sid, 0, "SetDynamic", _anchor(0, 2, 0), {"offset_beats": "0", "mark": "f"}
+    )
+    assert stale.status_code == 409

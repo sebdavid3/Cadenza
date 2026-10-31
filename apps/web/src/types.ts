@@ -186,8 +186,30 @@ export interface EditEventRead {
  *    - Modifica la armadura de clave del compás al que apunta el ancla.
  *    - ``before``: snapshot de armadura previa o ``None``.
  *    - ``after``: ``{"key_signature": dict | KeySignature}`` o primitivo ``{"fifths": int}``.
+ * 
+ * Marcas de notación (ADR-0031, ADR-0039). Las cuatro son de tipo «fijar»: el servidor guarda
+ * en ``before`` el estado que sustituyen y la compensatoria intercambia ``before`` y ``after``.
+ * No mueven ningún evento (no cambian el ``event_index`` de las anclas).
+ * 
+ * 8. `SET_NOTE_MARKS` ("SetNoteMarks"):
+ *    - Fija las articulaciones y el calderón del evento anclado.
+ *    - ``before``/``after``: ``{"articulations": [str, ...], "fermata": bool}``.
+ * 
+ * 9. `SET_DYNAMIC` ("SetDynamic"):
+ *    - Pone, cambia o quita la dinámica de una posición del compás del ancla.
+ *    - ``before``/``after``: ``{"offset_beats": str, "mark": str | None}``.
+ * 
+ * 10. `SET_WEDGE` ("SetWedge"):
+ *     - Crea un regulador con su inicio y su fin, o quita los extremos de uno.
+ *     - ``before``/``after``: ``{"number": int, "start": {"staff", "measure",
+ *       "offset_beats", "type"} | None, "stop": {"staff", "measure", "offset_beats"} | None}``.
+ * 
+ * 11. `SET_SLUR` ("SetSlur"):
+ *     - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.
+ *     - ``before``/``after``: ``{"number": int, "start": {"staff", "measure", "voice",
+ *       "event_index"} | None, "stop": {...} | None}``.
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).
