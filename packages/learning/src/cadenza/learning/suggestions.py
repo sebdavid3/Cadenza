@@ -708,13 +708,20 @@ def _score_end_to_end(
     end_to_end: Counter[str],
 ) -> None:
     features = ScoreFeatures.of(score)
-    seen_by_rules: set[tuple[int, int, int, int, int]] = set()
+    # Lo que ven las reglas, como la exclusión de la capa (ADR-0036 §3.3 y enmienda 4): el
+    # ancla de un hallazgo, todas las familias; un candidato, solo la suya.
+    anchored: set[tuple[int, int, int, int, int]] = set()
+    seen_by_rules: set[tuple[tuple[int, int, int, int, int], str]] = set()
     for finding in findings:
-        for anchor in (finding.anchor, *(c.anchor for c in finding.candidates)):
-            seen_by_rules.add(
-                (anchor.part, anchor.staff, anchor.measure, anchor.voice, anchor.event_index)
-            )
-    learned_at: dict[tuple[int, int, int, int, int], bool] = {}
+        a = finding.anchor
+        anchored.add((a.part, a.staff, a.measure, a.voice, a.event_index))
+        for candidate in finding.candidates:
+            c = candidate.anchor
+            position = (c.part, c.staff, c.measure, c.voice, c.event_index)
+            labelled = label_of_edit(candidate.op, candidate.after, features.events.get(position))
+            if labelled is not None:
+                seen_by_rules.add((position, labelled[0]))
+    learned_at: dict[tuple[int, int, int, int, int], tuple[str, bool]] = {}
     for item in suggested:
         finding = item.finding
         if finding.rule_id.startswith(LEARNED_PREFIX):
@@ -725,7 +732,10 @@ def _score_end_to_end(
             )
             end_to_end["correct"] += int(correct)
             a = finding.anchor
-            learned_at[(a.part, a.staff, a.measure, a.voice, a.event_index)] = correct
+            learned_at[(a.part, a.staff, a.measure, a.voice, a.event_index)] = (
+                finding.rule_id.removeprefix(LEARNED_PREFIX),
+                correct,
+            )
             continue
         if not finding.candidates:
             continue
@@ -748,12 +758,16 @@ def _score_end_to_end(
                 _is_true(top.op, top.after, top.anchor, features, truths, gaps)
             )
     for position, labels in truths.items():
-        if position in seen_by_rules or all(label == NONE_LABEL for label in labels.values()):
+        if position in anchored:
             continue
-        blind["errors"] += 1
-        if position in learned_at:
-            blind["flagged"] += 1
-            blind["flagged_with_correct_fix"] += int(learned_at[position])
+        for family, label in labels.items():
+            if label == NONE_LABEL or (position, family) in seen_by_rules:
+                continue
+            blind["errors"] += 1
+            learned = learned_at.get(position)
+            if learned is not None and learned[0] == family:
+                blind["flagged"] += 1
+                blind["flagged_with_correct_fix"] += int(learned[1])
 
 
 # --- Promoción -------------------------------------------------------------------------------
@@ -770,6 +784,8 @@ def promotion_decision(
     """
     if report.get("simulated", True):
         return False, "el informe no es una medición"
+    if report.get("split") != "test":
+        return False, "el informe no se midió sobre la partición de prueba fija"
     learned_f1 = (report.get("learned") or {}).get("f1")
     top1 = (report.get("rule_findings") or {}).get("top1_accuracy")
     if learned_f1 is None:
@@ -872,6 +888,14 @@ def session_records(
                     "split": split,
                     "condition": session.condition,
                     "response": suggestion.response or "ignored",
+                    # Un rechazo heredado repite el de `inherited_from`: no es otra respuesta.
+                    "inherited_from": suggestion.inherited_from,
+                    "responded_by": suggestion.responded_by,
+                    "responded_at": (
+                        None
+                        if suggestion.responded_at is None
+                        else suggestion.responded_at.isoformat()
+                    ),
                     "suggestion": {
                         "at_seq": suggestion.at_seq,
                         "rank": suggestion.rank,

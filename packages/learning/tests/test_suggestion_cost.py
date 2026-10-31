@@ -2,10 +2,12 @@
 
 La capa (rasgos, puntuación, posibles errores propios y el filtro de admisibilidad que
 aplican los casos de uso) añade como mucho 300 ms. Aquí se mide sobre una página sintética
-densa (dos pentagramas, 40 compases, 640 eventos, con compases incompletos y alteraciones
+densa (dos pentagramas, 40 compases, 624 eventos, con compases incompletos y alteraciones
 contra la armadura que disparan candidatos y posibles errores propios) y con la caché del
 modelo vacía en cada pasada, el caso más caro. La medición con una página real la hace
-`scripts/measure_suggestion_cost.py`, que falla si no recibe la página.
+`scripts/measure_suggestion_cost.py`, que falla si no recibe la página. No se mide la escritura
+de las filas de `suggestions` en la base de datos, ni con un artefacto entrenado con el corpus
+completo (con más etiquetas por familia).
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import time
 from fractions import Fraction
 from pathlib import Path
 
-from cadenza.application.suggestions import suggest
+from cadenza.application.suggestions import suggest, with_inherited_rejections
 from cadenza.domain import (
     Clef,
     Event,
@@ -88,7 +90,7 @@ def test_the_layer_adds_at_most_300_ms_to_a_full_page(tmp_path: Path) -> None:
     artifact = train(corpus_records(), config, dataset_hash="d")
     document = full_page()
     events = sum(len(m.events) for s in document.score.parts[0].staves for m in s.measures)
-    assert events > 600
+    assert events == 624
     validator = ValidationEngine()
     findings = validator.validate(document)
 
@@ -98,6 +100,7 @@ def test_the_layer_adds_at_most_300_ms_to_a_full_page(tmp_path: Path) -> None:
         model = FrequencyBackoffModel(artifact, version="cost")  # caché vacía en cada pasada
         start = time.perf_counter()
         produced = suggest(document, findings, model)
+        with_inherited_rejections(produced, (), current_seq=0, edits=())
         layer.append(time.perf_counter() - start)
 
     # La capa trabajó de verdad: ordenó candidatos y propuso posibles errores propios.

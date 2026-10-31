@@ -158,6 +158,9 @@ def promote_command(args: argparse.Namespace) -> int:
         if not ok:
             print(f"[suggestions promote] Rechazada: {reason}", file=sys.stderr)
             return 1
+        if any(v.version == version for v in registry.versions()):
+            print(f"[suggestions promote] La versión {version} ya existe.", file=sys.stderr)
+            return 1
         store = FilesystemArtifactStore(Path(args.artifacts_dir), session=db)
         digest = store.put(content, kind="suggestion_model", media_type="application/json")
         registry.register(

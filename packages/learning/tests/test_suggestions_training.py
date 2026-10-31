@@ -27,6 +27,7 @@ from cadenza.domain import (
     EditOp,
     Event,
     EventKind,
+    KeySignature,
     Measure,
     Part,
     ScoreIR,
@@ -152,7 +153,9 @@ def test_the_context_of_the_features_is_the_one_of_the_corpus(case: str) -> None
         trained = Counter(tuple(sorted(e.features.items())) for e in gap_examples(records))
         seen: Counter[tuple[tuple[str, str], ...]] = Counter()
         for position in features.events:
-            seen[tuple(sorted(features.gap(position).items()))] += 1  # type: ignore[union-attr]
+            gap = features.gap(position)
+            assert gap is not None
+            seen[tuple(sorted(gap.items()))] += 1
         ends = {p[:4] for p in features.events}
         for part, staff, measure, voice in ends:
             length = features.voice_length(part, staff, measure, voice)
@@ -256,6 +259,7 @@ def test_evaluation_is_measured_on_the_test_split_against_no_layer(tmp_path: Pat
 def test_promotion_requires_measured_improvement() -> None:
     base: dict[str, Any] = {
         "simulated": False,
+        "split": "test",
         "evaluation_dataset_hash": "e",
         "learned": {"f1": 0.4},
         "rule_findings": {"top1_accuracy": 0.8},
@@ -263,6 +267,8 @@ def test_promotion_requires_measured_improvement() -> None:
     }
     assert promotion_decision(base, None)[0] is True
     assert promotion_decision({**base, "simulated": True}, None)[0] is False
+    # Solo cuenta la partición de prueba fija, también en la primera promoción.
+    assert promotion_decision({**base, "split": "train"}, None)[0] is False
     assert promotion_decision({**base, "learned": {"f1": None}}, None)[0] is False
     assert promotion_decision({**base, "learned": {"f1": 0.0}}, None)[0] is False
     worse_top1 = {**base, "rule_findings": {"top1_accuracy": 0.4}}
@@ -507,3 +513,36 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
 
 def json_lines(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+def test_an_accidental_in_an_incomplete_measure_counts_as_unseen_by_the_rules(
+    tmp_path: Path,
+) -> None:
+    """measure.balance propone cambiar la figura de cada evento del compás, no su alteración:
+    el Si natural de un compás incompleto es un error que las reglas no ven (enmienda 4)."""
+    config = load_suggestions_config(small_config(tmp_path / "config.json"))
+    model = FrequencyBackoffModel(train(corpus_records(), config, dataset_hash="d"), version="v")
+
+    def score_of(*pitches: str) -> ScoreIR:
+        events = tuple(
+            Event(kind=EventKind.NOTE, pitch=p, duration_beats=Fraction(1)) for p in pitches
+        )
+        measure = Measure(
+            number=1,
+            events=events,
+            time_signature=TimeSignature(4, 4),
+            key_signature=KeySignature(fifths=-1),
+        )
+        return ScoreIR(parts=(Part(id="P1", staves=(Staff(id="P1-S1", measures=(measure,)),)),))
+
+    # Tres negras en 4/4 (incompleto en lo leído y en la verdad) con un Si natural en Fa mayor.
+    records = build_correction_records(
+        score_of("F4", "B4", "A4"),
+        score_of("F4", "Bb4", "A4"),
+        incipit_id="999999999-1_1_1",
+        split="test",
+        verified=True,
+    )
+    report = evaluate(model, records)
+    assert report["rule_blind"]["errors"] >= 1
+    assert report["rule_blind"]["flagged_with_correct_fix"] >= 1
