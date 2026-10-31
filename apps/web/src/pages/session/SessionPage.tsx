@@ -108,8 +108,6 @@ function SessionView({ sessionId }: { sessionId: string }) {
   // responde 403 (ADR-0012).
   const owned = user !== null && ownerId === user.id;
   const editable = owned && !finalized;
-  // En una sesión no asistida no se habla del validador (ADR-0040 §13).
-  const assisted = detail.data?.condition !== "unassisted";
   const users = useQuery({
     queryKey: ["users"],
     queryFn: ({ signal }) => listUsers(api, signal),
