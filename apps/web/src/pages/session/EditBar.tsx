@@ -35,6 +35,8 @@ interface EditBarProps {
   available: boolean;
   /** Estado que se muestra: el del evento elegido (su armadura, su clave, su compás). */
   score: ScoreIRPayload | null;
+  /** `seq` del estado que se muestra. */
+  seq: number;
   multiStaff: boolean;
   /** Identificador de la leyenda de teclas, que también describe la partitura. */
   keysId: string;
@@ -476,14 +478,25 @@ export function EditBar({
   target,
   available,
   score,
+  seq,
   multiStaff,
   keysId,
   focusScore,
   focusMemoryRef,
 }: EditBarProps) {
   const groupId = useId();
-  const { status, refusal, blocked, retry } = editor;
-  const { text, reload } = feedback(status, multiStaff, score, retry);
+  const { status, refusal, blocked, retry, targetRef } = editor;
+  // La orden en espera se planea con la nota que la vista ofrece corregir en el estado que se ve.
+  useLayoutEffect(() => {
+    targetRef.current = { seq, target };
+  });
+  const said = feedback(status, multiStaff, score, retry);
+  // Una orden que espera a que se guarde la que está en curso (ADR-0038) se dice en la barra.
+  const text =
+    editor.queued && status.kind === "saving"
+      ? `${said.text} La orden siguiente espera su turno.`
+      : said.text;
+  const { reload } = said;
   const busy = status.kind === "saving" || status.kind === "reloading";
 
   const current = target ? figureOf(target.event.duration_beats) : { figure: null, dotted: false };

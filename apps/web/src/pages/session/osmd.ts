@@ -1,5 +1,6 @@
 import type { GraphicalMeasure, GraphicalNote } from "opensheetmusicdisplay";
 import type { MeasureSlot } from "./findings";
+import { timeStage } from "./marks";
 
 /** Caja en píxeles, relativa a la esquina superior izquierda de la partitura. */
 export interface Box {
@@ -37,9 +38,6 @@ export interface RenderedScore {
   measureBox(slot: MeasureSlot): Box | null;
   /** Figuras dibujadas en un compás, por voces en el orden de su número (ADR-0027). */
   measureFigures(slot: MeasureSlot): DrawnVoice[] | null;
-  /** Vuelve a maquetar al ancho actual del contenedor. */
-  relayout(width: number): void;
-  dispose(): void;
 }
 
 /** OSMD mide en unidades de 10 px a zoom 1; las cinco líneas ocupan 4 unidades. */
@@ -249,23 +247,42 @@ export function withInitialAttributes(document: Document): Document {
   return document;
 }
 
+/** Estado que se dibuja: su sesión y su `seq`, para las medidas de cada etapa (#276). */
+export interface DrawnState {
+  sessionId: string;
+  seq: number;
+}
+
 /**
- * Carga OSMD bajo demanda (pesa más que el resto de la interfaz junta) y dibuja el MusicXML en
- * `host`. Sin título, compositor ni nombres de parte, que el exportador no tiene, y sin agrupar
- * los silencios de compás en un multicompás, que rompería la correspondencia de compases. Si
- * `signal` se cancela antes de dibujar, no se dibuja y se libera lo cargado.
+ * Instancia de OSMD de una vista, que dibuja un estado tras otro (#276). Dibuja de forma
+ * síncrona: OSMD 2.2.1 lee un `Document` sin esperas (`load` lo analiza y devuelve una promesa
+ * ya cumplida) y `render` es síncrono, así que el estado nuevo sustituye al anterior en la misma
+ * tarea, sin un fotograma intermedio. Solo se dibuja la partitura entera: OSMD no dibuja un
+ * sistema suelto (`render` vacía el contenedor y vuelve a maquetar todo).
  */
-export async function renderScore(
+export interface ScoreRenderer {
+  /**
+   * Dibuja el MusicXML de un estado. Si es el mismo que el ya dibujado, no lo vuelve a leer ni a
+   * dibujar. Si falla, no deja nada dibujado y lanza el error.
+   */
+  draw(xml: string, state: DrawnState): RenderedScore;
+  /** Vuelve a maquetar lo dibujado al ancho actual del contenedor. */
+  relayout(width: number): void;
+  dispose(): void;
+}
+
+/**
+ * Carga OSMD bajo demanda (pesa más que el resto de la interfaz junta) y crea la instancia que
+ * dibuja en `host`. Sin título, compositor ni nombres de parte, que el exportador no tiene, y sin
+ * agrupar los silencios de compás en un multicompás, que rompería la correspondencia de
+ * compases. Si `signal` se cancela antes, no se crea.
+ */
+export async function createScoreRenderer(
   host: HTMLElement,
-  xml: string,
   signal: AbortSignal,
-): Promise<RenderedScore> {
-  // Función y no propiedad: TypeScript no sabe que la señal puede cambiar durante un await.
-  const cancelled = () => signal.aborted;
-  const document = parseMusicXml(xml);
+): Promise<ScoreRenderer> {
   const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
-  if (cancelled()) throw abortError();
-  const ink = cssColor("--color-ink", "#0a0a0a");
+  if (signal.aborted) throw abortError();
   const osmd = new OpenSheetMusicDisplay(host, {
     backend: "svg",
     autoResize: false,
@@ -278,52 +295,95 @@ export async function renderScore(
     drawPartAbbreviations: false,
     drawMeasureNumbers: true,
     autoGenerateMultipleRestMeasuresFromRestMeasures: false,
-    defaultColorMusic: ink,
+    defaultColorMusic: cssColor("--color-ink", "#0a0a0a"),
     defaultFontFamily: "Hanken Grotesk, system-ui, sans-serif",
   });
   osmd.EngravingRules.PageBottomMargin = PAGE_BOTTOM_MARGIN_UNITS;
-  await osmd.load(document);
-  if (cancelled()) {
-    osmd.clear();
-    throw abortError();
+
+  let drawnXml: string | null = null;
+  let current: RenderedScore | null = null;
+  // Cada dibujo invalida el anterior: un `RenderedScore` viejo ya no describe lo que se ve.
+  let generation = 0;
+
+  const graphic = (own: number) => (own === generation ? osmd.GraphicSheet : null);
+  function rendered(own: number): RenderedScore {
+    return {
+      measuresPerStaff() {
+        const rows = graphic(own)?.MeasureList ?? [];
+        const staves = Math.max(0, ...rows.map((row) => row.length));
+        return Array.from(
+          { length: staves },
+          (_unused, staff) => rows.filter((row) => row[staff] !== undefined).length,
+        );
+      },
+      measureBox(slot) {
+        const measure = graphic(own)?.MeasureList[slot.measure]?.[slot.staff];
+        if (!measure) return null;
+        const shape = measure.PositionAndShape;
+        const unit = UNIT_PX * osmd.zoom;
+        // La posición absoluta del compás es la de la línea superior del pentagrama.
+        const top = shape.AbsolutePosition.y - MARK_PADDING_UNITS;
+        const bottom = shape.AbsolutePosition.y + STAFF_HEIGHT_UNITS + MARK_PADDING_UNITS;
+        return {
+          left: (shape.AbsolutePosition.x + shape.BorderLeft) * unit,
+          top: top * unit,
+          width: (shape.BorderRight - shape.BorderLeft) * unit,
+          height: (bottom - top) * unit,
+        };
+      },
+      measureFigures(slot) {
+        const measure = graphic(own)?.MeasureList[slot.measure]?.[slot.staff];
+        if (!measure) return null;
+        return measureFigures(measure, host.getBoundingClientRect(), UNIT_PX * osmd.zoom);
+      },
+    };
   }
-  osmd.zoom = zoomFor(host.clientWidth);
-  osmd.render();
+  /** Lo dibujado ya no vale: se quita de la página y se olvida. */
+  function forget() {
+    generation += 1;
+    drawnXml = null;
+    current = null;
+    osmd.clear();
+    host.replaceChildren();
+  }
 
   return {
-    measuresPerStaff() {
-      const rows = osmd.GraphicSheet.MeasureList;
-      const staves = Math.max(0, ...rows.map((row) => row.length));
-      return Array.from(
-        { length: staves },
-        (_unused, staff) => rows.filter((row) => row[staff] !== undefined).length,
-      );
-    },
-    measureBox(slot) {
-      const measure = osmd.GraphicSheet.MeasureList[slot.measure]?.[slot.staff];
-      if (!measure) return null;
-      const shape = measure.PositionAndShape;
-      const unit = UNIT_PX * osmd.zoom;
-      // La posición absoluta del compás es la de la línea superior del pentagrama.
-      const top = shape.AbsolutePosition.y - MARK_PADDING_UNITS;
-      const bottom = shape.AbsolutePosition.y + STAFF_HEIGHT_UNITS + MARK_PADDING_UNITS;
-      return {
-        left: (shape.AbsolutePosition.x + shape.BorderLeft) * unit,
-        top: top * unit,
-        width: (shape.BorderRight - shape.BorderLeft) * unit,
-        height: (bottom - top) * unit,
-      };
-    },
-    measureFigures(slot) {
-      const measure = osmd.GraphicSheet.MeasureList[slot.measure]?.[slot.staff];
-      if (!measure) return null;
-      return measureFigures(measure, host.getBoundingClientRect(), UNIT_PX * osmd.zoom);
+    draw(xml, state) {
+      if (current && xml === drawnXml) return current;
+      try {
+        timeStage("leer", state.sessionId, state.seq, () => {
+          const loaded = osmd.load(parseMusicXml(xml));
+          // Un rechazo ya se dice abajo: sin hoja que dibujar, no se dibuja.
+          loaded.catch(() => undefined);
+          if (!osmd.IsReadyToRender()) throw new Error("OSMD no pudo leer el MusicXML");
+        });
+        // `load` vuelve al zoom 1: se pone el del ancho actual antes de dibujar.
+        osmd.zoom = zoomFor(host.clientWidth);
+        timeStage("dibujar", state.sessionId, state.seq, () => {
+          osmd.render();
+        });
+      } catch (error) {
+        forget();
+        throw error;
+      }
+      generation += 1;
+      drawnXml = xml;
+      current = rendered(generation);
+      return current;
     },
     relayout(width) {
+      if (!current) return;
       osmd.zoom = zoomFor(width);
-      osmd.render();
+      try {
+        osmd.render();
+      } catch (error) {
+        forget();
+        throw error;
+      }
     },
     dispose() {
+      generation += 1;
+      current = null;
       osmd.clear();
     },
   };

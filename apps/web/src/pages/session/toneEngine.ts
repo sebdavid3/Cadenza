@@ -106,29 +106,69 @@ export function createToneEngine(
     voice = createVoice(context);
   };
 
-  for (const note of playback.notes) {
-    const frequency = midiToFrequency(note.midi);
-    const duration = ticks(note.duration);
-    transport.schedule((time) => {
-      voice.synth.triggerAttackRelease(frequency, duration, time);
-    }, ticks(note.start));
-  }
-  for (const measure of playback.measures) {
-    transport.schedule((time) => {
-      atTime(time, () => {
-        handlers.onMeasure(measure.number);
+  let current = playback;
+  const endTick = () => Math.round(current.totalBeats * transport.PPQ);
+  // Si lo programado empieza en un punto de la partitura (tras `update` mientras suena), al volver
+  // al principio hay que programarla entera.
+  let partial = false;
+  // Último pulso que el transporte ya disparó (-1 si ninguno desde que arrancó o se reanudó). No
+  // es `transport.ticks`: ese es el pulso en `now()`, por delante de lo disparado, y si el hilo
+  // estuvo ocupado (dibujando la partitura) lo que cae entre medias aún no ha sonado.
+  let fired = -1;
+  /** Termina como al llegar al final: la última nota acaba con su caída, sin fundir la voz. */
+  const finish = () => {
+    intent = "stopped";
+    transport.stop();
+    clearTimers();
+    fired = -1;
+    if (partial) program(0);
+    handlers.onEnd();
+  };
+  /**
+   * Programa la partitura a partir del pulso `from`: lo anterior ya sonó. Con el transporte en
+   * marcha, `from` es el último pulso disparado y no se vuelve a programar; en pausa o detenido,
+   * es el pulso en que seguirá.
+   */
+  function program(from: number) {
+    transport.cancel(0);
+    partial = from > 0;
+    const running = transport.state === "started";
+    const at = (tick: number, callback: (time: number) => void) => {
+      if (running ? tick <= from : tick < from) return;
+      transport.schedule(
+        (time) => {
+          fired = Math.max(fired, tick);
+          callback(time);
+        },
+        `${String(tick)}i`,
+      );
+    };
+    for (const note of current.notes) {
+      const frequency = midiToFrequency(note.midi);
+      const duration = ticks(note.duration);
+      at(Math.round(note.start * transport.PPQ), (time) => {
+        voice.synth.triggerAttackRelease(frequency, duration, time);
       });
-    }, ticks(measure.start));
+    }
+    for (const measure of current.measures) {
+      at(Math.round(measure.start * transport.PPQ), (time) => {
+        atTime(time, () => {
+          handlers.onMeasure(measure.number);
+        });
+      });
+    }
+    const end = endTick();
+    transport.schedule(
+      (time) => {
+        atTime(time, () => {
+          // Un final ya anticipado de una partitura que una edición alargó no termina nada.
+          if (end === endTick()) finish();
+        });
+      },
+      `${String(end)}i`,
+    );
   }
-  transport.schedule((time) => {
-    atTime(time, () => {
-      // La última nota termina con su caída: no se funde la voz.
-      intent = "stopped";
-      transport.stop();
-      clearTimers();
-      handlers.onEnd();
-    });
-  }, ticks(playback.totalBeats));
+  program(0);
 
   return {
     async play() {
@@ -146,11 +186,27 @@ export function createToneEngine(
       intent = "paused";
       transport.pause(Math.max(context.immediate(), startAt));
       silence();
+      // Al reanudar, el transporte vuelve a disparar desde el pulso de la pausa.
+      fired = -1;
     },
     stop() {
       intent = "stopped";
       transport.stop(context.immediate());
       silence();
+      fired = -1;
+      if (partial) program(0);
+    },
+    // Otra partitura (una edición) con el transporte donde está: lo que sigue suena con las notas
+    // nuevas, sin cortar lo que ya suena. Si la nueva acaba antes de ese punto, termina.
+    update(next) {
+      current = next;
+      const state = transport.state;
+      const position = state === "started" ? fired : state === "paused" ? transport.ticks : 0;
+      if (state !== "stopped" && position >= endTick()) {
+        finish();
+        return;
+      }
+      program(position);
     },
     setTempo(bpm) {
       transport.bpm.value = bpm;

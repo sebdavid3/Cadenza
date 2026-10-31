@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { markDrawn, markReceived, markSent } from "./marks";
+import { markDrawn, markReceived, markSent, timeStage } from "./marks";
 
 afterEach(() => {
   performance.clearMarks();
@@ -35,5 +35,32 @@ describe("marcas de rendimiento de una orden (#275)", () => {
     markDrawn("s1", 10);
     markDrawn("s1", 10);
     expect(performance.getEntriesByName(order, "measure")).toHaveLength(1);
+  });
+});
+
+describe("etapas del dibujo de un estado (#276)", () => {
+  it("mide cada etapa con su sesión y su seq, y devuelve lo que hace", () => {
+    const result = timeStage("leer", "s1", 4, () => 7);
+    timeStage("dibujar", "s1", 4, () => undefined);
+    timeStage("mapa", "s1", 4, () => undefined);
+
+    expect(result).toBe(7);
+    const measures = performance.getEntriesByType("measure") as PerformanceMeasure[];
+    expect(measures.map((entry) => entry.name)).toEqual([
+      "cadenza:dibujo:leer",
+      "cadenza:dibujo:dibujar",
+      "cadenza:dibujo:mapa",
+    ]);
+    expect(measures[0]?.detail).toEqual({ sessionId: "s1", seq: 4 });
+    expect(measures.every((entry) => entry.duration >= 0)).toBe(true);
+  });
+
+  it("si la etapa falla, la mide igual y deja pasar el error", () => {
+    expect(() =>
+      timeStage("dibujar", "s1", 5, () => {
+        throw new Error("OSMD");
+      }),
+    ).toThrow("OSMD");
+    expect(performance.getEntriesByName("cadenza:dibujo:dibujar", "measure")).toHaveLength(1);
   });
 });
