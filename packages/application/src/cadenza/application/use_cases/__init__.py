@@ -1,6 +1,6 @@
 """Casos de uso de la capa de aplicación."""
 
-from .append_edit import append_edit
+from .append_edit import AppliedEdit, append_edit, append_edit_with_state
 from .authenticate import authenticate
 from .change_password import change_password
 from .create_user import create_user
@@ -24,6 +24,7 @@ from .undo_edit import UndoResult, undo_edit
 from .update_user import update_user
 
 __all__ = [
+    "AppliedEdit",
     "FinalizeResult",
     "ReopenResult",
     "RevalidateResult",
@@ -32,6 +33,7 @@ __all__ = [
     "TranscribeResult",
     "UndoResult",
     "append_edit",
+    "append_edit_with_state",
     "authenticate",
     "change_password",
     "create_user",

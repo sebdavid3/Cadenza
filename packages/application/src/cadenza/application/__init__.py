@@ -25,6 +25,7 @@ from .exceptions import (
 from .export import ExportedScore, ExportFormat
 from .ports import (
     ArtifactStore,
+    CachedScoreState,
     EditEventRepository,
     EffortMetricsData,
     EffortRepository,
@@ -35,6 +36,7 @@ from .ports import (
     InMemoryModelRegistry,
     InMemoryPasswordHasher,
     InMemoryScoreExporter,
+    InMemoryScoreStateCache,
     InMemorySessionRepository,
     InMemoryTokenService,
     InMemoryUserRepository,
@@ -45,6 +47,8 @@ from .ports import (
     PromotionRejected,
     PromotionThreshold,
     ScoreExporter,
+    ScoreStateCache,
+    ScoreStateKey,
     SessionData,
     SessionRepository,
     SessionSummary,
@@ -56,7 +60,9 @@ from .ports import (
     is_image_content,
 )
 from .session_status import SessionStatus
+from .stage_timing import collect_stage_timings, timed_stage
 from .use_cases import (
+    AppliedEdit,
     FinalizeResult,
     ReopenResult,
     RevalidateResult,
@@ -65,6 +71,7 @@ from .use_cases import (
     TranscribeResult,
     UndoResult,
     append_edit,
+    append_edit_with_state,
     authenticate,
     change_password,
     create_user,
@@ -92,8 +99,10 @@ from .user import Role, User
 
 __all__ = [
     "ApplicationError",
+    "AppliedEdit",
     "ArtifactNotFound",
     "ArtifactStore",
+    "CachedScoreState",
     "DuplicateUsername",
     "EditEventRepository",
     "EffortMetricsData",
@@ -110,6 +119,7 @@ __all__ = [
     "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
     "InMemoryScoreExporter",
+    "InMemoryScoreStateCache",
     "InMemorySessionRepository",
     "InMemoryTokenService",
     "InMemoryUserRepository",
@@ -127,6 +137,8 @@ __all__ = [
     "RevalidateResult",
     "Role",
     "ScoreExporter",
+    "ScoreStateCache",
+    "ScoreStateKey",
     "SequenceConflict",
     "SessionClosed",
     "SessionData",
@@ -146,8 +158,10 @@ __all__ = [
     "UserRepository",
     "WeakPassword",
     "append_edit",
+    "append_edit_with_state",
     "authenticate",
     "change_password",
+    "collect_stage_timings",
     "compute_interventions_from_edits",
     "compute_sha256",
     "contrast_interventions",
@@ -171,6 +185,7 @@ __all__ = [
     "reopen_session",
     "restore_finding",
     "revalidate",
+    "timed_stage",
     "transcribe_score",
     "undo_edit",
     "update_user",

@@ -8,14 +8,15 @@ from typing import Any
 from cadenza.domain import (
     AnchorIndex,
     EditEvent,
-    ScoreIR,
     build_anchor_index,
-    materialize,
 )
 
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
+from ..ports.score_state_cache import ScoreStateCache
 from ..ports.session_repository import PersistedFinding, SessionRepository
+from ..score_state import load_state, raw_score_of
+from ..stage_timing import timed_stage
 from ..user import Role, User
 
 
@@ -46,6 +47,8 @@ def get_session(
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
     current_user: User,
+    include_anchor_index: bool = True,
+    score_cache: ScoreStateCache | None = None,
 ) -> SessionDetail:
     """Recupera la sesión, sus hallazgos, log de ediciones y estado proyectado.
 
@@ -54,40 +57,46 @@ def get_session(
 
     Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
     sesiones (las ajenas responden como inexistentes); un investigador puede leer todas.
+
+    Con `include_anchor_index=False` no se construye el índice de anclas (`anchor_index` es
+    None), que la vista no usa y cuesta eventos por ediciones (#275). Con `score_cache`, el estado
+    materializado sale de la caché si está (ADR-0037).
     """
 
-    session_data = session_repository.get(session_id)
+    with timed_stage("db"):
+        session_data = session_repository.get(session_id)
     if session_data is None:
         raise SessionNotFound(session_id)
 
     if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
         raise SessionNotFound(session_id)
 
-    findings = session_repository.list_findings(session_id)
-    edits = edit_repository.list_events(session_id)
+    with timed_stage("db"):
+        findings = session_repository.list_findings(session_id)
+        edits = edit_repository.list_events(session_id)
 
-    raw_score = ScoreIR.from_primitive(session_data.document["score"])
-    raw_anchors = (
-        AnchorIndex.from_primitive(session_data.document["anchors"])
-        if "anchors" in session_data.document
-        else build_anchor_index(raw_score)
-    )
+    key, state = load_state(session_id, session_data.document, edits, score_cache)
+    current_seq = key.seq
+    with timed_stage("serialize"):
+        current_score = state.score.to_primitive()
 
-    if edits:
-        current_seq = edits[-1].seq
-        current_score_ir = materialize(raw_score, edits)
-        current_anchors = build_anchor_index(
-            current_score_ir,
-            raw_anchors=raw_anchors,
-            edits=edits,
-            at_seq=current_seq,
-        )
-        current_score = current_score_ir.to_primitive()
-        anchor_index = current_anchors.to_primitive()
-    else:
-        current_seq = 0
-        current_score = raw_score.to_primitive()
-        anchor_index = raw_anchors.to_primitive()
+    anchor_index: dict[str, Any] | None = None
+    if include_anchor_index:
+        with timed_stage("materialize"):
+            raw_anchors = (
+                AnchorIndex.from_primitive(session_data.document["anchors"])
+                if "anchors" in session_data.document
+                else build_anchor_index(raw_score_of(session_data.document))
+            )
+            if edits:
+                anchor_index = build_anchor_index(
+                    state.score,
+                    raw_anchors=raw_anchors,
+                    edits=edits,
+                    at_seq=current_seq,
+                ).to_primitive()
+            else:
+                anchor_index = raw_anchors.to_primitive()
 
     return SessionDetail(
         session_id=session_data.id,

@@ -22,6 +22,12 @@ from .model_registry import (
     PromotionThreshold,
 )
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
+from .score_state_cache import (
+    CachedScoreState,
+    InMemoryScoreStateCache,
+    ScoreStateCache,
+    ScoreStateKey,
+)
 from .security import (
     InMemoryPasswordHasher,
     InMemoryTokenService,
@@ -40,6 +46,7 @@ from .user_repository import InMemoryUserRepository, UserRepository
 
 __all__ = [
     "ArtifactStore",
+    "CachedScoreState",
     "EditEventRepository",
     "EffortMetricsData",
     "EffortRepository",
@@ -50,6 +57,7 @@ __all__ = [
     "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
     "InMemoryScoreExporter",
+    "InMemoryScoreStateCache",
     "InMemorySessionRepository",
     "InMemoryTokenService",
     "InMemoryUserRepository",
@@ -60,6 +68,8 @@ __all__ = [
     "PromotionRejected",
     "PromotionThreshold",
     "ScoreExporter",
+    "ScoreStateCache",
+    "ScoreStateKey",
     "SessionData",
     "SessionRepository",
     "SessionSummary",
