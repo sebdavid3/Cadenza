@@ -151,7 +151,12 @@ def _promote(
 
 
 def _app(
-    tmp_path: Path, *, enabled: bool, promote: bool = True, **promote_kwargs: Any
+    tmp_path: Path,
+    *,
+    enabled: bool,
+    promote: bool = True,
+    settings: dict[str, Any] | None = None,
+    **promote_kwargs: Any,
 ) -> tuple[TestClient, dict[str, dict[str, str]], Any]:
     factory = _factory()
     artifacts = tmp_path / "artifacts"
@@ -161,7 +166,10 @@ def _app(
         factory,
         omr_engine=FMajorEngine(),
         settings=Settings(
-            auth_secret_key=SECRET, artifacts_dir=artifacts, suggestions_enabled=enabled
+            auth_secret_key=SECRET,
+            artifacts_dir=artifacts,
+            suggestions_enabled=enabled,
+            **(settings or {}),
         ),
     )
     service = app.state.token_service
@@ -204,8 +212,15 @@ def test_with_the_switch_off_findings_carry_no_suggestions(tmp_path: Path) -> No
     assert detail["document"]["provenance"].get("suggestions_version") is None
 
 
+# Mostrarlo todo: cualquier nivel y todas las familias.
+SHOW_ALL = {
+    "suggestions_min_level": "medium",
+    "suggestions_families": "accidental,duration,pitch,delete,insertion",
+}
+
+
 def test_the_promoted_layer_is_loaded_and_suggests(tmp_path: Path) -> None:
-    client, headers, app = _app(tmp_path, enabled=True)
+    client, headers, app = _app(tmp_path, enabled=True, settings=SHOW_ALL)
     assert app.state.suggestion_model is not None
     assert app.state.suggestion_model.version == "sug-1"
     session_id = _transcribe(client, headers["owner"])
@@ -226,6 +241,78 @@ def test_the_promoted_layer_is_loaded_and_suggests(tmp_path: Path) -> None:
     detail = client.get(f"/sessions/{session_id}", headers=headers["owner"]).json()
     assert detail["document"]["provenance"]["suggestions_version"] == "sug-1"
     assert {f["rule_id"] for f in detail["findings"]} == set(by_rule)
+
+
+def test_the_policy_defaults_to_high_accidentals(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La decisión del responsable (#244): la condición asistida solo muestra las
+    sugerencias de alteración de confianza alta (ADR-0036, enmienda 19)."""
+    for name in ("CADENZA_SUGGESTIONS_MIN_LEVEL", "CADENZA_SUGGESTIONS_FAMILIES"):
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(auth_secret_key=SECRET)
+    assert (settings.suggestions_min_level, settings.suggestions_families) == (
+        "high",
+        "accidental",
+    )
+    monkeypatch.setenv("CADENZA_SUGGESTIONS_MIN_LEVEL", "medium")
+    monkeypatch.setenv("CADENZA_SUGGESTIONS_FAMILIES", "accidental,duration")
+    settings = Settings(auth_secret_key=SECRET)
+    assert (settings.suggestions_min_level, settings.suggestions_families) == (
+        "medium",
+        "accidental,duration",
+    )
+
+
+def test_by_default_only_high_accidentals_are_shown(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="cadenza.api.suggestions"):
+        client, headers, app = _app(tmp_path, enabled=True)
+    assert app.state.suggestion_model is not None
+    assert app.state.suggestion_model.version == "sug-1"
+    assert "policy_min_level=high policy_families=accidental" in caplog.text
+    session_id = _transcribe(client, headers["owner"])
+    findings = client.get(f"/sessions/{session_id}/findings", headers=headers["owner"]).json()
+    by_rule = {f["rule_id"]: f for f in findings}
+    # El hallazgo de la regla sigue, sin sus candidatos de duración ni de inserción.
+    assert set(by_rule) == {"measure.balance", "learned.accidental"}
+    assert by_rule["measure.balance"]["suggestions"] == []
+    (fix,) = by_rule["learned.accidental"]["suggestions"]
+    assert (fix["op"], fix["confidence_level"]) == ("SetAccidental", "high")
+    detail = client.get(f"/sessions/{session_id}", headers=headers["owner"]).json()
+    assert detail["document"]["provenance"]["suggestions_version"] == "sug-1"
+
+
+def test_learned_findings_of_a_family_not_allowed_are_not_emitted(tmp_path: Path) -> None:
+    # Solo duración, y de confianza alta: la duración del artefacto no tiene umbral de
+    # confianza alta, así que sus candidatos de `measure.balance` son `medium`.
+    client, headers, _ = _app(
+        tmp_path,
+        enabled=True,
+        settings={"suggestions_min_level": "high", "suggestions_families": "duration"},
+    )
+    session_id = _transcribe(client, headers["owner"])
+    findings = client.get(f"/sessions/{session_id}/findings", headers=headers["owner"]).json()
+    assert [(f["rule_id"], f["suggestions"]) for f in findings] == [("measure.balance", [])]
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"suggestions_min_level": "low"},
+        {"suggestions_families": ""},
+        {"suggestions_families": "accidental,tempo"},
+    ],
+)
+def test_an_invalid_policy_validates_without_the_layer_and_logs_why(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, settings: dict[str, Any]
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="cadenza.api.suggestions"):
+        client, headers, app = _app(tmp_path, enabled=True, settings=settings)
+    assert app.state.suggestion_model is None
+    assert "reason=invalid_policy" in caplog.text
+    session_id = _transcribe(client, headers["owner"])
+    findings = client.get(f"/sessions/{session_id}/findings", headers=headers["owner"]).json()
+    assert [(f["rule_id"], f["suggestions"]) for f in findings] == [("measure.balance", [])]
 
 
 @pytest.mark.parametrize(

@@ -212,6 +212,25 @@ class Settings(BaseSettings):
             "defecto; si el estudio la usa lo decide el responsable (#244)."
         ),
     )
+    # Texto libre a propósito: una política inválida no impide arrancar, sino que la API
+    # arranca sin capa y lo registra, como con un artefacto inválido (ADR-0036, enmienda 19).
+    suggestions_min_level: str = Field(
+        default="high",
+        description=(
+            "Nivel de confianza mínimo de las sugerencias que se muestran "
+            "(CADENZA_SUGGESTIONS_MIN_LEVEL): `high` o `medium` (ADR-0036, enmienda 19). Por "
+            "defecto `high`, la decisión del responsable en #244."
+        ),
+    )
+    suggestions_families: str = Field(
+        default="accidental",
+        description=(
+            "Familias de las sugerencias que se muestran, separadas por comas "
+            "(CADENZA_SUGGESTIONS_FAMILIES): `accidental`, `duration`, `pitch`, `delete` e "
+            "`insertion` (ADR-0036, enmienda 19). Por defecto solo `accidental`, la decisión "
+            "del responsable en #244."
+        ),
+    )
     disable_power_throttling: bool = Field(
         default=True,
         description=(

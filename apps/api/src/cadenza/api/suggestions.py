@@ -4,13 +4,23 @@ La API carga la versión promovida del registro de la capa, comprueba el `sha256
 artefacto y su `feature_version` frente a la del código, y la inyecta en los casos de uso.
 No importa código de entrenamiento: el artefacto se lee con `cadenza.validation.learned`.
 Si algo no cuadra, valida sin capa y lo registra en el log.
+
+La capa se inyecta envuelta en la política de qué se muestra (`CADENZA_SUGGESTIONS_MIN_LEVEL`
+y `CADENZA_SUGGESTIONS_FAMILIES`, ADR-0036 enmienda 19); con una política inválida también
+se valida sin capa.
 """
 
 from __future__ import annotations
 
 import logging
 
-from cadenza.application import ArtifactNotFound, ArtifactStore, SuggestionModel
+from cadenza.application import (
+    ArtifactNotFound,
+    ArtifactStore,
+    PolicySuggestionModel,
+    SuggestionModel,
+    SuggestionPolicy,
+)
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SessionFactory,
@@ -34,9 +44,17 @@ def load_suggestion_model(
     settings: Settings,
     artifact_store: ArtifactStore | None = None,
 ) -> SuggestionModel | None:
-    """La capa promovida, o None si el interruptor está apagado o no se puede usar."""
+    """La capa promovida, envuelta en la política de qué se muestra, o None si el interruptor
+    está apagado o no se puede usar (también con una política inválida)."""
     if not settings.suggestions_enabled:
         logger.info("suggestion_layer enabled=False")
+        return None
+    try:
+        policy = SuggestionPolicy.parse(
+            settings.suggestions_min_level, settings.suggestions_families
+        )
+    except ValueError as exc:
+        logger.warning("suggestion_layer unavailable reason=invalid_policy error=%s", exc)
         return None
     with session_factory() as db:
         try:
@@ -85,9 +103,12 @@ def load_suggestion_model(
         )
         return None
     logger.info(
-        "suggestion_layer loaded version=%s feature_version=%s families=%s",
+        "suggestion_layer loaded version=%s feature_version=%s families=%s "
+        "policy_min_level=%s policy_families=%s",
         active.version,
         FEATURE_VERSION,
         ",".join(model.active_families()) or "-",
+        policy.min_level,
+        ",".join(sorted(policy.families)),
     )
-    return model
+    return PolicySuggestionModel(model, policy)
