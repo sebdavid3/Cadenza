@@ -137,6 +137,12 @@
   background: var(--color-paper);
 }
 
+/* Finalizada (#187): macizo de tinta, la corrección cerrada; se distingue sin leer el rótulo. */
+.chip--finalized {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
 /* Con hallazgos: rótulo violeta, el turno de la persona. */
 .chip--finding {
   border-color: var(--color-accent);

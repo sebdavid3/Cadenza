@@ -172,7 +172,11 @@ export function SessionsPanel() {
                     </time>
                   </td>
                   <td role="cell" className="sessions__status">
-                    <span className="chip chip--status">{statusLabel(session.status)}</span>
+                    <span
+                      className={`chip chip--status${session.status === "finalized" ? " chip--finalized" : ""}`}
+                    >
+                      {statusLabel(session.status)}
+                    </span>
                   </td>
                   <td role="cell" className="num sessions__findings" data-label="Hallazgos">
                     {(session.findings_count ?? 0) > 0 ? (

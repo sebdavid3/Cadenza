@@ -371,6 +371,23 @@ describe("vista de transcripción", () => {
     expect(without.querySelector(".chip--finding")).toBeNull();
   });
 
+  it("distingue una sesión finalizada de las que siguen abiertas (#187)", async () => {
+    mockApi({
+      "GET /sessions": () =>
+        jsonResponse([
+          session("aaaaaaaa-1", { status: "finalized" }),
+          session("bbbbbbbb-2", { status: "correcting" }),
+        ]),
+    });
+    renderPage();
+
+    const table = await screen.findByRole("table");
+    const [, finalized, open] = within(table).getAllByRole("row");
+    if (!finalized || !open) throw new Error("faltan filas");
+    expect(within(finalized).getByText("Finalizada")).toHaveClass("chip--finalized");
+    expect(within(open).getByText("En corrección")).not.toHaveClass("chip--finalized");
+  });
+
   it("con un lote en curso pide confirmación al cerrar la pestaña y al salir", async () => {
     mockApi({ "GET /sessions": () => jsonResponse([]) });
     const router = renderPage();
