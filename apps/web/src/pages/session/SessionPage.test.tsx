@@ -518,6 +518,7 @@ describe("vista de una sesión", () => {
             "Revisa las figuras del compás: puede que alguna sea más larga de lo que se leyó, o que falte una nota o un silencio de corchea.",
         }),
         finding(2, 3, { rule_id: "accidental.repeated", suggested_fix: null }),
+        finding(3, 1, { rule_id: "learned.accidental", suggested_fix: "Cambiar Si por Si♭." }),
       ],
     });
     renderPage();
@@ -535,6 +536,10 @@ describe("vista de una sesión", () => {
     const third = within(list).getByRole("button", { name: /^compás 3/i });
     expect(third).toHaveTextContent("Alteración repetida");
     expect(within(third).queryByText(/Qué revisar/)).toBeNull();
+    // En los de la capa, `suggested_fix` es la edición propuesta, no qué revisar (#258).
+    const first = within(list).getByRole("button", { name: /^compás 1/i });
+    expect(first).toHaveTextContent("Alteración dudosa");
+    expect(within(first).queryByText(/Qué revisar/)).toBeNull();
   });
 
   it("en una sesión no asistida no muestra nada del validador (ADR-0040 §13.2)", async () => {
