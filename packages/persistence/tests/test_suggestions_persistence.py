@@ -6,7 +6,9 @@ import importlib.util
 import io
 import types
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic import command
@@ -297,3 +299,78 @@ def test_migration_0013_generates_postgresql_sql() -> None:
     config.stdout = buffer
     command.downgrade(config, "0013_suggestions:0012_users_self_registered", sql=True)
     assert "DROP TABLE suggestions" in buffer.getvalue()
+
+
+def test_an_edit_is_not_kept_when_its_suggestion_was_answered_meanwhile(
+    factory: sessionmaker[DbSession],
+) -> None:
+    """Si otra petición responde la sugerencia entre la comprobación y la escritura, la
+    edición no queda guardada: el caso de uso lanza StaleSuggestion y la transacción se
+    deshace (ADR-0036 §5)."""
+    from dataclasses import replace
+
+    from cadenza.application import Role, StaleSuggestion, User, append_edit
+    from cadenza.domain import Event as ScoreEvent
+    from cadenza.domain import EventKind as Kind
+    from cadenza.domain import (
+        Measure,
+        Part,
+        Provenance,
+        ScoreDocument,
+        ScoreIR,
+        Staff,
+        TimeSignature,
+        build_anchor_index,
+    )
+    from cadenza.persistence import SqlAlchemyEditEventRepository, session_scope
+
+    class StaleRead(SqlAlchemySessionRepository):
+        def get_suggestion(self, session_id: str, suggestion_id: int) -> Any:
+            found = super().get_suggestion(session_id, suggestion_id)
+            return None if found is None else replace(found, response=None)
+
+    events = tuple(
+        ScoreEvent(kind=Kind.NOTE, pitch="C4", duration_beats=Fraction(1)) for _ in range(3)
+    )
+    measure = Measure(number=1, events=events, time_signature=TimeSignature(4, 4))
+    score = ScoreIR(parts=(Part(id="P1", staves=(Staff(id="P1-S1", measures=(measure,)),)),))
+    document = ScoreDocument(
+        id="d", score=score, anchors=build_anchor_index(score), provenance=Provenance("fake")
+    )
+    with session_scope(factory) as db:
+        db.add(UserRecord(id="u1", username="ana", password_hash="h", role="transcriptor"))
+        db.flush()
+        SqlAlchemySessionRepository(db).add(
+            SessionData(
+                id="s1",
+                document_id="d",
+                omr_engine="fake",
+                document=document.to_primitive(),
+                owner_id="u1",
+            ),
+            [_finding(0)],
+            [[_suggestion(0)]],
+        )
+    with session_scope(factory) as db:
+        (finding,) = SqlAlchemySessionRepository(db).list_findings("s1")
+        suggestion_id = finding.suggestions[0].id
+        SqlAlchemySessionRepository(db).respond_suggestion(
+            "s1", suggestion_id, response="rejected", user="otra"
+        )
+    owner = User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
+    with pytest.raises(StaleSuggestion), session_scope(factory) as db:
+        append_edit(
+            "s1",
+            anchor=_anchor(0),
+            op=EditOp.SET_DURATION,
+            after={"duration_beats": "2"},
+            base_seq=0,
+            session_repository=StaleRead(db),
+            edit_repository=SqlAlchemyEditEventRepository(db),
+            current_user=owner,
+            suggestion_id=suggestion_id,
+        )
+    with factory() as db:
+        assert SqlAlchemyEditEventRepository(db).list_events("s1") == ()
+        stored = SqlAlchemySessionRepository(db).get_suggestion("s1", suggestion_id)
+        assert stored is not None and (stored.response, stored.responded_by) == ("rejected", "otra")

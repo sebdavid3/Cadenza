@@ -112,7 +112,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             _suggestion_record(
                 new, session_id=session_id, finding_id=record.id, at_seq=record.at_seq, rank=rank
             )
-            for record, news in zip(records, suggestions, strict=False)
+            for record, news in zip(records, suggestions, strict=True)
             for rank, new in enumerate(news)
         ]
         self._session.add_all(rows)
