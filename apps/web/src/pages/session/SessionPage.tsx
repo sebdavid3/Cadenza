@@ -70,7 +70,8 @@ function SessionNotFound() {
  * Vista de una sesión: la imagen original sobre la partitura transcrita y los posibles errores
  * que señala el validador, marcados por compás (ADR-0021). Quien la transcribió corrige la nota
  * elegida mientras la sesión no esté finalizada (ADR-0030); para los demás es de solo lectura.
- * Cada sesión monta su propia vista, para que la selección no pase de una a otra.
+ * En una sesión no asistida el validador no se ejecuta y la vista no habla de él (ADR-0040
+ * §13.2). Cada sesión monta su propia vista, para que la selección no pase de una a otra.
  */
 export function SessionPage() {
   const { sessionId = "" } = useParams();
@@ -86,7 +87,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const detail = useQuery(sessionDetailQuery(api, sessionId));
   const seq = detail.data?.current_seq ?? 0;
   const ready = detail.isSuccess;
-  const findings = useQuery({ ...sessionFindingsQuery(api, sessionId, seq), enabled: ready });
+  // En la condición no asistida no corren ni las reglas ni la capa, y quien corrige no ve nada
+  // que venga de ellas: ni el panel, ni las marcas, ni «Revalidar», ni avisos sobre la validación
+  // (ADR-0040 §13.2). Hasta saber la condición, tampoco.
+  const assisted = detail.data !== undefined && detail.data.condition !== "unassisted";
+  const findings = useQuery({
+    ...sessionFindingsQuery(api, sessionId, seq),
+    enabled: ready && assisted,
+  });
   const musicXml = useQuery({ ...sessionMusicXmlQuery(api, sessionId, seq), enabled: ready });
   const image = useQuery({ ...sessionFullImageQuery(api, sessionId), enabled: ready });
   const timing = useQuery({ ...sessionTimingQuery(api, sessionId, seq), enabled: ready });
@@ -112,8 +120,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const score = detail.data?.current_score ?? null;
   const { active, dismissed } = useMemo(() => splitFindings(findings.data ?? []), [findings.data]);
   const { marks, unplaced } = useMemo(
-    () => (score ? measureMarks(score, active) : { marks: [], unplaced: [] }),
-    [score, active],
+    () => (score && assisted ? measureMarks(score, active) : { marks: [], unplaced: [] }),
+    [score, assisted, active],
   );
   const expected = useMemo(() => (score ? measuresPerStaff(score) : []), [score]);
   const multiStaff = expected.length > 1;
@@ -270,7 +278,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
         )}
         <p className="session__lead">
           {editable
-            ? "Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura, inserta o borra notas y silencios, o cambia la clave y la armadura de su compás. Los compases tramados en violeta son posibles errores que conviene revisar."
+            ? `Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura, inserta o borra notas y silencios, o cambia la clave y la armadura de su compás.${
+                assisted
+                  ? " Los compases tramados en violeta son posibles errores que conviene revisar."
+                  : ""
+              }`
             : `${
                 foreign
                   ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
@@ -279,7 +291,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
                       ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
                       : "Sesión finalizada: solo lectura."
                     : "Solo lectura."
-              } Compara la imagen original con la transcripción de HOMR; los compases tramados en violeta son posibles errores que conviene revisar.`}
+              } Compara la imagen original con la transcripción de HOMR${
+                assisted
+                  ? "; los compases tramados en violeta son posibles errores que conviene revisar."
+                  : "."
+              }`}
         </p>
         {owned && detail.data && (
           <LifecyclePanel
@@ -342,6 +358,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 expectedMeasures={expected}
                 selectedKey={selectedKey}
                 onPlacement={setPlaced}
+                findingsListed={assisted}
                 playing={playing}
                 onCommand={editable ? editor.run : undefined}
                 editKeysId={editable ? editKeysId : undefined}
@@ -409,38 +426,40 @@ function SessionView({ sessionId }: { sessionId: string }) {
         </section>
 
         <div className="session__aside">
-          <FindingsPanel
-            marks={marks}
-            unplaced={unplaced}
-            dismissed={dismissed}
-            validation={validation}
-            edits={edits}
-            multiStaff={multiStaff}
-            selectable={placed && musicXml.isSuccess}
-            selectedKey={selectedKey}
-            onSelect={setSelectedKey}
-            status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
-            errorText={findings.isError ? errorMessage(findings.error) : undefined}
-            onRetry={() => void findings.refetch()}
-            placeOf={placeOf}
-            message={findingActions.message}
-            actions={
-              editable
-                ? {
-                    busy: findingActions.busy || lifecycle.busy,
-                    editorBusy:
-                      editor.status.kind === "saving" ||
-                      editor.status.kind === "reloading" ||
-                      editor.queued,
-                    pendingId: findingActions.pendingId,
-                    onDismiss: findingActions.dismiss,
-                    onRestore: findingActions.restore,
-                    onRevalidate: findingActions.revalidate,
-                    onReload: editor.reload,
-                  }
-                : undefined
-            }
-          />
+          {assisted && (
+            <FindingsPanel
+              marks={marks}
+              unplaced={unplaced}
+              dismissed={dismissed}
+              validation={validation}
+              edits={edits}
+              multiStaff={multiStaff}
+              selectable={placed && musicXml.isSuccess}
+              selectedKey={selectedKey}
+              onSelect={setSelectedKey}
+              status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
+              errorText={findings.isError ? errorMessage(findings.error) : undefined}
+              onRetry={() => void findings.refetch()}
+              placeOf={placeOf}
+              message={findingActions.message}
+              actions={
+                editable
+                  ? {
+                      busy: findingActions.busy || lifecycle.busy,
+                      editorBusy:
+                        editor.status.kind === "saving" ||
+                        editor.status.kind === "reloading" ||
+                        editor.queued,
+                      pendingId: findingActions.pendingId,
+                      onDismiss: findingActions.dismiss,
+                      onRestore: findingActions.restore,
+                      onRevalidate: findingActions.revalidate,
+                      onReload: editor.reload,
+                    }
+                  : undefined
+              }
+            />
+          )}
           {detail.data && (
             <HistoryPanel
               edits={detail.data.edits}

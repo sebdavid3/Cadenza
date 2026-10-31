@@ -62,6 +62,11 @@ interface ScoreViewProps {
   selectedKey: string | null;
   /** Avisa de si las marcas se pudieron situar sobre la partitura dibujada. */
   onPlacement?: (placed: boolean) => void;
+  /**
+   * Si la vista lista los posibles errores. En una sesión no asistida no los hay, y la vista no
+   * habla de ellos (ADR-0040 §13.2).
+   */
+  findingsListed?: boolean;
   /** Compás que suena y dónde se dibuja en cada pentagrama; null si no suena nada. */
   playing?: { measure: number; slots: readonly MeasureSlot[] } | null;
   /**
@@ -164,6 +169,7 @@ export function ScoreView({
   expectedMeasures,
   selectedKey,
   onPlacement,
+  findingsListed = true,
   playing = null,
   editor,
   onCommand,
@@ -618,8 +624,10 @@ export function ScoreView({
           <div className="notation__failed" role="alert">
             <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
             <p>
-              La imagen original y la lista de posibles errores siguen disponibles. Puede que la
-              transcripción contenga algo que el visor no sabe dibujar.
+              {findingsListed
+                ? "La imagen original y la lista de posibles errores siguen disponibles."
+                : "La imagen original sigue disponible."}{" "}
+              Puede que la transcripción contenga algo que el visor no sabe dibujar.
             </p>
           </div>
         )}
