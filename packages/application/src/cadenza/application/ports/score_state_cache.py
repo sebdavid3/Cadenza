@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from cadenza.domain import ScoreIR, TimingMap
+from cadenza.domain import ScoreIR, ScoreMetadata, TimingMap
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,11 +33,14 @@ class CachedScoreState:
     """El `ScoreIR` materializado de un estado y, una vez calculados, su MusicXML y sus tiempos.
 
     `ScoreIR` y `TimingMap` son inmutables: se comparten entre peticiones sin copiarlos.
+    `musicxml_metadata` son los metadatos de la sesión con los que se exportó el MusicXML
+    (ADR-0041): con otros, el MusicXML guardado no sirve.
     """
 
     score: ScoreIR
     musicxml: str | None = None
     timing: TimingMap | None = None
+    musicxml_metadata: ScoreMetadata | None = None
 
 
 class ScoreStateCache(ABC):
@@ -56,7 +59,7 @@ class ScoreStateCache(ABC):
         """Olvida todos los estados de la sesión.
 
         Lo necesita lo que cambie la partitura sin pasar por el log, como el título y los
-        instrumentos de #235.
+        instrumentos de #235 (`update_session_metadata`, ADR-0041).
         """
 
 

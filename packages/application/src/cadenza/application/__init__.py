@@ -13,6 +13,7 @@ from .exceptions import (
     FindingNotFound,
     Forbidden,
     InvalidEdit,
+    InvalidSessionMetadata,
     NoEditsToUndo,
     NotAuthenticated,
     SequenceConflict,
@@ -72,6 +73,7 @@ from .session_status import SessionStatus
 from .stage_timing import collect_stage_timings, timed_stage
 from .suggestions import SUGGESTION_FAMILIES, PolicySuggestionModel, SuggestionPolicy
 from .use_cases import (
+    UNCHANGED,
     AppliedEdit,
     FinalizeResult,
     ReopenResult,
@@ -79,6 +81,7 @@ from .use_cases import (
     SessionDetail,
     SessionImageData,
     TranscribeResult,
+    Unchanged,
     UndoResult,
     append_edit,
     append_edit_with_state,
@@ -104,12 +107,14 @@ from .use_cases import (
     revalidate,
     transcribe_score,
     undo_edit,
+    update_session_metadata,
     update_user,
 )
 from .user import Role, User
 
 __all__ = [
     "SUGGESTION_FAMILIES",
+    "UNCHANGED",
     "ApplicationError",
     "AppliedEdit",
     "ArtifactNotFound",
@@ -137,6 +142,7 @@ __all__ = [
     "InMemoryTokenService",
     "InMemoryUserRepository",
     "InvalidEdit",
+    "InvalidSessionMetadata",
     "MeasureInterventionComparison",
     "ModelRegistry",
     "ModelVersionData",
@@ -174,6 +180,7 @@ __all__ = [
     "TokenPayload",
     "TokenService",
     "TranscribeResult",
+    "Unchanged",
     "UndoResult",
     "UnsupportedExportFormat",
     "User",
@@ -212,5 +219,6 @@ __all__ = [
     "timed_stage",
     "transcribe_score",
     "undo_edit",
+    "update_session_metadata",
     "update_user",
 ]

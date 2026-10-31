@@ -16,6 +16,7 @@ from typing import Any
 from cadenza.domain import (
     EditEvent,
     ScoreIR,
+    ScoreMetadata,
     TimingMap,
     compute_timing_map,
     materialize,
@@ -76,18 +77,26 @@ def store_state(
     return state
 
 
+_NO_METADATA = ScoreMetadata()
+
+
 def musicxml_of(
     key: ScoreStateKey,
     state: CachedScoreState,
     exporter: ScoreExporter,
     cache: ScoreStateCache | None,
+    metadata: ScoreMetadata = _NO_METADATA,
 ) -> tuple[CachedScoreState, str]:
-    """El MusicXML del estado, exportado una sola vez por estado."""
-    if state.musicxml is not None:
+    """El MusicXML del estado con los metadatos de la sesión, exportado una sola vez.
+
+    El guardado solo sirve si se exportó con esos mismos metadatos (ADR-0041 §5): así, una
+    exportación con los de antes que llegue a la caché después de cambiarlos no se sirve.
+    """
+    if state.musicxml is not None and (state.musicxml_metadata or _NO_METADATA) == metadata:
         return state, state.musicxml
     with timed_stage("export"):
-        xml = exporter.to_musicxml(state.score)
-    updated = store_state(cache, key, replace(state, musicxml=xml))
+        xml = exporter.to_musicxml(state.score, metadata)
+    updated = store_state(cache, key, replace(state, musicxml=xml, musicxml_metadata=metadata))
     return updated, xml
 
 
@@ -96,6 +105,7 @@ def try_musicxml_of(
     state: CachedScoreState,
     exporter: ScoreExporter,
     cache: ScoreStateCache | None,
+    metadata: ScoreMetadata = _NO_METADATA,
 ) -> tuple[CachedScoreState, str | None]:
     """Como `musicxml_of`, pero sin el MusicXML (None) si la exportación falla.
 
@@ -103,7 +113,7 @@ def try_musicxml_of(
     pide a `/export`, que da el error, como antes de #275 (ADR-0034 §4).
     """
     try:
-        return musicxml_of(key, state, exporter, cache)
+        return musicxml_of(key, state, exporter, cache, metadata)
     # El exportador puede fallar de cualquier forma (music21): no se deja pasar a la edición.
     except Exception:
         logger.exception("score_export_failed session_id=%s seq=%s", key.session_id, key.seq)

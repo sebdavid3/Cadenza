@@ -31,6 +31,7 @@ def export_score(
     - Formatos admitidos: 'musicxml' y 'midi'. Cualquier otro lanza UnsupportedExportFormat.
     - Con `score_cache`, el estado y su MusicXML salen de la caché si están: cada estado se
       exporta una sola vez (#275, ADR-0037).
+    - Lleva el título, el compositor y los instrumentos de la sesión (#235, ADR-0041).
     """
     raw_fmt = format.value if isinstance(format, ExportFormat) else str(format).strip().lower()
     try:
@@ -52,7 +53,7 @@ def export_score(
     key, state = load_state(session_id, session.document, edits, score_cache)
 
     if export_fmt is ExportFormat.MUSICXML:
-        _, xml_content = musicxml_of(key, state, exporter, score_cache)
+        _, xml_content = musicxml_of(key, state, exporter, score_cache, session.metadata)
         return ExportedScore(
             content=xml_content,
             media_type="application/vnd.recordare.musicxml+xml",
@@ -60,7 +61,7 @@ def export_score(
         )
     elif export_fmt is ExportFormat.MIDI:
         with timed_stage("export"):
-            midi_content = exporter.to_midi(state.score)
+            midi_content = exporter.to_midi(state.score, session.metadata)
         return ExportedScore(
             content=midi_content,
             media_type="audio/midi",

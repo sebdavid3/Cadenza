@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from cadenza.domain import (
     AnchorIndex,
     EditEvent,
+    ScoreMetadata,
     build_anchor_index,
 )
 
@@ -39,6 +40,8 @@ class SessionDetail:
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str = "default-user"
+    metadata: ScoreMetadata = field(default_factory=ScoreMetadata)
+    source_filename: str | None = None
 
 
 def get_session(
@@ -114,4 +117,6 @@ def get_session(
         condition=session_data.condition,
         test_score_id=session_data.test_score_id,
         owner_id=session_data.owner_id,
+        metadata=session_data.metadata,
+        source_filename=session_data.source_filename,
     )

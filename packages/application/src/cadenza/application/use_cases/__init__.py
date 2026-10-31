@@ -22,9 +22,11 @@ from .restore_finding import restore_finding
 from .revalidate import RevalidateResult, revalidate
 from .transcribe_score import TranscribeResult, normalize_condition, transcribe_score
 from .undo_edit import UndoResult, undo_edit
+from .update_session_metadata import UNCHANGED, Unchanged, update_session_metadata
 from .update_user import update_user
 
 __all__ = [
+    "UNCHANGED",
     "AppliedEdit",
     "FinalizeResult",
     "ReopenResult",
@@ -32,6 +34,7 @@ __all__ = [
     "SessionDetail",
     "SessionImageData",
     "TranscribeResult",
+    "Unchanged",
     "UndoResult",
     "append_edit",
     "append_edit_with_state",
@@ -57,5 +60,6 @@ __all__ = [
     "revalidate",
     "transcribe_score",
     "undo_edit",
+    "update_session_metadata",
     "update_user",
 ]
