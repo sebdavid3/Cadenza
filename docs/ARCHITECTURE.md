@@ -996,6 +996,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0036](adr/ADR-0036-capa-de-sugerencias-aprendida.md) | Capa de sugerencias que aprende de las correcciones: frecuencias suavizadas con retroceso, las reglas acotan y la capa ordena, sugerencias que se aplican o rechazan, umbral por validación cruzada y registro propio |
 | [ADR-0037](adr/ADR-0037-una-edicion-en-un-solo-viaje.md) | Una edición en un solo viaje: la respuesta de la edición y de deshacer trae el estado nuevo, caché del estado materializado por `(sesión, seq, última edición)`, `fields=view` en el detalle, `Server-Timing` y `X-Request-ID`, y `exp_13` |
 | [ADR-0038](adr/ADR-0038-redibujar-tras-una-edicion-y-ordenes-en-espera.md) | Redibujar tras una edición en una sola instancia de OSMD, antes de pintar y entera; la nota elegida que espera al dibujo nuevo; una sola orden en espera mientras se guarda, planeada de nuevo y nunca reintentada; y la reproducción que sigue |
+| [ADR-0040](adr/ADR-0040-catalogo-de-reglas-y-mensajes-en-lenguaje-musical.md) | Catálogo de reglas del validador y mensajes en lenguaje musical: vocabulario común, ocho reglas (tres nuevas), sin falsos positivos conocidos, y nada del validador en la condición no asistida |
 
 
 ---
