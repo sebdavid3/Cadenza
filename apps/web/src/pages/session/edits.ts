@@ -6,7 +6,7 @@ import type {
   MeasurePayload,
   ScoreEventPayload,
   ScoreIRPayload,
-  SessionDetailRead,
+  SessionViewRead,
 } from "../../types";
 import { durationName, pitchName } from "./noteNames";
 
@@ -267,7 +267,7 @@ const sameVoice = (a: AnchorPayload, b: AnchorPayload) =>
 export function carryAnchor(
   anchor: AnchorPayload,
   fromSeq: number,
-  detail: SessionDetailRead,
+  detail: SessionViewRead,
 ): AnchorPayload | null {
   const seq = detail.current_seq ?? 0;
   if (fromSeq > seq || !detail.current_score) return null;
@@ -944,7 +944,7 @@ export type EditRequestLike = DecidedEdit & { anchor: AnchorPayload; baseSeq: nu
  */
 export function replan(
   request: EditRequestLike,
-  detail: SessionDetailRead,
+  detail: SessionViewRead,
 ): { plan: EditPlan; anchor: AnchorPayload | null } {
   const score = detail.current_score ?? null;
   if (score && (request.op === "SetClef" || request.op === "SetKey")) {

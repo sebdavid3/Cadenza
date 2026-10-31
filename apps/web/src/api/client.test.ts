@@ -392,3 +392,33 @@ describe("Retry-After", () => {
     expect(error.retryAfterSeconds).toBe(expected);
   });
 });
+
+describe("X-Request-ID (#275)", () => {
+  const sentId = (fetchMock: ReturnType<typeof vi.fn>, index = 0) => {
+    const call = fetchMock.mock.calls[index] as [unknown, RequestInit | undefined] | undefined;
+    return new Headers(call?.[1]?.headers).get("X-Request-ID");
+  };
+
+  it("cada petición lleva un identificador propio con la forma que acepta la API", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
+    const client = createApiClient({ fetch: fetchMock });
+
+    await client.request("/a");
+    await client.request("/b");
+
+    const first = sentId(fetchMock, 0);
+    const second = sentId(fetchMock, 1);
+    expect(first).toMatch(/^web-[0-9a-f]{20}$/);
+    expect(second).toMatch(/^web-[0-9a-f]{20}$/);
+    expect(first).not.toBe(second);
+  });
+
+  it("usa el identificador que se le dé", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
+    const client = createApiClient({ fetch: fetchMock });
+
+    await client.request("/a", { requestId: "web-orden-7" });
+
+    expect(sentId(fetchMock)).toBe("web-orden-7");
+  });
+});
