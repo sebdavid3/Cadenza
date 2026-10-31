@@ -146,6 +146,12 @@ const LASTING = new Set<EditorStatus["kind"]>([
   "reload-failed",
 ]);
 
+/** Avisos de una corrección que caducan al finalizar la sesión (#187). */
+const STALE_ON_FINALIZE = new Set<EditorStatus["kind"]>(["saved", "reloaded", "refused", "noted"]);
+
+/** Avisos que caducan al reabrirla: también el de que estaba finalizada. */
+const STALE_ON_REOPEN = new Set<EditorStatus["kind"]>([...STALE_ON_FINALIZE, "closed"]);
+
 /** Qué pasó según el error de una orden que no es un 409, o null si no hay nada que decir. */
 function failure(
   error: unknown,
@@ -492,6 +498,20 @@ export function useEditor(
   const originAnchor = origin && detail ? carryAnchor(origin.anchor, origin.seq, detail) : null;
   // El servidor ya tiene un estado que la vista aún no muestra.
   const lagging = knownSeq !== null && seq < knownSeq;
+
+  // Al finalizar o reabrir la sesión (#187), lo que decía la barra de la corrección anterior ya
+  // no vale: «Guardado» en una sesión que ya no se edita, o «ya no admite correcciones» en una
+  // reabierta. Un 409 por estar finalizada se dice al pasar a solo lectura, y se conserva.
+  // Se ajusta al dibujar, no en un efecto: así no hay un fotograma con el aviso caducado.
+  const finalized = detail?.status === "finalized";
+  const [shownFinalized, setShownFinalized] = useState(finalized);
+  if (shownFinalized !== finalized) {
+    setShownFinalized(finalized);
+    if ((finalized ? STALE_ON_FINALIZE : STALE_ON_REOPEN).has(status.kind)) {
+      setStatus({ kind: "idle" });
+      setRefusal(null);
+    }
+  }
   /**
    * Se está guardando una orden (o mostrando el estado que creó): la siguiente espera su turno
    * (ADR-0038). Mientras se revalida, no: el editor espera a la revalidación (ADR-0035).
