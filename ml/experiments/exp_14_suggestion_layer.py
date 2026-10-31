@@ -26,8 +26,12 @@ Mide:
    sugerencias aplicadas: las de confianza alta (la primera de cada hallazgo, si es `high`) y,
    aparte, todas las primeras. Se aplican como una persona, una tras otra, con el ancla
    traducida (ADR-0011) y `validate_after` sobre el estado al que llegan.
-5. Daño: cuántas notas correctas cambiaría aplicar esas sugerencias (y cuántas arreglarían,
-   cuántas arreglarían mal un evento con error y cuántas insertarían un evento que no falta).
+5. Daño, de las sugerencias elegidas y, aparte, de las que se llegaron a aplicar: por evento
+   (cuántas estropearían un evento correcto, arreglarían mal uno con error, insertarían donde
+   no falta nada o un evento distinto del que falta) y por atributo (cuántas cambiarían una
+   alteración, una altura o una duración que no tenían error, o tocarían un evento que la
+   verdad borra). Una sugerencia acierta si su familia y su valor (la altura o la duración
+   resultantes, o el evento insertado) son los de la verdad.
 6. Curva de aprendizaje: la capa entrenada con el 10, el 25, el 50 y el 100 % de las obras de
    `train` (submuestreo anidado con semilla, por obra para no partir una obra), medida en
    `test`; se informa cuántas correcciones tiene cada punto.
@@ -40,6 +44,10 @@ Decisiones de la medición:
 - El OMR-NED compara MusicXML exportados del `ScoreIR` (`Music21ScoreExporter`), la verdad
   y cada variante, para que el antes y el después pasen por el mismo camino; por eso no es el
   OMR-NED de `exp_12`, que compara el MusicXML de HOMR con el MEI.
+- La capa se llama sin la red de producción: si falla o pierde hallazgos de las reglas, el
+  experimento falla en vez de contarla como una capa que no sugiere nada. Las proporciones sin
+  denominador son None, también las de `exp_06` que aquí se recalculan (`binary_metrics`).
+- La SER y el OMR-NED medios se calculan sobre los incipits que tienen las tres variantes.
 - Antes de medir se comprueba que los registros del corpus son los de la predicción y la
   verdad que se leen (en `test`, regenerándolos; en `train`, lo leído de cada evento): si no,
   la verdad no es la del corpus y el experimento falla.
@@ -89,10 +97,8 @@ from cadenza.learning.suggestion_measurement import (
     POLICIES,
     IncipitCase,
     IncipitMeasurement,
-    apply_suggestions,
     measure_incipit,
     principal_metrics,
-    select_suggestions,
     subsample_works,
     summarize,
 )
@@ -142,7 +148,11 @@ CSV_FIELDS = [
     "rule_findings",
     "learned_findings",
     "learned_correct",
-    *(f"{policy}_{field}" for policy in POLICIES for field in ("selected", "applied", "damaged")),
+    *(
+        f"{policy}_{field}"
+        for policy in POLICIES
+        for field in ("selected", "applied", "damaged_events", "damaged_attributes")
+    ),
     *(f"ser_{variant}" for variant in VARIANTS),
     *(f"omr_ned_{variant}" for variant in VARIANTS),
     "omr_ned_error",
@@ -367,15 +377,39 @@ def _paired(before: Sequence[float | None], after: Sequence[float | None]) -> di
     }
 
 
-def _cv_summary(folds: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+def _cv_summary(
+    folds: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+    """Media, desviación y con cuántos pliegues se calcula cada una (los que tienen la
+    métrica: sin denominador, un pliegue no la tiene)."""
     names = list(folds[0]["metrics"]) if folds else []
     mean: dict[str, Any] = {}
     stdev: dict[str, Any] = {}
+    counted: dict[str, int] = {}
     for name in names:
         values = [float(f["metrics"][name]) for f in folds if f["metrics"][name] is not None]
         mean[name] = round(statistics.fmean(values), 4) if values else None
         stdev[name] = round(statistics.stdev(values), 4) if len(values) > 1 else None
-    return mean, stdev
+        counted[name] = len(values)
+    return mean, stdev, counted
+
+
+def variants_report(values: Mapping[str, Sequence[float | None]]) -> dict[str, Any]:
+    """La SER o el OMR-NED de cada variante y su comparación con HOMR solo, todo sobre los
+    mismos incipits: los que tienen medida en las tres variantes."""
+    total = len(values[VARIANTS[0]])
+    common = [i for i in range(total) if all(values[v][i] is not None for v in VARIANTS)]
+    kept = {variant: [values[variant][i] for i in common] for variant in VARIANTS}
+    out: dict[str, Any] = {
+        "incipits_with_all_variants": len(common),
+        "excluded_incipits": total - len(common),
+    }
+    for variant in VARIANTS:
+        out[variant] = _distribution([v for v in kept[variant] if v is not None])
+    out["paired_vs_homr"] = {
+        variant: _paired(kept["homr"], kept[variant]) for variant in VARIANTS[1:]
+    }
+    return out
 
 
 def _families(artifact: Mapping[str, Any]) -> dict[str, Any]:
@@ -517,16 +551,15 @@ def run(
                 "learned_correct": measurement.counts["learned_correct"],
             }
             for policy in POLICIES:
-                selected = select_suggestions(measurement.suggested, policy)
-                fixed, applied, skipped = apply_suggestions(
-                    case.score, selected, document_id=case.incipit_id
-                )
-                variants[f"homr_with_{policy}"] = fixed
-                applied_totals[policy]["applied"] += applied
-                applied_totals[policy]["skipped"] += skipped
-                row[f"{policy}_selected"] = len(selected)
-                row[f"{policy}_applied"] = applied
-                row[f"{policy}_damaged"] = measurement.policies[policy]["damaged_correct_events"]
+                # Aplicadas en la medición, por el mismo camino (`apply_suggestions`).
+                applied = measurement.applied[policy]
+                variants[f"homr_with_{policy}"] = measurement.fixed[policy]
+                applied_totals[policy]["applied"] += applied["suggestions"]
+                applied_totals[policy]["skipped"] += measurement.skipped[policy]
+                row[f"{policy}_selected"] = measurement.selected[policy]["suggestions"]
+                row[f"{policy}_applied"] = applied["suggestions"]
+                row[f"{policy}_damaged_events"] = applied["damaged_correct_events"]
+                row[f"{policy}_damaged_attributes"] = applied["damaged_correct_attributes"]
             for variant, score in variants.items():
                 value = score_ser_pair(truth, score, apply_key_signature=False).ser
                 ser[variant].append(value)
@@ -561,27 +594,17 @@ def run(
                     )
                 row["omr_ned_error"] = ned_failures.get(case.incipit_id, "")
 
-    def report(values: Mapping[str, list[float | None]]) -> dict[str, Any]:
-        out: dict[str, Any] = {
-            variant: _distribution([v for v in values[variant] if v is not None])
-            for variant in VARIANTS
-        }
-        out["paired_vs_homr"] = {
-            variant: _paired(values["homr"], values[variant]) for variant in VARIANTS[1:]
-        }
-        return out
-
     before_after: dict[str, Any] = {
         "incipits": len(cases["test"]),
         "truth": "la altura que suena (MEI con las alturas del .semantic), como el corpus",
         "applied": applied_totals,
         "ser": {
-            **report(ser),
+            **variants_report(ser),
             "definition": "score_ser_pair(verdad, variante, apply_key_signature=False)",
         },
         "omr_ned": (
             {
-                **report(ned),
+                **variants_report(ned),
                 "failures_count": len(ned_failures),
                 "failures": dict(sorted(ned_failures.items())),
                 "definition": (
@@ -627,7 +650,7 @@ def run(
             }
         )
         print(f"[exp_14] pliegue {fold + 1}/{FOLDS}", flush=True)
-    cv_mean, cv_stdev = _cv_summary(folds)
+    cv_mean, cv_stdev, cv_n = _cv_summary(folds)
 
     # 6. Curva de aprendizaje.
     train_works = sorted({case.work for case in cases["train"]})
@@ -705,6 +728,7 @@ def run(
             "scope": "partición train; cada pliegue entrena con los otros cuatro",
             "folds": folds,
             "mean": cv_mean,
+            "n_folds": cv_n,
             "stdev": cv_stdev,
         },
         "learning_curve": {

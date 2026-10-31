@@ -224,8 +224,11 @@ Mide, en `results/suggestion_layer_summary.json` (con `run_info`):
 - **Antes y después:** SER y OMR-NED frente a la verdad con HOMR solo, con las sugerencias de
   confianza alta aplicadas y con todas las primeras sugerencias aplicadas (una tras otra, con
   el ancla traducida y `validate_after`).
-- **Daño:** notas correctas que cambiaría aplicar esas sugerencias, y cuántas arreglarían,
-  arreglarían mal o insertarían un evento que no falta.
+- **Daño**, de las sugerencias elegidas y de las aplicadas: por evento (eventos correctos
+  estropeados, eventos con error arreglados mal, inserciones donde no falta nada o de otro
+  evento) y por atributo (alteración, altura o duración sin error que se cambiarían, o un
+  evento que la verdad borra). Una sugerencia acierta si su familia y su valor son los de la
+  verdad.
 - **Curva de aprendizaje** con el 10, el 25, el 50 y el 100 % de las obras de `train`
   (submuestreo anidado con la semilla), medida en `test`, con las correcciones de cada punto.
 - **Sesiones del estudio:** todavía no hay; el resultado lo dice (`study_sessions`).
@@ -242,6 +245,9 @@ guarda en la salida (`suggestion_layer_artifact.json`) y no se registra ni se pr
 también `suggestion_layer_incipits.csv` (una fila por incipit de prueba) y
 `exp_14_run_info.json` (commit, semilla, sha256 del corpus, de la partición y del artefacto,
 versión de rasgos y configuración). `--no-omr-ned` omite el OMR-NED (solo para depurar).
+Si la capa falla o pierde hallazgos de las reglas, el experimento falla (producción validaría
+sin capa); las proporciones sin denominador son `null`, y las medias de SER y OMR-NED son
+sobre los incipits que tienen las tres variantes.
 
 El OMR-NED de `musicdiff` tarda segundos por par (el `build` de `exp_12` tardó horas por él):
 `--workers` (por defecto, los núcleos menos uno) reparte la lectura de las partituras y el

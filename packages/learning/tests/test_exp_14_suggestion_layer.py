@@ -184,6 +184,8 @@ def test_the_experiment_measures_the_layer_and_writes_its_outputs(
         others = {primus_work_id(i) for f in cv["folds"] if f is not fold for i in f["incipits"]}
         assert works.isdisjoint(others)
     assert set(cv["mean"]) == set(cv["stdev"]) == set(cv["folds"][0]["metrics"])
+    assert set(cv["n_folds"]) == set(cv["mean"])
+    assert all(0 <= n <= 5 for n in cv["n_folds"].values())
 
     test = summary["test"]
     # 2. Primera sugerencia y tres primeras frente a la verdad, y la línea base de la regla.
@@ -200,13 +202,17 @@ def test_the_experiment_measures_the_layer_and_writes_its_outputs(
     # 4. Antes y después, con la SER y el OMR-NED frente a la verdad.
     before_after = summary["before_after"]
     assert before_after["incipits"] == len(tests)
+    assert before_after["ser"]["incipits_with_all_variants"] == len(tests)
+    assert before_after["ser"]["excluded_incipits"] == 0
     for variant in ("homr", "homr_with_high", "homr_with_first"):
         assert before_after["ser"][variant]["mean"] is not None
         assert before_after["omr_ned"][variant]["mean"] is not None
     assert before_after["ser"]["homr_with_first"]["mean"] < before_after["ser"]["homr"]["mean"]
     # 5. Daño, de las de confianza alta y de todas las primeras.
     assert set(test["damage"]) == {"high", "first"}
-    assert test["damage"]["first"]["damaged_correct_events"] > 0
+    for policy in ("high", "first"):
+        assert set(test["damage"][policy]) == {"selected", "applied"}
+    assert test["damage"]["first"]["applied"]["damaged_correct_events"] > 0
     # 6. Curva de aprendizaje.
     curve = summary["learning_curve"]
     assert [point["fraction"] for point in curve["points"]] == [0.1, 0.25, 0.5, 1.0]
@@ -302,3 +308,33 @@ def test_it_fails_when_the_truth_is_not_the_one_of_the_corpus(
     semantic.write_text(text.replace("note-F4_", "note-F#4_", 1), encoding="utf-8")
     with pytest.raises(ValueError, match="corpus"):
         _run(paths, tmp_path / "out")
+
+
+# --- Agregados ---------------------------------------------------------------------------
+
+
+def test_before_and_after_are_averaged_over_the_same_incipits() -> None:
+    values: dict[str, list[float | None]] = {
+        "homr": [0.2, 0.4, 0.6],
+        "homr_with_high": [0.1, None, 0.6],
+        "homr_with_first": [0.3, 0.4, 0.5],
+    }
+    report = exp_14.variants_report(values)
+    assert report["incipits_with_all_variants"] == 2
+    assert report["excluded_incipits"] == 1
+    assert report["homr"]["mean"] == 0.4  # (0.2 + 0.6) / 2: sin el incipit que falta
+    assert report["homr_with_high"]["n"] == 2
+    paired = report["paired_vs_homr"]["homr_with_high"]
+    assert paired == {"n": 2, "improved": 1, "worsened": 0, "unchanged": 1, "mean_delta": -0.05}
+
+
+def test_the_cross_validation_says_how_many_folds_each_mean_has() -> None:
+    folds: list[dict[str, Any]] = [
+        {"metrics": {"a": 0.5, "b": None}},
+        {"metrics": {"a": 0.7, "b": 0.2}},
+        {"metrics": {"a": 0.6, "b": None}},
+    ]
+    mean, stdev, n = exp_14._cv_summary(folds)
+    assert n == {"a": 3, "b": 1}
+    assert mean == {"a": 0.6, "b": 0.2}
+    assert stdev["a"] == 0.1 and stdev["b"] is None
