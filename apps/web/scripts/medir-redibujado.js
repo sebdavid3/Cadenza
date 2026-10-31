@@ -7,7 +7,7 @@
  * a como estaba), espera a que cada una esté dibujada y con su mapa de notas, y lee las marcas de
  * rendimiento de la vista (`cadenza:orden-N…` de #275 y `cadenza:dibujo:*` de #276).
  *
- * Devuelve, por medida, n, mediana, p95 y máximo en milisegundos:
+ * Devuelve, por medida, n, mediana, p95 y máximo en milisegundos (y en `muestras`, cada edición):
  * - `orden`: del envío de la orden al estado dibujado (`cadenza:orden-N`);
  * - `servidor`: del envío a la respuesta (`cadenza:orden-N:servidor`);
  * - `respuesta→dibujado`: de la respuesta al estado dibujado;
@@ -103,5 +103,6 @@
     agente: navigator.userAgent,
   };
   console.table(summary);
-  return summary;
+  // Las muestras de cada edición, para juntar varias rondas.
+  return { ...summary, muestras: samples };
 })();
