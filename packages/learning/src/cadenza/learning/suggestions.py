@@ -20,6 +20,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Final
 
+from cadenza.application.suggestions import suggest as suggest_with_layer
 from cadenza.domain import (
     Anchor,
     Clef,
@@ -425,6 +426,10 @@ def train(
         "seed": config.seed,
         "examples": dict(sorted(Counter(e.family for e in examples).items())),
         "works": len({e.work for e in examples}),
+        # Los incipits con que se entrenó: `evaluate` comprueba que ninguno esté en la prueba.
+        "train_incipits": sorted(
+            {str(r["incipit_id"]) for r in records if _usable(r, "event", "train")}
+        ),
         "cross_validation": {
             "folds": config.folds,
             "grouped_by": "obra (work_of)",
@@ -603,13 +608,13 @@ def evaluate(
                 provenance=Provenance(omr_engine="corpus"),
             )
             findings = validator.validate(document)
-            result = model.suggest(document, findings)
+            # El mismo camino que producción: la capa y el filtro de admisibilidad de los
+            # casos de uso (validate_after, sin duplicados, tres por hallazgo).
+            suggested = suggest_with_layer(document, findings, model)
         except (ValueError, KeyError, IndexError) as exc:
             skipped[incipit] = f"{type(exc).__name__}: {exc}"
             continue
-        _score_end_to_end(
-            result.findings, findings, truths, gaps, score, blind, ranking, end_to_end
-        )
+        _score_end_to_end(suggested, findings, truths, gaps, score, blind, ranking, end_to_end)
 
     families: dict[str, Any] = {}
     for family in FAMILIES:
@@ -698,7 +703,7 @@ def _is_true(
 
 
 def _score_end_to_end(
-    suggested: Sequence[Any],
+    suggested: Sequence[tuple[Any, Sequence[Any]]],
     findings: Sequence[Any],
     truths: Mapping[tuple[int, int, int, int, int], Mapping[str, str]],
     gaps: Mapping[tuple[int, int, int, int, int], set[str]],
@@ -722,11 +727,10 @@ def _score_end_to_end(
             if labelled is not None:
                 seen_by_rules.add((position, labelled[0]))
     learned_at: dict[tuple[int, int, int, int, int], tuple[str, bool]] = {}
-    for item in suggested:
-        finding = item.finding
+    for finding, suggestions in suggested:
         if finding.rule_id.startswith(LEARNED_PREFIX):
             end_to_end["learned_findings"] += 1
-            suggestion = item.suggestions[0]
+            suggestion = suggestions[0]
             correct = _is_true(
                 suggestion.op, suggestion.after, suggestion.anchor, features, truths, gaps
             )
@@ -752,8 +756,8 @@ def _score_end_to_end(
         ranking["baseline_top1_correct"] += int(
             _is_true(first.op, first.after, first.anchor, features, truths, gaps)
         )
-        if item.suggestions:
-            top = item.suggestions[0]
+        if suggestions:
+            top = suggestions[0]
             ranking["top1_correct"] += int(
                 _is_true(top.op, top.after, top.anchor, features, truths, gaps)
             )
@@ -911,3 +915,21 @@ def session_records(
                 }
             )
     return records, left_out
+
+
+def check_partition(artifact: Mapping[str, Any], records: Sequence[Mapping[str, Any]]) -> None:
+    """Falla si algún incipit de prueba del corpus estuvo en el entrenamiento del artefacto:
+    la medición no sería sobre datos que el modelo no vio (ADR-0036 §9)."""
+    trained = (artifact.get("training") or {}).get("train_incipits")
+    if trained is None:
+        raise SuggestionTrainingError(
+            "el artefacto no dice con qué incipits se entrenó: no se puede comprobar la partición"
+        )
+    tested = {str(r["incipit_id"]) for r in records if r.get("split") == "test"}
+    overlap = sorted(tested & set(trained))
+    if overlap:
+        shown = ", ".join(overlap[:5]) + (" …" if len(overlap) > 5 else "")
+        raise SuggestionTrainingError(
+            f"{len(overlap)} incipits de prueba se usaron para entrenar ({shown}): "
+            "la partición del corpus no es la del entrenamiento"
+        )

@@ -546,3 +546,32 @@ def test_an_accidental_in_an_incomplete_measure_counts_as_unseen_by_the_rules(
     report = evaluate(model, records)
     assert report["rule_blind"]["errors"] >= 1
     assert report["rule_blind"]["flagged_with_correct_fix"] >= 1
+
+
+def test_evaluation_refuses_a_test_split_that_overlaps_training(tmp_path: Path) -> None:
+    from ml.cli import main
+
+    corpus = write_corpus(tmp_path / "corpus.jsonl")
+    config = small_config(tmp_path / "config.json")
+    model_path = tmp_path / "model.json"
+    command = ["suggestions", "train", "--corpus", str(corpus), "--config", str(config)]
+    assert main([*command, "--output", str(model_path)]) == 0
+    artifact = json.loads(model_path.read_text(encoding="utf-8"))
+    trained = set(artifact["training"]["train_incipits"])
+    records = corpus_records()
+    assert trained == {r["incipit_id"] for r in records if r["split"] == "train" and r["verified"]}
+    # Otro corpus con un incipit de entrenamiento en la partición de prueba.
+    leaked = sorted(trained)[0]
+    mixed = tmp_path / "mixed.jsonl"
+    mixed.write_text(
+        "".join(
+            json.dumps({**r, "split": "test"} if r["incipit_id"] == leaked else r) + "\n"
+            for r in records
+        ),
+        encoding="utf-8",
+    )
+    report = tmp_path / "report.json"
+    evaluate_cmd = ["suggestions", "evaluate", "--model", str(model_path), "--output", str(report)]
+    assert main([*evaluate_cmd, "--corpus", str(mixed)]) == 1
+    assert not report.exists()
+    assert main([*evaluate_cmd, "--corpus", str(corpus)]) == 0

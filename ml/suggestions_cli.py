@@ -27,6 +27,7 @@ from cadenza.application import SuggestionModelVersionData
 from cadenza.learning.suggestions import (
     SuggestionTrainingError,
     artifact_bytes,
+    check_partition,
     evaluate,
     file_sha256,
     load_suggestions_config,
@@ -98,6 +99,7 @@ def evaluate_command(args: argparse.Namespace) -> int:
     try:
         model, content = _load_model(Path(args.model), version="evaluation")
         records = read_corpus(corpus)
+        check_partition(json.loads(content.decode("utf-8")), records)
     except (SuggestionTrainingError, InvalidSuggestionArtifact, OSError) as exc:
         return _fail(str(exc))
     report = evaluate(model, records, split=args.split)
