@@ -5,13 +5,17 @@ después `model.suggest(doc, findings)`. Sin capa, los hallazgos son exactamente
 reglas y no llevan sugerencias, tampoco los candidatos de las reglas (§3.4). Antes de
 guardarse, cada sugerencia pasa `validate_after` y se le fija `before` con la instantánea del
 servidor sobre el estado `at_seq` (ADR-0017): la que no pasa se descarta.
+
+Qué se muestra lo decide una política (`SuggestionPolicy`, enmienda 19): la API envuelve la
+capa con `PolicySuggestionModel`, que filtra su respuesta por nivel de confianza y familia
+antes de ese filtro, y `exp_14` puede medir la misma política por el mismo camino.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from fractions import Fraction
 from typing import Any, Final
@@ -24,6 +28,8 @@ from cadenza.domain import (
     InvalidEditPayload,
     ScoreDocument,
     SuggestedEdit,
+    SuggestedFinding,
+    SuggestionResult,
     normalize_accidental,
     snapshot_before,
     translate_anchor,
@@ -139,6 +145,119 @@ def _admissible(
 
 def _is_learned(finding: Finding) -> bool:
     return finding.rule_id.startswith(LEARNED_PREFIX)
+
+
+# --- Qué se muestra (ADR-0036, enmienda 19) -------------------------------------------------
+
+# Las familias de una sugerencia: las de los posibles errores propios (§3.2) y las inserciones,
+# que solo llegan como candidatos de las reglas (§1).
+SUGGESTION_FAMILIES: Final[tuple[str, ...]] = (
+    "accidental",
+    "duration",
+    "pitch",
+    "delete",
+    "insertion",
+)
+_FAMILY_OF_OP: Final[Mapping[EditOp, str]] = {
+    EditOp.SET_ACCIDENTAL: "accidental",
+    EditOp.SET_DURATION: "duration",
+    EditOp.SET_PITCH: "pitch",
+    EditOp.DELETE_EVENT: "delete",
+    EditOp.INSERT_EVENT: "insertion",
+}
+# Del menor al mayor. Un candidato sin nivel cuenta como `medium`, como uno sin puntuar
+# (enmienda 6).
+CONFIDENCE_ORDER: Final[tuple[str, ...]] = ("medium", "high")
+
+
+def suggestion_family(edit: SuggestedEdit) -> str | None:
+    """La familia de una sugerencia, por su operación (None si no es de ninguna)."""
+    return _FAMILY_OF_OP.get(edit.op)
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestionPolicy:
+    """Qué sugerencias se muestran: las de nivel de confianza al menos `min_level` y de una
+    familia de `families`. Lo decide el responsable (#244) y se configura en la API."""
+
+    min_level: str
+    families: frozenset[str]
+
+    def __post_init__(self) -> None:
+        if self.min_level not in CONFIDENCE_ORDER:
+            raise ValueError(
+                f"nivel de confianza mínimo no válido: {self.min_level!r} "
+                f"(admite {', '.join(CONFIDENCE_ORDER)})"
+            )
+        if not self.families:
+            raise ValueError("la política de sugerencias necesita al menos una familia")
+        unknown = sorted(self.families - set(SUGGESTION_FAMILIES))
+        if unknown:
+            raise ValueError(
+                f"familias de sugerencias no válidas: {', '.join(unknown)} "
+                f"(admite {', '.join(SUGGESTION_FAMILIES)})"
+            )
+
+    @classmethod
+    def parse(cls, min_level: str, families: str) -> SuggestionPolicy:
+        """La política a partir de su configuración: un nivel y las familias separadas por
+        comas, sin distinguir mayúsculas. ValueError si no es válida."""
+        names = frozenset(name.strip().lower() for name in families.split(",") if name.strip())
+        return cls(min_level=min_level.strip().lower(), families=names)
+
+    def describe(self) -> str:
+        return f"min_level={self.min_level} families={','.join(sorted(self.families))}"
+
+    def shows(self, edit: SuggestedEdit) -> bool:
+        level = edit.confidence_level or CONFIDENCE_ORDER[0]
+        if level not in CONFIDENCE_ORDER:
+            return False
+        return (
+            CONFIDENCE_ORDER.index(level) >= CONFIDENCE_ORDER.index(self.min_level)
+            and suggestion_family(edit) in self.families
+        )
+
+    def apply(self, result: SuggestionResult) -> SuggestionResult:
+        """La respuesta de la capa con solo lo que se muestra.
+
+        Los hallazgos de las reglas siguen todos, en su orden, aunque se queden sin
+        sugerencias; un posible error propio de una familia no permitida, o sin ninguna
+        sugerencia que pase, no se emite.
+        """
+        kept: list[SuggestedFinding] = []
+        for item in result.findings:
+            shown = tuple(edit for edit in item.suggestions if self.shows(edit))
+            if _is_learned(item.finding):
+                family = item.finding.rule_id.removeprefix(LEARNED_PREFIX)
+                if family not in self.families or not shown:
+                    continue
+            kept.append(SuggestedFinding(finding=item.finding, suggestions=shown))
+        return SuggestionResult(findings=tuple(kept))
+
+
+class PolicySuggestionModel:
+    """La capa con la política de qué se muestra: cumple el puerto `SuggestionModel` y filtra
+    la respuesta del modelo antes del filtro de admisibilidad de `suggest`. El modelo no
+    cambia: su versión es la de las sugerencias y la de la procedencia."""
+
+    def __init__(self, model: SuggestionModel, policy: SuggestionPolicy) -> None:
+        self._model = model
+        self._policy = policy
+
+    @property
+    def version(self) -> str:
+        return self._model.version
+
+    @property
+    def model(self) -> SuggestionModel:
+        return self._model
+
+    @property
+    def policy(self) -> SuggestionPolicy:
+        return self._policy
+
+    def suggest(self, document: ScoreDocument, findings: Sequence[Finding]) -> SuggestionResult:
+        return self._policy.apply(self._model.suggest(document, findings))
 
 
 def suggest(
