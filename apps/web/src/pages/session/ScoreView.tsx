@@ -176,8 +176,18 @@ export function ScoreView({
   // dibuja en ella. Con el doble montaje de StrictMode, o al salir mientras OSMD carga, la carga
   // descartada no crea nada.
   const [renderer, setRenderer] = useState<ScoreRenderer | null>(null);
-  // Si OSMD no llega a cargarse, ningún estado se puede dibujar.
+  // Si OSMD no llega a cargarse (un corte de red, el trozo de un despliegue anterior), ningún
+  // estado se puede dibujar; con el estado siguiente se vuelve a intentar.
   const [loadFailed, setLoadFailed] = useState(false);
+  // Estado que se veía cuando falló la carga, e intentos.
+  const [failedAt, setFailedAt] = useState<ScoreSnapshot | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  if (loadFailed && failedAt === null) setFailedAt(snapshot);
+  else if (loadFailed && failedAt !== null && failedAt !== snapshot) {
+    setLoadFailed(false);
+    setFailedAt(null);
+    setAttempt(attempt + 1);
+  }
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -200,7 +210,7 @@ export function ScoreView({
       created?.dispose();
       setRenderer(null);
     };
-  }, []);
+  }, [attempt]);
 
   // Cada estado se dibuja antes de pintar, en la misma instancia: lo que se ve pasa del estado
   // anterior al nuevo de una vez, sin parpadeo ni un fotograma con las marcas de otro dibujo, y
@@ -266,8 +276,6 @@ export function ScoreView({
     : loadFailed || state.failed === snapshot
       ? "failed"
       : "rendering";
-  // Se está dibujando otro estado: lo que se ve sigue siendo el anterior.
-  const redrawing = drawing !== null && drawing.snapshot !== snapshot;
   const layout = drawing ? drawing.layout : -1;
   const score = drawing?.score ?? null;
   const drawn = drawing?.snapshot ?? null;
@@ -291,7 +299,8 @@ export function ScoreView({
   }, [score, aligned, layout, playing]);
 
   // Mapa ancla→caja por evento (ADR-0027), del estado dibujado y con la geometría de cada
-  // maquetación.
+  // maquetación. Su medida (#276) va aquí, con el cálculo: un render que React descarta (o el
+  // doble de StrictMode en desarrollo) la anota dos veces; el script de medida toma la última.
   const noteMap = useMemo(
     () =>
       score && drawn && aligned && layout >= 0
@@ -322,11 +331,17 @@ export function ScoreView({
   const ahead = ours !== null && drawn !== null && ours.seq > drawn.seq;
   const noteKey = ownKey ?? (ahead && held?.seq === drawn.seq ? held.key : null);
   const chosen = selectable?.find((candidate) => candidate.key === noteKey) ?? null;
-  // Lo que es la nota elegida sale del estado actual, también mientras se dibuja: tras corregirla
-  // se lee su valor nuevo sin esperar al dibujo.
-  const found =
-    selectable && ours?.seq === snapshot.seq ? eventAt(snapshot.transcription, ours.anchor) : null;
-  const target: EditTarget | null = ours && found ? { anchor: ours.anchor, ...found } : null;
+  // Lo que es la nota elegida sale del estado actual. Si la selección ya va por delante de él (la
+  // orden guardada eligió en el estado nuevo, que aún no llega a la vista), es la nota que sigue
+  // marcada en el que se ve: la barra no se queda sin nota elegida ni un instante (#276).
+  const shownAnchor =
+    ours?.seq === snapshot.seq
+      ? ours.anchor
+      : ahead && drawn.seq === snapshot.seq
+        ? (chosen?.anchor ?? null)
+        : null;
+  const found = selectable && shownAnchor ? eventAt(snapshot.transcription, shownAnchor) : null;
+  const target: EditTarget | null = shownAnchor && found ? { anchor: shownAnchor, ...found } : null;
   const multiStaff = expectedMeasures.length > 1;
   const description = target
     ? describeEvent(target.event, {
@@ -517,7 +532,8 @@ export function ScoreView({
           ? `${label} Elige una nota o un silencio con las flechas y corrígelo con las teclas de la leyenda.`
           : `${label} Elige una nota o un silencio con las flechas.`,
         "aria-describedby": editKeysId ? `${keysId} ${editKeysId}` : keysId,
-        "aria-busy": redrawing || undefined,
+        // La selección va por delante del dibujo: el estado nuevo está a punto de llegar.
+        "aria-busy": ahead || undefined,
         onKeyDown,
         onClick,
       }

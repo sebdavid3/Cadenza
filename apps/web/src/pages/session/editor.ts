@@ -13,7 +13,6 @@ import type {
 } from "../../types";
 import {
   carryAnchor,
-  eventAt,
   planCommand,
   replan,
   type EditCommand,
@@ -128,8 +127,7 @@ const BLOCKING = new Set<EditorStatus["kind"]>([
  * Orden que llega mientras se guarda otra (#276, ADR-0038): espera, y al guardarse la anterior se
  * vuelve a planear sobre el estado nuevo (con la nota elegida entonces) y sale con su `base_seq`.
  */
-export type QueuedOrder =
-  { kind: "command"; command: EditCommand } | { kind: "undo" } | { kind: "redo" };
+type QueuedOrder = { kind: "command"; command: EditCommand } | { kind: "undo" } | { kind: "redo" };
 
 /** Avisos que no se pueden perder por una orden rechazada: el rechazo se dice aparte. */
 const LASTING = new Set<EditorStatus["kind"]>([
@@ -476,7 +474,7 @@ export function useEditor(
    * Se está guardando una orden (o mostrando el estado que creó): la siguiente espera su turno
    * (ADR-0038). Mientras se revalida, no: el editor espera a la revalidación (ADR-0035).
    */
-  const waiting = !held && (status.kind === "saving" || (lagging && !BLOCKING.has(status.kind)));
+  const waiting = !held && (status.kind === "saving" || (lagging && status.kind === "saved"));
   // Ahora no sale ninguna orden; si no es por estar esperando, los controles se ven inactivos.
   const stopped = held || BLOCKING.has(status.kind) || lagging;
   const blocked = stopped && !waiting;
@@ -498,12 +496,14 @@ export function useEditor(
     setQueued(order);
   }
 
-  /** La nota elegida en el estado que se ve, como la daría la vista, o null. */
+  /**
+   * La nota elegida que la vista ofrece corregir en el estado que se ve (la barra la deja aquí en
+   * cada render), o null: sin mapa de notas completo no hay ninguna (ADR-0027).
+   */
+  const targetRef = useRef<{ seq: number; target: EditTarget | null } | null>(null);
   function currentTarget(): EditTarget | null {
-    const { selection } = useSelectionStore.getState();
-    if (!score || selection?.sessionId !== sessionId || selection.seq !== seq) return null;
-    const found = eventAt(score, selection.anchor);
-    return found ? { anchor: selection.anchor, ...found } : null;
+    const shown = targetRef.current;
+    return shown?.seq === seq ? shown.target : null;
   }
 
   // Cuando se guarda la orden en curso y la vista muestra su estado, sale la que esperaba,
@@ -514,8 +514,16 @@ export function useEditor(
     if (!queued || waiting) return;
     const timer = setTimeout(() => {
       setQueued(null);
-      if (status.kind !== "saved" || stopped) {
+      if (status.kind !== "saved") {
         refuse("No se envió la orden que esperaba: la anterior no se guardó.");
+        return;
+      }
+      if (stopped) {
+        refuse(
+          held
+            ? "No se envió la orden que esperaba: se está revalidando la partitura."
+            : "No se envió la orden que esperaba: la sesión cambió mientras tanto.",
+        );
         return;
       }
       if (queued.kind === "undo") undo();
@@ -693,6 +701,8 @@ export function useEditor(
     held,
     /** Si hay una orden esperando a que se guarde la que está en curso (ADR-0038). */
     queued: queued !== null,
+    /** Donde la barra deja la nota que la vista ofrece corregir, para la orden en espera. */
+    targetRef,
     run,
     reload,
     retry,

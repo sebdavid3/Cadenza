@@ -320,6 +320,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           target={target}
                           available={available}
                           score={snapshot.transcription}
+                          seq={snapshot.seq}
                           multiStaff={multiStaff}
                           keysId={editKeysId}
                           focusScore={focusScore}
@@ -341,6 +342,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     target={null}
                     available={false}
                     score={score}
+                    seq={seq}
                     multiStaff={multiStaff}
                     keysId={editKeysId}
                     focusMemoryRef={editorFocusRef}
@@ -392,7 +394,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 ? {
                     busy: findingActions.busy,
                     editorBusy:
-                      editor.status.kind === "saving" || editor.status.kind === "reloading",
+                      editor.status.kind === "saving" ||
+                      editor.status.kind === "reloading" ||
+                      editor.queued,
                     pendingId: findingActions.pendingId,
                     onDismiss: findingActions.dismiss,
                     onRestore: findingActions.restore,

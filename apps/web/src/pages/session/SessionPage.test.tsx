@@ -2322,6 +2322,51 @@ describe("corregir la nota elegida", () => {
     expect(server.bodies).toHaveLength(1);
   });
 
+  it("tras un 409 la orden que esperaba no sale y se dice, sin reintentar ninguna", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(button("Bajar un paso"));
+    pending.resolve(jsonResponse({ detail: "Conflicto de secuencia" }, 409));
+
+    expect(
+      await screen.findByText("No se envió la orden que esperaba: la anterior no se guardó."),
+    ).toBeInTheDocument();
+    expect(editStatus()).toHaveTextContent(/La sesión cambió en otra pestaña o dispositivo/);
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("la orden que espera va a la nota elegida cuando sale, también si se eligió otra mientras se guardaba", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(button("Bajar un paso"));
+    // Mientras se guarda, la persona elige la nota del compás 3.
+    fireEvent.click(region, head(3));
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
+
+    await waitFor(() => {
+      expect(server.bodies).toHaveLength(2);
+    });
+    expect(server.bodies[1]).toEqual({
+      base_seq: 1,
+      op: "SetPitch",
+      anchor: anchorOf(3),
+      before: null,
+      after: { pitch: "B3" },
+    });
+  });
+
   it("una edición no corta la reproducción: el motor sigue con la partitura nueva (#276)", async () => {
     editableApi();
     renderPage();

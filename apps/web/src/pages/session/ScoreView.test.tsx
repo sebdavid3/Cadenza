@@ -57,7 +57,7 @@ const TRANSCRIPTION = {
 
 const FIRST: ScoreSnapshot = { xml: "<score-partwise/>", transcription: TRANSCRIPTION, seq: 0 };
 
-function view(snapshot = FIRST) {
+function view(snapshot = FIRST, editor?: ScoreViewProps["editor"]) {
   return (
     <ScoreView
       snapshot={snapshot}
@@ -65,9 +65,12 @@ function view(snapshot = FIRST) {
       marks={[]}
       expectedMeasures={[1]}
       selectedKey={null}
+      editor={editor}
     />
   );
 }
+
+type ScoreViewProps = Parameters<typeof ScoreView>[0];
 
 beforeEach(() => {
   calls.pending = [];
@@ -155,6 +158,17 @@ describe("ScoreView", () => {
     });
 
     expect(rendered.getByText("No se pudo dibujar la partitura.")).toBeInTheDocument();
+
+    // Con el estado siguiente se vuelve a intentar cargar OSMD, y esta vez dibuja.
+    rendered.rerender(view({ ...FIRST, seq: 1 }));
+    expect(calls.pending).toHaveLength(2);
+    const { renderer, drawn } = fakeRenderer();
+    await act(async () => {
+      calls.pending[1]?.resolve(renderer);
+      await Promise.resolve();
+    });
+    expect(rendered.queryByText("No se pudo dibujar la partitura.")).toBeNull();
+    expect(drawn.map((entry) => entry.seq)).toEqual([1]);
   });
 
   it("al salir mientras OSMD carga, cancela la carga y libera lo que llegue", async () => {
@@ -224,7 +238,13 @@ describe("ScoreView", () => {
     vi.stubGlobal("matchMedia", () => ({ matches: false }));
     Element.prototype.scrollIntoView = vi.fn();
     const first: ScoreSnapshot = { xml: "<a/>", transcription, seq: 0 };
-    const rendered = render(view(first));
+    // La nota que la vista da a la barra de corrección en cada render.
+    const targets: (string | null)[] = [];
+    const editor: ScoreViewProps["editor"] = (target) => {
+      targets.push(target ? (target.event.pitch ?? "silencio") : null);
+      return null;
+    };
+    const rendered = render(view(first, editor));
     await act(async () => {
       calls.pending[0]?.resolve(renderer);
       await Promise.resolve();
@@ -236,14 +256,18 @@ describe("ScoreView", () => {
     expect(mark()?.style.left).toBe("10px");
 
     // Una orden guardada deja elegido su evento en el estado 1 antes de que llegue su dibujo.
+    const before = targets.length;
     act(() => {
       useSelectionStore.getState().select({ sessionId: "sesion", seq: 1, anchor, placedBy: 1 });
     });
     expect(mark()?.style.left).toBe("10px");
+    // La barra sigue con la nota marcada: sus botones no se quedan sin nota ni un instante.
+    expect(targets.length).toBeGreaterThan(before);
+    expect(targets.slice(before)).not.toContain(null);
 
     // Llega el estado 1, dibujado en otro sitio: la marca pasa a la nota que le corresponde.
     left = 30;
-    rendered.rerender(view({ xml: "<b/>", transcription, seq: 1 }));
+    rendered.rerender(view({ xml: "<b/>", transcription, seq: 1 }, editor));
     expect(mark()?.style.left).toBe("30px");
     useSelectionStore.getState().clear();
     vi.unstubAllGlobals();
