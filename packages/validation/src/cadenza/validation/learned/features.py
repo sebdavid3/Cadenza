@@ -211,10 +211,11 @@ class ScoreFeatures:
         built = cls()
         for part_idx, part in enumerate(score.parts):
             for staff_idx, staff in enumerate(part.staves):
-                sequences: dict[int, tuple[Event, ...]] = {}
+                voices: dict[int, list[Event]] = {}
                 for measure in staff.measures:
                     for event in measure.events:
-                        sequences[event.voice] = (*sequences.get(event.voice, ()), event)
+                        voices.setdefault(event.voice, []).append(event)
+                sequences = {voice: tuple(events) for voice, events in voices.items()}
                 consumed: dict[int, int] = {}
                 clef: Clef | None = None
                 key = KeySignature(fifths=0)

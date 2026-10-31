@@ -49,7 +49,7 @@ MODEL_TYPE: Final[str] = "frequency_backoff"
 MAX_SUGGESTIONS: Final[int] = 3
 LEARNED_PREFIX: Final[str] = "learned."
 # Contextos distintos que se recuerdan entre validaciones: acota la memoria de la API.
-_CACHE_LIMIT: Final[int] = 50_000
+_CACHE_LIMIT: Final[int] = 10_000
 
 
 class InvalidSuggestionArtifact(ValueError):
@@ -142,9 +142,14 @@ class FrequencyBackoffModel:
         self.alpha = float(params.get("alpha", 1.0))
         self.min_support = int(params.get("min_support", 1))
         families = artifact.get("families") or {}
-        self._families: dict[str, _Family] = {
-            name: _Family.from_primitive(name, data) for name, data in families.items()
-        }
+        try:
+            self._families: dict[str, _Family] = {
+                name: _Family.from_primitive(name, data) for name, data in families.items()
+            }
+        except InvalidSuggestionArtifact:
+            raise
+        except (KeyError, TypeError, ValueError, AttributeError) as exc:
+            raise InvalidSuggestionArtifact(f"tablas mal formadas: {exc!r}") from exc
         self._cache: dict[tuple[str, str], dict[str, Score]] = {}
 
     # -- Carga ---------------------------------------------------------------------------
@@ -280,6 +285,11 @@ class FrequencyBackoffModel:
         for position, view in features.events.items():
             if position in excluded_events or view.event.hidden:
                 continue
+            following = features.events.get((*position[:4], position[4] + 1))
+            if view.event.is_chord or (following is not None and following.event.is_chord):
+                # La duración de un acorde es la de todas sus notas: ni cambiarla ni borrar una.
+                for family in ("duration", "delete"):
+                    excluded_family.add((position, family))
             proposal = self._propose(view, excluded_family)
             if proposal is None:
                 continue
@@ -341,7 +351,9 @@ class FrequencyBackoffModel:
             )
             scored.append((0, -result.probability, order, suggestion))
         scored.sort(key=lambda item: item[:3])
-        return tuple(item[3] for item in scored[:MAX_SUGGESTIONS])
+        # Todas, ordenadas: los casos de uso descartan las inadmisibles y se quedan con
+        # `MAX_SUGGESTIONS`, así que una inadmisible no deja al hallazgo con menos.
+        return tuple(item[3] for item in scored)
 
     def _propose(
         self, view: EventView, excluded: set[tuple[Position, str]]

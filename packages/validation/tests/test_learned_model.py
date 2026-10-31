@@ -161,7 +161,7 @@ def test_no_learned_finding_below_the_threshold_or_for_inactive_families() -> No
     assert _model(accidental_threshold=None).suggest(document, []).findings == ()
 
 
-def test_rule_candidates_are_ranked_by_the_layer_and_cut_to_three() -> None:
+def test_rule_candidates_are_all_ranked_by_the_layer() -> None:
     model = _model()
     # 4/4 con 3 negras y una corchea: measure.balance ofrece alargar cada nota y un silencio.
     document = _document((_note("B4"), _note("C5"), _note("D5"), _note("E5", "1/2")))
@@ -170,7 +170,8 @@ def test_rule_candidates_are_ranked_by_the_layer_and_cut_to_three() -> None:
     assert len(balance.candidates) > 3
     result = model.suggest(document, findings)
     ranked = next(sf for sf in result.findings if sf.finding is balance)
-    assert len(ranked.suggestions) == 3
+    # Todas, ordenadas: los casos de uso descartan las inadmisibles y se quedan con tres.
+    assert len(ranked.suggestions) == len(balance.candidates)
     first = ranked.suggestions[0]
     # La corchea que pasa a negra (x2, con 6 de 10 en su contexto) gana.
     assert (first.op, first.anchor.event_index) == (EditOp.SET_DURATION, 3)
@@ -207,7 +208,7 @@ def test_without_data_the_candidates_keep_the_rule_order_and_no_confidence() -> 
     findings = ValidationEngine().validate(document)
     (balance,) = [f for f in findings if f.rule_id == "measure.balance"]
     ranked = next(sf for sf in model.suggest(document, findings).findings if sf.finding is balance)
-    assert [s.anchor for s in ranked.suggestions] == [c.anchor for c in balance.candidates[:3]]
+    assert [s.anchor for s in ranked.suggestions] == [c.anchor for c in balance.candidates]
     assert all(s.confidence is None and s.source == "rule" for s in ranked.suggestions)
 
 
@@ -261,3 +262,24 @@ def test_inference_does_not_import_application_learning_or_heavy_dependencies() 
             elif isinstance(node, ast.Import):
                 imported.update(alias.name for alias in node.names)
     assert not {m for m in imported if any(m == f or m.startswith(f + ".") for f in forbidden)}
+
+
+def test_no_duration_or_deletion_is_proposed_inside_a_chord() -> None:
+    artifact = _artifact()
+    artifact["families"]["duration"].update({"threshold": 0.1, "active": True})
+    artifact["families"]["duration"]["tables"] = [{}, {"": {"x2": 90, "none": 10}}]
+    model = FrequencyBackoffModel(artifact, version="v")
+    chord = (
+        _note("C5"),
+        Event(kind=EventKind.NOTE, pitch="E5", duration_beats=Fraction(1), is_chord=True),
+        _note("D5"),
+        _note("E5"),
+        _note("F5"),
+    )
+    document = _document(chord)
+    proposed = {
+        sf.finding.anchor.event_index
+        for sf in model.suggest(document, []).findings
+        if sf.finding.rule_id == "learned.duration"
+    }
+    assert proposed == {2, 3, 4}

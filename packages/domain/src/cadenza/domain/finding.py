@@ -26,8 +26,8 @@ class Finding:
     """Inconsistencia detectada, referida a un evento mediante un ancla.
 
     `candidates` son los arreglos que la regla sabe que cuadran (ADR-0036 §3): la capa de
-    sugerencias los ordena. Vacíos por defecto, no se serializan, así que los hallazgos
-    guardados antes se leen igual.
+    sugerencias los ordena. Vacíos por defecto y, vacíos, no se serializan, así que los
+    hallazgos guardados antes se leen igual.
     """
 
     anchor: Anchor
