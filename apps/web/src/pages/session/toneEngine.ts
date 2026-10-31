@@ -107,53 +107,66 @@ export function createToneEngine(
   };
 
   let current = playback;
+  const endTick = () => Math.round(current.totalBeats * transport.PPQ);
   // Si lo programado empieza en un punto de la partitura (tras `update` mientras suena), al volver
   // al principio hay que programarla entera.
   let partial = false;
+  // Último pulso que el transporte ya disparó (-1 si ninguno desde que arrancó o se reanudó). No
+  // es `transport.ticks`: ese es el pulso en `now()`, por delante de lo disparado, y si el hilo
+  // estuvo ocupado (dibujando la partitura) lo que cae entre medias aún no ha sonado.
+  let fired = -1;
   /** Termina como al llegar al final: la última nota acaba con su caída, sin fundir la voz. */
   const finish = () => {
     intent = "stopped";
     transport.stop();
     clearTimers();
+    fired = -1;
     if (partial) program(0);
     handlers.onEnd();
   };
   /**
-   * Programa la partitura desde el pulso `from`: lo anterior ya sonó. Con el transporte en marcha,
-   * lo del pulso en que está ya lo disparó lo programado antes.
+   * Programa la partitura a partir del pulso `from`: lo anterior ya sonó. Con el transporte en
+   * marcha, `from` es el último pulso disparado y no se vuelve a programar; en pausa o detenido,
+   * es el pulso en que seguirá.
    */
   function program(from: number) {
     transport.cancel(0);
     partial = from > 0;
     const running = transport.state === "started";
-    const ahead = (tick: number) => (running ? tick > from : tick >= from);
+    const at = (tick: number, callback: (time: number) => void) => {
+      if (running ? tick <= from : tick < from) return;
+      transport.schedule(
+        (time) => {
+          fired = Math.max(fired, tick);
+          callback(time);
+        },
+        `${String(tick)}i`,
+      );
+    };
     for (const note of current.notes) {
-      const at = Math.round(note.start * transport.PPQ);
-      if (!ahead(at)) continue;
       const frequency = midiToFrequency(note.midi);
       const duration = ticks(note.duration);
-      transport.schedule(
-        (time) => {
-          voice.synth.triggerAttackRelease(frequency, duration, time);
-        },
-        `${String(at)}i`,
-      );
+      at(Math.round(note.start * transport.PPQ), (time) => {
+        voice.synth.triggerAttackRelease(frequency, duration, time);
+      });
     }
     for (const measure of current.measures) {
-      const at = Math.round(measure.start * transport.PPQ);
-      if (!ahead(at)) continue;
-      transport.schedule(
-        (time) => {
-          atTime(time, () => {
-            handlers.onMeasure(measure.number);
-          });
-        },
-        `${String(at)}i`,
-      );
+      at(Math.round(measure.start * transport.PPQ), (time) => {
+        atTime(time, () => {
+          handlers.onMeasure(measure.number);
+        });
+      });
     }
-    transport.schedule((time) => {
-      atTime(time, finish);
-    }, ticks(current.totalBeats));
+    const end = endTick();
+    transport.schedule(
+      (time) => {
+        atTime(time, () => {
+          // Un final ya anticipado de una partitura que una edición alargó no termina nada.
+          if (end === endTick()) finish();
+        });
+      },
+      `${String(end)}i`,
+    );
   }
   program(0);
 
@@ -173,19 +186,23 @@ export function createToneEngine(
       intent = "paused";
       transport.pause(Math.max(context.immediate(), startAt));
       silence();
+      // Al reanudar, el transporte vuelve a disparar desde el pulso de la pausa.
+      fired = -1;
     },
     stop() {
       intent = "stopped";
       transport.stop(context.immediate());
       silence();
+      fired = -1;
       if (partial) program(0);
     },
     // Otra partitura (una edición) con el transporte donde está: lo que sigue suena con las notas
     // nuevas, sin cortar lo que ya suena. Si la nueva acaba antes de ese punto, termina.
     update(next) {
       current = next;
-      const position = transport.state === "stopped" ? 0 : transport.ticks;
-      if (position >= Math.round(next.totalBeats * transport.PPQ)) {
+      const state = transport.state;
+      const position = state === "started" ? fired : state === "paused" ? transport.ticks : 0;
+      if (state !== "stopped" && position >= endTick()) {
         finish();
         return;
       }

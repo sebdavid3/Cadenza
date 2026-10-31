@@ -57,8 +57,9 @@ export function clampTempo(bpm: number): number {
 /**
  * Transporte de la vista de una sesión: reproducir, pausar, detener y tempo. El motor se crea
  * en el primer «Reproducir» (dentro del gesto) y se libera al salir de la vista; una edición le
- * da la partitura nueva sin cortar lo que suena (#276). Si la página deja de verse, se pausa: con el reloj por `setTimeout`, el
- * navegador lo frena en segundo plano y las notas llegarían a destiempo.
+ * da la partitura nueva sin cortar lo que suena (#276). Si la página deja de verse, se pausa:
+ * con el reloj por `setTimeout`, el navegador lo frena en segundo plano y las notas llegarían a
+ * destiempo.
  */
 export function usePlayer(playback: Playback | null) {
   const [create, setCreate] = useState<CreateEngine | null>(null);

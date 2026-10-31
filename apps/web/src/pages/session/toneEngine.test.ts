@@ -468,4 +468,67 @@ describe("motor de audio con Tone.js", () => {
     expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([262, 330]);
     release(engine);
   });
+
+  it("si el hilo estuvo ocupado, no pierde lo que aún no sonó entre el último tic y now()", async () => {
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
+    await engine.play();
+    advance(0.3);
+    // El dibujo de la partitura ocupa el hilo 0,4 s: el reloj no da ningún tic y `now()` pasa ya
+    // la segunda nota, que aún no se disparó.
+    context().currentTime += 0.4;
+
+    engine.update({
+      ...PLAYBACK,
+      notes: [
+        { start: 0, duration: 1, midi: 60, measure: 1 },
+        { start: 1, duration: 1, midi: 66, measure: 1 },
+        { start: 2, duration: 2, midi: 69, measure: 2 },
+      ],
+    });
+    advance(0.8);
+
+    expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([262, 370, 440]);
+    release(engine);
+  });
+
+  it("un final ya anticipado de la partitura vieja no la detiene si la edición la alarga", async () => {
+    const onEnd = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure: vi.fn(), onEnd });
+    await engine.play();
+    // Justo antes del final (2,1 s): el transporte ya disparó su aviso dentro del margen.
+    advance(2.05);
+    expect(onEnd).not.toHaveBeenCalled();
+
+    engine.update({
+      ...PLAYBACK,
+      measures: [...PLAYBACK.measures, { number: 3, start: 4, end: 6 }],
+      totalBeats: 6,
+    });
+    advance(0.2);
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(context().transport.state).toBe("started");
+    advance(1);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    release(engine);
+  });
+
+  it("en pausa, sigue con la partitura nueva desde el punto de la pausa al reanudar", async () => {
+    const onMeasure = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure, onEnd: vi.fn() });
+    await engine.play();
+    advance(0.3);
+    engine.pause();
+    engine.update({
+      ...PLAYBACK,
+      notes: PLAYBACK.notes.map((note) => ({ ...note, midi: note.midi + 2 })),
+    });
+
+    await engine.play();
+    advance(1.5);
+
+    // La primera ya sonó antes de la pausa; las demás, con la altura nueva.
+    expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([370, 440]);
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    release(engine);
+  });
 });
