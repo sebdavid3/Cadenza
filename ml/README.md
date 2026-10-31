@@ -167,6 +167,29 @@ uv run --no-sync python ml/experiments/exp_11_latency_benchmark.py --device cpu 
 
 Ninguno de los dos tiene valores de reserva: sin motor o sin corpus terminan con error.
 
+### `exp_12_correction_corpus.py` — corpus de correcciones a escala (#255)
+
+El corpus con que aprende la capa de sugerencias (#256). Elige 2 000 incipits de PrIMuS al
+azar con semilla, sin los 100 de `exp_03`; los transcribe con HOMR en CPU y sin preprocesado,
+como en producción; deriva las correcciones del corrector ideal y las verifica con
+`materialize(predicho, ediciones) == verdad`. Necesita el extra `homr` y el corpus en
+`data/primus/package_*` con imagen, MEI y `.semantic`.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_12_correction_corpus.py sample      # data/primus/exp_12/manifest.json
+uv run --no-sync python ml/experiments/exp_12_correction_corpus.py transcribe  # se reanuda; --retry-failures repite los fallos
+uv run --no-sync python ml/experiments/exp_12_correction_corpus.py build       # corpus, partición y análisis en results/
+```
+
+La verdad es la altura que suena: el MEI de PrIMuS no codifica la alteración de la armadura
+(con tres bemoles, la nota de la línea de Si se lee `B4` y suena `Bb4`), así que las alturas
+salen del `.semantic` del mismo incipit, comprobando que coinciden la letra y la octava.
+El corpus (`results/correction_corpus.jsonl`) tiene un registro por evento leído, evento que
+falta y compás con la clave o la armadura mal leídas: lo que leyó HOMR, su corrección o
+ninguna, y el contexto leído (armadura, compás, clave, posición, lo que le sobra o le falta
+al compás y las notas vecinas). La partición fija (`correction_corpus_split.json`) depende
+solo del identificador y la semilla (`cadenza.learning.assign_split`).
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
