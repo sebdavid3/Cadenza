@@ -174,8 +174,39 @@ describe("measuresPerStaff y ruleLabel", () => {
     expect(measuresPerStaff(SCORE)).toEqual([3, 3, 3]);
   });
 
-  it("nombra las familias de reglas y deja el identificador de una desconocida", () => {
-    expect(ruleLabel("measure.balance")).toBe("Duración del compás");
+  it("nombra las reglas del catálogo y los posibles errores de la capa (ADR-0040 §3)", () => {
+    expect(
+      [
+        "measure.balance",
+        "time.signature",
+        "tuplet.incomplete",
+        "accidental.repeated",
+        "key.consistency",
+        "pitch.range",
+        "tie.resolution",
+        "voice.collision",
+        "learned.accidental",
+        "learned.duration",
+        "learned.pitch",
+        "learned.delete",
+      ].map(ruleLabel),
+    ).toEqual([
+      "Duración del compás",
+      "Indicación de compás",
+      "Tresillo incompleto",
+      "Alteración repetida",
+      "Armaduras distintas",
+      "Altura fuera de registro",
+      "Ligadura sin cerrar",
+      "Acorde mal formado",
+      "Alteración dudosa",
+      "Figura dudosa",
+      "Altura dudosa",
+      "Nota de más",
+    ]);
+  });
+
+  it("deja el identificador de una regla desconocida", () => {
     expect(ruleLabel("nueva.regla")).toBe("nueva.regla");
   });
 });

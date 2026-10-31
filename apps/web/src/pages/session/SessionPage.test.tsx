@@ -508,6 +508,35 @@ describe("vista de una sesión", () => {
     expect(screen.queryByText(/^error$/i)).toBeNull();
   });
 
+  it("muestra «Qué revisar» bajo el mensaje de cada posible error (ADR-0040 §2)", async () => {
+    api({
+      findings: [
+        finding(1, 2, {
+          message:
+            "Al compás 2 le falta una corchea para completar el 3/4: las figuras se acaban antes de la segunda corchea del tiempo 3.",
+          suggested_fix:
+            "Revisa las figuras del compás: puede que alguna sea más larga de lo que se leyó, o que falte una nota o un silencio de corchea.",
+        }),
+        finding(2, 3, { rule_id: "accidental.repeated", suggested_fix: null }),
+      ],
+    });
+    renderPage();
+
+    const list = await screen.findByRole("list");
+    const second = within(list).getByRole("button", { name: /^compás 2/i });
+    const fix = within(second).getByText(/^Qué revisar:/);
+    expect(fix).toHaveTextContent(
+      "Qué revisar: Revisa las figuras del compás: puede que alguna sea más larga de lo que se leyó, o que falte una nota o un silencio de corchea.",
+    );
+    // Bajo el mensaje, no antes.
+    const message = within(second).getByText(/^Al compás 2 le falta una corchea/);
+    expect(message.compareDocumentPosition(fix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Sin «Qué revisar», no se dice nada; el título es el del catálogo.
+    const third = within(list).getByRole("button", { name: /^compás 3/i });
+    expect(third).toHaveTextContent("Alteración repetida");
+    expect(within(third).queryByText(/Qué revisar/)).toBeNull();
+  });
+
   it("al elegir un compás de la lista lo resalta en la partitura", async () => {
     api({ findings: [finding(1, 1), finding(2, 3)] });
     renderPage();
