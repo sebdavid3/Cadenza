@@ -34,8 +34,14 @@ class TupletIncompleteRule(ValidationRule):
                         for group in incomplete_tuplets(events):
                             missing = group.missing_units
                             unit = figure_of(group.unit)
-                            anchor = anchors.get(
-                                (part_index, staff_index, measure.number, voice, group.indices[0])
+                            # Un silencio invisible no se puede elegir (ADR-0032).
+                            visible = [i for i in group.indices if not events[i].hidden]
+                            anchor = (
+                                anchors.get(
+                                    (part_index, staff_index, measure.number, voice, visible[0])
+                                )
+                                if visible
+                                else None
                             )
                             if missing is None or unit is None or anchor is None:
                                 continue

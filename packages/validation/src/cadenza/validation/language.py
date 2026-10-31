@@ -449,9 +449,10 @@ def position_phrase(onset: Fraction, signature: TimeSignature | None) -> Phrase:
     """Dónde empieza algo, contado desde el principio del compás (ADR-0040 §1):
 
     «el tiempo 3» en un tiempo justo y, dentro de él, la subdivisión más gruesa que cae justo
-    con su ordinal: «la segunda corchea del tiempo 3». Valen las mitades, cuartos y octavos
-    del tiempo; en un compás compuesto, los tercios y sextos, y en uno simple, los tercios y
-    sextos de tresillo. Si no cabe ninguna, solo el tiempo.
+    con su ordinal: «la segunda corchea del tiempo 3». En un compás simple valen las mitades,
+    cuartos y octavos del tiempo, y los tercios y sextos de tresillo; en uno compuesto, cuyo
+    tiempo es una figura con puntillo, los tercios y sextos («la cuarta semicorchea del tiempo
+    1» en 6/8), para no nombrar figuras con puntillo. Si no cabe ninguna, solo el tiempo.
     """
     beat = beat_length(signature)
     number = int(onset // beat) + 1
@@ -459,7 +460,7 @@ def position_phrase(onset: Fraction, signature: TimeSignature | None) -> Phrase:
     whole = Phrase("el", f"tiempo {number}")
     if offset == 0:
         return whole
-    for parts in (2, 3, 4, 6, 8):
+    for parts in (3, 6) if is_compound(signature) else (2, 3, 4, 6, 8):
         sub = beat / parts
         steps = offset / sub
         if steps.denominator != 1:
@@ -467,8 +468,6 @@ def position_phrase(onset: Fraction, signature: TimeSignature | None) -> Phrase:
         figure = figure_of(sub)
         ordinal = ordinal_word(int(steps) + 1)
         if figure is None or ordinal is None:
-            break
-        if figure.tuplet and is_compound(signature):
             break
         return Phrase("la", f"{ordinal} {figure.name()} del tiempo {number}")
     return whole

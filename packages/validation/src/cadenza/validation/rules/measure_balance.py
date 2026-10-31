@@ -40,12 +40,14 @@ from ..language import (
     measure_phrase,
     meter_name,
     note_name,
+    number_word,
     position_phrase,
     single_figure,
     voice_phrases,
 )
 from .base import ValidationRule
 from .support import (
+    DURATION_KINDS,
     Capacity,
     Key,
     PartMeter,
@@ -54,6 +56,7 @@ from .support import (
     anchor_map,
     first_visible,
     incomplete_tuplets,
+    is_measure_rest,
     is_visible,
     measure_sum,
     onsets,
@@ -63,7 +66,6 @@ from .support import (
 )
 
 RULE_ID = "measure.balance"
-_DURATION_KINDS = frozenset({EventKind.NOTE, EventKind.REST})
 
 
 def _is_figure(duration: Fraction) -> bool:
@@ -98,7 +100,7 @@ def _candidates(
             or event.is_chord
             or event.hidden
             or starts_chord
-            or event.kind not in _DURATION_KINDS
+            or event.kind not in DURATION_KINDS
         ):
             continue
         target = duration + delta
@@ -121,15 +123,6 @@ def _candidates(
             )
         )
     return (*candidates, *deletions)
-
-
-def _is_measure_rest(events: Sequence[Event], capacity: Capacity) -> bool:
-    """Un solo silencio que se ve, de redonda o de la duración del compás, en cualquier métrica."""
-    seen = [event for event in events if not event.hidden]
-    if len(seen) != 1 or seen[0].kind is not EventKind.REST:
-        return False
-    duration = seen[0].duration_beats
-    return duration in (Fraction(4), capacity.value, capacity.signature.quarter_length)
 
 
 def _explained_by_tuplets(events: Sequence[Event], delta: Fraction) -> bool:
@@ -219,7 +212,9 @@ class MeasureBalanceRule(ValidationRule):
         findings: list[Finding] = []
         for voice, events in seen.items():
             total = sums[voice]
-            if total == full or _is_measure_rest(events, capacity):
+            if total == full or is_measure_rest(
+                events, capacity.value, capacity.signature.quarter_length
+            ):
                 continue
             if total < full:
                 if completed or first:
@@ -342,7 +337,7 @@ class MeasureBalanceRule(ValidationRule):
             noun = (
                 count_figures(len(triplets), next(iter(durations)))
                 if len(durations) == 1
-                else f"{len(triplets)} figuras"
+                else f"{number_word(len(triplets))} figuras"
             )
             return (
                 f"{head}: sus {noun} van en grupos de tres, como los tresillos.",
@@ -359,8 +354,12 @@ class MeasureBalanceRule(ValidationRule):
             noun = _event_noun(event, fifths)
             if starts[index] < full:
                 where = position_phrase(starts[index], capacity.signature)
-                figure = count_figures(1, event.duration_beats)
-                detail = f"el {noun} {de(where)}, {figure}, se sale del compás"
+                figure = (
+                    f", {count_figures(1, event.duration_beats)},"
+                    if figure_of(event.duration_beats) is not None
+                    else ""
+                )
+                detail = f"el {noun} {de(where)}{figure} se sale del compás"
             else:
                 detail = f"el compás ya está lleno cuando llega el {noun}"
             break

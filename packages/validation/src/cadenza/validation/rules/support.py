@@ -34,7 +34,7 @@ from cadenza.domain import (
 
 from ..language import is_compound, meter_of
 
-_DURATION_KINDS: Final[frozenset[EventKind]] = frozenset({EventKind.NOTE, EventKind.REST})
+DURATION_KINDS: Final[frozenset[EventKind]] = frozenset({EventKind.NOTE, EventKind.REST})
 _QUARTER: Final[Fraction] = Fraction(1)
 
 Key = tuple[int, int, int, int, int]
@@ -53,7 +53,7 @@ def is_grace(event: Event) -> bool:
 
 def advance(event: Event) -> Fraction:
     """Lo que avanza un evento en su voz."""
-    if event.kind not in _DURATION_KINDS or event.is_chord:
+    if event.kind not in DURATION_KINDS or event.is_chord:
         return Fraction(0)
     duration = event.duration_beats
     if duration is None or duration <= 0:
@@ -100,6 +100,26 @@ def measure_sum(measure: Measure) -> Fraction | None:
     return max(sums) if sums else None
 
 
+def is_measure_rest(events: Sequence[Event], *durations: Fraction) -> bool:
+    """Un silencio de compás (ADR-0040 §4.3): un solo silencio que se ve, de redonda o de la
+    duración del compás (`durations`), en cualquier métrica."""
+    seen = [event for event in events if not event.hidden]
+    if len(seen) != 1 or seen[0].kind is not EventKind.REST:
+        return False
+    return seen[0].duration_beats in (Fraction(4), *durations)
+
+
+def _measured_sum(measure: Measure, meter: Fraction) -> Fraction | None:
+    """Lo que suma un compás para `time.signature`: un silencio de compás cabe en cualquier
+    métrica, así que una voz que lo es no cuenta, y un compás hecho solo de silencios de compás
+    suma la métrica leída."""
+    voices = [events for events in voices_of(measure).values() if is_visible(events)]
+    if not voices:
+        return None
+    sums = [voice_sum(events) for events in voices if not is_measure_rest(events, meter)]
+    return max(sums) if sums else meter
+
+
 def figures(events: Sequence[Event]) -> list[Event]:
     """Las figuras de una voz que se ven: sin notas de acorde ni de adorno."""
     return [
@@ -108,7 +128,7 @@ def figures(events: Sequence[Event]) -> list[Event]:
         if not event.hidden
         and not event.is_chord
         and not is_grace(event)
-        and event.kind in _DURATION_KINDS
+        and event.kind in DURATION_KINDS
     ]
 
 
@@ -208,7 +228,7 @@ def tuplet_groups(events: Sequence[Event]) -> list[TupletGroup]:
         durations.clear()
 
     for index, event in enumerate(events):
-        if event.is_chord or is_grace(event) or event.kind not in _DURATION_KINDS:
+        if event.is_chord or is_grace(event) or event.kind not in DURATION_KINDS:
             continue
         duration = event.duration_beats
         if duration is not None and duration > 0 and _has_three(duration):
@@ -275,7 +295,14 @@ def _triplet_sums(staff: Staff, positions: Sequence[int], signature: TimeSignatu
         return False
     for position in positions:
         measure = staff.measures[position]
-        voices = [events for events in voices_of(measure).values() if is_visible(events)]
+        meter = signature.quarter_length
+        voices = [
+            events
+            for events in voices_of(measure).values()
+            if is_visible(events) and not is_measure_rest(events, meter)
+        ]
+        if not voices:
+            return False
         longest = max(voices, key=voice_sum)
         if in_unmarked_triplets(longest) is None:
             return False
@@ -313,7 +340,7 @@ def meter_spans(part: Part, part_index: int) -> list[MeterSpan]:
         measured = [position for position in tramo if 0 < position < last]
         sums: dict[int, Fraction] = {}
         for position in measured:
-            total = measure_sum(staff.measures[position])
+            total = _measured_sum(staff.measures[position], meter)
             if total is not None:
                 sums[position] = total
 

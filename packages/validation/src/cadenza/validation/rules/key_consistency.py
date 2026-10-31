@@ -44,19 +44,21 @@ class KeyConsistencyRule(ValidationRule):
                 zip((measure.number for measure in top.measures), active_keys(top), strict=True)
             )
             for staff_index, staff in enumerate(part.staves[1:], start=1):
-                previous: tuple[int, int] | None = None
+                # Si el tramo de discrepancia en curso ya se señaló: una vez por tramo, aunque
+                # las armaduras cambien sin llegar a coincidir.
+                flagged = False
                 for measure, fifths in zip(staff.measures, active_keys(staff), strict=True):
                     upper = top_keys.get(measure.number)
-                    state = None if upper is None or upper == fifths else (upper, fifths)
-                    if state is None or state == previous:
-                        previous = state
+                    if upper is None or upper == fifths:
+                        flagged = False
+                        continue
+                    if flagged:
                         continue
                     anchor = first_visible(anchors, part_index, staff_index, measure)
                     if anchor is None:
                         # Sin nada que elegir en este compás, se señala en el siguiente.
                         continue
-                    previous = state
-                    assert upper is not None
+                    flagged = True
                     staff_phrase = _staff_phrase(staff_index, len(part.staves))
                     findings.append(
                         Finding(

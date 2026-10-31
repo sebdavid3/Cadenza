@@ -17,7 +17,7 @@ from cadenza.domain import Event, EventKind, Finding, ScoreDocument, Severity
 
 from ..language import count_figures, de, note_name, position_phrase, split_pitch
 from .base import ValidationRule
-from .support import anchor_map, onsets, voices_of
+from .support import active_keys, anchor_map, is_grace, onsets, voices_of
 
 RULE_ID = "voice.collision"
 
@@ -48,7 +48,7 @@ class VoiceCollisionRule(ValidationRule):
 
         for part_index, part in enumerate(document.score.parts):
             for staff_index, staff in enumerate(part.staves):
-                for measure in staff.measures:
+                for measure, fifths in zip(staff.measures, active_keys(staff), strict=True):
                     for voice, events in voices_of(measure).items():
                         starts = onsets(events)
                         base: Event | None = None
@@ -82,7 +82,7 @@ class VoiceCollisionRule(ValidationRule):
                                 base = event
                                 seen = {pitch}
                                 continue
-                            name = note_name(event.pitch)
+                            name = note_name(event.pitch, fifths=fifths)
                             if base is None:
                                 add(
                                     key,
@@ -91,12 +91,13 @@ class VoiceCollisionRule(ValidationRule):
                                     "Revisa si es una nota suelta.",
                                 )
                                 continue
+                            # Una nota de adorno no tiene figura que comparar (ADR-0028).
                             if (
-                                event.duration_beats is not None
-                                and base.duration_beats is not None
+                                not is_grace(event)
+                                and not is_grace(base)
                                 and event.duration_beats != base.duration_beats
                             ):
-                                first = note_name(base.pitch)
+                                first = note_name(base.pitch, fifths=fifths)
                                 mine = count_figures(1, event.duration_beats)
                                 theirs = count_figures(1, base.duration_beats)
                                 add(

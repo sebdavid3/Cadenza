@@ -65,11 +65,21 @@ class TimeSignatureRule(ValidationRule):
             staff = part.staves[0]
             by_number = {measure.number: measure for measure in staff.measures}
             for span in meter_spans(part, part_index):
-                measure = by_number[span.start]
-                anchor = first_visible(anchors, part_index, 0, measure)
-                if anchor is None:
+                # El primer compás del tramo o la racha con algo que se vea: un silencio
+                # invisible no se puede elegir (ADR-0032).
+                found = next(
+                    (
+                        (number, anchor)
+                        for number in span.numbers
+                        if (anchor := first_visible(anchors, part_index, 0, by_number[number]))
+                        is not None
+                    ),
+                    None,
+                )
+                if found is None:
                     continue
-                message, fix = _texts(span, span.start)
+                start, anchor = found
+                message, fix = _texts(span, start)
                 findings.append(
                     Finding(
                         anchor=anchor,

@@ -26,7 +26,7 @@ from cadenza.domain import Event, EventKind, Finding, Measure, ScoreDocument, Se
 
 from ..language import de, figure_name, note_name, position_phrase, split_pitch
 from .base import ValidationRule
-from .support import anchor_map, is_grace, onsets, voices_of
+from .support import active_keys, anchor_map, is_grace, onsets, voices_of
 
 RULE_ID = "tie.resolution"
 _STARTS = frozenset({Tie.START, Tie.CONTINUE})
@@ -91,11 +91,15 @@ def _following(slots: Sequence[Sequence[_Slot]], slot: _Slot) -> tuple[list[_Slo
 
 
 def _unreached(
-    measures: Sequence[Measure], slot: _Slot, following: Sequence[_Slot], crossed: bool
+    measures: Sequence[Measure],
+    keys: Sequence[int],
+    slot: _Slot,
+    following: Sequence[_Slot],
+    crossed: bool,
 ) -> _Problem:
     measure = measures[slot.place[0]]
     where = position_phrase(slot.onset, measure.time_signature)
-    name = note_name(slot.event.pitch)
+    name = note_name(slot.event.pitch, fifths=keys[slot.place[0]])
     nxt = following[0].event
     if nxt.kind is EventKind.REST:
         what = "un silencio"
@@ -104,7 +108,7 @@ def _unreached(
             "sobra."
         )
     else:
-        other = note_name(nxt.pitch)
+        other = note_name(nxt.pitch, fifths=keys[following[0].place[0]])
         what = f"un {other}"
         fix = f"{_EXPRESSION}; si no, revisa la altura del {other}."
     if crossed:
@@ -129,7 +133,7 @@ class TieResolutionRule(ValidationRule):
         for part_index, part in enumerate(document.score.parts):
             for staff_index, staff in enumerate(part.staves):
                 measures = staff.measures
-                for problem in self._problems(measures):
+                for problem in self._problems(measures, active_keys(staff)):
                     position, voice, index = problem.slot.place
                     anchor = anchors.get(
                         (part_index, staff_index, measures[position].number, voice, index)
@@ -147,7 +151,7 @@ class TieResolutionRule(ValidationRule):
         return findings
 
     @staticmethod
-    def _problems(measures: Sequence[Measure]) -> list[_Problem]:
+    def _problems(measures: Sequence[Measure], keys: Sequence[int]) -> list[_Problem]:
         slots = _slots(measures)
         matched: set[Place] = set()
         problems: list[_Problem] = []
@@ -155,7 +159,9 @@ class TieResolutionRule(ValidationRule):
             for slot in in_measure:
                 event = slot.event
                 if event.kind is EventKind.REST:
-                    if event.tie is not None:
+                    # El final de una ligadura que ya se señaló en su nota no va aparte.
+                    closes = event.tie is Tie.STOP and slot.place in matched
+                    if event.tie is not None and not closes:
                         measure = measures[slot.place[0]]
                         where = position_phrase(slot.onset, measure.time_signature)
                         problems.append(
@@ -178,7 +184,7 @@ class TieResolutionRule(ValidationRule):
                     continue
                 # Un solo aviso por ligadura: la marca de final de lo siguiente no va aparte.
                 matched.update(other.place for other in following)
-                problems.append(_unreached(measures, slot, following, crossed))
+                problems.append(_unreached(measures, keys, slot, following, crossed))
 
         for in_measure in slots[1:]:  # el primer compás: la ligadura viene de la página anterior
             for slot in in_measure:
@@ -191,7 +197,7 @@ class TieResolutionRule(ValidationRule):
                     continue
                 measure = measures[slot.place[0]]
                 where = position_phrase(slot.onset, measure.time_signature)
-                name = note_name(event.pitch)
+                name = note_name(event.pitch, fifths=keys[slot.place[0]])
                 problems.append(
                     _Problem(
                         slot,
