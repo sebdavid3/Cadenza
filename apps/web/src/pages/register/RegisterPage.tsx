@@ -51,7 +51,7 @@ function RegistrationClosed() {
         <h1 className="login__title">
           <span>Registro cerrado</span>
         </h1>
-        <section className="login__form" aria-label="Registro cerrado">
+        <div className="login__form">
           <p className="login__notice">
             Ahora no se pueden crear cuentas: las cuentas las crea un investigador del proyecto. Si
             el equipo te dio una, entra con tu usuario y tu contraseña.
@@ -60,7 +60,7 @@ function RegistrationClosed() {
             Ir a entrar
             <PixelIcon name="arrow-right" />
           </Link>
-        </section>
+        </div>
       </main>
     </>
   );
