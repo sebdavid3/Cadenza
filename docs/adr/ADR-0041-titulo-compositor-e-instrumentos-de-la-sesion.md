@@ -21,7 +21,7 @@ Hechos comprobados en el código el 2026-10-31:
 
 ### 1. Son datos de la sesión, no del `ScoreIR`
 
-El título, el compositor y el instrumento de cada parte los indica la persona; no los lee el OMR ni se corrigen nota a nota. Viven en la sesión: columnas `title`, `composer`, `part_instruments` (JSON, una entrada por parte) y `source_filename` de `sessions`, todas opcionales (migración `0014_session_metadata`). En el dominio, `ScoreMetadata` (título, compositor y `PartMetadata` por parte, con el `Instrument` y un nombre opcional) es un tipo de valor puro y normalizado: sin caracteres de control ni espacios de sobra, vacío es nulo, sin las partes vacías del final, título y compositor de hasta 200 caracteres, nombre de parte de hasta 100 y como mucho 32 partes. Dos formas de decir lo mismo son iguales. `SessionData` y `SessionSummary` lo llevan; una sesión anterior se lee sin metadatos.
+El título, el compositor y el instrumento de cada parte los indica la persona; no los lee el OMR ni se corrigen nota a nota. Viven en la sesión: columnas `title`, `composer`, `part_instruments` (JSON, una entrada por parte) y `source_filename` de `sessions`, todas opcionales (migración `0014_session_metadata`). En el dominio, `ScoreMetadata` (título, compositor y `PartMetadata` por parte, con el `Instrument` y un nombre opcional) es un tipo de valor puro y normalizado: sin caracteres de control ni lo que no cabe en un XML 1.0 o en UTF-8 (sustitutos sueltos, U+FFFE y U+FFFF), que pasan a ser espacios, sin espacios de sobra, vacío es nulo, sin las partes vacías del final, título y compositor de hasta 200 caracteres, nombre de parte de hasta 100 y como mucho 32 partes, contados sobre el texto normalizado (la API, que publica esos límites en el contrato, los cuenta sobre el texto recibido: el cliente recorta los espacios). Dos formas de decir lo mismo son iguales. Un instrumento guardado que el código no conoce (de una versión posterior) se lee como `other` con su identificador por nombre, para que una fila no deje sin respuesta el listado. `SessionData` y `SessionSummary` lo llevan; una sesión anterior se lee sin metadatos.
 
 El `ScoreIR`, su serialización, el `ScoreDocument`, la importación, `materialize`, `EditOp` y las anclas no cambian: las cifras de los experimentos no se mueven (comprobado con la huella del `ScoreIR` y del MIDI de los 555 archivos de `data/`, igual antes y después).
 
@@ -69,13 +69,13 @@ Ampliación compatible del contrato v1: `SessionSummaryRead`, `SessionDetailRead
 ## Consecuencias
 
 ### Positivas
-- La sesión tiene nombre (#240) y cada parte, su instrumento para la reproducción (#242) y el MIDI (#189). OSMD dibuja el título, el compositor y los nombres de las partes que lleva el MusicXML.
+- La sesión tiene nombre (#240) y cada parte, su instrumento para la reproducción (#242) y el MIDI (#189). El MusicXML lleva el título, el compositor y los nombres de las partes; la vista no los dibuja hoy (`osmd.ts` apaga `drawTitle`, `drawComposer` y `drawPartNames`): encenderlos, con su efecto en la maquetación y en el mapa de notas de ADR-0027, es de #240.
 - El `ScoreIR`, el log y todo lo que alimenta las cifras de la tesis quedan igual; una sesión sin datos nuevos exporta lo mismo que antes.
 - El MusicXML descargado se abre en MuseScore con su título, su compositor y sus instrumentos.
 
 ### Negativas / Riesgos
 - Los metadatos no tienen historia: el `PATCH` sustituye y no se puede deshacer desde el log. Es aceptable porque no son la corrección que mide el estudio.
-- Tras el `PATCH`, la vista debe volver a pedir el MusicXML para dibujar el título nuevo (lo hará #240).
+- Tras el `PATCH`, el MusicXML que la vista tiene es el de antes: si #240 dibuja el título o los nombres de las partes, debe volver a pedirlo o actualizar lo que muestra con la respuesta.
 - Si HOMR detecta las partes en otro orden o en otro número del que la persona esperaba, los instrumentos dados al subir quedan en la parte que no es o se descartan; se corrigen con el `PATCH`, que ya conoce las partes.
 - En el MIDI con instrumentos, cada parte va por su canal: un reproductor que solo escuche el canal 1 dejaría de oír el piano. Los reproductores General MIDI los oyen todos.
 - Con más de 15 partes, los canales del MusicXML se repiten; fuera del alcance (corpus monofónico y piano simple).
