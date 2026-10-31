@@ -14,6 +14,7 @@ from cadenza.application import (
     SessionNotFound,
     SessionRepository,
     SessionSummary,
+    SuggestionConflict,
     SuggestionNotFound,
 )
 from cadenza.domain import Finding
@@ -44,6 +45,7 @@ def _to_persisted_suggestion(record: SuggestionRecord) -> PersistedSuggestion:
         responded_by=record.responded_by,
         responded_at=record.responded_at,
         applied_seq=record.applied_seq,
+        inherited_from=record.inherited_from,
     )
 
 
@@ -69,6 +71,7 @@ def _suggestion_record(
         response=None if inherited is None else inherited.response,
         responded_by=None if inherited is None else inherited.responded_by,
         responded_at=None if inherited is None else inherited.responded_at,
+        inherited_from=None if inherited is None else inherited.inherited_from or inherited.id,
     )
 
 
@@ -423,11 +426,28 @@ class SqlAlchemySessionRepository(SessionRepository):
         row = self._session.get(SuggestionRecord, suggestion_id)
         if row is None or row.session_id != session_id:
             raise SuggestionNotFound(suggestion_id)
-        row.response = response
-        row.responded_by = user
-        row.responded_at = datetime.now(UTC)
-        row.applied_seq = applied_seq
-        self._session.flush()
+        # Solo si no tenía respuesta, en la misma sentencia: dos peticiones a la vez no pueden
+        # cambiar una respuesta guardada (ADR-0036 §5).
+        result = self._session.execute(
+            update(SuggestionRecord)
+            .where(
+                SuggestionRecord.id == suggestion_id,
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.response.is_(None),
+            )
+            .values(
+                response=response,
+                responded_by=user,
+                responded_at=datetime.now(UTC),
+                applied_seq=applied_seq,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise SuggestionConflict(
+                suggestion_id, f"La sugerencia {suggestion_id} ya tiene respuesta"
+            )
+        self._session.refresh(row)
         return _to_persisted_suggestion(row)
 
     def list_suggestions(

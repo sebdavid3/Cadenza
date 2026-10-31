@@ -16,6 +16,7 @@ from alembic.operations import Operations
 from cadenza.application import (
     NewSuggestion,
     SessionData,
+    SuggestionConflict,
     SuggestionModelVersionData,
     SuggestionNotFound,
 )
@@ -147,6 +148,11 @@ def test_an_inherited_rejection_is_stored_rejected(factory: sessionmaker[DbSessi
         (stored,) = finding.suggestions
         assert (stored.response, stored.responded_by) == ("rejected", "ana")
         assert stored.id != old.id
+        # El heredado apunta al rechazo original, también al heredar de un heredado.
+        assert stored.inherited_from == old.id
+        again = NewSuggestion(edit=_suggestion(0).edit, inherited=stored)
+        (finding,) = repo.replace_findings("s1", [_finding(0)], at_seq=3, suggestions=[[again]])
+        assert finding.suggestions[0].inherited_from == old.id
 
 
 def test_accepting_records_the_applied_seq_and_unknown_ids_fail(
@@ -159,6 +165,11 @@ def test_accepting_records_the_applied_seq_and_unknown_ids_fail(
             "s1", balance.suggestions[0].id, response="accepted", user="ana", applied_seq=1
         )
         assert (accepted.response, accepted.applied_seq) == ("accepted", 1)
+        # La respuesta guardada no cambia después, ni con dos peticiones a la vez.
+        with pytest.raises(SuggestionConflict):
+            repo.respond_suggestion("s1", accepted.id, response="rejected", user="otro")
+        kept = repo.get_suggestion("s1", accepted.id)
+        assert kept is not None and (kept.response, kept.responded_by) == ("accepted", "ana")
         with pytest.raises(SuggestionNotFound):
             repo.respond_suggestion("s1", 999, response="rejected", user="ana")
         dismissed = repo.dismiss_finding("s1", balance.id, user="ana")
@@ -264,6 +275,7 @@ def test_migration_0013_upgrade_and_downgrade_on_sqlite() -> None:
         "responded_by",
         "responded_at",
         "applied_seq",
+        "inherited_from",
     } <= columns
     with engine.begin() as conn, Operations.context(MigrationContext.configure(conn)):
         module.downgrade()

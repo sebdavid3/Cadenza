@@ -55,6 +55,7 @@ def upgrade() -> None:
         sa.Column("responded_by", sa.String(length=128), nullable=True),
         sa.Column("responded_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("applied_seq", sa.Integer(), nullable=True),
+        sa.Column("inherited_from", sa.Integer(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

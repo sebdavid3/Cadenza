@@ -287,6 +287,8 @@ class SuggestionRecord(Base):
     responded_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     applied_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # El rechazo heredado repite la respuesta de esa fila (ADR-0036 §4): no es otra respuesta.
+    inherited_from: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
