@@ -6,7 +6,18 @@ from datetime import datetime
 from typing import Any, Literal
 
 from cadenza.application import EffortMetricsData, PersistedFinding, PersistedSuggestion, User
-from cadenza.domain import Anchor, EditEvent, EditOp
+from cadenza.domain import (
+    COMPOSER_MAX_LENGTH,
+    MAX_PARTS,
+    PART_NAME_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    Anchor,
+    EditEvent,
+    EditOp,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+)
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -293,6 +304,62 @@ class EditEventCreate(BaseModel):
     )
 
 
+class PartInstrumentRead(BaseModel):
+    """El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).
+
+    La posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene
+    instrumento ni nombre. `other` admite un nombre libre y suena como el piano.
+    """
+
+    instrument: Instrument | None = None
+    name: str | None = None
+
+    @classmethod
+    def from_part(cls, part: PartMetadata) -> PartInstrumentRead:
+        return cls(instrument=part.instrument, name=part.name)
+
+    @classmethod
+    def list_from(cls, metadata: ScoreMetadata) -> list[PartInstrumentRead]:
+        return [cls.from_part(part) for part in metadata.parts]
+
+
+class PartInstrumentWrite(BaseModel):
+    """El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument: Instrument | None = None
+    name: str | None = Field(default=None, max_length=PART_NAME_MAX_LENGTH)
+
+    def to_part(self) -> PartMetadata:
+        return PartMetadata(instrument=self.instrument, name=self.name)
+
+
+class SessionMetadataUpdate(BaseModel):
+    """Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).
+
+    Un campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista
+    entera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no
+    puede tener más entradas que partes la partitura. No es una edición del log.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, max_length=TITLE_MAX_LENGTH)
+    composer: str | None = Field(default=None, max_length=COMPOSER_MAX_LENGTH)
+    instruments: list[PartInstrumentWrite] | None = Field(default=None, max_length=MAX_PARTS)
+
+
+class SessionMetadataRead(BaseModel):
+    """Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041)."""
+
+    session_id: str
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
+
+
 class TranscribeResponse(BaseModel):
     session_id: str
     document_id: str
@@ -477,6 +544,10 @@ class SessionDetailRead(BaseModel):
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class SessionViewRead(BaseModel):
@@ -499,6 +570,10 @@ class SessionViewRead(BaseModel):
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class SessionSummaryRead(BaseModel):
@@ -515,6 +590,10 @@ class SessionSummaryRead(BaseModel):
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class RevalidateResponse(BaseModel):

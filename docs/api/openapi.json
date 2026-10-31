@@ -1014,6 +1014,92 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Cambiar el título, el compositor o los instrumentos de la sesión",
+        "description": "Solo el dueño (ADR-0012), también con la sesión finalizada. No es una edición del log ni cambia el estado de la sesión; el MusicXML y el MIDI exportados llevan los datos nuevos (#235, ADR-0041).",
+        "operationId": "update_session_metadata_endpoint_sessions__session_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionMetadataUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMetadataRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/sessions/{session_id}/timing": {
@@ -2328,6 +2414,71 @@
               }
             ],
             "title": "Test Score Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título de la partitura: el nombre de la sesión (#235, #240)."
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer",
+            "description": "Compositor (#235)."
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Instrument"
+                    },
+                    {
+                      "type": "string",
+                      "const": ""
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments",
+            "description": "Instrumento de cada parte, repetido una vez por parte en el orden en que HOMR las detecta; '' deja esa parte sin instrumento. Los de partes que HOMR no detecte se descartan (ADR-0041)."
+          },
+          "part_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Names",
+            "description": "Nombre de cada parte, alineado con `instruments`; '' es sin nombre. Con 'other', el nombre del instrumento (ADR-0041)."
           }
         },
         "type": "object",
@@ -3116,6 +3267,21 @@
         "title": "HealthStatusResponse",
         "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
       },
+      "Instrument": {
+        "type": "string",
+        "enum": [
+          "piano",
+          "voice",
+          "violin",
+          "cello",
+          "flute",
+          "clarinet",
+          "guitar",
+          "other"
+        ],
+        "title": "Instrument",
+        "description": "Lista cerrada de instrumentos de una parte (ADR-0041 §2).\n\nEl valor es un identificador estable que viaja en la API y se guarda en la base: la lista\nsolo crece. `other` admite un nombre libre (el de la parte) y suena como el piano."
+      },
       "KeySignaturePayload": {
         "properties": {
           "fifths": {
@@ -3218,6 +3384,64 @@
         ],
         "title": "MeasurePayload",
         "description": "Compás que agrupa eventos musicales y metadatos estructurales."
+      },
+      "PartInstrumentRead": {
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Instrument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "PartInstrumentRead",
+        "description": "El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).\n\nLa posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene\ninstrumento ni nombre. `other` admite un nombre libre y suena como el piano."
+      },
+      "PartInstrumentWrite": {
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Instrument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartInstrumentWrite",
+        "description": "El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041)."
       },
       "PartPayload": {
         "properties": {
@@ -3714,6 +3938,46 @@
               }
             ],
             "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
           }
         },
         "type": "object",
@@ -3727,6 +3991,107 @@
         ],
         "title": "SessionDetailRead",
         "description": "Documento persistido + findings + correcciones de una sesión (HITL).\n\n`current_seq` indica el estado de secuencia de la partitura actual (`0` para crudo,\n`n` para `n` ediciones). `current_score` es el ScoreIR materializado y\n`anchor_index` contiene el índice de anclas correspondiente al estado actual,\ncon `bbox` y `confidence` heredadas del documento original (ADR-0011)."
+      },
+      "SessionMetadataRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionMetadataRead",
+        "description": "Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041)."
+      },
+      "SessionMetadataUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PartInstrumentWrite"
+                },
+                "type": "array",
+                "maxItems": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SessionMetadataUpdate",
+        "description": "Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).\n\nUn campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista\nentera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no\npuede tener más entradas que partes la partitura. No es una edición del log."
       },
       "SessionSummaryRead": {
         "properties": {
@@ -3798,6 +4163,46 @@
               }
             ],
             "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
           }
         },
         "type": "object",
@@ -4537,6 +4942,49 @@
             ],
             "default": null,
             "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "title": "Instruments",
+            "type": "array"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Filename"
           }
         },
         "required": [
