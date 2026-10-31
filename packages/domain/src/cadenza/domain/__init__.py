@@ -59,16 +59,32 @@ from .score import (
     Staff,
     build_anchor_index,
 )
+from .score_metadata import (
+    COMPOSER_MAX_LENGTH,
+    MAX_PARTS,
+    PART_NAME_MAX_LENGTH,
+    SOURCE_FILENAME_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+    normalize_source_filename,
+)
 from .suggestion import CONFIDENCE_LEVELS, SUGGESTION_SOURCES, SuggestedEdit
 from .tie import Tie
 from .time_signature import TimeSignature
 from .timing import EventTiming, TimingMap, compute_timing_map
 
 __all__ = [
+    "COMPOSER_MAX_LENGTH",
     "CONFIDENCE_LEVELS",
     "CONTENT_EDIT_OPS",
     "MARK_EDIT_OPS",
+    "MAX_PARTS",
+    "PART_NAME_MAX_LENGTH",
+    "SOURCE_FILENAME_MAX_LENGTH",
     "SUGGESTION_SOURCES",
+    "TITLE_MAX_LENGTH",
     "Anchor",
     "AnchorIndex",
     "Articulation",
@@ -83,13 +99,16 @@ __all__ = [
     "EventRef",
     "EventTiming",
     "Finding",
+    "Instrument",
     "InvalidEditPayload",
     "KeySignature",
     "Measure",
     "Part",
+    "PartMetadata",
     "Provenance",
     "ScoreDocument",
     "ScoreIR",
+    "ScoreMetadata",
     "Severity",
     "Slur",
     "SlurType",
@@ -112,6 +131,7 @@ __all__ = [
     "is_canonical_pitch",
     "materialize",
     "normalize_accidental",
+    "normalize_source_filename",
     "origin_anchor",
     "snapshot_before",
     "translate_anchor",
