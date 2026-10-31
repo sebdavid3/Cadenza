@@ -208,7 +208,16 @@ verdad no dan los registros del corpus, falla.
 ```powershell
 uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py            # results/
 uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py --output-dir <dir> --seed 20260920
+# Lo que verá la condición asistida (la política por defecto de la API, ADR-0036 enmienda 19):
+uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py --output-dir <dir> `
+  --min-level high --families accidental
 ```
+
+Con `--min-level` o `--families`, la prueba, los pliegues y la curva se miden con la capa
+envuelta en la misma política de qué se muestra que la API (`SuggestionPolicy`,
+`PolicySuggestionModel`); lo que no se da no filtra, y sin ninguna de las dos se mide todo lo
+admisible, como en #287. La línea base del orden de la regla y `promotion_metrics` no pasan
+por la política. El resumen y `run_info` dicen qué política se midió (`display_policy`).
 
 Mide, en `results/suggestion_layer_summary.json` (con `run_info`):
 
@@ -328,7 +337,9 @@ uv run --no-sync python -m ml suggestions evaluate --model <modelo.json> `
   --corpus <corpus.jsonl> --output <informe.json>
 
 # 3. Promover solo si mejora a la activa (o, la primera, a no tener capa) en la misma
-#    partición de prueba. Entra en vigor al reiniciar la API con CADENZA_SUGGESTIONS_ENABLED.
+#    partición de prueba. Entra en vigor al reiniciar la API con CADENZA_SUGGESTIONS_ENABLED,
+#    que solo muestra lo que deja su política (CADENZA_SUGGESTIONS_MIN_LEVEL y
+#    CADENZA_SUGGESTIONS_FAMILIES; por defecto, las alteraciones de confianza alta).
 uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report <informe.json> `
   --db-url <url> --artifacts-dir <dir de artefactos de la API> --version <versión>
 
