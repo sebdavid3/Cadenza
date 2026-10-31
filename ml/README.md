@@ -217,7 +217,10 @@ Con `--min-level` o `--families`, la prueba, los pliegues y la curva se miden co
 envuelta en la misma política de qué se muestra que la API (`SuggestionPolicy`,
 `PolicySuggestionModel`); lo que no se da no filtra, y sin ninguna de las dos se mide todo lo
 admisible, como en #287. La línea base del orden de la regla y `promotion_metrics` no pasan
-por la política. El resumen y `run_info` dicen qué política se midió (`display_policy`).
+por la política, así que con ella la comparación de la primera y las tres primeras sugerencias
+con la línea base mide el filtro y no el orden (`display_policy.baseline_comparison_valid:
+false`). El resumen y `run_info` dicen qué política se midió (`display_policy`). Con política,
+`--output-dir` es obligatorio: `results/` guarda la medición de #287.
 
 Mide, en `results/suggestion_layer_summary.json` (con `run_info`):
 
