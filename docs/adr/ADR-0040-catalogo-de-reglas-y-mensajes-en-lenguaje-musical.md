@@ -542,3 +542,15 @@ En una sesión `unassisted` el validador **no se ejecuta** (protocolo §2.2), y 
 | Renombrar `key.consistency` y `voice.collision` | Los identificadores están en los hallazgos guardados y en `exp_06` por regla. Cambia el título en la vista, no el identificador. |
 | Poner la versión del catálogo dentro de `rules_version` | `exp_06` separa `rules_version` por comas para saber qué reglas medir. La versión va en una constante aparte. |
 | Mostrar «Qué revisar» como una sugerencia aplicable | Es texto. Lo aplicable son las sugerencias estructuradas de ADR-0036, que la vista muestra aparte (#258). |
+
+## Enmiendas de la implementación (#246, 2026-10-31)
+
+1. **Sin #236.** `time.signature` no trae candidatos y C y ¢ salen de la métrica propuesta (4/4 y 2/2). El símbolo leído y el candidato de cambiar el compás llegan con #236.
+2. **Finalizar en una sesión no asistida** no ejecuta las reglas ni la capa: lo hace #187 (ADR-0043), como pide el §13.1.
+3. **Posiciones en un compás compuesto:** solo tercios y sextos del tiempo, para decir «la cuarta semicorchea del tiempo 1» en 6/8 en lugar de una figura con puntillo.
+4. **Silencio de compás en `time.signature`:** suma la métrica leída; sin eso, un silencio de redonda en 3/4 creaba un tramo falso y cambiaba la capacidad de toda la parte.
+5. **«Le falta» con una cantidad de dos figuras:** el final «o que falte una nota o un silencio de …» solo aparece si lo que falta es una sola figura.
+6. **Textos que el ADR no fijaba:** una ligadura que llega a un silencio dice «Revisa si en la partitura lo siguiente es una nota; si es un silencio, la ligadura sobra.», y `key.consistency` con más de dos pentagramas dice «el pentagrama N».
+7. **«Qué revisar» no se muestra en los `learned.*`**, cuyo `suggested_fix` es la edición propuesta (#258).
+8. **El compás 0 no llega a las reglas** (`Anchor` exige compás ≥ 1): «la anacrusa» existe solo en el vocabulario.
+9. **Medido** (regenerado el 2026-10-31 en `results/rules_catalog_v2/`): `exp_06` (91 incipits, verdad del MEI) pasa de P=64.52% y R=39.80% a P=79.57% y R=36.82%; `exp_14` (352 incipits de prueba, verdad en la altura que suena) pasa de P=42.8% y R=64.1% a P=55.4% y R=59.4% con las reglas solas, y los compases con error de alteración que detectan las reglas, de 19 a 31 de 32. Como preveía el §14, la capa se queda en 2 posibles errores propios (ninguno correcto); ordena mejor que la regla los 79 posibles errores con el arreglo verdadero entre sus candidatos (68 frente a 53 en primera posición), y con la política del estudio se muestran 47 sugerencias, 40 correctas y 3 notas correctas estropeadas.
