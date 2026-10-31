@@ -205,9 +205,6 @@ class SuggestionPolicy:
         names = frozenset(name.strip().lower() for name in families.split(",") if name.strip())
         return cls(min_level=min_level.strip().lower(), families=names)
 
-    def describe(self) -> str:
-        return f"min_level={self.min_level} families={','.join(sorted(self.families))}"
-
     def shows(self, edit: SuggestedEdit) -> bool:
         level = edit.confidence_level or CONFIDENCE_ORDER[0]
         if level not in CONFIDENCE_ORDER:

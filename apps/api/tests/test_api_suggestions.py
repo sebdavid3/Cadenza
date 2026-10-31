@@ -79,6 +79,13 @@ class FMajorEngine(OMREngine):
         )
 
 
+@pytest.fixture(autouse=True)
+def _default_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Las pruebas usan la política por defecto, no la del entorno de quien las ejecuta."""
+    for name in ("CADENZA_SUGGESTIONS_MIN_LEVEL", "CADENZA_SUGGESTIONS_FAMILIES"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _artifact() -> dict[str, Any]:
     return {
         "format": ARTIFACT_FORMAT,

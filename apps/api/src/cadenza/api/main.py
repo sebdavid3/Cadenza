@@ -417,7 +417,9 @@ def create_app(
     """Construye la aplicación con dependencias inyectadas (raíz de composición).
 
     La capa de sugerencias (ADR-0036) solo corre con `Settings.suggestions_enabled`: la
-    versión promovida del registro se carga aquí, al arrancar, salvo que se inyecte otra.
+    versión promovida del registro se carga aquí, al arrancar, envuelta en la política de qué
+    se muestra (ADR-0036, enmienda 19), salvo que se inyecte otra: la inyectada se usa tal
+    cual, sin política.
     """
 
     configure_logging()
