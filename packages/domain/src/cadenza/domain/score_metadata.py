@@ -40,11 +40,25 @@ class Instrument(StrEnum):
     OTHER = "other"
 
 
+# Lo que no puede ir en un XML 1.0 ni guardarse en UTF-8, además de los de control (`Cc`):
+# las mitades sueltas de un par sustituto (`Cs`) y los no caracteres U+FFFE y U+FFFF.
+_NOT_XML_CATEGORIES: Final[frozenset[str]] = frozenset({"Cc", "Cs"})
+_NOT_XML_CHARACTERS: Final[frozenset[str]] = frozenset({"\ufffe", "\uffff"})
+
+
+def _is_text_character(ch: str) -> bool:
+    return ch not in _NOT_XML_CHARACTERS and unicodedata.category(ch) not in _NOT_XML_CATEGORIES
+
+
 def _clean_text(value: str | None) -> str | None:
-    """Sin caracteres de control ni espacios repetidos o en los extremos; vacío es None."""
+    """Sin caracteres de control ni espacios repetidos o en los extremos; vacío es None.
+
+    Lo que no puede ir en el MusicXML ni en la base (control, sustitutos sueltos, U+FFFE y
+    U+FFFF) pasa a ser un espacio: el texto viaja tal cual a `work-title` y `part-name`.
+    """
     if value is None:
         return None
-    replaced = "".join(" " if unicodedata.category(ch) == "Cc" else ch for ch in value)
+    replaced = "".join(ch if _is_text_character(ch) else " " for ch in value)
     cleaned = " ".join(replaced.split())
     return cleaned or None
 

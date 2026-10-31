@@ -40,6 +40,16 @@ def test_control_characters_become_spaces() -> None:
     assert ScoreMetadata(title="Lied\x00Nr.\x1f2").title == "Lied Nr. 2"
 
 
+@pytest.mark.parametrize("bad", ["\ud800", "\udfff", "￾", "￿", "\x7f"])
+def test_characters_xml_and_utf8_cannot_carry_become_spaces(bad: str) -> None:
+    # Un título así rompía el MusicXML exportado o la escritura en la base (revisión de #235).
+    metadata = ScoreMetadata(title=f"Lied{bad}2", composer=bad, parts=(PartMetadata(name=bad),))
+    assert metadata.title == "Lied 2"
+    assert metadata.composer is None
+    assert metadata.parts == ()
+    assert normalize_source_filename(f"pagina{bad}.png") == "pagina .png"
+
+
 def test_blank_text_is_none() -> None:
     metadata = ScoreMetadata(title=" \t ", composer="")
     assert metadata.title is None

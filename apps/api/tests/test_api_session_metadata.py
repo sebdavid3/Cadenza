@@ -45,7 +45,10 @@ PROGRAM_CHANGE = 0xC0
 class _TwoPartsOMR(FakeOMREngine):
     """Dos partes, como la voz y el piano que HOMR detecta en *Mondnacht*."""
 
+    calls = 0
+
     def transcribe(self, image_path: Path) -> ScoreDocument:
+        type(self).calls += 1
         document = super().transcribe(image_path)
         (part,) = document.score.parts
         score = ScoreIR(parts=(part, replace(part, id="part-1")))
@@ -201,12 +204,16 @@ def test_instruments_for_parts_omr_did_not_find_are_dropped(api: Api) -> None:
         {"title": "x" * 201},
         {"composer": "x" * 201},
         {"part_names": ["x" * 101]},
+        {"instruments": ["piano"] * 33},
     ],
 )
 def test_invalid_metadata_is_rejected_before_transcribing(api: Api, data: dict[str, Any]) -> None:
+    calls = _TwoPartsOMR.calls
+
     response = api.transcribe(data)
 
     assert response.status_code == 422, response.text
+    assert _TwoPartsOMR.calls == calls
     assert api.get("/sessions").json() == []
 
 
@@ -242,6 +249,38 @@ def test_null_clears_and_instruments_are_replaced(api: Api) -> None:
     assert body["title"] == "Mondnacht"
     assert body["composer"] is None
     assert body["instruments"] == [{"instrument": "cello", "name": None}]
+
+
+def test_null_title_and_instruments_clear_them(api: Api) -> None:
+    session_id = api.session(MONDNACHT)
+
+    response = api.patch(session_id, {"title": None, "instruments": None})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert (body["title"], body["composer"], body["instruments"]) == (
+        None,
+        "Robert Schumann",
+        [],
+    )
+
+
+def test_text_xml_cannot_carry_does_not_break_the_export(api: Api) -> None:
+    # Revisión de #235: U+FFFE o U+FFFF en el título dejaban un MusicXML mal formado. (Un
+    # sustituto suelto lo rechaza antes Pydantic; el dominio lo limpia igual, test_score_metadata.)
+    session_id = api.session()
+
+    # El JSON con el carácter escapado, tal cual.
+    for code in ("fffe", "ffff"):
+        escaped = "Lied\\u" + code + "2"
+        response = api.client.patch(
+            f"/sessions/{session_id}",
+            content=('{"title": "' + escaped + '"}').encode("ascii"),
+            headers={**api.headers["owner"], "Content-Type": "application/json"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["title"] == "Lied 2"
+        assert _musicxml(api, session_id).findtext("work/work-title") == "Lied 2"
 
 
 def test_patch_is_not_an_edit(api: Api) -> None:
