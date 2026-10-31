@@ -1,8 +1,16 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ApiClient } from "../../api/client";
+import { newRequestId, type ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
-import type { AnchorPayload, EditEventRead, SessionDetailRead } from "../../types";
+import type {
+  AnchorPayload,
+  EditAppliedRead,
+  EditEventRead,
+  FindingRead,
+  ScoreIRPayload,
+  SessionViewRead,
+  TimingMapRead,
+} from "../../types";
 import {
   carryAnchor,
   planCommand,
@@ -13,6 +21,7 @@ import {
   type EditTarget,
 } from "./edits";
 import { describeEdit, historyPlacement, inverseOf, readLog } from "./history";
+import { markReceived, markSent } from "./marks";
 import { anchorKey } from "./noteMap";
 import { useSelectionStore } from "./selection";
 import {
@@ -157,24 +166,57 @@ function failure(
   }
 }
 
-/** Lo que responde el servidor a una orden: el `seq` del estado que crea y, si lo cambia, qué se hizo. */
+/**
+ * El estado que crea una orden, tal como lo devuelve el servidor con ella (#275, ADR-0037): la
+ * edición que entra en el log, la partitura, el MusicXML (null si no se pudo exportar) y el mapa
+ * de tiempos (null si no cambia).
+ */
+interface NewState {
+  seq: number;
+  edit: EditEventRead;
+  score: ScoreIRPayload;
+  status: string;
+  musicxml: string | null;
+  timing: TimingMapRead | null;
+}
+
+/**
+ * Lo que responde el servidor a una orden: el `seq` del estado que crea, ese estado (null si la
+ * respuesta no lo trae entero: entonces se pide, como antes de #275) y, si lo cambia, qué se hizo.
+ */
 interface Outcome {
   seq: number;
+  state: NewState | null;
   request?: EditorRequest;
+}
+
+/** Si la respuesta trae el estado nuevo entero; un servidor anterior a #275 no lo trae. */
+const carriesState = (body: object) =>
+  ["current_score", "status", "musicxml", "timing"].every((key) => key in body);
+
+/** El resultado del 201 de una edición: la edición, sin el estado, es la que entra en el log. */
+function outcomeOfEdit(applied: EditAppliedRead): Outcome {
+  const { current_seq, current_score, status, musicxml, timing, ...edit } = applied;
+  const state = carriesState(applied)
+    ? { seq: current_seq, edit, score: current_score, status, musicxml, timing }
+    : null;
+  return { seq: applied.seq, state };
 }
 
 /**
  * Corrección de la nota elegida (#183, ADR-0030), y deshacer y rehacer (#185, ADR-0034). Cada orden
  * es una edición con el `base_seq` del estado que se ve; nada se da por guardado sin el 201 (o el
- * 200 de `POST /undo`). Tras él, o tras un 409, se pide el detalle de la sesión y, antes de
- * mostrarlo, el MusicXML, los posibles errores y los tiempos de ese estado: la vista pasa de un
- * estado al otro de una vez. Un 409 nunca se reintenta solo. Con `held`, las órdenes esperan: se
- * está revalidando y una edición cambiaría el estado validado (ADR-0035).
+ * 200 de `POST /undo`). Con él llega el estado nuevo (#275, ADR-0037): la partitura, el MusicXML y
+ * los tiempos si cambian; los posibles errores no cambian sin revalidar. La vista pasa a él de una
+ * vez, sin pedir nada más. Tras un 409 se recarga todo: el detalle de la sesión y, antes de
+ * mostrarlo, el MusicXML, los posibles errores y los tiempos de ese estado. Un 409 nunca se
+ * reintenta solo. Con `held`, las órdenes esperan: se está revalidando y una edición cambiaría el
+ * estado validado (ADR-0035).
  */
 export function useEditor(
   api: ApiClient,
   sessionId: string,
-  detail: SessionDetailRead | undefined,
+  detail: SessionViewRead | undefined,
   held = false,
 ) {
   const queryClient = useQueryClient();
@@ -255,6 +297,62 @@ export function useEditor(
     return fresh;
   }
 
+  /**
+   * Muestra el estado que devolvió el servidor con la orden, compuesto sobre el que se ve (el de
+   * `baseSeq`): su log más la edición nueva, su partitura, su MusicXML y sus tiempos, y los mismos
+   * posibles errores. Solo pide lo que no trae: el MusicXML si no se pudo exportar (la vista dirá
+   * el error) y los tiempos si no cambian y no se tenían. Si lo que se ve ya no es `baseSeq`, se
+   * recarga entero.
+   */
+  async function show(
+    state: NewState,
+    baseSeq: number,
+    signal: AbortSignal,
+    beforeShow?: () => void,
+  ) {
+    const previous = queryClient.getQueryData<SessionViewRead>(detailKey);
+    if (!previous || (previous.current_seq ?? 0) !== baseSeq) return refresh(signal, beforeShow);
+    const ignore = () => undefined;
+    const musicXmlKey = sessionMusicXmlQuery(api, sessionId, state.seq).queryKey;
+    if (state.musicxml !== null) queryClient.setQueryData(musicXmlKey, state.musicxml);
+    else await queryClient.query(sessionMusicXmlQuery(api, sessionId, state.seq)).catch(ignore);
+    const timing =
+      state.timing ??
+      queryClient.getQueryData<TimingMapRead>(sessionTimingQuery(api, sessionId, baseSeq).queryKey);
+    if (timing) {
+      queryClient.setQueryData(sessionTimingQuery(api, sessionId, state.seq).queryKey, timing);
+    } else {
+      await queryClient.query(sessionTimingQuery(api, sessionId, state.seq)).catch(ignore);
+    }
+    // Sin revalidar, los posibles errores son los mismos (ADR-0035): no se vuelven a pedir.
+    const findings = queryClient.getQueryData<FindingRead[]>(
+      sessionFindingsQuery(api, sessionId, baseSeq).queryKey,
+    );
+    if (findings) {
+      queryClient.setQueryData(sessionFindingsQuery(api, sessionId, state.seq).queryKey, findings);
+    }
+    // Una recarga del detalle que siguiera en curso traería un estado anterior.
+    await queryClient.cancelQueries({ queryKey: detailKey, exact: true });
+    if (signal.aborted) return null;
+    // Mientras tanto pudo llegar un estado posterior (de otra pestaña): no se vuelve atrás.
+    const latest = queryClient.getQueryData<SessionViewRead>(detailKey);
+    if (latest && (latest.current_seq ?? 0) > state.seq) {
+      setKnownSeq(latest.current_seq ?? 0);
+      return latest;
+    }
+    const fresh: SessionViewRead = {
+      ...previous,
+      current_seq: state.seq,
+      current_score: state.score,
+      status: state.status,
+      edits: [...previous.edits, state.edit],
+    };
+    setKnownSeq(state.seq);
+    beforeShow?.();
+    queryClient.setQueryData(detailKey, fresh);
+    return fresh;
+  }
+
   /** Una sola petición a la vez: la siguiente se construiría sobre un estado que va a cambiar. */
   function begin() {
     if (inFlight.current) return null;
@@ -265,18 +363,27 @@ export function useEditor(
     return controller;
   }
 
-  /** Envía una orden con `post` y, con su respuesta, pasa al estado nuevo. */
-  async function submit(request: EditorRequest, post: (signal: AbortSignal) => Promise<Outcome>) {
+  /**
+   * Envía una orden con `post` y, con su respuesta, pasa al estado nuevo. `post` recibe el
+   * `X-Request-ID` de la petición, que va también en las marcas de rendimiento (#275).
+   */
+  async function submit(
+    request: EditorRequest,
+    post: (signal: AbortSignal, requestId: string) => Promise<Outcome>,
+  ) {
     const controller = begin();
     if (!controller) return;
     const { signal } = controller;
     // Función y no propiedad: TypeScript no sabe que la señal puede cambiar durante un await.
     const cancelled = () => signal.aborted;
     setStatus({ kind: "saving", request });
+    const requestId = newRequestId();
+    const order = markSent(request.kind, request.baseSeq, requestId);
     try {
       let outcome: Outcome;
       try {
-        outcome = await post(signal);
+        outcome = await post(signal, requestId);
+        markReceived(order, sessionId, outcome.seq);
       } catch (error) {
         if (cancelled()) return;
         if (!(error instanceof ApiError && error.kind === "conflict")) {
@@ -295,9 +402,14 @@ export function useEditor(
       }
       const done = outcome.request ?? request;
       const saved = outcome.seq;
-      const fresh = await refresh(signal, () => {
+      const placeSaved = () => {
         place(done, saved);
-      }).catch(() => null);
+      };
+      const fresh = await (
+        outcome.state
+          ? show(outcome.state, request.baseSeq, signal, placeSaved)
+          : refresh(signal, placeSaved)
+      ).catch(() => null);
       if (cancelled()) return;
       if (!fresh) pendingPlacement.current = { request: done, seq: saved };
       setStatus(fresh ? { kind: "saved", request: done } : { kind: "unsynced", request: done });
@@ -307,8 +419,8 @@ export function useEditor(
   }
 
   function send(request: EditRequest) {
-    return submit(request, async (signal) => {
-      const edit = await postEdit(
+    return submit(request, async (signal, requestId) => {
+      const applied = await postEdit(
         api,
         sessionId,
         {
@@ -320,8 +432,9 @@ export function useEditor(
           after: request.after,
         },
         signal,
+        requestId,
       );
-      return { seq: edit.seq };
+      return outcomeOfEdit(applied);
     });
   }
 
@@ -409,14 +522,34 @@ export function useEditor(
     const request = historyRequest("undo", edit, inverseOf(edit));
     if (!request) return;
     const { edits: before } = detail;
-    void submit(request, async (signal) => {
-      const result = await postUndo(api, sessionId, { base_seq: request.baseSeq }, signal);
-      if (result.undone_edit_id === edit.id) return { seq: result.current_seq };
+    void submit(request, async (signal, requestId) => {
+      const result = await postUndo(
+        api,
+        sessionId,
+        { base_seq: request.baseSeq },
+        signal,
+        requestId,
+      );
+      // Sin la compensatoria no se puede componer el log nuevo: el estado se pide entero.
+      const state: NewState | null =
+        result.compensatory_edit && carriesState(result)
+          ? {
+              seq: result.current_seq,
+              edit: result.compensatory_edit,
+              score: result.current_score,
+              status: result.status,
+              musicxml: result.musicxml,
+              timing: result.timing,
+            }
+          : null;
+      const seq = result.current_seq;
+      if (result.undone_edit_id === edit.id) return { seq, state };
       // El servidor deshizo otra: se dice esa y la selección no se mueve.
       const undone = before.find((candidate) => candidate.id === result.undone_edit_id);
       const unplaced = { ...request, select: undefined };
       return {
-        seq: result.current_seq,
+        seq,
+        state,
         request: undone
           ? {
               ...unplaced,
@@ -444,8 +577,8 @@ export function useEditor(
     }
     const request = historyRequest("redo", edit, edit);
     if (!request) return;
-    void submit(request, async (signal) => {
-      const saved = await postEdit(
+    void submit(request, async (signal, requestId) => {
+      const applied = await postEdit(
         api,
         sessionId,
         {
@@ -456,8 +589,9 @@ export function useEditor(
           after: edit.after,
         },
         signal,
+        requestId,
       );
-      return { seq: saved.seq };
+      return outcomeOfEdit(applied);
     });
   }
 

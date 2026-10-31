@@ -10,25 +10,28 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import tempfile
 import time
 import uuid
 from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from cadenza.application import (
     ArtifactStore,
     DuplicateUsername,
     FindingNotFound,
     Forbidden,
+    InMemoryScoreStateCache,
     InvalidEdit,
     NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
     Role,
     ScoreExporter,
+    ScoreStateCache,
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
@@ -38,11 +41,13 @@ from cadenza.application import (
     User,
     UserNotFound,
     WeakPassword,
+    collect_stage_timings,
     is_image_content,
     normalize_condition,
+    timed_stage,
 )
 from cadenza.application import (
-    append_edit as append_edit_use_case,
+    append_edit_with_state as append_edit_use_case,
 )
 from cadenza.application import (
     authenticate as authenticate_use_case,
@@ -107,6 +112,7 @@ from cadenza.application import (
 from cadenza.application import (
     update_user as update_user_use_case,
 )
+from cadenza.domain import TimingMap
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
     HOMREngine,
@@ -133,6 +139,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
@@ -141,6 +148,7 @@ from .schemas import (
     AnchorPayload,
     ChangePasswordRequest,
     DismissFindingRequest,
+    EditAppliedRead,
     EditEventCreate,
     EditEventRead,
     EffortMetricsCreate,
@@ -157,6 +165,7 @@ from .schemas import (
     ScoreIRPayload,
     SessionDetailRead,
     SessionSummaryRead,
+    SessionViewRead,
     StatusResponse,
     TimingMapRead,
     TokenResponse,
@@ -245,6 +254,53 @@ UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+# Un X-Request-ID del cliente se acepta si tiene esta forma; si no, se genera otro: va al
+# registro tal cual (#275).
+_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# Orden de las etapas en `Server-Timing` (ADR-0037); las demás, detrás.
+_STAGE_ORDER = ("db", "materialize", "export", "timing", "serialize")
+
+
+def _server_timing(stages: dict[str, float], total_ms: float) -> str:
+    """`db;dur=1.20, materialize;dur=0.40, …, total;dur=3.10` (milisegundos)."""
+    names = [n for n in _STAGE_ORDER if n in stages] + sorted(
+        n for n in stages if n not in _STAGE_ORDER
+    )
+    items = [f"{name};dur={stages[name]:.2f}" for name in names]
+    items.append(f"total;dur={total_ms:.2f}")
+    return ", ".join(items)
+
+
+def _json_response(model: BaseModel, status_code: int = status.HTTP_200_OK) -> Response:
+    """Serializa el modelo una sola vez, medido como etapa `serialize` (#275).
+
+    FastAPI validaría y serializaría de nuevo lo que ya es un modelo del contrato; con una
+    partitura entera, eso es la mayor parte de la serialización.
+    """
+    with timed_stage("serialize"):
+        body = model.model_dump_json()
+    return Response(content=body, status_code=status_code, media_type="application/json")
+
+
+def _timing_read(session_id: str, timing_map: TimingMap) -> TimingMapRead:
+    return TimingMapRead(
+        session_id=session_id,
+        total_beats=str(timing_map.total_beats),
+        measure_offsets={str(k): str(v) for k, v in timing_map.measure_offsets.items()},
+        events=[
+            EventTimingRead(
+                anchor=AnchorPayload.model_validate(ev.anchor.to_primitive()),
+                kind=ev.kind.value,
+                measure_number=ev.measure_number,
+                voice=ev.voice,
+                offset_beats=str(ev.offset_beats),
+                duration_beats=str(ev.duration_beats),
+                measure_offset_beats=str(ev.measure_offset_beats),
+            )
+            for ev in timing_map.events
+        ],
+    )
+
 
 def get_db(request: Request) -> Iterator[DbSession]:
     """Dependencia de base de datos: una sesión por request, con commit/rollback."""
@@ -253,7 +309,8 @@ def get_db(request: Request) -> Iterator[DbSession]:
     session = factory()
     try:
         yield session
-        session.commit()
+        with timed_stage("db"):
+            session.commit()
     except Exception:
         session.rollback()
         raise
@@ -286,7 +343,8 @@ def get_current_user(
         ) from err
 
     user_repo = SqlAlchemyUserRepository(db)
-    user = user_repo.get(payload.sub)
+    with timed_stage("db"):
+        user = user_repo.get(payload.sub)
     if user is None or not user.active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -344,6 +402,7 @@ def create_app(
     artifact_store: ArtifactStore | None = None,
     score_exporter: ScoreExporter | None = None,
     model_registry: Any | None = None,
+    score_cache: ScoreStateCache | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
 
@@ -407,19 +466,27 @@ def create_app(
             allow_credentials="*" not in app_settings.cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
-            expose_headers=["X-Request-ID", "X-API-Version"],
+            expose_headers=["X-Request-ID", "X-API-Version", "Server-Timing"],
         )
 
     @app.middleware("http")
     async def request_id_and_access_log_middleware(request: Request, call_next: Any) -> Response:
-        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        # El que envía la web (#275) relaciona su medida de una orden con este registro.
+        incoming = request.headers.get("X-Request-ID") or ""
+        req_id = (
+            incoming if _REQUEST_ID_PATTERN.fullmatch(incoming) is not None else uuid.uuid4().hex
+        )
         request.state.request_id = req_id
         start_time = time.perf_counter()
 
-        response: Response = await call_next(request)
+        # Las etapas que marcan la ruta y los casos de uso, para `Server-Timing` (ADR-0037).
+        with collect_stage_timings() as stages:
+            response: Response = await call_next(request)
 
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        duration_ms = round(elapsed_ms, 2)
         response.headers["X-Request-ID"] = req_id
+        response.headers["Server-Timing"] = _server_timing(stages, elapsed_ms)
 
         session_id = request.headers.get("X-Session-ID")
         if not session_id and "/sessions/" in request.url.path:
@@ -565,6 +632,12 @@ def create_app(
         score_exporter if score_exporter is not None else Music21ScoreExporter()
     )
     app.state.model_registry = model_registry
+    # Estados materializados por (sesión, seq): el log no cambia (ADR-0007, ADR-0037).
+    app.state.score_cache = (
+        score_cache
+        if score_cache is not None
+        else InMemoryScoreStateCache(app_settings.score_cache_max_entries)
+    )
 
     @app.exception_handler(UnsupportedExportFormat)
     def unsupported_export_format_handler(
@@ -1138,6 +1211,7 @@ def create_app(
             session_id=session_id,
             format=format,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
         )
         content_bytes = (
             exported.content.encode("utf-8")
@@ -1152,54 +1226,81 @@ def create_app(
 
     @app.get(
         "/sessions/{session_id}",
+        # El contrato por defecto no cambia; `fields=view` responde SessionViewRead, que se
+        # declara en los componentes (custom_openapi) y en la descripción del parámetro.
         response_model=SessionDetailRead,
         tags=["Sessions"],
         summary="Detalle completo de sesión con estado materializado",
         description=(
             "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, "
-            "current_score materializado y anchor_index enriquecido (ADR-0011)."
+            "current_score materializado y anchor_index enriquecido (ADR-0011). "
+            "Con fields=view devuelve SessionViewRead: lo mismo sin document ni anchor_index, "
+            "que no se calcula (#275, ADR-0037)."
         ),
         responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
     )
-    def get_session(session_id: str, db: DbDep, current_user: CurrentUserDep) -> SessionDetailRead:
+    def get_session(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        fields: Annotated[
+            Literal["view"] | None,
+            Query(
+                description=(
+                    "'view': solo lo que necesita la vista (SessionViewRead), sin document ni "
+                    "anchor_index. Sin él, el detalle completo (SessionDetailRead)."
+                )
+            ),
+        ] = None,
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
+        view = fields == "view"
         detail = get_session_use_case(
             session_id,
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            include_anchor_index=not view,
+            score_cache=request.app.state.score_cache,
         )
 
-        score_doc = ScoreDocumentPayload.model_validate(detail.document)
-        curr_score = (
-            ScoreIRPayload.model_validate(detail.current_score)
-            if detail.current_score is not None
-            else None
-        )
-        anchor_idx = (
-            AnchorIndexPayload.model_validate(detail.anchor_index)
-            if detail.anchor_index is not None
-            else None
-        )
-
-        return SessionDetailRead(
-            session_id=detail.session_id,
-            document_id=detail.document_id,
-            omr_engine=detail.omr_engine,
-            document=score_doc,
-            findings=[FindingRead.from_persisted(f) for f in detail.findings],
-            edits=[EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
-            current_score=curr_score,
-            current_seq=detail.current_seq,
-            anchor_index=anchor_idx,
-            image_artifact=detail.image_artifact,
-            model_version=detail.model_version,
-            status=detail.status,
-            condition=detail.condition,
-            test_score_id=detail.test_score_id,
-            owner_id=detail.owner_id,
-        )
+        with timed_stage("serialize"):
+            curr_score = (
+                ScoreIRPayload.model_validate(detail.current_score)
+                if detail.current_score is not None
+                else None
+            )
+            common: dict[str, Any] = {
+                "session_id": detail.session_id,
+                "document_id": detail.document_id,
+                "omr_engine": detail.omr_engine,
+                "findings": [FindingRead.from_persisted(f) for f in detail.findings],
+                "edits": [EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
+                "current_score": curr_score,
+                "current_seq": detail.current_seq,
+                "image_artifact": detail.image_artifact,
+                "model_version": detail.model_version,
+                "status": detail.status,
+                "condition": detail.condition,
+                "test_score_id": detail.test_score_id,
+                "owner_id": detail.owner_id,
+            }
+            body: BaseModel
+            if view:
+                body = SessionViewRead(**common)
+            else:
+                body = SessionDetailRead(
+                    **common,
+                    document=ScoreDocumentPayload.model_validate(detail.document),
+                    anchor_index=(
+                        AnchorIndexPayload.model_validate(detail.anchor_index)
+                        if detail.anchor_index is not None
+                        else None
+                    ),
+                )
+        return _json_response(body)
 
     @app.get(
         "/sessions/{session_id}/timing",
@@ -1214,9 +1315,10 @@ def create_app(
     )
     def get_session_timing(
         session_id: str,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
-    ) -> TimingMapRead:
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         timing_map = get_timing_use_case(
@@ -1224,25 +1326,11 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
         )
-
-        return TimingMapRead(
-            session_id=session_id,
-            total_beats=str(timing_map.total_beats),
-            measure_offsets={str(k): str(v) for k, v in timing_map.measure_offsets.items()},
-            events=[
-                EventTimingRead(
-                    anchor=AnchorPayload.model_validate(ev.anchor.to_primitive()),
-                    kind=ev.kind.value,
-                    measure_number=ev.measure_number,
-                    voice=ev.voice,
-                    offset_beats=str(ev.offset_beats),
-                    duration_beats=str(ev.duration_beats),
-                    measure_offset_beats=str(ev.measure_offset_beats),
-                )
-                for ev in timing_map.events
-            ],
-        )
+        with timed_stage("serialize"):
+            body = _timing_read(session_id, timing_map)
+        return _json_response(body)
 
     @app.get(
         "/sessions/{session_id}/findings",
@@ -1435,13 +1523,15 @@ def create_app(
 
     @app.post(
         "/sessions/{session_id}/edits",
-        response_model=EditEventRead,
+        response_model=EditAppliedRead,
         status_code=status.HTTP_201_CREATED,
         tags=["Edits"],
         summary="Añadir una edición inmutable al log",
         description=(
             "Añade una corrección humana validada contra el estado actual. "
-            "Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012)."
+            "Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). "
+            "El 201 devuelve la edición y el estado que crea: current_seq, current_score, su "
+            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037)."
         ),
         responses={
             **AUTH_401,
@@ -1454,24 +1544,39 @@ def create_app(
     def append_edit(
         session_id: str,
         payload: EditEventCreate,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
-    ) -> EditEventRead:
-        """Añade una edición inmutable al log de la sesión."""
+    ) -> Response:
+        """Añade una edición inmutable al log de la sesión y devuelve el estado que crea."""
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
-        edit = append_edit_use_case(
+        applied = append_edit_use_case(
             session_id,
             base_seq=payload.base_seq,
             anchor=payload.anchor.to_anchor(),
             op=payload.op,
             session_repository=session_repo,
             edit_repository=edit_repo,
+            exporter=request.app.state.score_exporter,
             current_user=current_user,
             before=payload.before,
             after=payload.after,
+            score_cache=request.app.state.score_cache,
         )
-        return EditEventRead.from_edit(edit, session_id)
+        with timed_stage("serialize"):
+            edit = EditEventRead.from_edit(applied.edit, session_id)
+            body = EditAppliedRead(
+                **edit.model_dump(),
+                current_seq=applied.current_seq,
+                current_score=ScoreIRPayload.model_validate(applied.current_score.to_primitive()),
+                status=applied.status,
+                musicxml=applied.musicxml,
+                timing=(
+                    _timing_read(session_id, applied.timing) if applied.timing is not None else None
+                ),
+            )
+        return _json_response(body, status.HTTP_201_CREATED)
 
     @app.post(
         "/sessions/{session_id}/undo",
@@ -1482,7 +1587,8 @@ def create_app(
             "Registra un evento compensatorio inverso de la última edición activa "
             "en el log append-only sin borrar historia (ADR-0007, #35). "
             "Devuelve el nuevo current_seq, el ID de la edición deshecha, "
-            "la partitura materializada actualizada y su índice de anclas."
+            "la partitura materializada actualizada y su índice de anclas, y además su "
+            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037)."
         ),
         responses={
             **AUTH_401,
@@ -1494,10 +1600,11 @@ def create_app(
     )
     def undo_session_edit(
         session_id: str,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
         payload: UndoRequest | None = None,
-    ) -> UndoResponse:
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         base_seq = payload.base_seq if payload is not None else None
@@ -1507,22 +1614,31 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
+            exporter=request.app.state.score_exporter,
         )
-        curr_score = ScoreIRPayload.model_validate(result.current_score)
-        anchor_idx = (
-            AnchorIndexPayload.model_validate(result.anchor_index)
-            if result.anchor_index is not None
-            else None
-        )
-        return UndoResponse(
-            session_id=result.session_id,
-            current_seq=result.current_seq,
-            undone_edit_id=result.undone_edit_id,
-            current_score=curr_score,
-            anchor_index=anchor_idx,
-            compensatory_edit_id=result.compensatory_edit.id,
-            compensatory_edit=EditEventRead.from_edit(result.compensatory_edit, session_id),
-        )
+        with timed_stage("serialize"):
+            curr_score = ScoreIRPayload.model_validate(result.current_score)
+            anchor_idx = (
+                AnchorIndexPayload.model_validate(result.anchor_index)
+                if result.anchor_index is not None
+                else None
+            )
+            body = UndoResponse(
+                session_id=result.session_id,
+                current_seq=result.current_seq,
+                undone_edit_id=result.undone_edit_id,
+                current_score=curr_score,
+                anchor_index=anchor_idx,
+                compensatory_edit_id=result.compensatory_edit.id,
+                compensatory_edit=EditEventRead.from_edit(result.compensatory_edit, session_id),
+                status=result.status,
+                musicxml=result.musicxml,
+                timing=(
+                    _timing_read(session_id, result.timing) if result.timing is not None else None
+                ),
+            )
+        return _json_response(body)
 
     @app.post(
         "/sessions/{session_id}/effort",
@@ -1595,6 +1711,16 @@ def create_app(
             tags=app.openapi_tags,
         )
         components = openapi_schema.setdefault("components", {})
+        # `GET /sessions/{id}?fields=view` (#275, ADR-0037): su esquema, para los clientes.
+        schemas = components.setdefault("schemas", {})
+        if "SessionViewRead" not in schemas:
+            view_schema = SessionViewRead.model_json_schema(
+                ref_template="#/components/schemas/{model}"
+            )
+            # Sus modelos anidados son los del detalle, ya en los componentes.
+            for name, definition in view_schema.pop("$defs", {}).items():
+                schemas.setdefault(name, definition)
+            schemas["SessionViewRead"] = view_schema
         security_schemes = components.setdefault("securitySchemes", {})
         security_schemes["BearerAuth"] = {
             "type": "http",

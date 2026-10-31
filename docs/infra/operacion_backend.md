@@ -23,6 +23,7 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` | `int` | `5` | Intentos de registro por IP (red /64 en IPv6) en la ventana, como mínimo 1. Cuentan los que llegan a procesarse, también los que acaban en 409 (nombre ocupado); un cuerpo que no supera el esquema (422) no cuenta porque no toca la base de datos. |
 | `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS` | `int` | `3600` | Ventana en segundos del límite de registros por IP, como mínimo 1. |
 | `CADENZA_TRANSCRIBE_MAX_CONCURRENCY` | `int` | `2` | Transcripciones que la API admite a la vez, de 1 a 8, con un hilo cada una ([ADR-0024](../adr/ADR-0024-transcripciones-simultaneas.md)). HOMR no es seguro entre hilos y calcula de una en una; el resto espera su turno. Una petición sin hueco espera hasta 10 s y luego responde 503 con `Retry-After: 10`. Si el cliente se va a mitad, la transcripción termina, se guarda y entonces libera su hueco. |
+| `CADENZA_SCORE_CACHE_MAX_ENTRIES` | `int` | `32` | Estados de sesión materializados (`ScoreIR`, MusicXML y mapa de tiempos) que la API guarda en memoria por `(sesión, seq, última edición)`, de 0 a 1024; 0 la desactiva ([ADR-0037](../adr/ADR-0037-una-edicion-en-un-solo-viaje.md)). Es de cada proceso: con una instancia de uvicorn, una caché. |
 | `CADENZA_DISABLE_POWER_THROTTLING` | `bool` | `true` | Desactiva la limitación de energía (EcoQoS) del proceso en Windows (#106). |
 | `CADENZA_FORWARDED_ALLOW_IPS` | `str` | `127.0.0.1` | Solo en la imagen Docker (el `CMD` del `Dockerfile`, no la API): direcciones o redes desde las que uvicorn acepta `X-Forwarded-For` y `X-Forwarded-Proto` (`--forwarded-allow-ips`). En `docker-compose.prod.yml` es la IP fija del servicio `web`, `10.77.0.10` ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)). |
 
@@ -268,7 +269,7 @@ Al iniciar, la API emite el estado de la renuncia a la limitación de energía (
 INFO:     power_throttling_disabled requested=True applied=True platform=win32
 ```
 
-Asimismo, el middleware de observabilidad asigna a cada petición la cabecera `X-Request-ID` (generada automáticamente o propagada desde el cliente; en el despliegue público la fija Nginx con su `$request_id` y sustituye la del cliente, §2.2) y emite un registro estructurado al completar cada solicitud:
+Asimismo, el middleware de observabilidad asigna a cada petición la cabecera `X-Request-ID` y emite un registro estructurado al completar cada solicitud. El identificador es el del cliente si tiene la forma `[A-Za-z0-9._-]{1,64}` (la web envía uno por petición, `web-…`); si no, uno nuevo. En el despliegue público, Nginx deja pasar el del cliente con esa misma forma y, si no, pone su `$request_id` (§2.2, [#275](https://github.com/sebdavid3/Cadenza/issues/275)). Cada respuesta lleva además `Server-Timing` con el tiempo de cada etapa en milisegundos (`db`, `materialize`, `export`, `timing`, `serialize` y `total`; [ADR-0037](../adr/ADR-0037-una-edicion-en-un-solo-viaje.md)), que el navegador muestra en sus herramientas de red:
 
 ```text
 INFO:     request_completed method=GET path=/health status=200 duration_ms=4.23 request_id=74207509005b4c9ba98271fdb99356e4 session_id=-

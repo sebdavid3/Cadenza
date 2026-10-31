@@ -3,6 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006, ADR-0007, ADR-0011, ADR-0017, ADR-0019, ADR-0030, ADR-0031, ADR-0032 y ADR-0033, CLAUDE.md §9)
+- **Enmendado por:** [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), que devuelve el estado nuevo con la respuesta de deshacer y de rehacer: ya no se pide aparte (§1 y «Sin cambios en el contrato ni en el backend»)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0007](ADR-0007-edit-events-inmutables.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md), [#185](https://github.com/sebdavid3/Cadenza/issues/185)
 
 ---

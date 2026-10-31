@@ -1911,13 +1911,34 @@ describe("corregir la nota elegida", () => {
     // Como el servidor: un `base_seq` que no es el del estado actual es un 409 (ADR-0011).
     const stale = (baseSeq: number | null | undefined) =>
       baseSeq !== undefined && baseSeq !== null && baseSeq !== (current.current_seq ?? 0);
-    const accept = (body: EditEventCreate) => {
+    // Lo que el servidor devuelve además del estado nuevo con la orden (#275): el MusicXML (null
+    // si no lo pudo exportar) y los tiempos solo si cambian (aquí, al cambiar una duración o al
+    // insertar o borrar).
+    const extrasOf = (next: SessionDetailRead, op: string) => ({
+      status: next.status ?? "correcting",
+      musicxml: exportStatus ? null : XML,
+      timing: ["SetDuration", "InsertEvent", "DeleteEvent"].includes(op) ? timingMap() : null,
+    });
+    /** Guarda la edición como el servidor y responde 201; con `bare`, sin el estado nuevo. */
+    const save = (body: EditEventCreate, bare: boolean) => {
       if (stale(body.base_seq)) return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
       const { next, saved } = apply(current, body);
       current = next;
       draw(current);
-      return jsonResponse(saved, 201);
+      if (bare) return jsonResponse(saved, 201);
+      return jsonResponse(
+        {
+          ...saved,
+          current_seq: next.current_seq ?? 0,
+          current_score: next.current_score,
+          ...extrasOf(next, body.op),
+        },
+        201,
+      );
     };
+    const accept = (body: EditEventCreate) => save(body, false);
+    /** Un 201 con la edición y sin el estado nuevo, como antes de #275. */
+    const acceptBare = (body: EditEventCreate) => save(body, true);
     const acceptUndo = (body?: { base_seq?: number | null } | null) => {
       if (stale(body?.base_seq)) return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
       const target = lastActive(current.edits);
@@ -1940,6 +1961,7 @@ describe("corregir la nota elegida", () => {
         anchor_index: null,
         compensatory_edit_id: saved.id,
         compensatory_edit: saved,
+        ...extrasOf(next, saved.op),
       });
     };
     let detailRoute: (() => Response | Promise<Response>) | null = null;
@@ -1981,6 +2003,7 @@ describe("corregir la nota elegida", () => {
       undoBodies,
       findingCalls,
       accept,
+      acceptBare,
       acceptUndo,
       acceptFinding,
       acceptValidate,
@@ -2071,7 +2094,7 @@ describe("corregir la nota elegida", () => {
     expect(screen.getByText("Estado").nextElementSibling).toHaveTextContent(/corrección/i);
   });
 
-  it("tras el 201 muestra el estado nuevo: partitura, posibles errores y tiempos de ese estado", async () => {
+  it("tras el 201 muestra el estado nuevo que trae, sin pedir el detalle, el MusicXML, los tiempos ni los posibles errores", async () => {
     const server = editableApi();
     renderPage();
     await chooseMeasure(2);
@@ -2081,11 +2104,16 @@ describe("corregir la nota elegida", () => {
       expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
     });
 
-    // Cada consulta del estado se pidió dos veces: la del estado 0 y la del estado 1.
-    expect(server.count(`GET /sessions/${ID}`)).toBe(2);
-    expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
-    expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
-    expect(server.count(`GET /sessions/${ID}/timing`)).toBe(2);
+    // Cada consulta del estado se pidió una vez, la del estado 0: el 201 trae el estado 1 (#275).
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+    expect(server.count(`GET /sessions/${ID}/findings`)).toBe(1);
+    expect(server.count(`GET /sessions/${ID}/timing`)).toBe(1);
+    // La vista pide el detalle sin el documento ni el índice de anclas.
+    const detailCall = server.calls.find((call) => call.key === `GET /sessions/${ID}`);
+    expect(detailCall?.url.searchParams.get("fields")).toBe("view");
+    // El log que se ve es el del servidor: la edición nueva, sin el estado que la acompaña.
+    expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
     // La selección sigue en la misma ancla, ya en el estado nuevo, y se marca sobre la nota.
     expect(useSelectionStore.getState().selection).toEqual({
       sessionId: ID,
@@ -2095,9 +2123,58 @@ describe("corregir la nota elegida", () => {
     await waitFor(() => {
       expect(selection()).not.toBeNull();
     });
-    // La descarga es la del estado nuevo, sin pedirla otra vez.
+    // La descarga es la del estado nuevo, sin pedirla.
     captureDownloads();
     fireEvent.click(screen.getByRole("button", { name: /descargar musicxml/i }));
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+  });
+
+  it("si el servidor no pudo exportar el estado nuevo, lo pide a /export y dice si falla", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.failExport(500);
+
+    fireEvent.click(button("Subir un paso"));
+
+    expect(await screen.findByText("No se pudo dibujar la partitura.")).toBeVisible();
+    // Lo pide para ese estado (la vista vuelve a intentarlo al mostrarlo); el detalle, no.
+    expect(server.count(`GET /sessions/${ID}/export`)).toBeGreaterThanOrEqual(2);
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+  });
+
+  it("si cambian los tiempos, usa los que trae el 201; si no, los del estado anterior", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    fireEvent.click(button("Negra"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/Guardado: figura negra/);
+    });
+
+    // Ni la altura (los tiempos no cambian) ni la figura (vienen con el 201) los piden.
+    expect(server.count(`GET /sessions/${ID}/timing`)).toBe(1);
+    expect(screen.getByRole("button", { name: /reproducir/i })).toBeVisible();
+  });
+
+  it("si el 201 no trae el estado nuevo, lo pide entero", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond((body) => server.acceptBare(body));
+
+    fireEvent.click(button("Subir un paso"));
+
+    expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    expect(server.count(`GET /sessions/${ID}`)).toBe(2);
     expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
   });
 
@@ -2364,8 +2441,9 @@ describe("corregir la nota elegida", () => {
     const server = editableApi();
     renderPage();
     await chooseMeasure(2);
+    // El 201 no trae el estado nuevo y el detalle falla al pedirlo.
     server.respond((body) => {
-      const response = server.accept(body);
+      const response = server.acceptBare(body);
       server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
       return response;
     });
@@ -3151,8 +3229,9 @@ describe("corregir la nota elegida", () => {
       const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
       renderPage();
       await chooseMeasure(2);
+      // El 201 no trae el estado nuevo y el detalle falla al pedirlo.
       server.respond((body) => {
-        const response = server.accept(body);
+        const response = server.acceptBare(body);
         server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
         return response;
       });
@@ -3322,8 +3401,9 @@ describe("corregir la nota elegida", () => {
         expect(editStatus()).toHaveTextContent("Deshecho: altura Re 4 (compás 2, voz 1).");
       });
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
-      // El estado nuevo entero: su partitura, sus posibles errores y sus tiempos.
-      expect(server.count(`GET /sessions/${ID}/export`)).toBe(3);
+      // El estado nuevo entero llega con la respuesta: no se pide nada más (#275).
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
       // Ya no queda nada que deshacer; lo deshecho se puede rehacer.
       expect(undoButton()).toHaveAttribute("aria-disabled", "true");
       expect(redoButton()).toHaveAttribute("aria-disabled", "false");
@@ -3619,9 +3699,9 @@ describe("corregir la nota elegida", () => {
         );
       });
       // La vista no recompone la nota: muestra el estado que devuelve el servidor, cuya
-      // compensatoria lleva la instantánea con las marcas (ADR-0031); lo pide entero.
+      // compensatoria lleva la instantánea con las marcas (ADR-0031), y llega con la respuesta.
       expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
-      expect(server.count(`GET /sessions/${ID}/export`)).toBe(3);
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
       expect(useSelectionStore.getState().selection).toEqual({
         sessionId: ID,
         seq: 2,
@@ -4159,8 +4239,8 @@ describe("corregir la nota elegida", () => {
       expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
       // El botón ya no está: el foco pasa al título del panel.
       expect(heading()).toHaveFocus();
-      // Revalidar no cambia la partitura ni la nota elegida.
-      expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
+      // Revalidar no cambia la partitura ni la nota elegida: el MusicXML es el que trajo el 201.
+      expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
       expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
     });
 
@@ -4330,7 +4410,8 @@ describe("corregir la nota elegida", () => {
       });
       renderPage();
       await chooseMeasure(2);
-      // Se guarda la corrección, pero el estado nuevo no se puede cargar.
+      // Se guarda la corrección, pero el 201 no trae el estado nuevo y no se puede cargar.
+      server.respond((body) => server.acceptBare(body));
       server.detailRoute(() => jsonResponse({ detail: "fallo" }, 500));
       fireEvent.click(button("Subir un paso"));
       await waitFor(() => {

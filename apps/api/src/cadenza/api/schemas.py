@@ -408,6 +408,28 @@ class SessionDetailRead(BaseModel):
     owner_id: str | None = None
 
 
+class SessionViewRead(BaseModel):
+    """Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).
+
+    Los campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`
+    (cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.
+    """
+
+    session_id: str
+    document_id: str
+    omr_engine: str
+    findings: list[FindingRead]
+    edits: list[EditEventRead]
+    current_score: ScoreIRPayload | None = None
+    current_seq: int = 0
+    image_artifact: str | None = None
+    model_version: str | None = None
+    status: str = "transcribed"
+    condition: str = "assisted"
+    test_score_id: str | None = None
+    owner_id: str | None = None
+
+
 class SessionSummaryRead(BaseModel):
     """Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."""
 
@@ -475,6 +497,17 @@ class UndoResponse(BaseModel):
     anchor_index: AnchorIndexPayload | None = None
     compensatory_edit_id: str | None = None
     compensatory_edit: EditEventRead | None = None
+    # Ampliación compatible del contrato v1 (#275, ADR-0037): el estado nuevo entero.
+    status: str = Field(description="Estado del ciclo de vida de la sesión tras deshacer")
+    musicxml: str | None = Field(
+        description=(
+            "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da "
+            "el error)"
+        )
+    )
+    timing: TimingMapRead | None = Field(
+        description="Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+    )
 
 
 class TokenResponse(BaseModel):
@@ -634,6 +667,28 @@ class TimingMapRead(BaseModel):
     )
 
 
+class EditAppliedRead(EditEventRead):
+    """201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).
+
+    Los campos de `EditEventRead` no cambian; los demás son una ampliación compatible del
+    contrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la
+    exportación ni los tiempos.
+    """
+
+    current_seq: int = Field(description="Estado nuevo de la sesión: el seq de esta edición")
+    current_score: ScoreIRPayload = Field(description="ScoreIR materializado del estado nuevo")
+    status: str = Field(description="Estado del ciclo de vida de la sesión tras la edición")
+    musicxml: str | None = Field(
+        description=(
+            "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da "
+            "el error)"
+        )
+    )
+    timing: TimingMapRead | None = Field(
+        description="Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+    )
+
+
 class HealthStatusResponse(BaseModel):
     """Estado de operatividad y salud del sistema backend (#40, D44)."""
 
@@ -654,3 +709,7 @@ class HealthStatusResponse(BaseModel):
     device: str = Field(
         ..., description="Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.)"
     )
+
+
+# `UndoResponse` usa `TimingMapRead`, definido después.
+UndoResponse.model_rebuild()

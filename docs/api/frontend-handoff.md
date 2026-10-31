@@ -191,6 +191,12 @@ Al enviar una edición (`POST /sessions/{id}/edits`):
    ```
 3. El frontend debe recargar la sesión (`GET /sessions/{id}`) y notificar al usuario para resolver el conflicto sin pérdida silenciosa de datos.
 
+**Una edición, un viaje ([#275](https://github.com/sebdavid3/Cadenza/issues/275), [ADR-0037](../adr/ADR-0037-una-edicion-en-un-solo-viaje.md)).** El 201 de `POST /sessions/{id}/edits` (`EditAppliedRead`) trae, además de la edición guardada con sus campos de siempre, el estado que crea: `current_seq`, `current_score`, `status`, `musicxml` (el mismo texto que daría `GET /export?format=musicxml`; `null` si no se pudo exportar, y entonces `/export` da el error) y `timing` (el mapa de `GET /timing`; `null` si no cambia respecto del estado `base_seq`, porque la edición no tocó duraciones ni eventos). `POST /undo` añade a su respuesta `status`, `musicxml` y `timing` con el mismo sentido. Los posibles errores no cambian sin revalidar (ADR-0035): no hay que volver a pedirlos. Con esto la vista no pide nada más tras editar, deshacer o rehacer; el 409 se trata igual que antes, recargando.
+
+**Detalle sin lo que la vista no usa.** `GET /sessions/{id}?fields=view` devuelve `SessionViewRead`: los campos del detalle sin `document` ni `anchor_index`, que el servidor no calcula (cuesta eventos por ediciones). Sin `fields`, la respuesta no cambia.
+
+**Medir.** Cada respuesta lleva `Server-Timing` con lo que tardó cada etapa en el servidor, en milisegundos: `db`, `materialize` (reconstruir el estado o aplicar y validar la edición), `export` (music21), `timing`, `serialize` y `total`. La API devuelve el `X-Request-ID` que envía el cliente si tiene la forma `[A-Za-z0-9._-]{1,64}` (si no, pone uno suyo) y lo registra; la web envía uno por petición (`web-` y 20 cifras hexadecimales).
+
 ### 5.2. Autoría de la Edición Fijada por el Servidor y Esquema Estricto
 
 De acuerdo con ADR-0012, ADR-0017 y el esquema `EditEventCreate`:
@@ -252,7 +258,7 @@ De acuerdo con ADR-0012, ADR-0017 y el esquema `EditEventCreate`:
 El frontend no debe implementar deshacer destructivo localmente para persistir en backend.
 El backend gestiona undo *append-only* (ADR-0007, ADR-0017):
 - Petición: `POST /sessions/{id}/undo` enviando `{"base_seq": 1}`.
-- Respuesta HTTP 200: Devuelve `{anchor_index, compensatory_edit, compensatory_edit_id, current_score, current_seq, session_id, undone_edit_id}`.
+- Respuesta HTTP 200: Devuelve `{anchor_index, compensatory_edit, compensatory_edit_id, current_score, current_seq, session_id, undone_edit_id}` y, desde [#275](https://github.com/sebdavid3/Cadenza/issues/275), `{status, musicxml, timing}` del estado nuevo (§5.1).
 - La operación calcula automáticamente la edición inversa compensatoria, avanza la secuencia a `current_seq = current_seq + 1` (ej. `seq=2`) y restaura el estado previo en `current_score` y `anchor_index` (coincidente con el estado anterior a la edición deshecha).
 - **Protección contra ediciones antiguas sin estado previo:** Si se solicita deshacer una edición histórica previa a ADR-0017 que carecía de un `before` suficiente, el servidor rechaza la petición con **HTTP 422** (`InvalidEdit`) indicando que no cuenta con estado previo suficiente, en lugar de corromper la partitura. Sin ninguna edición vigente que deshacer también responde **422** (`NoEditsToUndo`): el `status` no distingue las dos causas.
 - **Qué se deshace:** la última edición vigente, leyendo el log como una pila en la que cada compensatoria (`reverts_edit_id`) retira la que revierte; deshacer varias veces va hacia atrás.

@@ -20,6 +20,7 @@ import {
   type SelectableEvent,
 } from "./noteMap";
 import { describeEvent } from "./noteNames";
+import { markDrawn } from "./marks";
 import { renderScore, type Box, type RenderedScore } from "./osmd";
 import { useSelectionStore } from "./selection";
 import { SelectionBar, type SelectionStatus } from "./SelectionBar";
@@ -184,6 +185,8 @@ export function ScoreView({
         const shown: Shown = { target, score, observer: null, timer: undefined };
         shownRef.current = shown;
         setState({ drawing: { score, snapshot, layout: 0 }, failed: null });
+        // Fin de la orden que creó este estado, si la hubo (#275).
+        markDrawn(sessionId, snapshot.seq);
         if (!("ResizeObserver" in window)) return;
         let width = target.clientWidth;
         shown.observer = new ResizeObserver(() => {
@@ -224,7 +227,7 @@ export function ScoreView({
       // El dibujo a la vista se queda hasta que llegue el siguiente o se salga de la vista.
       if (shownRef.current?.target !== target) target.remove();
     };
-  }, [snapshot]);
+  }, [snapshot, sessionId]);
 
   useEffect(
     () => () => {

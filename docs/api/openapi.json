@@ -925,7 +925,7 @@
           "Sessions"
         ],
         "summary": "Detalle completo de sesión con estado materializado",
-        "description": "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, current_score materializado y anchor_index enriquecido (ADR-0011).",
+        "description": "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, current_score materializado y anchor_index enriquecido (ADR-0011). Con fields=view devuelve SessionViewRead: lo mismo sin document ni anchor_index, que no se calcula (#275, ADR-0037).",
         "operationId": "get_session_sessions__session_id__get",
         "security": [
           {
@@ -941,6 +941,25 @@
               "type": "string",
               "title": "Session Id"
             }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "view",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'view': solo lo que necesita la vista (SessionViewRead), sin document ni anchor_index. Sin él, el detalle completo (SessionDetailRead).",
+              "title": "Fields"
+            },
+            "description": "'view': solo lo que necesita la vista (SessionViewRead), sin document ni anchor_index. Sin él, el detalle completo (SessionDetailRead)."
           }
         ],
         "responses": {
@@ -1654,7 +1673,7 @@
           "Edits"
         ],
         "summary": "Añadir una edición inmutable al log",
-        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012).",
+        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). El 201 devuelve la edición y el estado que crea: current_seq, current_score, su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037).",
         "operationId": "append_edit_sessions__session_id__edits_post",
         "security": [
           {
@@ -1688,7 +1707,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EditEventRead"
+                  "$ref": "#/components/schemas/EditAppliedRead"
                 }
               }
             }
@@ -1752,7 +1771,7 @@
           "Edits"
         ],
         "summary": "Deshacer la última edición activa en el servidor",
-        "description": "Registra un evento compensatorio inverso de la última edición activa en el log append-only sin borrar historia (ADR-0007, #35). Devuelve el nuevo current_seq, el ID de la edición deshecha, la partitura materializada actualizada y su índice de anclas.",
+        "description": "Registra un evento compensatorio inverso de la última edición activa en el log append-only sin borrar historia (ADR-0007, #35). Devuelve el nuevo current_seq, el ID de la edición deshecha, la partitura materializada actualizada y su índice de anclas, y además su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037).",
         "operationId": "undo_session_edit_sessions__session_id__undo_post",
         "security": [
           {
@@ -2321,6 +2340,129 @@
         ],
         "title": "DynamicPayload",
         "description": "Dinámica en una posición del compás; rige su pentagrama (ADR-0031)."
+      },
+      "EditAppliedRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "op": {
+            "type": "string",
+            "title": "Op"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "reverts_edit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverts Edit Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq",
+            "description": "Estado nuevo de la sesión: el seq de esta edición"
+          },
+          "current_score": {
+            "$ref": "#/components/schemas/ScoreIRPayload",
+            "description": "ScoreIR materializado del estado nuevo"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado del ciclo de vida de la sesión tras la edición"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error)"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimingMapRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "seq",
+          "op",
+          "author",
+          "anchor",
+          "before",
+          "after",
+          "created_at",
+          "current_seq",
+          "current_score",
+          "status",
+          "musicxml",
+          "timing"
+        ],
+        "title": "EditAppliedRead",
+        "description": "201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).\n\nLos campos de `EditEventRead` no cambian; los demás son una ampliación compatible del\ncontrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la\nexportación ni los tiempos."
       },
       "EditEventCreate": {
         "properties": {
@@ -3801,6 +3943,34 @@
                 "type": "null"
               }
             ]
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado del ciclo de vida de la sesión tras deshacer"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error)"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimingMapRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
           }
         },
         "type": "object",
@@ -3808,7 +3978,10 @@
           "session_id",
           "current_seq",
           "undone_edit_id",
-          "current_score"
+          "current_score",
+          "status",
+          "musicxml",
+          "timing"
         ],
         "title": "UndoResponse",
         "description": "Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."
@@ -4021,6 +4194,120 @@
         ],
         "title": "WedgePayload",
         "description": "Extremo de un regulador en una posición del compás (ADR-0031)."
+      },
+      "SessionViewRead": {
+        "description": "Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).\n\nLos campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`\n(cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "omr_engine": {
+            "title": "Omr Engine",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/EditEventRead"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "current_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoreIRPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "current_seq": {
+            "default": 0,
+            "title": "Current Seq",
+            "type": "integer"
+          },
+          "image_artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Artifact"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Version"
+          },
+          "status": {
+            "default": "transcribed",
+            "title": "Status",
+            "type": "string"
+          },
+          "condition": {
+            "default": "assisted",
+            "title": "Condition",
+            "type": "string"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Test Score Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner Id"
+          }
+        },
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "findings",
+          "edits"
+        ],
+        "title": "SessionViewRead",
+        "type": "object"
       }
     },
     "securitySchemes": {

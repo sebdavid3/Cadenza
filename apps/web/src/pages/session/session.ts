@@ -3,11 +3,11 @@ import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type {
   DismissFindingRequest,
+  EditAppliedRead,
   EditEventCreate,
-  EditEventRead,
   FindingRead,
   RevalidateResponse,
-  SessionDetailRead,
+  SessionViewRead,
   TimingMapRead,
   UndoRequest,
   UndoResponse,
@@ -16,13 +16,20 @@ import { sessionImage } from "../transcription/sessions";
 
 const sessionPath = (sessionId: string) => `/sessions/${encodeURIComponent(sessionId)}` as const;
 
-/** Detalle de una sesión: su estado actual (`current_seq`), la partitura y el log de ediciones. */
+/**
+ * Detalle de una sesión: su estado actual (`current_seq`), la partitura y el log de ediciones.
+ * Con `fields=view`: sin el documento crudo ni el índice de anclas, que la vista no usa y el
+ * servidor no tiene que calcular (#275).
+ */
 export async function fetchSessionDetail(
   api: ApiClient,
   sessionId: string,
   signal?: AbortSignal,
-): Promise<SessionDetailRead> {
-  const detail = await api.request<SessionDetailRead>(sessionPath(sessionId), { signal });
+): Promise<SessionViewRead> {
+  const detail = await api.request<SessionViewRead>(sessionPath(sessionId), {
+    query: { fields: "view" },
+    signal,
+  });
   // Sin partitura materializada no hay nada que dibujar: se trata como respuesta inesperada.
   if (!detail.current_score) throw new ApiError("unexpected", 200);
   return detail;
@@ -36,36 +43,41 @@ export const sessionDetailQuery = (api: ApiClient, sessionId: string) =>
 
 /**
  * `POST /sessions/{id}/edits`: una corrección sobre el estado `base_seq` (ADR-0011). Responde 201
- * con la edición guardada, no con la partitura: el estado nuevo se pide aparte.
+ * con la edición guardada y el estado que crea: su partitura, su MusicXML y su mapa de tiempos si
+ * cambia (#275, ADR-0037). No hace falta pedir nada más.
  */
 export function postEdit(
   api: ApiClient,
   sessionId: string,
   edit: EditEventCreate,
   signal?: AbortSignal,
-): Promise<EditEventRead> {
-  return api.request<EditEventRead>(`${sessionPath(sessionId)}/edits`, {
+  requestId?: string,
+): Promise<EditAppliedRead> {
+  return api.request<EditAppliedRead>(`${sessionPath(sessionId)}/edits`, {
     method: "POST",
     json: edit,
     signal,
+    requestId,
   });
 }
 
 /**
  * `POST /sessions/{id}/undo`: deshace en el servidor la última edición vigente sobre el estado
- * `base_seq`, con una edición compensatoria (ADR-0007, ADR-0017). Responde 200 con el `seq` nuevo
- * y la edición deshecha; el estado nuevo se pide aparte, como tras una edición.
+ * `base_seq`, con una edición compensatoria (ADR-0007, ADR-0017). Responde 200 con el `seq` nuevo,
+ * la edición deshecha y el estado nuevo, como tras una edición (#275).
  */
 export function postUndo(
   api: ApiClient,
   sessionId: string,
   body: UndoRequest,
   signal?: AbortSignal,
+  requestId?: string,
 ): Promise<UndoResponse> {
   return api.request<UndoResponse>(`${sessionPath(sessionId)}/undo`, {
     method: "POST",
     json: body,
     signal,
+    requestId,
   });
 }
 

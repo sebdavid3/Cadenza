@@ -922,7 +922,7 @@ reproducirla con el compás en curso resaltado, corregir la altura, la duración
 alteración de una nota, insertar y borrar notas y silencios, y cambiar la clave y la
 armadura de un compás ([#184](https://github.com/sebdavid3/Cadenza/issues/184), ADR-0033), y deshacer y rehacer esas correcciones,
 con la historia de ediciones de la sesión ([#185](https://github.com/sebdavid3/Cadenza/issues/185), ADR-0034), y descartar, restaurar y revalidar
-sus posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), ADR-0035); está publicada en el homelab (ADR-0023). La partitura muestra las
+sus posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), ADR-0035). Cada corrección es un solo viaje: la respuesta trae el estado nuevo, que la API saca de una caché del estado materializado ([#275](https://github.com/sebdavid3/Cadenza/issues/275), ADR-0037). Está publicada en el homelab (ADR-0023). La partitura muestra las
 articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores
 ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031), y las varias voces de un
 pentagrama con su ritmo y con las plicas separadas
@@ -993,6 +993,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0033](adr/ADR-0033-insertar-borrar-clave-y-armadura.md) | Insertar y borrar eventos y cambiar la clave y la armadura desde la vista: qué queda elegido tras guardar, el acorde, las ligaduras huérfanas, los huecos y el primer compás para OSMD |
 | [ADR-0034](adr/ADR-0034-deshacer-y-rehacer-desde-la-vista.md) | Deshacer y rehacer desde la vista: `POST /undo`, rehacer como la misma edición otra vez, las pilas leídas del log, el teclado fuera de los campos de texto, qué queda elegido y la historia de ediciones |
 | [ADR-0035](adr/ADR-0035-descartar-restaurar-y-revalidar-desde-la-vista.md) | Descartar, restaurar y revalidar los posibles errores desde la vista: cada posible error con su motivo opcional, el lenguaje honesto, la revalidación explícita con el `current_seq` que devuelve, quién puede hacerlo y que una revalidación solo herede los descartes de la validación vigente |
+| [ADR-0037](adr/ADR-0037-una-edicion-en-un-solo-viaje.md) | Una edición en un solo viaje: la respuesta de la edición y de deshacer trae el estado nuevo, caché del estado materializado por `(sesión, seq, última edición)`, `fields=view` en el detalle, `Server-Timing` y `X-Request-ID`, y `exp_13` |
 
 
 ---

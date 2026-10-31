@@ -40,6 +40,19 @@ export interface RequestOptions {
    */
   notifyUnauthorized?: boolean;
   responseType?: "json" | "blob";
+  /**
+   * `X-Request-ID` de la petición; por defecto, uno nuevo. La API lo devuelve y lo registra: así
+   * se relaciona lo que mide la vista con el registro del servidor (#275).
+   */
+  requestId?: string;
+}
+
+/** Un identificador de petición: `web-` y 20 cifras hexadecimales, la forma que acepta la API. */
+export function newRequestId(): string {
+  const bytes = new Uint8Array(10);
+  // `getRandomValues` existe también fuera de un contexto seguro, a diferencia de `randomUUID`.
+  crypto.getRandomValues(bytes);
+  return `web-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function buildQuery(query: Record<string, QueryValue> | undefined): string {
@@ -79,6 +92,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
     const headers = new Headers();
     const token = req.auth === false ? null : (req.token ?? options.getToken?.() ?? null);
     if (token) headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-Request-ID", req.requestId ?? newRequestId());
     let body: BodyInit | undefined;
     if (req.json !== undefined) {
       headers.set("Content-Type", "application/json");
