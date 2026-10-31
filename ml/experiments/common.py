@@ -213,7 +213,10 @@ def guard_rules_catalog(summary_path: Path, catalog_version: int = RULES_CATALOG
             "rules_catalog_version", 1
         )
     except (OSError, ValueError, AttributeError):
-        previous = None
+        raise ValueError(
+            f"No se pudo leer {summary_path} para saber de qué versión del catálogo de reglas es: "
+            "indica otro --output-dir para no sobrescribirlo (ADR-0040 §15.6)"
+        ) from None
     if previous != catalog_version:
         raise ValueError(
             f"{summary_path} es una medición del catálogo de reglas {previous} y esta es del "

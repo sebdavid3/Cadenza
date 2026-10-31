@@ -999,19 +999,20 @@ def test_exp_06_records_the_rules_version_with_every_figure(tmp_path: Path) -> N
     manifest, preds_dir = _exp_06_corpus(tmp_path)
     output = tmp_path / "out"
     exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir, output_dir=output)
-    expected = {
-        "rules_version": ValidationEngine().rules_version,
+    rules_version = ValidationEngine().rules_version
+    expected: dict[str, object] = {
+        "rules_version": rules_version,
         "rules_catalog_version": RULES_CATALOG_VERSION,
     }
     summary = json.loads((output / "validation_metrics_summary.json").read_text("utf-8"))
     coverage = json.loads((output / "validation_error_coverage.json").read_text("utf-8"))
     for payload in (summary, coverage):
         assert {key: payload[key] for key in expected} == expected
-    assert set(summary["metrics_by_rule"]) == set(expected["rules_version"].split(","))
+    assert set(summary["metrics_by_rule"]) == set(rules_version.split(","))
     for name in ("validation_metrics_by_rule.csv", "validation_metrics_by_measure.csv"):
         rows = list(csv.DictReader((output / name).open(encoding="utf-8")))
         assert rows
-        assert all(row["rules_version"] == expected["rules_version"] for row in rows)
+        assert all(row["rules_version"] == rules_version for row in rows)
         assert all(row["rules_catalog_version"] == str(RULES_CATALOG_VERSION) for row in rows)
     # Nada en el `results/` del experimento: la salida va a `--output-dir`.
     assert not exp_06_validation_metrics.RESULTS_DIR.exists() or not any(
