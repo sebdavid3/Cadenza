@@ -993,6 +993,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0033](adr/ADR-0033-insertar-borrar-clave-y-armadura.md) | Insertar y borrar eventos y cambiar la clave y la armadura desde la vista: qué queda elegido tras guardar, el acorde, las ligaduras huérfanas, los huecos y el primer compás para OSMD |
 | [ADR-0034](adr/ADR-0034-deshacer-y-rehacer-desde-la-vista.md) | Deshacer y rehacer desde la vista: `POST /undo`, rehacer como la misma edición otra vez, las pilas leídas del log, el teclado fuera de los campos de texto, qué queda elegido y la historia de ediciones |
 | [ADR-0035](adr/ADR-0035-descartar-restaurar-y-revalidar-desde-la-vista.md) | Descartar, restaurar y revalidar los posibles errores desde la vista: cada posible error con su motivo opcional, el lenguaje honesto, la revalidación explícita con el `current_seq` que devuelve, quién puede hacerlo y que una revalidación solo herede los descartes de la validación vigente |
+| [ADR-0036](adr/ADR-0036-capa-de-sugerencias-aprendida.md) | Capa de sugerencias que aprende de las correcciones: frecuencias suavizadas con retroceso, las reglas acotan y la capa ordena, sugerencias que se aplican o rechazan, umbral por validación cruzada y registro propio |
 | [ADR-0037](adr/ADR-0037-una-edicion-en-un-solo-viaje.md) | Una edición en un solo viaje: la respuesta de la edición y de deshacer trae el estado nuevo, caché del estado materializado por `(sesión, seq, última edición)`, `fields=view` en el detalle, `Server-Timing` y `X-Request-ID`, y `exp_13` |
 
 
