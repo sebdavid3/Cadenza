@@ -97,6 +97,8 @@ def test_categorize_edit_op() -> None:
     assert categorize_edit_op(EditOp.DELETE_EVENT) == "structure"
     assert categorize_edit_op(EditOp.SET_KEY) == "key_clef"
     assert categorize_edit_op(EditOp.SET_CLEF) == "key_clef"
+    assert categorize_edit_op(EditOp.SET_NOTE_MARKS) == "marks"
+    assert categorize_edit_op(EditOp.SET_SLUR) == "marks"
     assert categorize_edit_op("custom") == "other"
 
 

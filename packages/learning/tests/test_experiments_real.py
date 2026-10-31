@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from cadenza.domain import Anchor, EditOp
+from cadenza.domain import CONTENT_EDIT_OPS, Anchor, EditOp
 from cadenza.learning import TrainingSample, omr_ned_pair
 from cadenza.omr import OMRTranscriptionError
 
@@ -178,7 +178,8 @@ def test_exp_01_real_primus_data() -> None:
 def _test_pool(size: int = 60, seed: int = 7) -> tuple[TrainingSample, ...]:
     """Pool determinista solo para probar el cálculo de exp_02, nunca como resultado."""
     rng = random.Random(seed)
-    ops = list(EditOp)
+    # Las de contenido, en su orden: las de marcas no son muestras (ADR-0039).
+    ops = [op for op in EditOp if op in CONTENT_EDIT_OPS]
     return tuple(
         TrainingSample(
             document_id="doc-prueba",
@@ -1057,3 +1058,13 @@ def test_ml_cli_export_effort(tmp_path: Path) -> None:
     assert code == 0
     assert (tmp_path / "effort_study_sessions.csv").is_file()
     assert (tmp_path / "effort_study_summary.json").is_file()
+
+
+def test_exp_02_coverage_counts_only_content_ops() -> None:
+    """La cobertura de operaciones es sobre las siete de contenido: añadir las de marcas a
+    `EditOp` no cambia las cifras de exp_02 (ADR-0039)."""
+    pool = _test_pool(size=exp_02_active_learning.CANONICAL_BUDGET * 3)
+    res = exp_02_active_learning._evaluate_pool(pool, seed=42, manifest_path=None)
+    coverages = [e["op_coverage_ratio"] for e in res["canonical_evaluations"].values()]
+    assert max(coverages) == 1.0
+    assert all(0.0 < coverage <= 1.0 for coverage in coverages)
