@@ -8,6 +8,7 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -48,6 +49,7 @@ from cadenza.application import (
     UserNotFound,
     WeakPassword,
     collect_stage_timings,
+    detect_image_media_type,
     is_image_content,
     normalize_condition,
     timed_stage,
@@ -155,6 +157,8 @@ from cadenza.persistence import (
 )
 from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
@@ -305,6 +309,44 @@ def _json_response(model: BaseModel, status_code: int = status.HTTP_200_OK) -> R
     with timed_stage("serialize"):
         body = model.model_dump_json()
     return Response(content=body, status_code=status_code, media_type="application/json")
+
+
+# Extensiones admitidas para el archivo temporal según el tipo real de la imagen; la primera es
+# la que se usa si la subida no trae una que corresponda (#295).
+_IMAGE_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "image/png": (".png",),
+    "image/jpeg": (".jpg", ".jpeg", ".jpe"),
+    "image/gif": (".gif",),
+    "image/bmp": (".bmp",),
+    "image/tiff": (".tif", ".tiff"),
+    "image/webp": (".webp",),
+}
+
+
+def _upload_temp_name(filename: str | None, content: bytes) -> str:
+    """Nombre propio del archivo temporal de una subida, con solo su extensión comprobada (#295).
+
+    El nombre subido no llega al disco: HOMR lee con `cv2.imread`, que en Windows no abre una
+    ruta con caracteres fuera de ASCII, y un nombre de solo espacios no es un archivo en Windows.
+    """
+    suffixes = _IMAGE_SUFFIXES.get(detect_image_media_type(content), (".png",))
+    suffix = Path(filename or "").suffix.lower()
+    return "upload" + (suffix if suffix in suffixes else suffixes[0])
+
+
+class _SurrogateSafeJSONResponse(JSONResponse):
+    """`JSONResponse` que, si UTF-8 no puede codificar un sustituto suelto, lo escapa (#295).
+
+    Sin sustitutos, el cuerpo es el de `JSONResponse`, byte a byte.
+    """
+
+    def render(self, content: Any) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            return json.dumps(
+                content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+            ).encode("ascii")
 
 
 def _timing_read(session_id: str, timing_map: TimingMap) -> TimingMapRead:
@@ -723,6 +765,15 @@ def create_app(
             content={"detail": exc.message},
         )
 
+    @app.exception_handler(RequestValidationError)
+    def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # El de FastAPI, salvo que un sustituto suelto en la entrada que repite ya no da 500
+        # al codificarla (#295).
+        return _SurrogateSafeJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={"detail": jsonable_encoder(exc.errors())},
+        )
+
     @app.exception_handler(UnsupportedExportFormat)
     def unsupported_export_format_handler(
         request: Request, exc: UnsupportedExportFormat
@@ -770,7 +821,8 @@ def create_app(
 
     @app.exception_handler(InvalidEdit)
     def invalid_edit_handler(request: Request, exc: InvalidEdit) -> JSONResponse:
-        return JSONResponse(
+        # El mensaje puede repetir `before` o `after`, que admiten cualquier valor (#295).
+        return _SurrogateSafeJSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": exc.message},
         )
@@ -1192,7 +1244,7 @@ def create_app(
                 preprocessing=preproc_config,
             )
 
-        upload_name = Path(file.filename or "upload.png").name
+        upload_name = _upload_temp_name(file.filename, content)
         factory: SessionFactory = request.app.state.session_factory
 
         # La transcripción usa su propia sesión de base de datos y su propio directorio temporal, y
