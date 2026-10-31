@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from cadenza.domain import Finding
+from cadenza.domain import Finding, ScoreMetadata, normalize_source_filename
 from cadenza.omr import OMREngine
 from cadenza.validation import ValidationEngine
 
@@ -55,11 +55,16 @@ def transcribe_score(
     condition: str = "assisted",
     test_score_id: str | None = None,
     suggestion_model: SuggestionModel | None = None,
+    metadata: ScoreMetadata | None = None,
+    source_filename: str | None = None,
 ) -> TranscribeResult:
     """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión.
 
     Con `suggestion_model`, la capa de sugerencias corre tras las reglas y la procedencia
     guarda su versión (ADR-0036 §3, §11). En `unassisted` no corre ni una cosa ni otra (D38).
+
+    Guarda con la sesión el título, el compositor y los instrumentos (`metadata`), sin los de
+    las partes que el OMR no detectó, y el nombre del archivo subido (#235, ADR-0041 §3).
     """
 
     norm_condition = normalize_condition(condition)
@@ -101,6 +106,8 @@ def transcribe_score(
         owner_id=current_user.id,
         condition=norm_condition,
         test_score_id=test_score_id,
+        metadata=(metadata or ScoreMetadata()).fitted(len(document.score.parts)),
+        source_filename=normalize_source_filename(source_filename),
     )
 
     session_repository.add(

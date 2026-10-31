@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from cadenza.domain import Finding, SuggestedEdit
+from cadenza.domain import Finding, ScoreMetadata, SuggestedEdit
 
 from ..exceptions import (
     FindingNotFound,
@@ -20,7 +20,12 @@ from ..exceptions import (
 
 @dataclass(frozen=True)
 class SessionData:
-    """Representación desacoplada de los datos de una sesión."""
+    """Representación desacoplada de los datos de una sesión.
+
+    `metadata` son el título, el compositor y el instrumento de cada parte, y
+    `source_filename`, el nombre del archivo subido (#235, ADR-0041): datos de la sesión, no
+    del `ScoreIR` ni del log.
+    """
 
     id: str
     document_id: str
@@ -34,6 +39,8 @@ class SessionData:
     validated_at_seq: int = 0
     condition: str = "assisted"
     test_score_id: str | None = None
+    metadata: ScoreMetadata = field(default_factory=ScoreMetadata)
+    source_filename: str | None = None
 
 
 @dataclass(frozen=True)
@@ -51,6 +58,8 @@ class SessionSummary:
     edits_count: int
     condition: str = "assisted"
     test_score_id: str | None = None
+    metadata: ScoreMetadata = field(default_factory=ScoreMetadata)
+    source_filename: str | None = None
 
 
 @dataclass(frozen=True)
@@ -258,6 +267,13 @@ class SessionRepository(ABC):
     @abstractmethod
     def update_status(self, session_id: str, status: str) -> SessionData:
         """Actualiza el estado del ciclo de vida de la sesión (#34, ADR-0014)."""
+
+    @abstractmethod
+    def update_metadata(self, session_id: str, metadata: ScoreMetadata) -> SessionData:
+        """Sustituye el título, el compositor y los instrumentos de la sesión (#235, ADR-0041).
+
+        No toca el log, el estado ni nada más. Lanza `SessionNotFound` si la sesión no existe.
+        """
 
     @abstractmethod
     def list(
@@ -534,6 +550,14 @@ class InMemorySessionRepository(SessionRepository):
         self.sessions[session_id] = updated
         return updated
 
+    def update_metadata(self, session_id: str, metadata: ScoreMetadata) -> SessionData:
+        record = self.sessions.get(session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        updated = replace(record, metadata=metadata)
+        self.sessions[session_id] = updated
+        return updated
+
     def list(
         self,
         owner_id: str | None = None,
@@ -600,6 +624,8 @@ class InMemorySessionRepository(SessionRepository):
                     edits_count=edits_count,
                     condition=s.condition,
                     test_score_id=s.test_score_id,
+                    metadata=s.metadata,
+                    source_filename=s.source_filename,
                 )
             )
         return tuple(summaries)

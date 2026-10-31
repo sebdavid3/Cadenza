@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from cadenza.application import (
     FindingNotFound,
@@ -17,12 +19,68 @@ from cadenza.application import (
     SuggestionConflict,
     SuggestionNotFound,
 )
-from cadenza.domain import Finding
+from cadenza.domain import (
+    PART_NAME_MAX_LENGTH,
+    Finding,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+)
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from .models import EditEventRecord, FindingRecord, SuggestionRecord
 from .models import Session as SessionRecord
+
+logger = logging.getLogger("cadenza.persistence.session_repository")
+
+
+def _metadata(
+    title: str | None, composer: str | None, part_instruments: list[dict[str, Any]] | None
+) -> ScoreMetadata:
+    """Los metadatos de una fila; NULL (una sesión anterior a #235) es sin metadatos.
+
+    Un instrumento que este código no conoce (guardado por una versión posterior) se lee como
+    `other` con su identificador por nombre si no tenía otro: una fila así no deja sin
+    respuesta el listado entero.
+    """
+    parts: list[PartMetadata] = []
+    for item in part_instruments or ():
+        try:
+            parts.append(PartMetadata.from_primitive(item))
+        except ValueError:
+            logger.warning("unknown_part_instrument value=%r", item.get("instrument"))
+            raw_name = item.get("name") or item.get("instrument")
+            parts.append(PartMetadata(Instrument.OTHER, name=str(raw_name)[:PART_NAME_MAX_LENGTH]))
+    return ScoreMetadata(title=title, composer=composer, parts=tuple(parts))
+
+
+def _metadata_columns(metadata: ScoreMetadata) -> dict[str, Any]:
+    """Las columnas de los metadatos (ADR-0041 §1): NULL lo que no se dio."""
+    return {
+        "title": metadata.title,
+        "composer": metadata.composer,
+        "part_instruments": metadata.parts_to_primitive() or None,
+    }
+
+
+def _to_session_data(record: SessionRecord) -> SessionData:
+    return SessionData(
+        id=record.id,
+        owner_id=record.owner_id,
+        document_id=record.document_id,
+        omr_engine=record.omr_engine,
+        document=record.document,
+        created_at=record.created_at,
+        image_artifact=record.image_artifact,
+        model_version=record.model_version,
+        status=record.status,
+        validated_at_seq=record.validated_at_seq,
+        condition=record.condition,
+        test_score_id=record.test_score_id,
+        metadata=_metadata(record.title, record.composer, record.part_instruments),
+        source_filename=record.source_filename,
+    )
 
 
 def _to_persisted_suggestion(record: SuggestionRecord) -> PersistedSuggestion:
@@ -157,7 +215,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             document=session.document,
             condition=session.condition,
             test_score_id=session.test_score_id,
+            source_filename=session.source_filename,
             created_at=session.created_at or datetime.now(UTC),
+            **_metadata_columns(session.metadata),
         )
         record.findings = [
             FindingRecord(
@@ -180,20 +240,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         record = self._session.get(SessionRecord, session_id)
         if record is None:
             return None
-        return SessionData(
-            id=record.id,
-            owner_id=record.owner_id,
-            document_id=record.document_id,
-            omr_engine=record.omr_engine,
-            document=record.document,
-            created_at=record.created_at,
-            image_artifact=record.image_artifact,
-            model_version=record.model_version,
-            status=record.status,
-            validated_at_seq=record.validated_at_seq,
-            condition=record.condition,
-            test_score_id=record.test_score_id,
-        )
+        return _to_session_data(record)
 
     def update_status(self, session_id: str, status: str) -> SessionData:
         record = self._session.get(SessionRecord, session_id)
@@ -201,20 +248,18 @@ class SqlAlchemySessionRepository(SessionRepository):
             raise SessionNotFound(session_id)
         record.status = status
         self._session.flush()
-        return SessionData(
-            id=record.id,
-            owner_id=record.owner_id,
-            document_id=record.document_id,
-            omr_engine=record.omr_engine,
-            document=record.document,
-            created_at=record.created_at,
-            image_artifact=record.image_artifact,
-            model_version=record.model_version,
-            status=record.status,
-            validated_at_seq=record.validated_at_seq,
-            condition=record.condition,
-            test_score_id=record.test_score_id,
-        )
+        return _to_session_data(record)
+
+    def update_metadata(self, session_id: str, metadata: ScoreMetadata) -> SessionData:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        columns = _metadata_columns(metadata)
+        record.title = columns["title"]
+        record.composer = columns["composer"]
+        record.part_instruments = columns["part_instruments"]
+        self._session.flush()
+        return _to_session_data(record)
 
     def list(
         self,
@@ -228,23 +273,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(SessionRecord.status == status)
         stmt = stmt.order_by(SessionRecord.created_at)
         records = self._session.scalars(stmt).all()
-        return tuple(
-            SessionData(
-                id=record.id,
-                owner_id=record.owner_id,
-                document_id=record.document_id,
-                omr_engine=record.omr_engine,
-                document=record.document,
-                created_at=record.created_at,
-                image_artifact=record.image_artifact,
-                model_version=record.model_version,
-                status=record.status,
-                validated_at_seq=record.validated_at_seq,
-                condition=record.condition,
-                test_score_id=record.test_score_id,
-            )
-            for record in records
-        )
+        return tuple(_to_session_data(record) for record in records)
 
     def replace_findings(
         self,
@@ -496,6 +525,10 @@ class SqlAlchemySessionRepository(SessionRepository):
             SessionRecord.owner_id,
             SessionRecord.condition,
             SessionRecord.test_score_id,
+            SessionRecord.title,
+            SessionRecord.composer,
+            SessionRecord.part_instruments,
+            SessionRecord.source_filename,
             findings_count_sq.label("findings_count"),
             edits_count_sq.label("edits_count"),
         )
@@ -528,6 +561,8 @@ class SqlAlchemySessionRepository(SessionRepository):
                 edits_count=int(row.edits_count or 0),
                 condition=row.condition,
                 test_score_id=row.test_score_id,
+                metadata=_metadata(row.title, row.composer, row.part_instruments),
+                source_filename=row.source_filename,
             )
             for row in rows
         )

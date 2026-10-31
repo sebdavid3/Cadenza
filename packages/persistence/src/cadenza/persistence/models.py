@@ -28,6 +28,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 JsonDocument = JSON().with_variant(JSONB(), "postgresql")
+# Un JSON opcional: None se guarda como NULL de SQL, no como el JSON `null`.
+NullableJsonDocument = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 
 class ImmutableEditEventError(RuntimeError):
@@ -94,6 +96,14 @@ class Session(Base):
         String(32), server_default="assisted", default="assisted", nullable=False
     )
     test_score_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Título, compositor, instrumento de cada parte y nombre del archivo subido (#235,
+    # ADR-0041, migración 0014): de la sesión, fuera del `ScoreIR` y del log.
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    composer: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    part_instruments: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        NullableJsonDocument, nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

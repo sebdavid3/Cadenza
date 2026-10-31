@@ -254,9 +254,9 @@ def test_the_cache_serves_the_state_the_edit_created(tmp_path: Path) -> None:
     calls: list[int] = []
     original = exporter.to_musicxml
 
-    def counting(score: Any) -> str:
+    def counting(score: Any, metadata: Any = None) -> str:
         calls.append(1)
-        return str(original(score))
+        return str(original(score, metadata))
 
     exporter.to_musicxml = counting
     edited = api.edit(0).json()

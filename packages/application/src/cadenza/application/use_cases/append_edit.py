@@ -18,6 +18,7 @@ from cadenza.domain import (
     InvalidEditPayload,
     KeySignature,
     ScoreIR,
+    ScoreMetadata,
     TimingMap,
     UnsupportedEditOpError,
     apply_edit,
@@ -270,6 +271,7 @@ class AppliedEdit:
 class _Appended:
     edit: EditEvent
     status: str
+    metadata: ScoreMetadata
     previous_key: ScoreStateKey
     previous: CachedScoreState
     key: ScoreStateKey
@@ -426,6 +428,7 @@ def _append(
     return _Appended(
         edit=appended,
         status=status,
+        metadata=session_data.metadata,
         previous_key=previous_key,
         previous=previous,
         key=key,
@@ -520,7 +523,7 @@ def append_edit_with_state(
         score_cache=score_cache,
         suggestion_id=suggestion_id,
     )
-    state, musicxml = try_musicxml_of(done.key, done.state, exporter, score_cache)
+    state, musicxml = try_musicxml_of(done.key, done.state, exporter, score_cache, done.metadata)
     _, previous_timing = timing_of(done.previous_key, done.previous, score_cache)
     state, timing = timing_of(done.key, state, score_cache)
     return AppliedEdit(

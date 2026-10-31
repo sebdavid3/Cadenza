@@ -41,6 +41,7 @@ from cadenza.domain import (
     Measure,
     Part,
     ScoreIR,
+    ScoreMetadata,
     Staff,
     TimeSignature,
     compute_timing_map,
@@ -69,14 +70,14 @@ def _score() -> ScoreIR:
 class _CountingExporter(InMemoryScoreExporter):
     """Exporta un MusicXML que dice qué estado es, y cuenta las exportaciones."""
 
-    def to_musicxml(self, score: ScoreIR) -> str:
-        super().to_musicxml(score)
+    def to_musicxml(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
+        super().to_musicxml(score, metadata)
         pitches = [e.pitch for e in score.parts[0].staves[0].measures[0].events]
         return f"<score-partwise>{pitches}</score-partwise>"
 
 
 class _FailingExporter(InMemoryScoreExporter):
-    def to_musicxml(self, score: ScoreIR) -> str:
+    def to_musicxml(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
         raise RuntimeError("music21 no pudo")
 
 

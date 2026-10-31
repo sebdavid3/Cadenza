@@ -326,6 +326,14 @@ export interface HealthStatusResponse {
 }
 
 /**
+ * Lista cerrada de instrumentos de una parte (ADR-0041 §2).
+ * 
+ * El valor es un identificador estable que viaja en la API y se guarda en la base: la lista
+ * solo crece. `other` admite un nombre libre (el de la parte) y suena como el piano.
+ */
+export type Instrument = "piano" | "voice" | "violin" | "cello" | "flute" | "clarinet" | "guitar" | "other";
+
+/**
  * Armadura de clave expresada en número de quintas respecto a Do mayor.
  */
 export interface KeySignaturePayload {
@@ -353,6 +361,25 @@ export interface MeasurePayload {
   dynamics?: DynamicPayload[];
   /** Extremos de regulador del compás, por su posición (ADR-0031) */
   wedges?: WedgePayload[];
+}
+
+/**
+ * El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).
+ * 
+ * La posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene
+ * instrumento ni nombre. `other` admite un nombre libre y suena como el piano.
+ */
+export interface PartInstrumentRead {
+  instrument?: Instrument | null;
+  name?: string | null;
+}
+
+/**
+ * El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041).
+ */
+export interface PartInstrumentWrite {
+  instrument?: Instrument | null;
+  name?: string | null;
 }
 
 /**
@@ -497,6 +524,34 @@ export interface SessionDetailRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041).
+ */
+export interface SessionMetadataRead {
+  session_id: string;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).
+ * 
+ * Un campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista
+ * entera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no
+ * puede tener más entradas que partes la partitura. No es una edición del log.
+ */
+export interface SessionMetadataUpdate {
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentWrite[] | null;
 }
 
 /**
@@ -514,6 +569,10 @@ export interface SessionSummaryRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
 }
 
 /**
@@ -536,6 +595,10 @@ export interface SessionViewRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
 }
 
 /**

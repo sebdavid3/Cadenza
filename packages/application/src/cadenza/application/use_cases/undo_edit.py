@@ -172,7 +172,7 @@ def undo_edit(
 
     musicxml: str | None = None
     if exporter is not None:
-        state, musicxml = try_musicxml_of(key, state, exporter, score_cache)
+        state, musicxml = try_musicxml_of(key, state, exporter, score_cache, session_data.metadata)
     _, previous_timing = timing_of(previous_key, previous, score_cache)
     state, timing = timing_of(key, state, score_cache)
 

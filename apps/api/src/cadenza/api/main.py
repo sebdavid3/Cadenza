@@ -26,6 +26,7 @@ from cadenza.application import (
     Forbidden,
     InMemoryScoreStateCache,
     InvalidEdit,
+    InvalidSessionMetadata,
     NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
@@ -41,6 +42,7 @@ from cadenza.application import (
     SuggestionNotFound,
     TokenService,
     TranscribeResult,
+    Unchanged,
     UnsupportedExportFormat,
     User,
     UserNotFound,
@@ -117,9 +119,20 @@ from cadenza.application import (
     undo_edit as undo_edit_use_case,
 )
 from cadenza.application import (
+    update_session_metadata as update_session_metadata_use_case,
+)
+from cadenza.application import (
     update_user as update_user_use_case,
 )
-from cadenza.domain import TimingMap
+from cadenza.domain import (
+    COMPOSER_MAX_LENGTH,
+    PART_NAME_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+    TimingMap,
+)
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
     HOMREngine,
@@ -146,7 +159,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
@@ -165,12 +178,15 @@ from .schemas import (
     FinalizeResponse,
     FindingRead,
     HealthStatusResponse,
+    PartInstrumentRead,
     RegisterRequest,
     ReopenResponse,
     RevalidateResponse,
     ScoreDocumentPayload,
     ScoreIRPayload,
     SessionDetailRead,
+    SessionMetadataRead,
+    SessionMetadataUpdate,
     SessionSummaryRead,
     SessionViewRead,
     StatusResponse,
@@ -309,6 +325,39 @@ def _timing_read(session_id: str, timing_map: TimingMap) -> TimingMapRead:
             for ev in timing_map.events
         ],
     )
+
+
+def _transcribe_metadata(
+    title: str | None,
+    composer: str | None,
+    instruments: Sequence[Instrument | Literal[""]] | None,
+    part_names: Sequence[str] | None,
+) -> ScoreMetadata:
+    """Los metadatos de `POST /transcribe`, o 422 antes de transcribir (#235, ADR-0041)."""
+
+    instrument_list = list(instruments or ())
+    name_list = list(part_names or ())
+    count = max(len(instrument_list), len(name_list))
+    try:
+        return ScoreMetadata(
+            title=title,
+            composer=composer,
+            parts=tuple(
+                PartMetadata(
+                    instrument=(
+                        Instrument(instrument_list[i])
+                        if i < len(instrument_list) and instrument_list[i]
+                        else None
+                    ),
+                    name=name_list[i] if i < len(name_list) else None,
+                )
+                for i in range(count)
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -664,6 +713,15 @@ def create_app(
         if score_cache is not None
         else InMemoryScoreStateCache(app_settings.score_cache_max_entries)
     )
+
+    @app.exception_handler(InvalidSessionMetadata)
+    def invalid_session_metadata_handler(
+        request: Request, exc: InvalidSessionMetadata
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.message},
+        )
 
     @app.exception_handler(UnsupportedExportFormat)
     def unsupported_export_format_handler(
@@ -1042,8 +1100,39 @@ def create_app(
             str | None,
             Form(alias="test_score_id"),
         ] = None,
+        title: Annotated[
+            str | None,
+            Form(
+                max_length=TITLE_MAX_LENGTH,
+                description="Título de la partitura: el nombre de la sesión (#235, #240).",
+            ),
+        ] = None,
+        composer: Annotated[
+            str | None,
+            Form(max_length=COMPOSER_MAX_LENGTH, description="Compositor (#235)."),
+        ] = None,
+        instruments: Annotated[
+            list[Instrument | Literal[""]] | None,
+            Form(
+                description=(
+                    "Instrumento de cada parte, repetido una vez por parte en el orden en que "
+                    "HOMR las detecta; '' deja esa parte sin instrumento. Los de partes que HOMR "
+                    "no detecte se descartan (ADR-0041)."
+                ),
+            ),
+        ] = None,
+        part_names: Annotated[
+            list[Annotated[str, Field(max_length=PART_NAME_MAX_LENGTH)]] | None,
+            Form(
+                description=(
+                    "Nombre de cada parte, alineado con `instruments`; '' es sin nombre. Con "
+                    "'other', el nombre del instrumento (ADR-0041)."
+                ),
+            ),
+        ] = None,
     ) -> TranscribeResponse:
         app_settings: Settings = request.app.state.settings
+        metadata = _transcribe_metadata(title, composer, instruments, part_names)
 
         raw_condition = condition_form or condition or "assisted"
         effective_score_id = test_score_id_form or test_score_id
@@ -1127,6 +1216,8 @@ def create_app(
                     condition=effective_condition,
                     test_score_id=effective_score_id,
                     suggestion_model=request.app.state.suggestion_model,
+                    metadata=metadata,
+                    source_filename=file.filename,
                 )
                 work_db.commit()
                 return outcome
@@ -1200,6 +1291,10 @@ def create_app(
                 condition=s.condition,
                 test_score_id=s.test_score_id,
                 owner_id=s.owner_id,
+                title=s.metadata.title,
+                composer=s.metadata.composer,
+                instruments=PartInstrumentRead.list_from(s.metadata),
+                source_filename=s.source_filename,
             )
             for s in summaries
         ]
@@ -1335,6 +1430,10 @@ def create_app(
                 "condition": detail.condition,
                 "test_score_id": detail.test_score_id,
                 "owner_id": detail.owner_id,
+                "title": detail.metadata.title,
+                "composer": detail.metadata.composer,
+                "instruments": PartInstrumentRead.list_from(detail.metadata),
+                "source_filename": detail.source_filename,
             }
             body: BaseModel
             if view:
@@ -1350,6 +1449,48 @@ def create_app(
                     ),
                 )
         return _json_response(body)
+
+    @app.patch(
+        "/sessions/{session_id}",
+        response_model=SessionMetadataRead,
+        tags=["Sessions"],
+        summary="Cambiar el título, el compositor o los instrumentos de la sesión",
+        description=(
+            "Solo el dueño (ADR-0012), también con la sesión finalizada. No es una edición del "
+            "log ni cambia el estado de la sesión; el MusicXML y el MIDI exportados llevan los "
+            "datos nuevos (#235, ADR-0041)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **UNPROCESSABLE_422},
+    )
+    def update_session_metadata_endpoint(
+        session_id: str,
+        payload: SessionMetadataUpdate,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> SessionMetadataRead:
+        sent = payload.model_fields_set
+        unchanged = Unchanged.UNCHANGED
+        updated = update_session_metadata_use_case(
+            session_id,
+            session_repository=SqlAlchemySessionRepository(db),
+            current_user=current_user,
+            title=payload.title if "title" in sent else unchanged,
+            composer=payload.composer if "composer" in sent else unchanged,
+            parts=(
+                tuple(item.to_part() for item in payload.instruments or ())
+                if "instruments" in sent
+                else unchanged
+            ),
+            score_cache=request.app.state.score_cache,
+        )
+        return SessionMetadataRead(
+            session_id=updated.id,
+            title=updated.metadata.title,
+            composer=updated.metadata.composer,
+            instruments=PartInstrumentRead.list_from(updated.metadata),
+            source_filename=updated.source_filename,
+        )
 
     @app.get(
         "/sessions/{session_id}/timing",

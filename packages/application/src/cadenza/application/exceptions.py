@@ -109,6 +109,17 @@ class SessionClosed(ApplicationError):
         self.message = msg
 
 
+class InvalidSessionMetadata(ApplicationError):
+    """El título, el compositor o los instrumentos no son válidos (#235, ADR-0041).
+
+    Demasiado largos, o instrumentos para más partes de las que tiene la partitura.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 class UnsupportedExportFormat(ApplicationError):
     """El formato de exportación solicitado no es admitido (Issue #12)."""
 
