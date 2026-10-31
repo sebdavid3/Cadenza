@@ -3,6 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006, ADR-0011, ADR-0012, ADR-0014, ADR-0017, ADR-0019 y ADR-0027, CLAUDE.md §9)
+- **Enmendado por:** [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), que devuelve el estado nuevo con el 201: tras guardar ya no se piden el detalle, el MusicXML, los posibles errores ni los tiempos (§4 y la primera frase de Contexto)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0019](ADR-0019-base-del-cliente-web.md), [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md), [#182](https://github.com/sebdavid3/Cadenza/issues/182), [#183](https://github.com/sebdavid3/Cadenza/issues/183)
 
 ---
