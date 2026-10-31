@@ -1,5 +1,153 @@
-import { describe, expect, it } from "vitest";
-import { withInitialAttributes } from "./osmd";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createScoreRenderer, withInitialAttributes } from "./osmd";
+
+// OSMD no dibuja en jsdom: un doble que cuenta las instancias, las lecturas y los dibujos, y que
+// lee el `Document` sin esperas, como OSMD 2.2.1.
+const fake = vi.hoisted(() => ({
+  instances: 0,
+  loads: [] as string[],
+  renders: 0,
+  zooms: [] as number[],
+  failLoad: false,
+  failRender: false,
+}));
+vi.mock("opensheetmusicdisplay", () => ({
+  OpenSheetMusicDisplay: class {
+    zoom = 1;
+    graphic: { MeasureList: unknown[][] } | undefined;
+    EngravingRules = { PageBottomMargin: 10 };
+    constructor(readonly host: HTMLElement) {
+      fake.instances += 1;
+    }
+    get GraphicSheet() {
+      return this.graphic;
+    }
+    load(document: Document) {
+      fake.loads.push(document.documentElement.textContent);
+      this.zoom = 1;
+      this.graphic = undefined;
+      if (fake.failLoad) return Promise.reject(new Error("no es MusicXML"));
+      const measures = Number(document.documentElement.getAttribute("compases") ?? "1");
+      this.graphic = {
+        MeasureList: Array.from({ length: measures }, () => [
+          {
+            PositionAndShape: {
+              AbsolutePosition: { x: 1, y: 2 },
+              BorderLeft: 0,
+              BorderRight: 20,
+            },
+            staffEntries: [],
+          },
+        ]),
+      };
+      return Promise.resolve({});
+    }
+    IsReadyToRender() {
+      return this.graphic !== undefined;
+    }
+    render() {
+      if (fake.failRender) throw new Error("VexFlow");
+      fake.renders += 1;
+      fake.zooms.push(this.zoom);
+      this.host.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg", "svg"));
+    }
+    clear() {
+      this.graphic = undefined;
+    }
+  },
+}));
+
+beforeEach(() => {
+  Object.assign(fake, {
+    instances: 0,
+    loads: [],
+    renders: 0,
+    zooms: [],
+    failLoad: false,
+    failRender: false,
+  });
+});
+
+const xml = (text: string, measures = 1) =>
+  `<?xml version="1.0"?><score-partwise compases="${String(measures)}">${text}</score-partwise>`;
+const STATE = { sessionId: "s1", seq: 0 };
+
+describe("una sola instancia de OSMD por vista (#276)", () => {
+  it("dibuja cada estado en la misma instancia, de forma síncrona", async () => {
+    const host = document.createElement("div");
+    const renderer = await createScoreRenderer(host, new AbortController().signal);
+
+    const first = renderer.draw(xml("a", 2), STATE);
+    expect(first.measuresPerStaff()).toEqual([2]);
+    const second = renderer.draw(xml("b", 3), { ...STATE, seq: 1 });
+
+    expect(fake.instances).toBe(1);
+    expect(fake.loads).toEqual(["a", "b"]);
+    expect(fake.renders).toBe(2);
+    expect(second.measuresPerStaff()).toEqual([3]);
+    // Un dibujo anterior ya no describe lo que se ve.
+    expect(first.measuresPerStaff()).toEqual([]);
+    expect(first.measureBox({ staff: 0, measure: 0 })).toBeNull();
+    expect(host.querySelectorAll("svg")).toHaveLength(1);
+  });
+
+  it("no vuelve a leer ni a dibujar el MusicXML que ya está dibujado", async () => {
+    const renderer = await createScoreRenderer(
+      document.createElement("div"),
+      new AbortController().signal,
+    );
+    const first = renderer.draw(xml("a"), STATE);
+    const again = renderer.draw(xml("a"), { ...STATE, seq: 1 });
+
+    expect(again).toBe(first);
+    expect(fake.loads).toEqual(["a"]);
+    expect(fake.renders).toBe(1);
+  });
+
+  it("vuelve a maquetar sin volver a leer el MusicXML, con el zoom del ancho", async () => {
+    const renderer = await createScoreRenderer(
+      document.createElement("div"),
+      new AbortController().signal,
+    );
+    renderer.draw(xml("a"), STATE);
+    renderer.relayout(390);
+
+    expect(fake.loads).toEqual(["a"]);
+    expect(fake.zooms).toEqual([0.75, 0.75]);
+    renderer.relayout(1200);
+    expect(fake.zooms.at(-1)).toBe(1);
+  });
+
+  it("si un estado no se puede leer o dibujar, no deja nada dibujado y el siguiente se dibuja", async () => {
+    const host = document.createElement("div");
+    const renderer = await createScoreRenderer(host, new AbortController().signal);
+    renderer.draw(xml("a"), STATE);
+
+    fake.failLoad = true;
+    expect(() => renderer.draw(xml("b"), { ...STATE, seq: 1 })).toThrow();
+    expect(host.children).toHaveLength(0);
+    fake.failLoad = false;
+    fake.failRender = true;
+    expect(() => renderer.draw(xml("c"), { ...STATE, seq: 2 })).toThrow("VexFlow");
+    expect(host.children).toHaveLength(0);
+
+    fake.failRender = false;
+    // Tras un fallo, el mismo MusicXML de antes se vuelve a leer: ya no está dibujado.
+    renderer.draw(xml("a"), { ...STATE, seq: 3 });
+    expect(fake.loads).toEqual(["a", "b", "c", "a"]);
+    expect(host.querySelectorAll("svg")).toHaveLength(1);
+    expect(fake.instances).toBe(1);
+  });
+
+  it("si se cancela mientras carga OSMD, no crea la instancia", async () => {
+    const controller = new AbortController();
+    const pending = createScoreRenderer(document.createElement("div"), controller.signal);
+    controller.abort();
+
+    await expect(pending).rejects.toThrow("Dibujo cancelado");
+    expect(fake.instances).toBe(0);
+  });
+});
 
 /** MusicXML de una parte con los compases dados (el contenido de cada `<measure>`). */
 function score(...measures: string[]): Document {

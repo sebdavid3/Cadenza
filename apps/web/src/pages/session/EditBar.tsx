@@ -483,7 +483,13 @@ export function EditBar({
 }: EditBarProps) {
   const groupId = useId();
   const { status, refusal, blocked, retry } = editor;
-  const { text, reload } = feedback(status, multiStaff, score, retry);
+  const said = feedback(status, multiStaff, score, retry);
+  // Una orden que espera a que se guarde la que está en curso (ADR-0038) se dice en la barra.
+  const text =
+    editor.queued && status.kind === "saving"
+      ? `${said.text} La orden siguiente espera su turno.`
+      : said.text;
+  const { reload } = said;
   const busy = status.kind === "saving" || status.kind === "reloading";
 
   const current = target ? figureOf(target.event.duration_beats) : { figure: null, dotted: false };

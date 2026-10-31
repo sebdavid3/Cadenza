@@ -1,9 +1,11 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -21,7 +23,7 @@ import {
 } from "./noteMap";
 import { describeEvent } from "./noteNames";
 import { markDrawn, timeStage } from "./marks";
-import { renderScore, type Box, type RenderedScore } from "./osmd";
+import { createScoreRenderer, type Box, type RenderedScore, type ScoreRenderer } from "./osmd";
 import { useSelectionStore } from "./selection";
 import { SelectionBar, type SelectionStatus } from "./SelectionBar";
 
@@ -47,7 +49,10 @@ interface RenderState {
 }
 
 interface ScoreViewProps {
-  /** Estado que se dibuja: al cambiar, se dibuja el nuevo sin quitar el anterior hasta tenerlo. */
+  /**
+   * Estado que se dibuja: al cambiar, se dibuja el nuevo en la misma instancia de OSMD antes de
+   * pintar, y lo anterior sigue a la vista hasta entonces (#276).
+   */
   snapshot: ScoreSnapshot;
   /** Sesión de la partitura: la selección vale solo para ella y para el `seq` de su estado. */
   sessionId: string;
@@ -124,20 +129,27 @@ function placeMarks(score: RenderedScore, marks: readonly MeasureMark[]): Map<st
 
 const RELAYOUT_DELAY_MS = 150;
 
-/** Dibujo que está en la página: su contenedor, su partitura y lo que lo vuelve a maquetar. */
-interface Shown {
-  target: HTMLDivElement;
-  score: RenderedScore;
-  observer: ResizeObserver | null;
-  timer: ReturnType<typeof setTimeout> | undefined;
-}
-
-function release(shown: Shown | null) {
-  if (!shown) return;
-  clearTimeout(shown.timer);
-  shown.observer?.disconnect();
-  shown.score.dispose();
-  shown.target.remove();
+/**
+ * Lo que OSMD tiene dibujado, como almacén externo de la vista: cambia cuando la instancia dibuja
+ * (antes de pintar, en un efecto de maquetación) y la vista se vuelve a pintar con ello en el
+ * mismo paso (`useSyncExternalStore`).
+ */
+function drawingStore() {
+  let value: RenderState = { drawing: null, failed: null };
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (update: (previous: RenderState) => RenderState) => {
+      value = update(value);
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 }
 
 /**
@@ -158,87 +170,102 @@ export function ScoreView({
   editKeysId,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
-  const [state, setState] = useState<RenderState>({ drawing: null, failed: null });
-  const shownRef = useRef<Shown | null>(null);
-
+  const [store] = useState(drawingStore);
+  const state = useSyncExternalStore(store.subscribe, store.get);
+  // Una sola instancia de OSMD para toda la vista (#276): se crea al montarla y cada estado se
+  // dibuja en ella. Con el doble montaje de StrictMode, o al salir mientras OSMD carga, la carga
+  // descartada no crea nada.
+  const [renderer, setRenderer] = useState<ScoreRenderer | null>(null);
+  // Si OSMD no llega a cargarse, ningún estado se puede dibujar.
+  const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    // Cada estado se dibuja en su propio contenedor y cancela su dibujo si deja de hacer falta:
-    // con el doble montaje de StrictMode, al salir mientras OSMD carga o si llega otro estado,
-    // el dibujo descartado no pisa al que se queda y se libera. Mientras haya uno a la vista, el
-    // nuevo se prepara oculto encima de él y lo sustituye al terminar: la página no salta ni la
-    // partitura pierde el foco al editar (ADR-0030).
-    const target = document.createElement("div");
-    if (shownRef.current) target.className = "notation__next";
-    host.appendChild(target);
     const controller = new AbortController();
-
-    renderScore(target, snapshot.xml, controller.signal, { sessionId, seq: snapshot.seq })
-      .then((score) => {
+    let created: ScoreRenderer | null = null;
+    createScoreRenderer(host, controller.signal)
+      .then((ready) => {
         if (controller.signal.aborted) {
-          score.dispose();
+          ready.dispose();
           return;
         }
-        release(shownRef.current);
-        target.removeAttribute("class");
-        const shown: Shown = { target, score, observer: null, timer: undefined };
-        shownRef.current = shown;
-        setState({ drawing: { score, snapshot, layout: 0 }, failed: null });
-        // Fin de la orden que creó este estado, si la hubo (#275).
-        markDrawn(sessionId, snapshot.seq);
-        if (!("ResizeObserver" in window)) return;
-        let width = target.clientWidth;
-        shown.observer = new ResizeObserver(() => {
-          if (target.clientWidth === width) return;
-          width = target.clientWidth;
-          clearTimeout(shown.timer);
-          shown.timer = setTimeout(() => {
-            try {
-              score.relayout(width);
-              setState((previous) =>
-                previous.drawing?.score === score
-                  ? {
-                      ...previous,
-                      drawing: { ...previous.drawing, layout: previous.drawing.layout + 1 },
-                    }
-                  : previous,
-              );
-            } catch {
-              if (shownRef.current === shown) shownRef.current = null;
-              release(shown);
-              setState({ drawing: null, failed: snapshot });
-            }
-          }, RELAYOUT_DELAY_MS);
-        });
-        shown.observer.observe(target);
+        created = ready;
+        setRenderer(ready);
       })
       .catch(() => {
-        if (controller.signal.aborted) return;
-        // Lo que quedaba a la vista es de otro estado: no se deja como si fuera este.
-        release(shownRef.current);
-        shownRef.current = null;
-        target.remove();
-        setState({ drawing: null, failed: snapshot });
+        if (!controller.signal.aborted) setLoadFailed(true);
       });
-
     return () => {
       controller.abort();
-      // El dibujo a la vista se queda hasta que llegue el siguiente o se salga de la vista.
-      if (shownRef.current?.target !== target) target.remove();
+      created?.dispose();
+      setRenderer(null);
     };
-  }, [snapshot, sessionId]);
+  }, []);
 
-  useEffect(
-    () => () => {
-      release(shownRef.current);
-      shownRef.current = null;
-    },
-    [],
-  );
+  // Cada estado se dibuja antes de pintar, en la misma instancia: lo que se ve pasa del estado
+  // anterior al nuevo de una vez, sin parpadeo ni un fotograma con las marcas de otro dibujo, y
+  // la partitura no pierde el foco al editar (ADR-0030).
+  useLayoutEffect(() => {
+    if (!renderer) return;
+    let score: RenderedScore;
+    try {
+      score = renderer.draw(snapshot.xml, { sessionId, seq: snapshot.seq });
+    } catch {
+      store.set(() => ({ drawing: null, failed: snapshot }));
+      return;
+    }
+    store.set((previous) => ({
+      // El mismo dibujo (el MusicXML no cambió) conserva su maquetación.
+      drawing: {
+        score,
+        snapshot,
+        layout: previous.drawing?.score === score ? previous.drawing.layout : 0,
+      },
+      failed: null,
+    }));
+    // Fin de la orden que creó este estado, si la hubo (#275).
+    markDrawn(sessionId, snapshot.seq);
+  }, [renderer, snapshot, sessionId, store]);
+
+  // Se vuelve a maquetar cuando cambia el ancho.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!renderer || !host || !("ResizeObserver" in window)) return;
+    let width = host.clientWidth;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      if (host.clientWidth === width) return;
+      width = host.clientWidth;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        try {
+          renderer.relayout(width);
+          store.set((previous) =>
+            previous.drawing
+              ? {
+                  ...previous,
+                  drawing: { ...previous.drawing, layout: previous.drawing.layout + 1 },
+                }
+              : previous,
+          );
+        } catch {
+          store.set((previous) => ({ drawing: null, failed: previous.drawing?.snapshot ?? null }));
+        }
+      }, RELAYOUT_DELAY_MS);
+    });
+    observer.observe(host);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [renderer, store]);
 
   const { drawing } = state;
-  const status = drawing ? "ready" : state.failed === snapshot ? "failed" : "rendering";
+  const status = drawing
+    ? "ready"
+    : loadFailed || state.failed === snapshot
+      ? "failed"
+      : "rendering";
   // Se está dibujando otro estado: lo que se ve sigue siendo el anterior.
   const redrawing = drawing !== null && drawing.snapshot !== snapshot;
   const layout = drawing ? drawing.layout : -1;
@@ -284,7 +311,16 @@ export function ScoreView({
   const clearSelection = useSelectionStore((store) => store.clear);
   const ours = stored !== null && stored.sessionId === sessionId ? stored : null;
   // Sobre el dibujo: la marca y los movimientos, con el estado que se ve.
-  const noteKey = ours && ours.seq === drawn?.seq ? anchorKey(ours.anchor) : null;
+  const ownKey = ours && ours.seq === drawn?.seq ? anchorKey(ours.anchor) : null;
+  // La última nota marcada sobre el dibujo. Si la selección pasa a un estado que aún no está
+  // dibujado (una orden guardada deja elegido su evento antes de que llegue el dibujo nuevo), su
+  // marca se queda donde estaba hasta que llega, y entonces pasa a la nota que corresponde (#276).
+  const [held, setHeld] = useState<{ seq: number; key: string } | null>(null);
+  if (ownKey !== null && drawn && (held?.seq !== drawn.seq || held.key !== ownKey)) {
+    setHeld({ seq: drawn.seq, key: ownKey });
+  }
+  const ahead = ours !== null && drawn !== null && ours.seq > drawn.seq;
+  const noteKey = ownKey ?? (ahead && held?.seq === drawn.seq ? held.key : null);
   const chosen = selectable?.find((candidate) => candidate.key === noteKey) ?? null;
   // Lo que es la nota elegida sale del estado actual, también mientras se dibuja: tras corregirla
   // se lee su valor nuevo sin esperar al dibujo.
@@ -320,9 +356,10 @@ export function ScoreView({
     revealRef.current = reveal && candidate.key !== noteKey;
     select({ sessionId, seq: drawn.seq, anchor: candidate.anchor });
   };
-  // Mientras se dibuja otro estado no se elige sobre el anterior.
+  // Mientras llega el dibujo de otro estado se elige sobre el que se ve, en su estado: la vista
+  // lleva después la selección al estado nuevo (ADR-0011 §2).
   const move = (how: Move) => {
-    if (selectable && !redrawing) choose(moveSelection(selectable, noteKey, how), true);
+    if (selectable) choose(moveSelection(selectable, noteKey, how), true);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!selectable) return;
@@ -346,7 +383,7 @@ export function ScoreView({
     move(action);
   };
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (!selectable || !score || redrawing) return;
+    if (!selectable || !score) return;
     const stage = event.currentTarget;
     const origin = stage.getBoundingClientRect();
     const candidate = nearestEvent(

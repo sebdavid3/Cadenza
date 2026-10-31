@@ -148,15 +148,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
   useEffect(() => clearSelection, [clearSelection]);
   // Cuando la vista pasa a un estado posterior (una corrección guardada o una recarga), la nota
   // elegida sigue elegida con su ancla en ese estado (ADR-0011 §2); si su evento ya no está, se
-  // olvida. Antes de pintar, para que no parpadee. Se lee del almacén sin suscribirse: cada
-  // movimiento de la selección no tiene por qué volver a pintar toda la vista.
+  // olvida. Antes de pintar, para que no parpadee. También si se elige sobre el dibujo de un
+  // estado anterior mientras llega el nuevo (#276). Solo se suscribe a si la selección va por
+  // detrás: cada movimiento de la selección no tiene por qué volver a pintar toda la vista.
+  const selectionBehind = useSelectionStore(
+    (state) => state.selection?.sessionId === sessionId && state.selection.seq < seq,
+  );
   useLayoutEffect(() => {
     const { selection } = useSelectionStore.getState();
     if (!detail.data || selection?.sessionId !== sessionId || selection.seq >= seq) return;
     const anchor = carryAnchor(selection.anchor, selection.seq, detail.data);
     if (anchor) select({ ...selection, seq, anchor });
     else clearSelection();
-  }, [detail.data, sessionId, seq, select, clearSelection]);
+  }, [detail.data, sessionId, seq, select, clearSelection, selectionBehind]);
 
   // El editor del último render: lo usan las órdenes que llegan después (el teclado, una
   // revalidación que encuentra el servidor por delante).

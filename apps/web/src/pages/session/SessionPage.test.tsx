@@ -32,10 +32,12 @@ const osmd = vi.hoisted(() => ({
   measures: 3,
   fail: false,
   cleared: 0,
+  /** Instancias de OSMD creadas: la vista usa una sola (#276). */
+  instances: 0,
   zooms: [] as number[],
+  /** Lo que OSMD ha leído: el elemento raíz y el texto de cada MusicXML. */
   loaded: [] as string[],
-  /** Si no es null, OSMD no termina de cargar hasta que se cumple: un dibujo «en curso». */
-  gate: null as Promise<void> | null,
+  texts: [] as string[],
   /**
    * Figuras de cada compás: altura (null, silencio), duración en redondas como OSMD, las otras
    * notas si es un acorde, el número de voz de OSMD (1 si no se dice), la nota de adorno que la
@@ -141,11 +143,21 @@ vi.mock("opensheetmusicdisplay", () => {
       zoom = 1;
       GraphicSheet = { MeasureList: [] as unknown[][] };
       EngravingRules = { PageBottomMargin: 10 };
-      constructor(readonly host: HTMLElement) {}
+      ready = false;
+      constructor(readonly host: HTMLElement) {
+        osmd.instances += 1;
+      }
+      // Como OSMD 2.2.1: un `Document` se lee sin esperas y vuelve al zoom 1.
       load(document: Document) {
         osmd.loaded.push(document.documentElement.nodeName);
+        osmd.texts.push(document.documentElement.textContent);
+        this.zoom = 1;
+        this.ready = !osmd.fail;
         if (osmd.fail) return Promise.reject(new Error("MusicXML no válido"));
-        return (osmd.gate ?? Promise.resolve()).then(() => ({}));
+        return Promise.resolve({});
+      }
+      IsReadyToRender() {
+        return this.ready;
       }
       render() {
         osmd.zooms.push(this.zoom);
@@ -173,6 +185,7 @@ vi.mock("opensheetmusicdisplay", () => {
       }
       clear() {
         osmd.cleared += 1;
+        this.ready = false;
       }
     },
   };
@@ -194,7 +207,7 @@ const audio = vi.hoisted(() => {
     disposed = false;
     tempos: number[] = [];
     constructor(
-      readonly playback: { notes: unknown[]; measures: Span[]; totalBeats: number },
+      public playback: { notes: unknown[]; measures: Span[]; totalBeats: number },
       readonly tempo: number,
       private readonly handlers: Handlers,
     ) {}
@@ -213,6 +226,12 @@ const audio = vi.hoisted(() => {
     setTempo(bpm: number) {
       this.tempos.push(bpm);
     }
+    /** Otra partitura desde el punto en que está, sin parar (#276). */
+    update(playback: FakeEngine["playback"]) {
+      this.updates.push(playback);
+      this.playback = playback;
+    }
+    updates: FakeEngine["playback"][] = [];
     dispose() {
       this.disposed = true;
       this.playing = false;
@@ -351,6 +370,9 @@ function timingMap(numbers = [1, 2, 3], kind = "note"): TimingMapRead {
 }
 
 const XML = "<score-partwise>…</score-partwise>";
+/** El MusicXML de un estado: el del estado 0 es `XML`, y cada estado posterior tiene el suyo. */
+const xmlOf = (state: SessionDetailRead) =>
+  state.current_seq ? `<score-partwise>estado ${String(state.current_seq)}</score-partwise>` : XML;
 const png = () =>
   new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/png" } });
 
@@ -433,9 +455,10 @@ beforeEach(() => {
     measures: 3,
     fail: false,
     cleared: 0,
+    instances: 0,
     zooms: [],
     loaded: [],
-    gate: null,
+    texts: [],
     figures: null,
   });
   useSelectionStore.getState().clear();
@@ -1916,7 +1939,7 @@ describe("corregir la nota elegida", () => {
     // insertar o borrar).
     const extrasOf = (next: SessionDetailRead, op: string) => ({
       status: next.status ?? "correcting",
-      musicxml: exportStatus ? null : XML,
+      musicxml: exportStatus ? null : xmlOf(next),
       timing: ["SetDuration", "InsertEvent", "DeleteEvent"].includes(op) ? timingMap() : null,
     });
     /** Guarda la edición como el servidor y responde 201; con `bare`, sin el estado nuevo. */
@@ -1978,7 +2001,7 @@ describe("corregir la nota elegida", () => {
           ? exportOverride(init)
           : exportStatus
             ? jsonResponse({ detail: "fallo" }, exportStatus)
-            : new Response(XML, {
+            : new Response(xmlOf(current), {
                 headers: { "Content-Type": "application/vnd.recordare.musicxml" },
               }),
       [`GET /sessions/${ID}/image`]: png,
@@ -2077,10 +2100,8 @@ describe("corregir la nota elegida", () => {
     // Sin el 201 no se da nada por guardado: la nota sigue como estaba y los controles esperan.
     expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
     expect(editStatus()).toHaveTextContent("Guardando…");
-    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
-    // Otra orden mientras tanto no sale: su base_seq ya no sería el del estado.
-    fireEvent.click(button("Bajar un paso"));
-    expect(server.bodies).toHaveLength(1);
+    // La espera se dice en la barra sin cambiar el aspecto de sus botones (#276).
+    expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
 
     const body = server.bodies[0];
     if (!body) throw new Error("sin edición");
@@ -2178,30 +2199,165 @@ describe("corregir la nota elegida", () => {
     expect(server.count(`GET /sessions/${ID}/export`)).toBe(2);
   });
 
-  it("mientras dibuja el estado nuevo deja a la vista el anterior y no pierde el foco", async () => {
+  /**
+   * Vigila que, desde que se da la orden, la marca de la nota elegida no falte en ningún momento:
+   * un `MutationObserver` mira el DOM tras cada cambio.
+   */
+  function watchSelection() {
+    let missing = 0;
+    const observer = new MutationObserver(() => {
+      if (!selection()) missing += 1;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    return {
+      stop() {
+        observer.disconnect();
+        return missing;
+      },
+    };
+  }
+
+  it("al pasar al estado nuevo la marca de la nota elegida no desaparece, con el foco y la misma instancia de OSMD (#276)", async () => {
     const server = editableApi();
     renderPage();
     const region = await chooseMeasure(2);
     region.focus();
-    const gate = deferred<undefined>();
-    osmd.gate = gate.promise;
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+    const watch = watchSelection();
 
     fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
     expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
-
-    // El dibujo anterior sigue mientras OSMD prepara el nuevo; la marca, que es de otro estado,
-    // espera a que llegue.
-    expect(document.querySelectorAll(".notation__host svg")).toHaveLength(1);
-    expect(selection()).toBeNull();
-    expect(document.activeElement).toBe(region);
-
-    gate.resolve(undefined);
     await waitFor(() => {
-      expect(selection()).not.toBeNull();
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
     });
-    expect(document.querySelectorAll(".notation__host svg")).toHaveLength(1);
+
+    expect(watch.stop()).toBe(0);
+    expect(selection()).not.toBeNull();
     expect(document.activeElement).toBe(region);
+    // Una sola instancia de OSMD, que leyó el MusicXML del estado nuevo y lo dibujó una vez.
+    expect(osmd.instances).toBe(1);
+    expect(osmd.texts).toEqual(["…", "estado 1"]);
+    expect(document.querySelectorAll(".notation__host svg")).toHaveLength(1);
     expect(server.bodies).toHaveLength(1);
+  });
+
+  it("una orden dada mientras se guarda la anterior espera y sale después, con el base_seq del estado nuevo (#276)", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+
+    // No sale mientras se guarda la primera: su base_seq sería el de un estado que va a cambiar.
+    expect(server.bodies).toHaveLength(1);
+    expect(editStatus()).toHaveTextContent("Guardando… La orden siguiente espera su turno.");
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
+
+    // Se vuelve a planear sobre el estado nuevo (Re 4) y sale con su seq.
+    await waitFor(() => {
+      expect(server.bodies).toHaveLength(2);
+    });
+    expect(server.bodies[1]).toEqual({
+      base_seq: 1,
+      op: "SetPitch",
+      anchor: anchorOf(2),
+      before: null,
+      after: { pitch: "E4" },
+    });
+    expect(await screen.findByText("Mi4 · blanca con puntillo")).toBeVisible();
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Mi 4.");
+    });
+    expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+  });
+
+  it("una tercera orden mientras otra espera no se envía, y se dice", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(button("Bajar un paso"));
+
+    expect(
+      screen.getByText("Ya hay una orden esperando a que se guarde la anterior: esta no se envió."),
+    ).toBeInTheDocument();
+    expect(editStatus()).toHaveTextContent("Guardando…");
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Mi 4.");
+    });
+    expect(server.bodies.map((sent) => sent.after)).toEqual([{ pitch: "D4" }, { pitch: "E4" }]);
+  });
+
+  it("si la orden en curso no se guarda, la que esperaba no se envía y se dice", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+
+    fireEvent.click(button("Subir un paso"));
+    fireEvent.click(button("Negra"));
+    pending.resolve(jsonResponse({ detail: "no" }, 422));
+
+    expect(
+      await screen.findByText("No se envió la orden que esperaba: la anterior no se guardó."),
+    ).toBeInTheDocument();
+    expect(editStatus()).toHaveTextContent(/El servidor no aceptó el cambio/);
+    expect(server.bodies).toHaveLength(1);
+  });
+
+  it("una edición no corta la reproducción: el motor sigue con la partitura nueva (#276)", async () => {
+    editableApi();
+    renderPage();
+    const play = await screen.findByRole("button", { name: "Reproducir" });
+    await waitFor(() => {
+      expect(play).not.toHaveAttribute("aria-disabled", "true");
+    });
+    await userEvent.click(play);
+    const engine = () => {
+      const last = audio.engines.at(-1);
+      if (!last) throw new Error("no se creó el motor de audio");
+      return last;
+    };
+    act(() => {
+      engine().advance(3.5);
+    });
+    expect(screen.getByText("Compás 2")).toBeVisible();
+
+    // Una corrección de altura en el compás 3 mientras suena el 2.
+    await chooseMeasure(3);
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+
+    // El mismo motor, sin detenerse, con la partitura nueva; el compás que suena sigue.
+    expect(audio.engines).toHaveLength(1);
+    expect(engine().disposed).toBe(false);
+    expect(engine().playing).toBe(true);
+    expect(engine().updates).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Pausa" })).toBeVisible();
+    expect(screen.getByText("Compás 2")).toBeVisible();
+    act(() => {
+      engine().advance(3);
+    });
+    expect(screen.getByText("Compás 3")).toBeVisible();
   });
 
   it("con el teclado: Mayús y flechas la altura, 1 a 7 la figura y + − = la alteración", async () => {
@@ -2822,9 +2978,6 @@ describe("corregir la nota elegida", () => {
       expect(useSelectionStore.getState().selection).toMatchObject({ seq: 0 });
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("0");
       expect(server.count(`GET /sessions/${ID}`)).toBe(1);
-      // Otra orden mientras tanto no sale.
-      fireEvent.click(button("Borrar"));
-      expect(server.bodies).toHaveLength(1);
 
       const body = server.bodies[0];
       if (!body) throw new Error("sin edición");
@@ -2847,6 +3000,25 @@ describe("corregir la nota elegida", () => {
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("1");
       // La primera figura del compás 2 empieza en x = 35 unidades; la segunda, en 40.
       expect(Number.parseFloat(selection()?.style.left ?? "")).toBeLessThan(37 * 7.5);
+    });
+
+    it("al insertar, la marca de la nota elegida no desaparece y pasa a la nota insertada (#276)", async () => {
+      editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      const before = selection()?.style.left;
+      const watch = watchSelection();
+
+      fireEvent.click(button("Insertar una nota antes"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, blanca con puntillo.");
+      });
+
+      expect(watch.stop()).toBe(0);
+      // Ahora marca la nota insertada, que ocupa el sitio de la que estaba elegida.
+      expect(selection()?.style.left).toBe(before);
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, placedBy: 1 });
+      expect(document.querySelectorAll(".notation__host .vf-stavenote")).toHaveLength(4);
     });
 
     it("con el teclado: N inserta una nota, S un silencio, y Supr y Retroceso borran", async () => {
@@ -3386,13 +3558,9 @@ describe("corregir la nota elegida", () => {
 
       expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
       expect(editStatus()).toHaveTextContent("Deshaciendo…");
-      // Sin la respuesta no se da nada por deshecho, y no sale otra orden.
+      // Sin la respuesta no se da nada por deshecho; la espera no cambia el aspecto de la barra.
       expect(screen.getByText("Re4 · blanca con puntillo")).toBeVisible();
-      expect(undoButton()).toHaveAttribute("aria-disabled", "true");
-      fireEvent.click(undoButton());
-      fireEvent.click(button("Subir un paso"));
-      expect(server.undoBodies).toHaveLength(1);
-      expect(server.bodies).toHaveLength(1);
+      expect(undoButton()).toHaveAttribute("aria-disabled", "false");
 
       pending.resolve(server.acceptUndo());
 
@@ -3415,6 +3583,29 @@ describe("corregir la nota elegida", () => {
         seq: 2,
         anchor: anchorOf(2),
       });
+    });
+
+    it("Ctrl+Z mientras se guarda una corrección espera y deshace esa corrección (#276)", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+
+      fireEvent.click(button("Subir un paso"));
+      fireEvent.keyDown(window, ctrl("z"));
+      expect(server.undoBodies).toHaveLength(0);
+      const body = server.bodies[0];
+      if (!body) throw new Error("sin edición");
+      pending.resolve(server.accept(body));
+
+      await waitFor(() => {
+        expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
+      });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Deshecho: altura Re 4 (compás 2, voz 1).");
+      });
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
     });
 
     it("con Ctrl+Z deshace, y con Ctrl+Mayús+Z o Ctrl+Y rehace lo deshecho como edición nueva", async () => {

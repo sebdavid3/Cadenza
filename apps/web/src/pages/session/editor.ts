@@ -13,6 +13,7 @@ import type {
 } from "../../types";
 import {
   carryAnchor,
+  eventAt,
   planCommand,
   replan,
   type EditCommand,
@@ -123,6 +124,13 @@ const BLOCKING = new Set<EditorStatus["kind"]>([
   "reload-failed",
 ]);
 
+/**
+ * Orden que llega mientras se guarda otra (#276, ADR-0038): espera, y al guardarse la anterior se
+ * vuelve a planear sobre el estado nuevo (con la nota elegida entonces) y sale con su `base_seq`.
+ */
+export type QueuedOrder =
+  { kind: "command"; command: EditCommand } | { kind: "undo" } | { kind: "redo" };
+
 /** Avisos que no se pueden perder por una orden rechazada: el rechazo se dice aparte. */
 const LASTING = new Set<EditorStatus["kind"]>([
   "conflict",
@@ -226,6 +234,8 @@ export function useEditor(
   // Último estado que se sabe que tiene el servidor: hasta que la vista lo muestre no se edita.
   const [knownSeq, setKnownSeq] = useState<number | null>(null);
   const inFlight = useRef(false);
+  // Como mucho una orden espera a que se guarde la que está en curso (ADR-0038).
+  const [queued, setQueued] = useState<QueuedOrder | null>(null);
   // Una orden guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
   const pendingPlacement = useRef<{ request: EditorRequest; seq: number } | null>(null);
   const nonce = useRef(0);
@@ -460,19 +470,71 @@ export function useEditor(
 
   const score = detail?.current_score ?? null;
   const seq = detail?.current_seq ?? 0;
-  const blocked = held || BLOCKING.has(status.kind) || (knownSeq !== null && seq < knownSeq);
+  // El servidor ya tiene un estado que la vista aún no muestra.
+  const lagging = knownSeq !== null && seq < knownSeq;
+  /**
+   * Se está guardando una orden (o mostrando el estado que creó): la siguiente espera su turno
+   * (ADR-0038). Mientras se revalida, no: el editor espera a la revalidación (ADR-0035).
+   */
+  const waiting = !held && (status.kind === "saving" || (lagging && !BLOCKING.has(status.kind)));
+  // Ahora no sale ninguna orden; si no es por estar esperando, los controles se ven inactivos.
+  const stopped = held || BLOCKING.has(status.kind) || lagging;
+  const blocked = stopped && !waiting;
 
   /** Dice por qué una orden no sale, sin borrar un aviso que hay que conservar. */
   function refuse(message: string) {
     nonce.current += 1;
     const refused = { message, nonce: nonce.current };
-    if (LASTING.has(status.kind)) setRefusal(refused);
+    if (LASTING.has(status.kind) || waiting) setRefusal(refused);
     else setStatus({ kind: "refused", ...refused });
   }
 
-  /** Una orden sobre el evento elegido: se envía o se dice por qué no. */
+  /** Deja esperando una orden; si ya hay otra, no se envía y se dice (ADR-0038). */
+  function enqueue(order: QueuedOrder) {
+    if (queued) {
+      refuse("Ya hay una orden esperando a que se guarde la anterior: esta no se envió.");
+      return;
+    }
+    setQueued(order);
+  }
+
+  /** La nota elegida en el estado que se ve, como la daría la vista, o null. */
+  function currentTarget(): EditTarget | null {
+    const { selection } = useSelectionStore.getState();
+    if (!score || selection?.sessionId !== sessionId || selection.seq !== seq) return null;
+    const found = eventAt(score, selection.anchor);
+    return found ? { anchor: selection.anchor, ...found } : null;
+  }
+
+  // Cuando se guarda la orden en curso y la vista muestra su estado, sale la que esperaba,
+  // planeada de nuevo sobre él, en la tarea siguiente: el estado nuevo ya está pintado. Si la
+  // anterior no se guardó, no sale: se dice (ADR-0038). Sin dependencias: cada render deja la
+  // salida con lo que se ve en él.
+  useEffect(() => {
+    if (!queued || waiting) return;
+    const timer = setTimeout(() => {
+      setQueued(null);
+      if (status.kind !== "saved" || stopped) {
+        refuse("No se envió la orden que esperaba: la anterior no se guardó.");
+        return;
+      }
+      if (queued.kind === "undo") undo();
+      else if (queued.kind === "redo") redo();
+      else run(queued.command, currentTarget());
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+    };
+  });
+
+  /** Una orden sobre el evento elegido: se envía, espera su turno o se dice por qué no. */
   function run(command: EditCommand, target: EditTarget | null) {
-    if (blocked || !score) return;
+    if (!score) return;
+    if (waiting) {
+      enqueue({ kind: "command", command });
+      return;
+    }
+    if (stopped) return;
     const plan = planCommand(command, target, score);
     if (plan.kind === "refused") {
       refuse(plan.message);
@@ -513,7 +575,12 @@ export function useEditor(
    * con otra, nunca la borra. Sin nada que deshacer, lo dice.
    */
   function undo() {
-    if (blocked || !detail) return;
+    if (!detail) return;
+    if (waiting) {
+      enqueue({ kind: "undo" });
+      return;
+    }
+    if (stopped) return;
     const edit = log.undo;
     if (!edit) {
       refuse("Nada que deshacer.");
@@ -569,7 +636,12 @@ export function useEditor(
    * estado es el previo a ella y su ancla vuelve a valer (ADR-0011). Sin nada que rehacer, lo dice.
    */
   function redo() {
-    if (blocked || !detail) return;
+    if (!detail) return;
+    if (waiting) {
+      enqueue({ kind: "redo" });
+      return;
+    }
+    if (stopped) return;
     const edit = log.redo;
     if (!edit) {
       refuse("Nada que rehacer.");
@@ -607,14 +679,28 @@ export function useEditor(
     conflicted && detail && score ? replan(conflicted, detail) : null;
 
   function reapply() {
-    if (blocked || retry?.plan.kind !== "edit" || !retry.anchor || !conflicted || !detail) return;
+    if (stopped || retry?.plan.kind !== "edit" || !retry.anchor || !conflicted || !detail) return;
     // El evento elegido, llevado al estado recargado: en un acorde no es el ancla de la inserción,
     // y es el que tiene que seguir elegido para que la edición deje elegido el evento nuevo.
     const chosen = carryAnchor(conflicted.target, conflicted.baseSeq, detail);
     void send(requestOf(retry.plan, chosen ?? retry.anchor, seq));
   }
 
-  return { status, refusal, blocked, held, run, reload, retry, reapply, log, undo, redo };
+  return {
+    status,
+    refusal,
+    blocked,
+    held,
+    /** Si hay una orden esperando a que se guarde la que está en curso (ADR-0038). */
+    queued: queued !== null,
+    run,
+    reload,
+    retry,
+    reapply,
+    log,
+    undo,
+    redo,
+  };
 }
 
 export type Editor = ReturnType<typeof useEditor>;
