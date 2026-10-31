@@ -215,3 +215,21 @@ def test_build_excludes_undone_edits_and_compensatory_reversions() -> None:
     assert samples[0].before_pitch == "D4"
     assert samples[0].after_pitch == "E4"
     assert samples[0].anchor.event_index == 1
+
+
+def test_mark_edits_are_not_samples() -> None:
+    """Las ediciones de marcas de notación no son muestras del dataset (ADR-0031 §6,
+    ADR-0039), ni cambian el ancla de origen de las demás."""
+    document = make_document()
+    marks = make_edit(1, make_anchor(0), None, None, op=EditOp.SET_NOTE_MARKS)
+    object.__setattr__(marks, "before", {"articulations": [], "fermata": False})
+    object.__setattr__(marks, "after", {"articulations": ["accent"], "fermata": False})
+    slur = make_edit(2, make_anchor(0), None, None, op=EditOp.SET_SLUR)
+    object.__setattr__(slur, "before", {"number": 1, "start": None, "stop": None})
+    pitch = make_edit(3, make_anchor(1), "D4", "E4")
+
+    samples = DatasetBuilder().build(document, [marks, slur, pitch])
+
+    assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
+    assert samples[0].anchor.event_index == 1
+    assert samples == DatasetBuilder().build(document, [pitch])

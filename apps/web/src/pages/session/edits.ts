@@ -8,13 +8,25 @@ import type {
   ScoreIRPayload,
   SessionViewRead,
 } from "../../types";
+import {
+  ARTICULATIONS,
+  chordStart,
+  MARK_OPS,
+  measureAnchor,
+  planMark,
+  replanMark,
+  voiceEvents,
+  type MarkCommand,
+  type MarkDecision,
+} from "./markEdits";
 import { durationName, pitchName } from "./noteNames";
 
 /**
- * Correcciones de la nota elegida: su altura, su duración y su alteración (#183, ADR-0030), y
- * insertar y borrar eventos y cambiar la clave y la armadura de su compás (#184, ADR-0033). Qué
- * edición pide cada control o tecla sobre el evento elegido, en el vocabulario del contrato
- * (ADR-0017). Nada de esto se da por guardado: lo decide el servidor.
+ * Correcciones de la nota elegida: su altura, su duración y su alteración (#183, ADR-0030),
+ * insertar y borrar eventos y cambiar la clave y la armadura de su compás (#184, ADR-0033), y sus
+ * marcas de notación (#214, ADR-0039, en `markEdits`). Qué edición pide cada control o tecla
+ * sobre el evento elegido, en el vocabulario del contrato (ADR-0017). Nada de esto se da por
+ * guardado: lo decide el servidor.
  */
 
 const STEPS = ["C", "D", "E", "F", "G", "A", "B"] as const;
@@ -157,14 +169,6 @@ export function figureDuration(figure: number, dotted: boolean): string {
   return denominator === 1 ? String(numerator) : `${String(numerator)}/${String(denominator)}`;
 }
 
-/** Eventos de la voz del ancla en su compás: el `event_index` cuenta solo los de su voz. */
-function voiceEvents(score: ScoreIRPayload, anchor: AnchorPayload): ScoreEventPayload[] | null {
-  const measure = score.parts[anchor.part]?.staves[anchor.staff]?.measures.find(
-    (candidate) => candidate.number === anchor.measure,
-  );
-  return measure ? measure.events.filter((event) => event.voice === anchor.voice) : null;
-}
-
 /**
  * Evento al que apunta un ancla en un estado (ADR-0011) y si es una nota de un acorde, también la
  * que lo empieza (la siguiente de su voz lleva `is_chord`).
@@ -246,14 +250,11 @@ const sameClef = (a: ClefPayload, b: ClefPayload) =>
   (a.line ?? 2) === (b.line ?? 2) &&
   (a.octave_change ?? 0) === (b.octave_change ?? 0);
 
-/** Operaciones que no mueven la posición de ningún evento (ADR-0011 §2). */
+/** Operaciones que no mueven la posición de ningún evento (ADR-0011 §2); las marcas tampoco. */
 const IN_PLACE: readonly string[] = [
-  "SetPitch",
-  "SetDuration",
-  "SetAccidental",
-  "SetClef",
-  "SetKey",
-] satisfies EditOp[];
+  ...(["SetPitch", "SetDuration", "SetAccidental", "SetClef", "SetKey"] satisfies EditOp[]),
+  ...MARK_OPS,
+];
 
 const sameVoice = (a: AnchorPayload, b: AnchorPayload) =>
   a.part === b.part && a.staff === b.staff && a.measure === b.measure && a.voice === b.voice;
@@ -304,7 +305,17 @@ export type EditCommand =
   /** Clave del compás elegido: índice de `CLEFS`. */
   | { kind: "clef"; clef: number }
   /** Armadura del compás elegido, en quintas. */
-  | { kind: "key"; fifths: number };
+  | { kind: "key"; fifths: number }
+  /** Marcas de notación del evento elegido (ADR-0039). */
+  | MarkCommand
+  /**
+   * Marcar el evento elegido como inicio de la ligadura o el regulador que se cree después: no
+   * es una edición.
+   */
+  | { kind: "origin" };
+
+/** Órdenes que piden una edición (todas menos marcar el inicio). */
+export type PlannedCommand = Exclude<EditCommand, { kind: "origin" }>;
 
 interface KeyLike {
   key: string;
@@ -319,11 +330,29 @@ interface KeyLike {
  * Mayús con ↑ y ↓ cambia la altura un paso y con Re Pág y Av Pág, una octava; del 1 al 7, la
  * figura, y el punto, el puntillo; + − =, la alteración; N inserta una nota y S un silencio antes
  * del evento elegido, y Supr o Retroceso lo borran (en un Mac, la tecla de borrar es Retroceso).
- * Con Ctrl, ⌘ o Alt nada es de la vista: son atajos del navegador o del sistema (zoom, atrás).
+ * Las marcas (ADR-0039): P, A, M y T ponen o quitan el picado, el acento, el marcato y el tenuto,
+ * y C el calderón; I marca el inicio, y L, < y > crean desde él una ligadura de expresión, un
+ * crescendo o un diminuendo hasta el evento elegido. Con Ctrl, ⌘ o Alt nada es de la vista: son
+ * atajos del navegador o del sistema (zoom, atrás).
  */
 export function editCommand(event: KeyLike): EditCommand | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;
+  const letter = event.key.length === 1 ? event.key.toUpperCase() : "";
+  const articulation = ARTICULATIONS.find((candidate) => candidate.key === letter);
+  if (articulation) return { kind: "articulation", articulation: articulation.value };
+  switch (letter) {
+    case "C":
+      return { kind: "fermata" };
+    case "I":
+      return { kind: "origin" };
+    case "L":
+      return { kind: "span", span: "slur" };
+  }
   switch (event.key) {
+    case "<":
+      return { kind: "span", span: "crescendo" };
+    case ">":
+      return { kind: "span", span: "diminuendo" };
     case "Delete":
     case "Backspace":
       return { kind: "delete" };
@@ -369,9 +398,20 @@ export interface EditTarget {
 }
 
 export type RefusalReason =
-  "no-target" | "rest" | "range" | "unknown-pitch" | "chord" | "chord-head" | "not-figure" | "same";
+  | "no-target"
+  | "rest"
+  | "range"
+  | "unknown-pitch"
+  | "chord"
+  | "chord-head"
+  | "not-figure"
+  | "same"
+  /** Crear una ligadura o un regulador sin un inicio marcado que siga en la partitura. */
+  | "no-origin"
+  /** Un inicio y un final que no forman una ligadura o un regulador. */
+  | "span";
 
-const REFUSALS: Record<RefusalReason, string> = {
+const REFUSALS: Record<Exclude<RefusalReason, "no-origin" | "span">, string> = {
   "no-target": "Elige primero una nota o un silencio.",
   rest: "Un silencio no tiene altura ni alteración: solo se puede cambiar su figura.",
   range: "La nota saldría del registro que admite la partitura (octavas de 0 a 9).",
@@ -391,7 +431,9 @@ export type DecidedEdit =
   /** La clave elegida (índice de `CLEFS`): su `after` depende del estado (ADR-0033). */
   | { op: "SetClef"; after: Record<string, unknown>; clef: number }
   /** La armadura elegida, en quintas. */
-  | { op: "SetKey"; after: Record<string, unknown>; fifths: number };
+  | { op: "SetKey"; after: Record<string, unknown>; fifths: number }
+  /** Una marca de notación (ADR-0039). */
+  | MarkDecision;
 
 export type EditPlan =
   | (DecidedEdit & {
@@ -410,7 +452,10 @@ export type EditPlan =
     })
   | { kind: "refused"; reason: RefusalReason; message: string };
 
-const refuse = (reason: RefusalReason, message = REFUSALS[reason]): EditPlan => ({
+const refuse = (
+  reason: Exclude<RefusalReason, "no-origin" | "span">,
+  message = REFUSALS[reason],
+): EditPlan => ({
   kind: "refused",
   reason,
   message,
@@ -514,6 +559,14 @@ export function planAgain(
       return score ? planClef(edit.clef, target.anchor, score) : refuse("no-target");
     case "SetKey":
       return score ? planKey(edit.fifths, target.anchor, score) : refuse("no-target");
+    // El evento elegido ya es del estado `score`: no hay que llevar ningún ancla.
+    case "SetNoteMarks":
+    case "SetDynamic":
+    case "SetSlur":
+    case "SetWedge":
+      return score
+        ? replanMark(edit, target.anchor, score, (anchor) => anchor).plan
+        : refuse("no-target");
   }
   const { event } = target;
   if (edit.op === "SetDuration") {
@@ -551,23 +604,6 @@ export function planAgain(
 }
 
 const isHidden = (event: ScoreEventPayload) => event.hidden === true;
-
-/**
- * Posición del evento que empieza el acorde del evento `index` de una voz, o la suya si no es de
- * un acorde. Se agrupan como el exportador: una nota y las que la siguen marcadas como acorde.
- */
-function chordStart(events: readonly ScoreEventPayload[], index: number): number {
-  let start = index;
-  while (
-    start > 0 &&
-    events[start]?.kind === "note" &&
-    events[start]?.is_chord === true &&
-    events[start - 1]?.kind === "note"
-  ) {
-    start -= 1;
-  }
-  return start;
-}
 
 /** Ancla de una inserción: la posición en que queda el evento nuevo, sin caja ni confianza. */
 const insertionAnchor = (anchor: AnchorPayload, eventIndex: number): AnchorPayload => ({
@@ -834,25 +870,6 @@ const span = (from: number, until: number) =>
 /** Lo que conviene saber al cambiar la clave o la armadura: SetClef y SetKey no tocan las notas. */
 const KEEPS_PITCHES = "Las notas conservan su altura.";
 
-/** Ancla de una edición del compás: su primer evento (ADR-0010), o la posición 0 de la voz 0. */
-function measureAnchor(
-  score: ScoreIRPayload,
-  place: MeasurePlace,
-  measure: MeasurePayload,
-): AnchorPayload {
-  const first = measure.events[0];
-  return {
-    part: place.part,
-    staff: place.staff,
-    measure: measure.number,
-    voice: first?.voice ?? 0,
-    event_index: 0,
-    staff_id: score.parts[place.part]?.staves[place.staff]?.id ?? "",
-    bbox: first?.bbox ?? null,
-    confidence: first?.confidence ?? null,
-  };
-}
-
 /**
  * Cambiar la clave del compás elegido (ADR-0033): la clave del compás, que rige hasta el
  * siguiente cambio de su pentagrama. Si es la que trae de los compases anteriores, se quita el
@@ -913,14 +930,24 @@ export function planKey(
   };
 }
 
-/** Edición que pide cualquier orden sobre el evento elegido en el estado `score`. */
+/**
+ * Edición que pide cualquier orden sobre el evento elegido en el estado `score`. `origin` es el
+ * inicio marcado para una ligadura o un regulador, llevado a ese estado.
+ */
 export function planCommand(
-  command: EditCommand,
+  command: PlannedCommand,
   target: EditTarget | null,
   score: ScoreIRPayload | null,
+  origin: AnchorPayload | null = null,
 ): EditPlan {
   if (!score) return refuse("no-target");
   switch (command.kind) {
+    case "articulation":
+    case "fermata":
+    case "dynamic":
+    case "span":
+    case "unspan":
+      return planMark(command, target, score, origin);
     case "insert":
       return planInsert(command.rest, target, score);
     case "delete":
@@ -947,6 +974,17 @@ export function replan(
   detail: SessionViewRead,
 ): { plan: EditPlan; anchor: AnchorPayload | null } {
   const score = detail.current_score ?? null;
+  if (
+    score &&
+    (request.op === "SetNoteMarks" ||
+      request.op === "SetDynamic" ||
+      request.op === "SetSlur" ||
+      request.op === "SetWedge")
+  ) {
+    return replanMark(request, request.anchor, score, (anchor) =>
+      carryAnchor(anchor, request.baseSeq, detail),
+    );
+  }
   if (score && (request.op === "SetClef" || request.op === "SetKey")) {
     const plan =
       request.op === "SetClef"

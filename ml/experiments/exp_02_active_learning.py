@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from cadenza.domain import EditOp
+from cadenza.domain import CONTENT_EDIT_OPS
 from cadenza.learning import (
     AcquisitionStrategy,
     DiversityAcquisition,
@@ -190,7 +190,8 @@ def evaluate_strategy(
     mean_mag = total_mag / n
     spread = _pairwise_spread(selected)
     op_counts, entropy = _operation_metrics(selected)
-    coverage = len(op_counts) / len(EditOp)
+    # Las siete operaciones de contenido: las de marcas no entran en el dataset (ADR-0039).
+    coverage = len(op_counts) / len(CONTENT_EDIT_OPS)
 
     eval_result = StrategyBatchEvaluation(
         strategy_id=strategy.strategy_id,

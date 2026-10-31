@@ -13,6 +13,8 @@ import type {
 } from "../../types";
 import {
   carryAnchor,
+  eventAt,
+  eventName,
   planCommand,
   replan,
   type EditCommand,
@@ -87,6 +89,8 @@ export type EditorStatus =
   | { kind: "saved"; request: EditorRequest }
   /** Una orden que no se envió (no se puede sobre esa nota); `nonce` distingue repeticiones. */
   | { kind: "refused"; message: string; nonce: number }
+  /** Algo que se hizo en la vista sin enviar nada: marcar el inicio de una ligadura (#214). */
+  | { kind: "noted"; message: string; nonce: number }
   /** 409 porque otra pestaña o dispositivo editó antes: ya se recargó. */
   | { kind: "conflict"; request: EditorRequest }
   /** 409 porque la sesión está finalizada (ADR-0014): ya se recargó. */
@@ -236,6 +240,14 @@ export function useEditor(
   const [queued, setQueued] = useState<QueuedOrder | null>(null);
   // La misma orden, al instante: dos órdenes en el mismo evento no esperan a otro render.
   const queuedRef = useRef<QueuedOrder | null>(null);
+  /**
+   * Inicio marcado para la próxima ligadura de expresión o regulador (#214, ADR-0039): el evento
+   * elegido al marcarlo, en el estado en que se marcó. Se lleva a cada estado nuevo con la regla
+   * de desplazamiento (ADR-0011 §2) y se olvida al crear la marca o si su evento ya no está.
+   */
+  const [origin, setOrigin] = useState<{ seq: number; anchor: AnchorPayload } | null>(null);
+  // El inicio con que salió la última ligadura o regulador: al guardarse, se olvida ese y no otro.
+  const originUsed = useRef<{ seq: number; anchor: AnchorPayload } | null>(null);
   // Una orden guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
   const pendingPlacement = useRef<{ request: EditorRequest; seq: number } | null>(null);
   const nonce = useRef(0);
@@ -422,6 +434,12 @@ export function useEditor(
       ).catch(() => null);
       if (cancelled()) return;
       if (!fresh) pendingPlacement.current = { request: done, seq: saved };
+      // Creada la ligadura o el regulador, su inicio ya no está pendiente.
+      // Si mientras se guardaba se marcó otro inicio, ese se queda.
+      if (done.kind === "edit" && "span" in done) {
+        const used = originUsed.current;
+        setOrigin((current) => (current === used ? null : current));
+      }
       setStatus(fresh ? { kind: "saved", request: done } : { kind: "unsynced", request: done });
     } finally {
       inFlight.current = false;
@@ -470,6 +488,8 @@ export function useEditor(
 
   const score = detail?.current_score ?? null;
   const seq = detail?.current_seq ?? 0;
+  // El inicio marcado, en el estado que se ve: null si no hay o si su evento ya no está.
+  const originAnchor = origin && detail ? carryAnchor(origin.anchor, origin.seq, detail) : null;
   // El servidor ya tiene un estado que la vista aún no muestra.
   const lagging = knownSeq !== null && seq < knownSeq;
   /**
@@ -515,50 +535,54 @@ export function useEditor(
     return shown?.seq === seq ? shown.target : null;
   }
 
-  // Cuando se guarda la orden en curso y la vista muestra su estado, sale la que esperaba,
-  // planeada de nuevo sobre él, en la tarea siguiente: el estado nuevo ya está pintado. Si la
-  // anterior no se guardó, no sale: se dice (ADR-0038). Sin dependencias: cada render deja la
-  // salida con lo que se ve en él.
-  useEffect(() => {
-    if (!queued || waiting) return;
-    const timer = setTimeout(() => {
-      queuedRef.current = null;
-      setQueued(null);
-      if (status.kind !== "saved") {
-        refuse("No se envió la orden que esperaba: la anterior no se guardó.");
-        return;
-      }
-      if (stopped) {
-        refuse(
-          held
-            ? "No se envió la orden que esperaba: se está revalidando la partitura."
-            : "No se envió la orden que esperaba: la sesión cambió mientras tanto.",
-        );
-        return;
-      }
-      if (queued.kind === "undo") undo();
-      else if (queued.kind === "redo") redo();
-      else run(queued.command, currentTarget());
-    }, 0);
-    return () => {
-      clearTimeout(timer);
+  /**
+   * Marca el evento elegido como inicio de la próxima ligadura o regulador; si ya lo era, lo
+   * olvida. No envía nada: lo dice en la región `aria-live` de la barra.
+   */
+  function markOrigin(target: EditTarget | null) {
+    if (!target || !score) {
+      refuse("Elige primero la nota en la que empieza la ligadura o el regulador.");
+      return;
+    }
+    nonce.current += 1;
+    const same = originAnchor !== null && anchorKey(originAnchor) === anchorKey(target.anchor);
+    setOrigin(same ? null : { seq, anchor: target.anchor });
+    const { kind, pitch, duration_beats } = target.event;
+    const noted = {
+      message: same
+        ? "Inicio olvidado."
+        : `Inicio: ${eventName(kind, pitch, duration_beats)} (compás ${String(target.anchor.measure)}). Elige el final y pulsa Ligadura, Crescendo o Diminuendo.`,
+      nonce: nonce.current,
     };
-  });
+    // Como un rechazo: no borra un aviso que hay que conservar ni lo que dice la orden en curso.
+    if (LASTING.has(status.kind) || mustWait()) setRefusal(noted);
+    else setStatus({ kind: "noted", ...noted });
+  }
+
+  /** Olvida el inicio marcado. */
+  function clearOrigin() {
+    setOrigin(null);
+  }
 
   /** Una orden sobre el evento elegido: se envía, espera su turno o se dice por qué no. */
   function run(command: EditCommand, target: EditTarget | null) {
     if (!score) return;
+    if (command.kind === "origin") {
+      markOrigin(target);
+      return;
+    }
     if (mustWait()) {
       enqueue({ kind: "command", command });
       return;
     }
     if (stopped) return;
-    const plan = planCommand(command, target, score);
+    const plan = planCommand(command, target, score, originAnchor);
     if (plan.kind === "refused") {
       refuse(plan.message);
       return;
     }
     if (!target) return;
+    if ("span" in plan) originUsed.current = origin;
     void send(requestOf(plan, target.anchor, seq));
   }
 
@@ -685,6 +709,36 @@ export function useEditor(
     });
   }
 
+  // Cuando se guarda la orden en curso y la vista muestra su estado, sale la que esperaba,
+  // planeada de nuevo sobre él, en la tarea siguiente: el estado nuevo ya está pintado. Si la
+  // anterior no se guardó, no sale: se dice (ADR-0038). Sin dependencias: cada render deja la
+  // salida con lo que se ve en él.
+  useEffect(() => {
+    if (!queued || waiting) return;
+    const timer = setTimeout(() => {
+      queuedRef.current = null;
+      setQueued(null);
+      if (status.kind !== "saved") {
+        refuse("No se envió la orden que esperaba: la anterior no se guardó.");
+        return;
+      }
+      if (stopped) {
+        refuse(
+          held
+            ? "No se envió la orden que esperaba: se está revalidando la partitura."
+            : "No se envió la orden que esperaba: la sesión cambió mientras tanto.",
+        );
+        return;
+      }
+      if (queued.kind === "undo") undo();
+      else if (queued.kind === "redo") redo();
+      else run(queued.command, currentTarget());
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+    };
+  });
+
   /**
    * Tras un 409, la misma edición sobre el estado recargado, si el ancla sigue designando el
    * mismo evento (o el mismo compás, la clave y la armadura) y no tiene ya ese valor. Solo se
@@ -720,6 +774,11 @@ export function useEditor(
     log,
     undo,
     redo,
+    /** Inicio marcado para la próxima ligadura o regulador, en el estado que se ve (#214). */
+    origin: originAnchor,
+    /** El evento del inicio marcado, para decirlo, o null. */
+    originEvent: originAnchor && score ? (eventAt(score, originAnchor)?.event ?? null) : null,
+    clearOrigin,
   };
 }
 

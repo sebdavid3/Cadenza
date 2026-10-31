@@ -9,6 +9,8 @@ Dos reglas puras que la capa de aplicación aplica antes de persistir una edici�
 - `snapshot_before`: el servidor fija `before` con una instantánea del estado sobre el
   que se aplica la edición, de modo que el evento inverso (`create_inverse_edit`)
   restaure siempre el estado exacto, sin depender de lo que envíe el cliente.
+
+Las operaciones de las marcas de notación (ADR-0039) tienen sus reglas en `mark_edits`.
 """
 
 from __future__ import annotations
@@ -21,8 +23,10 @@ from typing import Any, Final
 
 from .anchor import Anchor, EventKind
 from .clef import Clef
-from .edit import EditEvent, EditOp
+from .edit import MARK_EDIT_OPS, EditEvent, EditOp
+from .edit_errors import InvalidEditPayload
 from .key_signature import KeySignature
+from .mark_edits import has_complete_mark_before, snapshot_mark_before, validate_mark_after
 from .notation_marks import Articulation, SlurType
 from .projection import _ACCIDENTAL_MAP, _PITCH_RE, _apply_accidental
 from .score import Event, Measure, ScoreIR
@@ -88,8 +92,14 @@ _ARTICULATIONS: Final[frozenset[str]] = frozenset(a.value for a in Articulation)
 _SLUR_TYPES: Final[frozenset[str]] = frozenset(t.value for t in SlurType)
 
 
-class InvalidEditPayload(ValueError):
-    """El `after` de una edición no es coherente con su operación (ADR-0017)."""
+__all__ = [
+    "InvalidEditPayload",
+    "has_complete_before",
+    "is_canonical_pitch",
+    "normalize_accidental",
+    "snapshot_before",
+    "validate_after",
+]
 
 
 def is_canonical_pitch(value: object) -> bool:
@@ -382,6 +392,10 @@ def validate_after(
     no apunta a un compás o evento existente.
     """
 
+    if op in MARK_EDIT_OPS:
+        validate_mark_after(score, anchor, op, after)
+        return
+
     if op is EditOp.DELETE_EVENT:
         _locate_event(score, anchor)
         if after is not None:
@@ -477,13 +491,21 @@ def _event_snapshot(event: Event) -> dict[str, Any]:
     return snapshot
 
 
-def snapshot_before(score: ScoreIR, anchor: Anchor, op: EditOp) -> dict[str, Any] | None:
+def snapshot_before(
+    score: ScoreIR,
+    anchor: Anchor,
+    op: EditOp,
+    after: Mapping[str, Any] | None = None,
+) -> dict[str, Any] | None:
     """Instantánea del estado que la edición va a modificar (el `before` del servidor).
 
     Es exactamente lo que necesita `create_inverse_edit` para restaurar el estado previo.
-    `InsertEvent` no modifica nada existente y devuelve None.
+    `InsertEvent` no modifica nada existente y devuelve None. Las operaciones de marcas
+    (ADR-0039) necesitan además el `after` ya validado: dice qué posición o qué marca fijan.
     """
 
+    if op in MARK_EDIT_OPS:
+        return snapshot_mark_before(score, anchor, op, after)
     if op is EditOp.INSERT_EVENT:
         return None
     if op is EditOp.SET_CLEF:
@@ -529,4 +551,6 @@ def has_complete_before(edit: EditEvent) -> bool:
         return "clef" in keys or "sign" in keys
     if edit.op is EditOp.SET_KEY:
         return not {"key_signature", "key", "fifths"}.isdisjoint(keys)
+    if edit.op in MARK_EDIT_OPS:
+        return has_complete_mark_before(edit.op, before)
     return False

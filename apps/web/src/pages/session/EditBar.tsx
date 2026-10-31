@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { PixelIcon, type PixelIconName } from "../../components/PixelIcon";
-import type { ScoreIRPayload } from "../../types";
+import type { AnchorPayload, ScoreIRPayload } from "../../types";
 import {
   accidentalOf,
   activeFifths,
@@ -9,14 +9,26 @@ import {
   figureOf,
   FIGURES,
   keyLabel,
+  eventName,
   planCommand,
   rangeName,
   type Accidental,
-  type EditCommand,
   type EditTarget,
+  type PlannedCommand,
 } from "./edits";
 import type { Editor, EditorRequest, EditorStatus } from "./editor";
 import { describeEdit, hasCompleteBefore, placeOf } from "./history";
+import {
+  ARTICULATIONS,
+  DYNAMICS,
+  dynamicAt,
+  marksHolder,
+  noteMarksOf,
+  spanName,
+  spansAt,
+  type DynamicValue,
+  type SpanKind,
+} from "./markEdits";
 import { KeyCap } from "./SelectionBar";
 import type { EditEventRead } from "../../types";
 
@@ -49,7 +61,7 @@ interface EditBarProps {
   focusMemoryRef?: MutableRefObject<string | null>;
 }
 
-const PITCH: { command: EditCommand; label: string; word: string; icon: PixelIconName }[] = [
+const PITCH: { command: PlannedCommand; label: string; word: string; icon: PixelIconName }[] = [
   {
     command: { kind: "step", direction: -1 },
     label: "Bajar un paso",
@@ -100,7 +112,7 @@ const FIGURE_ICONS: PixelIconName[] = [
  * quepan en una fila a 390 px.
  */
 const STRUCTURE: {
-  command: EditCommand;
+  command: PlannedCommand;
   label: string;
   text?: string;
   word?: string;
@@ -119,6 +131,26 @@ const STRUCTURE: {
     icon: "plus",
   },
   { command: { kind: "delete" }, label: "Borrar", word: "Borrar", icon: "cross" },
+];
+
+const ARTICULATION_ICONS: Record<string, PixelIconName> = {
+  staccato: "mark-staccato",
+  staccatissimo: "mark-staccatissimo",
+  accent: "mark-accent",
+  marcato: "mark-marcato",
+  tenuto: "mark-tenuto",
+};
+
+/** Ligaduras y reguladores que se crean desde el inicio marcado hasta el evento elegido. */
+const SPANS: { span: SpanKind; label: string; text: string; icon: PixelIconName }[] = [
+  { span: "slur", label: "Ligadura de expresión hasta aquí", text: "Ligadura", icon: "mark-slur" },
+  { span: "crescendo", label: "Crescendo hasta aquí", text: "Cresc.", icon: "mark-crescendo" },
+  {
+    span: "diminuendo",
+    label: "Diminuendo hasta aquí",
+    text: "Dim.",
+    icon: "mark-diminuendo",
+  },
 ];
 
 /** Armaduras que se ofrecen, de siete bemoles a siete sostenidos. */
@@ -198,6 +230,7 @@ function feedback(
       return { text: `Guardado: ${change}.${notice ? ` ${notice}` : ""}`, reload: false };
     }
     case "refused":
+    case "noted":
       return { text: distinct(status.message, status.nonce), reload: false };
     case "conflict": {
       const { request } = status;
@@ -275,7 +308,7 @@ function hint(target: EditTarget | null, available: boolean): string | null {
 }
 
 interface CommandButtonProps {
-  command: EditCommand;
+  command: PlannedCommand;
   label: string;
   icon?: PixelIconName;
   /** Palabra visible junto al icono; en una barra estrecha queda solo el icono. */
@@ -286,8 +319,10 @@ interface CommandButtonProps {
   pressed?: boolean;
   target: EditTarget | null;
   score: ScoreIRPayload | null;
+  /** Inicio marcado para una ligadura o un regulador, en el estado que se ve. */
+  origin?: AnchorPayload | null;
   blocked: boolean;
-  onRun: (command: EditCommand) => void;
+  onRun: (command: PlannedCommand) => void;
 }
 
 /** Botón de una orden: inactivo si ahora no se puede; pulsado si es el valor que ya tiene. */
@@ -300,10 +335,11 @@ function CommandButton({
   pressed,
   target,
   score,
+  origin = null,
   blocked,
   onRun,
 }: CommandButtonProps) {
-  const plan = planCommand(command, target, score);
+  const plan = planCommand(command, target, score, origin);
   // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice.
   const disabled = blocked || (plan.kind === "refused" && plan.reason !== "same");
   return (
@@ -331,7 +367,7 @@ interface KeyPickerProps {
   target: EditTarget | null;
   score: ScoreIRPayload | null;
   blocked: boolean;
-  onRun: (command: EditCommand) => void;
+  onRun: (command: PlannedCommand) => void;
 }
 
 /**
@@ -353,7 +389,7 @@ function KeyPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
   // también si después se vuelve al mismo compás.
   if (draft.origin !== origin) setDraft({ origin, fifths: current });
   const fifths = draft.origin === origin ? draft.fifths : current;
-  const command: EditCommand = { kind: "key", fifths };
+  const command: PlannedCommand = { kind: "key", fifths };
   const plan = planCommand(command, target, score);
   const disabled = blocked || plan.kind === "refused";
   return (
@@ -386,6 +422,163 @@ function KeyPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
         <span className="editor__text">Cambiar</span>
       </button>
     </div>
+  );
+}
+
+/**
+ * Dinámica en la posición del evento elegido (#214, ADR-0039): un desplegable con las doce y «Sin
+ * dinámica», y un botón que la pone o la quita. Como el de la armadura, el desplegable solo
+ * propone: propone la que tiene esa posición y vuelve a ella al cambiar de evento o de dinámica.
+ */
+function DynamicPicker({ labelId, target, score, blocked, onRun }: KeyPickerProps) {
+  const current = target && score ? dynamicAt(score, target.anchor) : null;
+  const origin = target
+    ? `${String(target.anchor.part)}:${String(target.anchor.staff)}:${String(target.anchor.measure)}:${String(target.anchor.voice)}:${String(target.anchor.event_index)}:${String(current)}`
+    : null;
+  const [draft, setDraft] = useState<{ origin: string | null; mark: DynamicValue | null }>({
+    origin,
+    mark: current,
+  });
+  if (draft.origin !== origin) setDraft({ origin, mark: current });
+  const mark = draft.origin === origin ? draft.mark : current;
+  const command: PlannedCommand = { kind: "dynamic", mark };
+  const plan = planCommand(command, target, score);
+  const disabled = blocked || plan.kind === "refused";
+  const label = mark === null && current !== null ? "Quitar dinámica" : "Poner dinámica";
+  return (
+    <div className="editor__buttons">
+      <select
+        className="editor__select"
+        aria-labelledby={labelId}
+        value={mark ?? ""}
+        disabled={!target}
+        onChange={(event) => {
+          const value = event.target.value;
+          setDraft({
+            origin,
+            mark: DYNAMICS.find((candidate) => candidate === value) ?? null,
+          });
+        }}
+      >
+        <option value="">Sin dinámica</option>
+        {DYNAMICS.map((value) => (
+          <option key={value} value={value}>
+            {value}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="editor__button"
+        aria-label={label}
+        title={label}
+        aria-disabled={disabled}
+        onClick={() => {
+          if (!disabled) onRun(command);
+        }}
+      >
+        <span className="editor__text">
+          {mark === null && current !== null ? "Quitar" : "Poner"}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+interface SpanControlsProps {
+  labelId: string;
+  editor: Editor;
+  target: EditTarget | null;
+  score: ScoreIRPayload | null;
+  blocked: boolean;
+  onRun: (command: PlannedCommand) => void;
+}
+
+/**
+ * Ligaduras de expresión y reguladores (#214, ADR-0039): «Inicio» marca el evento elegido como
+ * principio y Ligadura, Crescendo y Diminuendo crean la marca desde él hasta el evento elegido.
+ * Debajo, las que pasan por el evento elegido, cada una con su botón para quitarla entera.
+ */
+function SpanControls({ labelId, editor, target, score, blocked, onRun }: SpanControlsProps) {
+  const noteId = useId();
+  const { origin, originEvent } = editor;
+  const isOrigin =
+    origin !== null &&
+    target !== null &&
+    origin.part === target.anchor.part &&
+    origin.staff === target.anchor.staff &&
+    origin.measure === target.anchor.measure &&
+    origin.voice === target.anchor.voice &&
+    origin.event_index === target.anchor.event_index;
+  const spans = target && score ? spansAt(score, target.anchor) : [];
+  const note =
+    origin && originEvent
+      ? `Inicio: ${eventName(originEvent.kind, originEvent.pitch, originEvent.duration_beats)} (compás ${String(origin.measure)}).`
+      : "Elige la nota del inicio, pulsa «Inicio» y elige la del final.";
+  return (
+    <>
+      <div className="editor__buttons">
+        <button
+          type="button"
+          className="editor__button"
+          aria-label="Inicio de la ligadura o el regulador"
+          title="Inicio de la ligadura o el regulador"
+          aria-pressed={isOrigin}
+          aria-describedby={noteId}
+          aria-disabled={blocked || !target}
+          onClick={() => {
+            if (!blocked && target) editor.run({ kind: "origin" }, target);
+          }}
+        >
+          <span className="editor__text">Inicio</span>
+        </button>
+        {SPANS.map(({ span, label, text, icon }) => (
+          <CommandButton
+            key={span}
+            command={{ kind: "span", span }}
+            label={label}
+            icon={icon}
+            word={text}
+            target={target}
+            score={score}
+            origin={origin}
+            blocked={blocked}
+            onRun={onRun}
+          />
+        ))}
+      </div>
+      <div className="editor__origin">
+        <p className="editor__history" id={noteId}>
+          {note}
+        </p>
+        {origin && (
+          <button type="button" className="link-button" onClick={editor.clearOrigin}>
+            Olvidar el inicio
+          </button>
+        )}
+      </div>
+      {spans.length > 0 && (
+        <ul className="editor__spans" aria-labelledby={labelId}>
+          {spans.map((info) => {
+            const name = spanName(info);
+            return (
+              <li key={`${info.mark}-${String(info.number)}`}>
+                <CommandButton
+                  command={{ kind: "unspan", mark: info.mark, number: info.number }}
+                  label={`Quitar ${name}`}
+                  icon="cross"
+                  text={`Quitar ${name}`}
+                  target={target}
+                  score={score}
+                  blocked={blocked}
+                  onRun={onRun}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </>
   );
 }
 
@@ -501,11 +694,14 @@ export function EditBar({
 
   const current = target ? figureOf(target.event.duration_beats) : { figure: null, dotted: false };
   const accidental = target?.event.kind === "note" ? accidentalOf(target.event.pitch) : null;
+  // Las marcas de nota del evento elegido: en un acorde, las de su primera nota (ADR-0031).
+  const holder = target && score ? marksHolder(score, target.anchor) : null;
+  const marks = holder ? noteMarksOf(holder.event) : null;
   const shared = {
     target,
     score,
     blocked,
-    onRun: (command: EditCommand) => {
+    onRun: (command: PlannedCommand) => {
       editor.run(command, target);
     },
   };
@@ -634,7 +830,7 @@ export function EditBar({
                 </p>
                 <div className="editor__buttons">
                   {CLEFS.map((clef, index) => {
-                    const command: EditCommand = { kind: "clef", clef: index };
+                    const command: PlannedCommand = { kind: "clef", clef: index };
                     const plan = planCommand(command, target, score);
                     return (
                       <CommandButton
@@ -654,6 +850,46 @@ export function EditBar({
                   {`Armadura${range("key_signature")}`}
                 </p>
                 <KeyPicker labelId={`${groupId}-key`} {...shared} />
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-marks`}>
+                <p className="label editor__label" id={`${groupId}-marks`}>
+                  Articulaciones y calderón
+                </p>
+                <div className="editor__buttons">
+                  {ARTICULATIONS.map((articulation) => (
+                    <CommandButton
+                      key={articulation.value}
+                      command={{ kind: "articulation", articulation: articulation.value }}
+                      label={articulation.name}
+                      icon={ARTICULATION_ICONS[articulation.value] ?? "mark-staccato"}
+                      pressed={marks?.articulations.includes(articulation.value) ?? false}
+                      {...shared}
+                    />
+                  ))}
+                  <CommandButton
+                    command={{ kind: "fermata" }}
+                    label="Calderón"
+                    icon="mark-fermata"
+                    pressed={marks?.fermata ?? false}
+                    {...shared}
+                  />
+                </div>
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-dynamic`}>
+                <p className="label editor__label" id={`${groupId}-dynamic`}>
+                  Dinámica
+                </p>
+                <DynamicPicker labelId={`${groupId}-dynamic`} {...shared} />
+              </div>
+              <div
+                className="editor__group editor__group--spans"
+                role="group"
+                aria-labelledby={`${groupId}-spans`}
+              >
+                <p className="label editor__label" id={`${groupId}-spans`}>
+                  Ligadura y regulador
+                </p>
+                <SpanControls labelId={`${groupId}-spans`} editor={editor} {...shared} />
               </div>
             </>
           )}
@@ -723,6 +959,20 @@ export function EditBar({
           </span>
           <span>
             <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar
+          </span>
+          <span>
+            <KeyCap>P</KeyCap>
+            <KeyCap>A</KeyCap>
+            <KeyCap>M</KeyCap>
+            <KeyCap>T</KeyCap> picado, acento, marcato, tenuto
+          </span>
+          <span>
+            <KeyCap>C</KeyCap> calderón
+          </span>
+          <span>
+            <KeyCap>I</KeyCap> inicio; <KeyCap>L</KeyCap>
+            <KeyCap>&lt;</KeyCap>
+            <KeyCap>&gt;</KeyCap> ligadura, crescendo, diminuendo hasta aquí
           </span>
           <span>
             <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>

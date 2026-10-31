@@ -10,6 +10,7 @@ from fractions import Fraction
 from typing import Any
 
 from cadenza.domain import (
+    MARK_EDIT_OPS,
     Anchor,
     Clef,
     EditEvent,
@@ -96,9 +97,13 @@ def _validate_before(
     op: EditOp,
     before: Mapping[str, Any] | None,
 ) -> None:
-    """Exige que el `before` que envía el cliente, si lo envía, coincida con el estado."""
+    """Exige que el `before` que envía el cliente, si lo envía, coincida con el estado.
 
-    if not before:
+    El de una edición de marcas (ADR-0039) se compara después, con la instantánea del servidor
+    (`_check_mark_before`): depende de lo que fija su `after`.
+    """
+
+    if not before or op in MARK_EDIT_OPS:
         return
     try:
         _check_before(score, anchor, op, before)
@@ -197,6 +202,52 @@ def _check_before(
                 f"Estado previo 'before' de accidental no coincide: "
                 f"esperado '{actual_accidental}', recibido '{raw_accidental}'"
             )
+
+
+def _mark_state(op: EditOp, state: Mapping[str, Any]) -> Any:
+    """Forma comparable del estado de una marca: sin depender del orden de las articulaciones
+    ni de la grafía de las posiciones («1/2», «0.5»)."""
+
+    def offset(value: Any) -> Fraction:
+        return Fraction(str(value))
+
+    if op is EditOp.SET_NOTE_MARKS:
+        if not isinstance(state["fermata"], bool):
+            raise TypeError(f"'fermata' debe ser booleano: {state['fermata']!r}")
+        return (frozenset(state["articulations"]), state["fermata"])
+    if op is EditOp.SET_DYNAMIC:
+        return (offset(state["offset_beats"]), state["mark"])
+
+    def end(raw: Any) -> Any:
+        if raw is None:
+            return None
+        return tuple(
+            sorted(
+                (key, offset(value) if key == "offset_beats" else value)
+                for key, value in dict(raw).items()
+            )
+        )
+
+    return (state["number"], end(state["start"]), end(state["stop"]))
+
+
+def _check_mark_before(
+    op: EditOp, before: Mapping[str, Any] | None, server_before: Mapping[str, Any] | None
+) -> None:
+    """El `before` que envía el cliente para una edición de marcas, si lo envía, debe ser el
+    estado que sustituye (ADR-0017)."""
+
+    if not before or server_before is None:
+        return
+    try:
+        same = _mark_state(op, before) == _mark_state(op, server_before)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+        raise InvalidEdit(f"Estado previo 'before' no válido para {op.value}: {exc!r}") from exc
+    if not same:
+        raise InvalidEdit(
+            f"Estado previo 'before' de {op.value} no coincide: "
+            f"esperado {dict(server_before)!r}, recibido {dict(before)!r}"
+        )
 
 
 @dataclass(frozen=True)
@@ -308,7 +359,7 @@ def _append(
         # 5. Validar 'after' y fijar 'before' con la instantánea del servidor (ADR-0017, #117)
         try:
             validate_after(current_score, anchor, op, after)
-            server_before = snapshot_before(current_score, anchor, op)
+            server_before = snapshot_before(current_score, anchor, op, after)
         except InvalidEditPayload as exc:
             raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc}") from exc
         except IndexError as exc:
@@ -316,6 +367,8 @@ def _append(
         except (TypeError, ValueError, OverflowError) as exc:
             # Defensa: un valor JSON inesperado nunca debe producir un 500 ni persistirse.
             raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc!r}") from exc
+        if op in MARK_EDIT_OPS:
+            _check_mark_before(op, before, server_before)
 
         # El log leído es el del estado `base_seq`: la edición siguiente es la `current_seq + 1`
         # (#275: sin otra consulta). La restricción única (sesión, seq) sigue impidiendo que dos

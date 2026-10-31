@@ -1,5 +1,6 @@
 import type { AnchorPayload, EditEventRead, ScoreIRPayload } from "../../types";
 import { CLEFS, eventAt, eventName, keyName, selectAfterDelete } from "./edits";
+import { describeMarkEdit, hasCompleteMarkBefore } from "./markEdits";
 import { durationName, pitchName } from "./noteNames";
 
 /**
@@ -192,14 +193,20 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return clefChange(after);
     case "SetKey":
       return keyChange(after);
+    // Las marcas de notación (ADR-0039), por lo que cambian respecto de la instantánea.
+    case "SetNoteMarks":
+    case "SetDynamic":
+    case "SetSlur":
+    case "SetWedge":
+      return describeMarkEdit(edit.op, edit.before, edit.after);
     default:
       return edit.op;
   }
 }
 
 /**
- * Dónde está lo que cambia una edición, para decirlo: «compás 2, voz 1»; la clave y la armadura
- * son del compás, sin voz. El pentagrama se cuenta en toda la partitura, sumando los de las partes
+ * Dónde está lo que cambia una edición, para decirlo: «compás 2, voz 1»; la clave, la armadura, la
+ * dinámica y el regulador son del compás, sin voz. El pentagrama se cuenta en toda la partitura, sumando los de las partes
  * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
@@ -207,7 +214,7 @@ export function placeOf(
   multiStaff: boolean,
   score: ScoreIRPayload | null = null,
 ): string {
-  const measureOnly = op === "SetClef" || op === "SetKey";
+  const measureOnly = ["SetClef", "SetKey", "SetDynamic", "SetWedge"].includes(op);
   const place = measureOnly
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
@@ -241,6 +248,11 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
       return has("clef", "sign");
     case "SetKey":
       return has("key_signature", "key", "fifths");
+    case "SetNoteMarks":
+    case "SetDynamic":
+    case "SetSlur":
+    case "SetWedge":
+      return hasCompleteMarkBefore(edit.op, before);
     default:
       return false;
   }
@@ -262,8 +274,9 @@ export function inverseOf(edit: EditEventRead): Pick<EditEventRead, "op" | "anch
 /**
  * Evento que queda elegido tras aplicar una edición sobre `score` (el estado en que se pide), con
  * su ancla en el estado siguiente (ADR-0011, ADR-0033): el evento cambiado, el insertado o el que
- * ocupa el sitio del borrado; undefined si la edición no mueve la selección (la clave y la
- * armadura) o si sería un silencio invisible, que no se elige (ADR-0032); null si no queda ninguno.
+ * ocupa el sitio del borrado; undefined si la edición no mueve la selección (la clave, la
+ * armadura, la dinámica, la ligadura y el regulador) o si sería un silencio invisible, que no se
+ * elige (ADR-0032); null si no queda ninguno.
  */
 export function historyPlacement(
   edit: Pick<EditEventRead, "op" | "anchor" | "after">,
@@ -272,6 +285,9 @@ export function historyPlacement(
   switch (edit.op) {
     case "SetClef":
     case "SetKey":
+    case "SetDynamic":
+    case "SetSlur":
+    case "SetWedge":
       return undefined;
     case "InsertEvent":
       return record(edit.after)?.hidden === true ? undefined : edit.anchor;

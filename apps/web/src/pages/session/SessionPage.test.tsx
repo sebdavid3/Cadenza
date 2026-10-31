@@ -1803,6 +1803,77 @@ describe("corregir la nota elegida", () => {
       const accidental = written === "natural" ? "" : written;
       event.pitch = (event.pitch ?? "").replace(/^([A-G])[#b]*(\d)$/, `$1${accidental}$2`);
     }
+    // Marcas de notación (ADR-0039), en el único pentagrama de estas partituras.
+    if (event && body.op === "SetNoteMarks") {
+      before = { articulations: event.articulations ?? [], fermata: event.fermata === true };
+      event.articulations = after.articulations as typeof event.articulations;
+      event.fermata = after.fermata === true;
+    }
+    if (body.op === "SetDynamic") {
+      const offset = String(after.offset_beats);
+      const dynamics = measure.dynamics ?? [];
+      before = {
+        offset_beats: offset,
+        mark: dynamics.find((d) => d.offset_beats === offset)?.mark ?? null,
+      };
+      measure.dynamics = [
+        ...dynamics.filter((d) => d.offset_beats !== offset),
+        ...(typeof after.mark === "string"
+          ? [
+              {
+                mark: after.mark as NonNullable<typeof measure.dynamics>[number]["mark"],
+                offset_beats: offset,
+              },
+            ]
+          : []),
+      ];
+    }
+    const measures = next.current_score?.parts[0]?.staves[0]?.measures ?? [];
+    const number = Number(after.number);
+    if (body.op === "SetSlur") {
+      const ends: Record<string, unknown> = { number, start: null, stop: null };
+      for (const candidate of measures) {
+        candidate.events.forEach((item, index) => {
+          for (const slur of item.slurs ?? []) {
+            if (slur.number !== number) continue;
+            ends[slur.type] = { staff: 0, measure: candidate.number, voice: 0, event_index: index };
+          }
+          item.slurs = (item.slurs ?? []).filter((slur) => slur.number !== number);
+        });
+      }
+      before = ends;
+      for (const type of ["start", "stop"] as const) {
+        const end = after[type] as { measure: number; event_index: number } | null;
+        const target = end
+          ? measures.find((candidate) => candidate.number === end.measure)?.events[end.event_index]
+          : undefined;
+        if (target) target.slurs = [...(target.slurs ?? []), { type, number }];
+      }
+    }
+    if (body.op === "SetWedge") {
+      const ends: Record<string, unknown> = { number, start: null, stop: null };
+      for (const candidate of measures) {
+        for (const wedge of candidate.wedges ?? []) {
+          if (wedge.number !== number) continue;
+          const at = { staff: 0, measure: candidate.number, offset_beats: wedge.offset_beats };
+          if (wedge.type === "stop") ends.stop = at;
+          else ends.start = { ...at, type: wedge.type };
+        }
+        candidate.wedges = (candidate.wedges ?? []).filter((wedge) => wedge.number !== number);
+      }
+      before = ends;
+      for (const role of ["start", "stop"] as const) {
+        const end = after[role] as { measure: number; offset_beats: string; type?: string } | null;
+        const target = end ? measures.find((candidate) => candidate.number === end.measure) : null;
+        if (target && end) {
+          const type = (role === "stop" ? "stop" : end.type) as "crescendo" | "diminuendo" | "stop";
+          target.wedges = [
+            ...(target.wedges ?? []),
+            { type, number, offset_beats: end.offset_beats },
+          ];
+        }
+      }
+    }
     const saved: EditEventRead = {
       id: `edit-${String(seq)}`,
       session_id: ID,
@@ -2617,6 +2688,268 @@ describe("corregir la nota elegida", () => {
     expect(server.count(`GET /sessions/${ID}`)).toBe(1);
     // Se puede seguir corrigiendo sobre el mismo estado.
     expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("pone y quita articulaciones y el calderón con botones y teclas (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(2);
+
+    expect(button("Acento")).toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(button("Acento"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: acento en Do 4.");
+    });
+    expect(button("Acento")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(region, { key: "c" });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: calderón en Do 4.");
+    });
+    fireEvent.keyDown(region, { key: "a" });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: sin acento en Do 4.");
+    });
+
+    expect(server.bodies).toEqual([
+      {
+        base_seq: 0,
+        op: "SetNoteMarks",
+        anchor: anchorOf(2),
+        before: null,
+        after: { articulations: ["accent"], fermata: false },
+      },
+      {
+        base_seq: 1,
+        op: "SetNoteMarks",
+        anchor: anchorOf(2),
+        before: null,
+        after: { articulations: ["accent"], fermata: true },
+      },
+      {
+        base_seq: 2,
+        op: "SetNoteMarks",
+        anchor: anchorOf(2),
+        before: null,
+        after: { articulations: [], fermata: true },
+      },
+    ]);
+    expect(button("Calderón")).toHaveAttribute("aria-pressed", "true");
+    // Las marcas no mueven la nota elegida ni el foco.
+    expect(document.activeElement).toBe(region);
+    expect(useSelectionStore.getState().selection).toMatchObject({ seq: 3, anchor: anchorOf(2) });
+  });
+
+  it("pone y quita la dinámica de la posición elegida con el desplegable (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    const picker = within(editor()).getByRole("combobox", { name: "Dinámica" });
+
+    expect(picker).toHaveValue("");
+    expect(button("Poner dinámica")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.change(picker, { target: { value: "mf" } });
+    fireEvent.click(button("Poner dinámica"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: dinámica mf en la nota del compás 2.");
+    });
+    expect(picker).toHaveValue("mf");
+    fireEvent.change(picker, { target: { value: "" } });
+    fireEvent.click(button("Quitar dinámica"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Guardado: sin la dinámica mf en la nota del compás 2.",
+      );
+    });
+    expect(
+      server.bodies.map(({ base_seq, op, anchor, after }) => ({ base_seq, op, anchor, after })),
+    ).toEqual([
+      {
+        base_seq: 0,
+        op: "SetDynamic",
+        anchor: anchorOf(2),
+        after: { offset_beats: "0", mark: "mf" },
+      },
+      {
+        base_seq: 1,
+        op: "SetDynamic",
+        anchor: anchorOf(2),
+        after: { offset_beats: "0", mark: null },
+      },
+    ]);
+  });
+
+  it("crea una ligadura y un regulador desde el inicio marcado y los quita enteros (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(1);
+
+    // Sin inicio no se crea nada, y se dice cómo.
+    fireEvent.keyDown(region, { key: "l" });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(/Marca antes el inicio/);
+    });
+    fireEvent.keyDown(region, { key: "i" });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Inicio: Do 4, blanca con puntillo (compás 1).");
+    });
+    expect(button("Inicio de la ligadura o el regulador")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(region, head(3));
+    fireEvent.click(button("Ligadura de expresión hasta aquí"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Guardado: ligadura de expresión de los compases 1 a 3.",
+      );
+    });
+    // Creada la ligadura, el inicio se olvida.
+    expect(button("Inicio de la ligadura o el regulador")).toHaveAttribute("aria-pressed", "false");
+
+    // Un regulador sobre una sola nota (del compás 3), con el teclado.
+    fireEvent.keyDown(region, { key: "i" });
+    fireEvent.keyDown(region, { key: "<" });
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: crescendo en el compás 3.");
+    });
+
+    const removeSlur = button("Quitar la ligadura de expresión de los compases 1 a 3");
+    removeSlur.focus();
+    fireEvent.click(removeSlur);
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Guardado: quitar la ligadura de expresión de los compases 1 a 3.",
+      );
+    });
+    // El botón se va con la ligadura: el foco pasa a la partitura, no se queda en el documento.
+    expect(document.activeElement).toBe(region);
+    fireEvent.click(button("Quitar el crescendo en el compás 3"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: quitar el crescendo en el compás 3.");
+    });
+
+    const slot = (measureNumber: number) => ({
+      staff: 0,
+      measure: measureNumber,
+      voice: 0,
+      event_index: 0,
+    });
+    expect(
+      server.bodies.map(({ base_seq, op, anchor, after }) => ({ base_seq, op, anchor, after })),
+    ).toEqual([
+      {
+        base_seq: 0,
+        op: "SetSlur",
+        anchor: anchorOf(1),
+        after: { number: 1, start: slot(1), stop: slot(3) },
+      },
+      {
+        base_seq: 1,
+        op: "SetWedge",
+        anchor: anchorOf(3),
+        after: {
+          number: 1,
+          start: { staff: 0, measure: 3, offset_beats: "0", type: "crescendo" },
+          stop: { staff: 0, measure: 3, offset_beats: "3" },
+        },
+      },
+      {
+        base_seq: 2,
+        op: "SetSlur",
+        anchor: anchorOf(1),
+        after: { number: 1, start: null, stop: null },
+      },
+      {
+        base_seq: 3,
+        op: "SetWedge",
+        anchor: anchorOf(3),
+        after: { number: 1, start: null, stop: null },
+      },
+    ]);
+    expect(server.current().current_score?.parts[0]?.staves[0]?.measures[2]?.wedges).toEqual([]);
+  });
+
+  it("un inicio marcado mientras se guarda una ligadura no se olvida al guardarla (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    const region = await chooseMeasure(1);
+    fireEvent.keyDown(region, { key: "i" });
+    fireEvent.click(region, head(2));
+    const pending = deferred<Response>();
+    server.respond(() => pending.promise);
+    fireEvent.keyDown(region, { key: "l" });
+    // Mientras se guarda, otro inicio: el del compás 2.
+    fireEvent.keyDown(region, { key: "i" });
+    const body = server.bodies[0];
+    if (!body) throw new Error("sin edición");
+    pending.resolve(server.accept(body));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "Guardado: ligadura de expresión de los compases 1 a 2.",
+      );
+    });
+    expect(button("Inicio de la ligadura o el regulador")).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(editor()).getByText("Inicio: Do 4, blanca con puntillo (compás 2)."),
+    ).toBeVisible();
+  });
+
+  it("una marca rechazada (422) o que llega tarde (409) se dice como las demás correcciones (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    server.respond(() => jsonResponse({ detail: "Contenido de 'after' no válido" }, 422));
+
+    fireEvent.click(button("Tenuto"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "El servidor no aceptó el cambio (tenuto en Do 4, compás 2, voz 1): no se guardó nada.",
+      );
+    });
+
+    server.respond(() => {
+      // Otra pestaña cambió el compás 1 mientras tanto.
+      server.replace(
+        apply(server.current(), {
+          base_seq: 0,
+          op: "SetPitch",
+          anchor: anchorOf(1),
+          before: null,
+          after: { pitch: "E4" },
+        }).next,
+      );
+      return jsonResponse({ detail: "Conflicto" }, 409);
+    });
+    fireEvent.click(button("Tenuto"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent(
+        "No se guardó: tenuto en Do 4 (compás 2, voz 1). La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.",
+      );
+    });
+    fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: tenuto en Do 4.");
+    });
+    expect(server.bodies.at(-1)).toMatchObject({
+      base_seq: 1,
+      op: "SetNoteMarks",
+      anchor: anchorOf(2),
+      after: { articulations: ["tenuto"], fermata: false },
+    });
+  });
+
+  it("deshacer una marca la quita con la compensatoria del servidor (#214)", async () => {
+    const server = editableApi();
+    renderPage();
+    await chooseMeasure(2);
+    fireEvent.click(button("Marcato"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: marcato en Do 4.");
+    });
+
+    fireEvent.click(within(editor()).getByRole("button", { name: "Deshacer" }));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Deshecho: marcato (compás 2, voz 1).");
+    });
+    expect(button("Marcato")).toHaveAttribute("aria-pressed", "false");
+    expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
   });
 
   it("un 403 lo dice sin guardar nada", async () => {

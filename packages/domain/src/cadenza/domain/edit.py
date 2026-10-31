@@ -56,6 +56,28 @@ class EditOp(StrEnum):
        - Modifica la armadura de clave del compás al que apunta el ancla.
        - ``before``: snapshot de armadura previa o ``None``.
        - ``after``: ``{"key_signature": dict | KeySignature}`` o primitivo ``{"fifths": int}``.
+
+    Marcas de notación (ADR-0031, ADR-0039). Las cuatro son de tipo «fijar»: el servidor guarda
+    en ``before`` el estado que sustituyen y la compensatoria intercambia ``before`` y ``after``.
+    No mueven ningún evento (no cambian el ``event_index`` de las anclas).
+
+    8. `SET_NOTE_MARKS` ("SetNoteMarks"):
+       - Fija las articulaciones y el calderón del evento anclado.
+       - ``before``/``after``: ``{"articulations": [str, ...], "fermata": bool}``.
+
+    9. `SET_DYNAMIC` ("SetDynamic"):
+       - Pone, cambia o quita la dinámica de una posición del compás del ancla.
+       - ``before``/``after``: ``{"offset_beats": str, "mark": str | None}``.
+
+    10. `SET_WEDGE` ("SetWedge"):
+        - Crea un regulador con su inicio y su fin, o quita los extremos de uno.
+        - ``before``/``after``: ``{"number": int, "start": {"staff", "measure",
+          "offset_beats", "type"} | None, "stop": {"staff", "measure", "offset_beats"} | None}``.
+
+    11. `SET_SLUR` ("SetSlur"):
+        - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.
+        - ``before``/``after``: ``{"number": int, "start": {"staff", "measure", "voice",
+          "event_index"} | None, "stop": {...} | None}``.
     """
 
     SET_PITCH = "SetPitch"
@@ -65,6 +87,22 @@ class EditOp(StrEnum):
     DELETE_EVENT = "DeleteEvent"
     SET_CLEF = "SetClef"
     SET_KEY = "SetKey"
+    SET_NOTE_MARKS = "SetNoteMarks"
+    SET_DYNAMIC = "SetDynamic"
+    SET_WEDGE = "SetWedge"
+    SET_SLUR = "SetSlur"
+
+
+MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
+    {EditOp.SET_NOTE_MARKS, EditOp.SET_DYNAMIC, EditOp.SET_WEDGE, EditOp.SET_SLUR}
+)
+"""Operaciones sobre las marcas de notación (ADR-0039). No entran en el dataset ni en las
+métricas de los experimentos, como las marcas mismas (ADR-0031 §6)."""
+
+CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(set(EditOp) - MARK_EDIT_OPS)
+"""Operaciones sobre el contenido (alturas, duraciones, eventos, clave y armadura): las que
+derivan los experimentos del diff con la verdad (`derive_edit_events`) y las que cubre el
+dataset (ADR-0039)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,8 +209,8 @@ def create_inverse_edit(
     """Construye el evento compensatorio inverso de una edición (ADR-0007, #35).
 
     Invierte semánticamente cualquier operación de `EditOp`:
-    - SetPitch / SetDuration / SetAccidental / SetClef / SetKey:
-      intercambia `before` y `after`.
+    - SetPitch / SetDuration / SetAccidental / SetClef / SetKey y las de marcas (SetNoteMarks,
+      SetDynamic, SetWedge, SetSlur, ADR-0039): intercambia `before` y `after`.
     - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
       `before = edit.after` y `after = None`.
     - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con

@@ -127,7 +127,7 @@ def _admissible(
     for edit in edits:
         try:
             validate_after(document.score, edit.anchor, edit.op, edit.after)
-            before = snapshot_before(document.score, edit.anchor, edit.op)
+            before = snapshot_before(document.score, edit.anchor, edit.op, edit.after)
             key = (edit.op, edit.anchor, normalize_after(edit.op, edit.after))
         except (InvalidEditPayload, IndexError, ValueError, TypeError, ZeroDivisionError):
             continue

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cadenza.domain import (
+    MARK_EDIT_OPS,
     EditEvent,
     EditOp,
     Finding,
@@ -173,6 +174,9 @@ def categorize_edit_op(op: EditOp | str) -> str:
         return "structure"
     if val in (EditOp.SET_KEY.value, EditOp.SET_CLEF.value):
         return "key_clef"
+    # Las marcas de notación (ADR-0039) no se derivan del diff con la verdad.
+    if val in {op.value for op in MARK_EDIT_OPS}:
+        return "marks"
     return "other"
 
 

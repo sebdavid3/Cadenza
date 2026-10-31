@@ -365,6 +365,7 @@
 
 .editor__group {
   display: grid;
+  align-content: start;
   gap: var(--space-1);
 }
 
@@ -428,6 +429,36 @@
   max-width: 30ch;
   color: var(--color-ink-muted);
   font-size: var(--text-small);
+}
+
+/* Ligaduras y reguladores (#214): el inicio marcado, con «Olvidar el inicio» al lado, y un botón
+   por cada ligadura o regulador que pasa por la nota elegida, para quitarlo entero. */
+.editor__origin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+}
+
+.editor__group--spans {
+  min-width: 0;
+}
+
+.editor__spans {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* El nombre de la marca que se quita es largo: se parte en líneas en vez de ensanchar la barra. */
+.editor__spans .editor__button {
+  max-width: 100%;
+  text-align: start;
+  white-space: normal;
 }
 
 .editor__hint {
