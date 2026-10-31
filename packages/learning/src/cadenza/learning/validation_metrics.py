@@ -326,11 +326,14 @@ def aggregate_validation_metrics(
     # 4. Análisis cualitativo de la cobertura
     analysis = {
         "what_catalog_covers": (
-            "El catálogo simbólico detecta primordialmente errores que violan la gramática "
-            "musical formal: compases incompletos o excedidos en duración (regla measure.balance), "
-            "inconsistencias entre alteraciones accidentales y armadura tonal (key.consistency), "
-            "alturas que desbordan la tesitura de la clave (pitch.range), solapamientos "
-            "polifónicos temporales (voice.collision) y ligaduras huérfanas (tie.resolution)."
+            "El catálogo de reglas (ADR-0040) señala lo que no puede escribirse tal cual o es "
+            "sospechoso: compases cuyas figuras no llenan su capacidad (measure.balance), una "
+            "indicación de compás que no casa con lo que suman los compases (time.signature), "
+            "tresillos incompletos (tuplet.incomplete), una alteración contra la armadura que "
+            "repite la de la nota anterior de su altura en el compás (accidental.repeated), "
+            "armaduras distintas entre los pentagramas de una parte (key.consistency), alturas "
+            "fuera del registro de su clave (pitch.range), ligaduras de prolongación que no unen "
+            "dos notas iguales (tie.resolution) y acordes mal formados (voice.collision)."
         ),
         "what_catalog_cannot_cover": (
             "El catálogo simbólico no puede detectar errores de sustitución sintácticamente "
@@ -340,10 +343,11 @@ def aggregate_validation_metrics(
             "gramaticales y requieren señal visual del modelo OMR o feedback del corrector humano."
         ),
         "false_positive_nature": (
-            "Los falsos positivos en el corpus musical histórico provienen mayoritariamente de "
-            "convenciones notacionales de incipits: anacrusas iniciales o compases finales "
-            "incompletos no declarados explícitamente como tales en la métrica, que el validador "
-            "señala con razón como desbalance respecto a la armadura formal de 4/4."
+            "Los incipits de PrIMuS se cortan donde sea: un último compás corto sin anacrusa se "
+            "señala (en una página completa suele estar completo), y es la fuente esperada de "
+            "falsos positivos de measure.balance. La anacrusa, el último compás que la completa, "
+            "el silencio de compás y las notas de adorno ya no se señalan; una alteración "
+            "repetida que sí está escrita así es un falso positivo de accidental.repeated."
         ),
     }
 

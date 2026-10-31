@@ -7,6 +7,8 @@ Proporciona:
   HOMR↔Ground Truth y los hallazgos reales del validador sobre PrIMuS.
 - `sample_size_justification`: justificación muestral con los recuentos de cada ejecución.
 - Limitaciones metodológicas comunes, sin cifras de ninguna ejecución concreta (#139).
+- `rules_catalog_info` y `guard_rules_catalog`: la versión de las reglas de cada medición y
+  la guarda que impide sobrescribir la de otra versión del catálogo (ADR-0040 §3, §15.6).
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from cadenza.learning import (
     TrainingSample,
     derive_edit_events,
 )
-from cadenza.validation import ValidationEngine
+from cadenza.validation import RULES_CATALOG_VERSION, ValidationEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
@@ -185,6 +187,38 @@ def get_git_branch() -> str:
     except Exception:
         pass
     return os.environ.get("GIT_BRANCH", "unknown")
+
+
+def rules_catalog_info(validator: ValidationEngine) -> dict[str, Any]:
+    """La versión de las reglas con que se mide: la lista de identificadores (`rules_version`)
+    y la versión del catálogo (`RULES_CATALOG_VERSION`), que cambia aunque los identificadores
+    no cambien (ADR-0040 §3). Cada cifra de `exp_06` y `exp_14` lleva las dos."""
+    return {
+        "rules_version": validator.rules_version,
+        "rules_catalog_version": RULES_CATALOG_VERSION,
+    }
+
+
+def guard_rules_catalog(summary_path: Path, catalog_version: int = RULES_CATALOG_VERSION) -> None:
+    """No sobrescribe una medición de otra versión del catálogo de reglas (ADR-0040 §15.6).
+
+    Las mediciones con el catálogo nuevo se documentan junto a las anteriores, así que no las
+    reemplazan: si en la salida ya hay un resumen de otra versión (sin `rules_catalog_version`,
+    la 1, anterior a #246), el experimento falla antes de medir y pide otro `--output-dir`.
+    """
+    if not summary_path.is_file():
+        return
+    try:
+        previous = json.loads(summary_path.read_text(encoding="utf-8")).get(
+            "rules_catalog_version", 1
+        )
+    except (OSError, ValueError, AttributeError):
+        previous = None
+    if previous != catalog_version:
+        raise ValueError(
+            f"{summary_path} es una medición del catálogo de reglas {previous} y esta es del "
+            f"{catalog_version}: indica otro --output-dir para no sobrescribirla (ADR-0040 §15.6)"
+        )
 
 
 def get_run_info(

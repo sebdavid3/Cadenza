@@ -67,6 +67,14 @@ Decisiones de la medición:
 Sin el corpus, la partición, la muestra, alguna predicción o alguna verdad, el experimento
 falla con un mensaje claro: no hay valores de reserva (CLAUDE.md §8).
 
+La versión de las reglas. Lo propio de la capa (los errores que las reglas no ven) depende de
+las reglas con que se mide: con el catálogo de ADR-0040 (versión 2), `accidental.repeated`
+señala el caso del que salían casi todos los aciertos de `learned.accidental`, que pasa a ser
+un posible error de regla que la capa ordena (§14). Por eso el resumen, su `run_info` y cada
+fila del CSV llevan `rules_version` y `rules_catalog_version`, y el experimento no sobrescribe
+una medición de otra versión del catálogo (`common.guard_rules_catalog`): la de #287 (versión
+1) se queda en `results/` y la nueva va a otro `--output-dir`.
+
 Salidas (`--output-dir`, por defecto `results/`, sin versionar):
 - `suggestion_layer_summary.json`: la medición completa, con `run_info`.
 - `suggestion_layer_incipits.csv`: una fila por incipit de prueba.
@@ -147,6 +155,8 @@ from ml.experiments.common import (  # noqa: E402
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
     get_run_info,
+    guard_rules_catalog,
+    rules_catalog_info,
     sha256_of_file,
 )
 
@@ -172,6 +182,8 @@ CSV_FIELDS = [
     *(f"ser_{variant}" for variant in VARIANTS),
     *(f"omr_ned_{variant}" for variant in VARIANTS),
     "omr_ned_error",
+    "rules_version",
+    "rules_catalog_version",
 ]
 
 LIMITATIONS: dict[str, str] = {
@@ -192,8 +204,11 @@ LIMITATIONS: dict[str, str] = {
         "peor en páginas completas, en piano o en voz con piano (#239)."
     ),
     "current_rules": (
-        "Las reglas son las de esta versión del código, no las de #245 y #246; con reglas "
-        "nuevas cambian los candidatos y lo que las reglas no ven."
+        "Las reglas son las de `rules_version` y `rules_catalog_version`. Con otra versión del "
+        "catálogo cambian los candidatos y lo que las reglas no ven: con la 2 (ADR-0040), "
+        "accidental.repeated cubre la mayoría de los errores de alteración que la versión 1 "
+        "dejaba a learned.accidental, así que lo propio de la capa solo se compara entre "
+        "mediciones con la misma versión de las reglas (§14)."
     ),
     "test_reuse": (
         "La partición de prueba es fija y se reutiliza en cada medición y promoción: comparar "
@@ -523,6 +538,7 @@ def run(
             "la medición de results/"
         )
     results = RESULTS_DIR if output_dir is None else output_dir
+    guard_rules_catalog(results / SUMMARY_NAME)
     corpus_path = corpus_path or RESULTS_DIR / "correction_corpus.jsonl"
     split_path = split_path or RESULTS_DIR / "correction_corpus_split.json"
     if not corpus_path.is_file():
@@ -573,6 +589,7 @@ def run(
         raise ValueError(f"exp_14: el corpus {corpus_path} no tiene incipits verificados de prueba")
 
     validator = ValidationEngine()
+    version = rules_catalog_info(validator)
     dataset_hash = sha256_of_file(corpus_path)
 
     # 1. El modelo de train, medido en test.
@@ -607,6 +624,7 @@ def run(
                 "rule_findings": measurement.counts["rule_findings"],
                 "learned_findings": measurement.counts["learned_findings"],
                 "learned_correct": measurement.counts["learned_correct"],
+                **version,
             }
             for policy in POLICIES:
                 # Aplicadas en la medición, por el mismo camino (`apply_suggestions`).
@@ -761,7 +779,8 @@ def run(
         "experiment": "exp_14_suggestion_layer",
         "issue": 257,
         "measurement": (
-            "primera medición (A7): decide si la capa entra en el estudio (#244)"
+            "la capa con todo lo admisible, como la primera medición (#257, A7); lo propio de "
+            "la capa depende de rules_catalog_version"
             if display_policy is None
             else "la capa con la política de qué se muestra de la API (ADR-0036, enmienda 19)"
         ),
@@ -784,7 +803,7 @@ def run(
             "training_examples": artifact["training"]["examples"],
             "promoted": False,
         },
-        "rules_version": validator.rules_version,
+        **version,
         "display_policy": _policy_report(display_policy),
         "test": test_summary,
         "before_after": before_after,
@@ -827,6 +846,7 @@ def run(
         "artifact_sha256": artifact_sha256,
         "model_type": MODEL_TYPE,
         "feature_version": FEATURE_VERSION,
+        **version,
         "config_path": str(config_path).replace("\\", "/"),
         "config": dict(config.raw),
         "config_hash": config.config_hash,
@@ -864,7 +884,12 @@ def main() -> None:
     parser.add_argument("--split", type=Path, default=None, help="correction_corpus_split.json")
     parser.add_argument("--data", type=Path, default=DATA_DIR, help="con primus/exp_12/")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--output-dir", type=Path, default=None, help="por defecto results/")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="por defecto results/; no sobrescribe una medición de otra versión del catálogo",
+    )
     parser.add_argument(
         "--seed",
         type=int,

@@ -140,6 +140,25 @@ uv run python ml/experiments/exp_04_homr_transcribe.py
 `CUDNN_STATUS_SUBLIBRARY_LOADING_FAILED`. El `run_info.json` de cada run registra
 versión de ORT, providers y si la sesión CUDA se creó de verdad.
 
+### `exp_06_validation_metrics.py` — precisión y *recall* del validador
+
+Ejecuta el catálogo de reglas (`ValidationEngine`) sobre las predicciones de HOMR y lo compara
+compás a compás con las correcciones reales que salen del diff con la verdad de referencia
+(`derive_edit_events`): precisión, *recall* y F1 globales y por regla, y cobertura por
+categoría de error. Cada salida lleva la versión de las reglas con que se midió:
+`rules_version` (la lista de identificadores, que el experimento usa para saber qué reglas
+medir) y `rules_catalog_version` (`RULES_CATALOG_VERSION`, que cambia aunque los
+identificadores no cambien; ADR-0040 §3), en el resumen, en la cobertura y en cada fila de
+los CSV.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_06_validation_metrics.py --output-dir <dir>
+```
+
+La medición de una versión del catálogo no reemplaza a la de otra: si la salida ya tiene un
+resumen de otra versión (sin `rules_catalog_version`, la 1, anterior a #246), el experimento
+falla antes de medir y pide otro `--output-dir`. La de `results/` es la del catálogo 1.
+
 ### `exp_07_preprocessing_impact.py` — impacto del preprocesado
 
 Transcribe el corpus con HOMR bajo cada configuración de preprocesado y la compara
@@ -206,7 +225,6 @@ predicciones y la verdad (MEI y `.semantic`); sin alguno de ellos, o si la predi
 verdad no dan los registros del corpus, falla.
 
 ```powershell
-uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py            # results/
 uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py --output-dir <dir> --seed 20260920
 # Lo que verá la condición asistida (la política por defecto de la API, ADR-0036 enmienda 19):
 uv run --no-sync python ml/experiments/exp_14_suggestion_layer.py --output-dir <dir> `
@@ -221,6 +239,14 @@ por la política, así que con ella la comparación de la primera y las tres pri
 con la línea base mide el filtro y no el orden (`display_policy.baseline_comparison_valid:
 false`). El resumen y `run_info` dicen qué política se midió (`display_policy`). Con política,
 `--output-dir` es obligatorio: `results/` guarda la medición de #287.
+
+Lo propio de la capa depende de las reglas con que se mide: con el catálogo de ADR-0040
+(versión 2), `accidental.repeated` señala el caso del que salían casi todos los aciertos de
+`learned.accidental`, que pasa a ser un posible error de regla que la capa ordena (§14). Por
+eso el resumen, `run_info` y cada fila del CSV llevan `rules_version` y
+`rules_catalog_version`, y, como `exp_06`, el experimento no sobrescribe una medición de otra
+versión del catálogo: la de `results/` (#287) es del catálogo 1, y la del 2 va a otro
+`--output-dir`.
 
 Mide, en `results/suggestion_layer_summary.json` (con `run_info`):
 
