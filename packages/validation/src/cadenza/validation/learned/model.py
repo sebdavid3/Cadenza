@@ -19,12 +19,15 @@ from typing import Any, Final
 from cadenza.domain import (
     Anchor,
     EditOp,
+    EventKind,
     Finding,
+    InvalidEditPayload,
     ScoreDocument,
     Severity,
     SuggestedEdit,
     SuggestedFinding,
     SuggestionResult,
+    validate_after,
 )
 
 from .features import (
@@ -290,7 +293,7 @@ class FrequencyBackoffModel:
                 # La duración de un acorde es la de todas sus notas: ni cambiarla ni borrar una.
                 for family in ("duration", "delete"):
                     excluded_family.add((position, family))
-            proposal = self._propose(view, excluded_family)
+            proposal = self._propose(view, excluded_family, document)
             if proposal is None:
                 continue
             family, suggestion = proposal
@@ -356,9 +359,11 @@ class FrequencyBackoffModel:
         return tuple(item[3] for item in scored)
 
     def _propose(
-        self, view: EventView, excluded: set[tuple[Position, str]]
+        self, view: EventView, excluded: set[tuple[Position, str]], document: ScoreDocument
     ) -> tuple[str, SuggestedEdit] | None:
-        best: tuple[str, SuggestedEdit] | None = None
+        """La propuesta más probable que cabe en el documento: si la de una familia no pasa
+        `validate_after` (una alteración en un silencio), la de la siguiente."""
+        proposals: list[tuple[str, SuggestedEdit]] = []
         for name in FAMILIES:
             family = self._families.get(name)
             if family is None or not family.active or family.threshold is None:
@@ -383,9 +388,15 @@ class FrequencyBackoffModel:
                 source="learned",
                 model_version=self.version,
             )
-            if best is None or (suggestion.confidence or 0) > (best[1].confidence or 0):
-                best = (name, suggestion)
-        return best
+            proposals.append((name, suggestion))
+        proposals.sort(key=lambda item: -(item[1].confidence or 0.0))
+        for name, suggestion in proposals:
+            try:
+                validate_after(document.score, suggestion.anchor, suggestion.op, suggestion.after)
+            except (InvalidEditPayload, IndexError, ValueError):
+                continue
+            return name, suggestion
+        return None
 
 
 def _position(anchor: Anchor) -> Position:
@@ -408,6 +419,8 @@ def _decode(name: str, label: str, view: EventView) -> tuple[EditOp, dict[str, A
     """La edición que corresponde a una etiqueta en el contexto de un evento leído."""
     if name == "delete":
         return (EditOp.DELETE_EVENT, None) if label == "delete" else None
+    if name in ("accidental", "pitch") and view.event.kind is not EventKind.NOTE:
+        return None
     if name == "accidental":
         accidental = decode_accidental(label, view.context)
         if accidental is None or accidental == view.context.get("accidental"):

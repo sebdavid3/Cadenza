@@ -283,3 +283,20 @@ def test_no_duration_or_deletion_is_proposed_inside_a_chord() -> None:
         if sf.finding.rule_id == "learned.duration"
     }
     assert proposed == {2, 3, 4}
+
+
+def test_an_inadmissible_family_does_not_hide_an_admissible_one() -> None:
+    """Un silencio no tiene alteración: la capa propone la familia siguiente que sí cabe."""
+    artifact = _artifact()
+    artifact["families"]["accidental"]["levels"] = [[]]
+    artifact["families"]["accidental"]["tables"] = [{"": {"abs:#": 90, "none": 10}}]
+    artifact["families"]["accidental"].update({"threshold": 0.1, "active": True})
+    artifact["families"]["duration"]["tables"] = [{}, {"": {"x2": 60, "none": 40}}]
+    artifact["families"]["duration"].update({"threshold": 0.1, "active": True})
+    model = FrequencyBackoffModel(artifact, version="v")
+    rest = Event(kind=EventKind.REST, duration_beats=Fraction(1))
+    document = _document((rest, _note("C5"), _note("D5"), _note("E5")))
+    by_index = {sf.finding.anchor.event_index: sf for sf in model.suggest(document, []).findings}
+    assert by_index[0].finding.rule_id == "learned.duration"
+    assert by_index[0].suggestions[0].op is EditOp.SET_DURATION
+    assert by_index[1].finding.rule_id == "learned.accidental"
