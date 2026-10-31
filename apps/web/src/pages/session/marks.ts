@@ -64,3 +64,31 @@ export function markDrawn(sessionId: string, seq: number) {
   if (!mark(`${order}:dibujado`, { seq })) return;
   measure(order, `${order}:enviar`, `${order}:dibujado`);
 }
+
+/**
+ * Etapa del dibujo de un estado (#276): leer el MusicXML (analizarlo y cargarlo en OSMD), dibujarlo
+ * y construir el mapa de notas (ADR-0027).
+ */
+export type DrawStage = "leer" | "dibujar" | "mapa";
+
+/**
+ * Hace `run` y mide cuánto tarda como `cadenza:dibujo:<etapa>`, con la sesión y el `seq` del estado
+ * en su `detail`. Si `run` falla, se mide igual y el error sigue su camino.
+ */
+export function timeStage<T>(stage: DrawStage, sessionId: string, seq: number, run: () => T): T {
+  const clock = typeof performance === "undefined" ? null : performance;
+  const start = clock?.now() ?? 0;
+  try {
+    return run();
+  } finally {
+    try {
+      clock?.measure(`cadenza:dibujo:${stage}`, {
+        start,
+        end: clock.now(),
+        detail: { sessionId, seq },
+      });
+    } catch {
+      // Sin la API de rendimiento (o sin medidas con opciones) no se mide nada.
+    }
+  }
+}

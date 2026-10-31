@@ -1,5 +1,6 @@
 import type { GraphicalMeasure, GraphicalNote } from "opensheetmusicdisplay";
 import type { MeasureSlot } from "./findings";
+import { timeStage } from "./marks";
 
 /** Caja en píxeles, relativa a la esquina superior izquierda de la partitura. */
 export interface Box {
@@ -259,36 +260,42 @@ export async function renderScore(
   host: HTMLElement,
   xml: string,
   signal: AbortSignal,
+  state: { sessionId: string; seq: number },
 ): Promise<RenderedScore> {
   // Función y no propiedad: TypeScript no sabe que la señal puede cambiar durante un await.
   const cancelled = () => signal.aborted;
-  const document = parseMusicXml(xml);
   const { OpenSheetMusicDisplay } = await import("opensheetmusicdisplay");
   if (cancelled()) throw abortError();
   const ink = cssColor("--color-ink", "#0a0a0a");
-  const osmd = new OpenSheetMusicDisplay(host, {
-    backend: "svg",
-    autoResize: false,
-    drawTitle: false,
-    drawSubtitle: false,
-    drawComposer: false,
-    drawLyricist: false,
-    drawCredits: false,
-    drawPartNames: false,
-    drawPartAbbreviations: false,
-    drawMeasureNumbers: true,
-    autoGenerateMultipleRestMeasuresFromRestMeasures: false,
-    defaultColorMusic: ink,
-    defaultFontFamily: "Hanken Grotesk, system-ui, sans-serif",
+  const { osmd, loaded } = timeStage("leer", state.sessionId, state.seq, () => {
+    const document = parseMusicXml(xml);
+    const osmd = new OpenSheetMusicDisplay(host, {
+      backend: "svg",
+      autoResize: false,
+      drawTitle: false,
+      drawSubtitle: false,
+      drawComposer: false,
+      drawLyricist: false,
+      drawCredits: false,
+      drawPartNames: false,
+      drawPartAbbreviations: false,
+      drawMeasureNumbers: true,
+      autoGenerateMultipleRestMeasuresFromRestMeasures: false,
+      defaultColorMusic: ink,
+      defaultFontFamily: "Hanken Grotesk, system-ui, sans-serif",
+    });
+    osmd.EngravingRules.PageBottomMargin = PAGE_BOTTOM_MARGIN_UNITS;
+    return { osmd, loaded: osmd.load(document) };
   });
-  osmd.EngravingRules.PageBottomMargin = PAGE_BOTTOM_MARGIN_UNITS;
-  await osmd.load(document);
+  await loaded;
   if (cancelled()) {
     osmd.clear();
     throw abortError();
   }
   osmd.zoom = zoomFor(host.clientWidth);
-  osmd.render();
+  timeStage("dibujar", state.sessionId, state.seq, () => {
+    osmd.render();
+  });
 
   return {
     measuresPerStaff() {

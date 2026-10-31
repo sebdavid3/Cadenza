@@ -20,7 +20,7 @@ import {
   type SelectableEvent,
 } from "./noteMap";
 import { describeEvent } from "./noteNames";
-import { markDrawn } from "./marks";
+import { markDrawn, timeStage } from "./marks";
 import { renderScore, type Box, type RenderedScore } from "./osmd";
 import { useSelectionStore } from "./selection";
 import { SelectionBar, type SelectionStatus } from "./SelectionBar";
@@ -174,7 +174,7 @@ export function ScoreView({
     host.appendChild(target);
     const controller = new AbortController();
 
-    renderScore(target, snapshot.xml, controller.signal)
+    renderScore(target, snapshot.xml, controller.signal, { sessionId, seq: snapshot.seq })
       .then((score) => {
         if (controller.signal.aborted) {
           score.dispose();
@@ -268,9 +268,11 @@ export function ScoreView({
   const noteMap = useMemo(
     () =>
       score && drawn && aligned && layout >= 0
-        ? buildNoteMap(drawn.transcription, (slot) => score.measureFigures(slot))
+        ? timeStage("mapa", sessionId, drawn.seq, () =>
+            buildNoteMap(drawn.transcription, (slot) => score.measureFigures(slot)),
+          )
         : null,
-    [score, drawn, aligned, layout],
+    [score, drawn, aligned, layout, sessionId],
   );
   // Sin notas ni silencios no hay nada que elegir: la partitura sigue siendo una imagen.
   const selectable =
