@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from cadenza.application import EffortMetricsData, PersistedFinding, User
+from cadenza.application import EffortMetricsData, PersistedFinding, PersistedSuggestion, User
 from cadenza.domain import Anchor, EditEvent, EditOp
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
@@ -230,6 +230,13 @@ class ProvenancePayload(BaseModel):
         default=None,
         description="Metadatos y configuración de la etapa de preprocesado aplicada",
     )
+    suggestions_version: str | None = Field(
+        default=None,
+        description=(
+            "Versión de la capa de sugerencias activa al transcribir, o null si no corrió "
+            "(ADR-0036 §11)"
+        ),
+    )
 
 
 class ScoreDocumentPayload(BaseModel):
@@ -276,6 +283,14 @@ class EditEventCreate(BaseModel):
     anchor: AnchorPayload
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
+    suggestion_id: int | None = Field(
+        default=None,
+        description=(
+            "Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de "
+            "base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición "
+            "debe ser la propuesta (si no, 422). Rehacer la reenvía sin él."
+        ),
+    )
 
 
 class TranscribeResponse(BaseModel):
@@ -285,6 +300,54 @@ class TranscribeResponse(BaseModel):
     findings_count: int
     condition: str = "assisted"
     test_score_id: str | None = None
+
+
+class SuggestionRead(BaseModel):
+    """Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).
+
+    `op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla
+    es relativa al `at_seq` de su hallazgo (ADR-0011).
+    """
+
+    id: int
+    op: EditOp
+    anchor: AnchorPayload
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    confidence: float | None = Field(
+        default=None,
+        description="Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato",
+    )
+    confidence_level: Literal["high", "medium"]
+    explanation: str
+    source: Literal["rule", "learned"]
+    model_version: str | None = None
+    response: Literal["accepted", "rejected"] | None = None
+
+    @classmethod
+    def from_persisted(cls, suggestion: PersistedSuggestion) -> SuggestionRead:
+        level: Literal["high", "medium"] = (
+            "high" if suggestion.confidence_level == "high" else "medium"
+        )
+        source: Literal["rule", "learned"] = "learned" if suggestion.source == "learned" else "rule"
+        response: Literal["accepted", "rejected"] | None = None
+        if suggestion.response == "accepted":
+            response = "accepted"
+        elif suggestion.response == "rejected":
+            response = "rejected"
+        return cls(
+            id=suggestion.id,
+            op=EditOp(suggestion.op),
+            anchor=AnchorPayload.model_validate(suggestion.anchor),
+            before=suggestion.before,
+            after=suggestion.after,
+            confidence=suggestion.confidence,
+            confidence_level=level,
+            explanation=suggestion.explanation,
+            source=source,
+            model_version=suggestion.model_version,
+            response=response,
+        )
 
 
 class FindingRead(BaseModel):
@@ -299,6 +362,13 @@ class FindingRead(BaseModel):
     dismissed_at: datetime | None = None
     dismissed_by: str | None = None
     dismissal_reason: str | None = None
+    suggestions: list[SuggestionRead] = Field(
+        default_factory=list,
+        description=(
+            "De cero a tres sugerencias ordenadas por confianza; vacía sin capa de "
+            "sugerencias (ADR-0036 §4)"
+        ),
+    )
 
     @classmethod
     def from_record(cls, record: FindingRecord) -> FindingRead:
@@ -330,6 +400,7 @@ class FindingRead(BaseModel):
             dismissed_at=finding.dismissed_at,
             dismissed_by=finding.dismissed_by,
             dismissal_reason=finding.dismissal_reason,
+            suggestions=[SuggestionRead.from_persisted(s) for s in finding.suggestions],
         )
 
 

@@ -203,6 +203,15 @@ class Settings(BaseSettings):
             "omr_preprocess_rescale está activo."
         ),
     )
+    suggestions_enabled: bool = Field(
+        default=False,
+        description=(
+            "Activa la capa de sugerencias que aprende de las correcciones "
+            "(CADENZA_SUGGESTIONS_ENABLED, ADR-0036): la API carga al arrancar la versión "
+            "promovida y, si no hay o no se puede usar, valida sin capa. Global y apagada por "
+            "defecto; si el estudio la usa lo decide el responsable (#244)."
+        ),
+    )
     disable_power_throttling: bool = Field(
         default=True,
         description=(

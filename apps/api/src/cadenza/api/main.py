@@ -35,6 +35,10 @@ from cadenza.application import (
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
+    StaleSuggestion,
+    SuggestionConflict,
+    SuggestionModel,
+    SuggestionNotFound,
     TokenService,
     TranscribeResult,
     UnsupportedExportFormat,
@@ -93,6 +97,9 @@ from cadenza.application import (
 )
 from cadenza.application import (
     register_user as register_user_use_case,
+)
+from cadenza.application import (
+    reject_suggestion as reject_suggestion_use_case,
 )
 from cadenza.application import (
     reopen_session as reopen_session_use_case,
@@ -167,6 +174,7 @@ from .schemas import (
     SessionSummaryRead,
     SessionViewRead,
     StatusResponse,
+    SuggestionRead,
     TimingMapRead,
     TokenResponse,
     TranscribeResponse,
@@ -184,6 +192,7 @@ from .security import (
     client_network_key,
 )
 from .settings import Settings
+from .suggestions import load_suggestion_model
 from .transcription_slots import TranscriptionSlots, run_in_transcription_slot
 
 logger = logging.getLogger("cadenza.api")
@@ -403,8 +412,13 @@ def create_app(
     score_exporter: ScoreExporter | None = None,
     model_registry: Any | None = None,
     score_cache: ScoreStateCache | None = None,
+    suggestion_model: SuggestionModel | None = None,
 ) -> FastAPI:
-    """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
+    """Construye la aplicación con dependencias inyectadas (raíz de composición).
+
+    La capa de sugerencias (ADR-0036) solo corre con `Settings.suggestions_enabled`: la
+    versión promovida del registro se carga aquí, al arrancar, salvo que se inyecte otra.
+    """
 
     configure_logging()
     app_settings = settings or Settings()
@@ -632,6 +646,16 @@ def create_app(
         score_exporter if score_exporter is not None else Music21ScoreExporter()
     )
     app.state.model_registry = model_registry
+    # Capa de sugerencias: global, apagada por defecto y cargada al arrancar (ADR-0036 §8, §12).
+    app.state.suggestion_model = (
+        (
+            suggestion_model
+            if suggestion_model is not None
+            else load_suggestion_model(session_factory, app_settings, artifact_store)
+        )
+        if app_settings.suggestions_enabled
+        else None
+    )
     # Estados materializados por (sesión, seq): el log no cambia (ADR-0007, ADR-0037).
     app.state.score_cache = (
         score_cache
@@ -660,6 +684,28 @@ def create_app(
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"detail": "finding not found"},
+        )
+
+    @app.exception_handler(SuggestionNotFound)
+    def suggestion_not_found_handler(request: Request, exc: SuggestionNotFound) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "suggestion not found"},
+        )
+
+    @app.exception_handler(StaleSuggestion)
+    def stale_suggestion_handler(request: Request, exc: StaleSuggestion) -> JSONResponse:
+        # La web la marca como antigua y ofrece revalidar (ADR-0036 §5).
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": StaleSuggestion.detail},
+        )
+
+    @app.exception_handler(SuggestionConflict)
+    def suggestion_conflict_handler(request: Request, exc: SuggestionConflict) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": exc.message},
         )
 
     @app.exception_handler(InvalidEdit)
@@ -1078,6 +1124,7 @@ def create_app(
                     artifact_store=get_artifact_store(request, work_db),
                     condition=effective_condition,
                     test_score_id=effective_score_id,
+                    suggestion_model=request.app.state.suggestion_model,
                 )
                 work_db.commit()
                 return outcome
@@ -1420,6 +1467,34 @@ def create_app(
         return FindingRead.from_persisted(restored)
 
     @app.post(
+        "/sessions/{session_id}/suggestions/{suggestion_id}/reject",
+        response_model=SuggestionRead,
+        tags=["Validation"],
+        summary="Rechazar una sugerencia de la capa",
+        description=(
+            "Guarda que la persona rechaza la sugerencia, con su autoría fijada por el "
+            "servidor. 409 en una sesión finalizada o si ya se aplicó; rechazar una ya "
+            "rechazada o de una validación anterior responde 200. No descarta el hallazgo "
+            "(ADR-0036 §5)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+    )
+    def reject_suggestion_endpoint(
+        session_id: str,
+        suggestion_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> SuggestionRead:
+        """Rechaza una sugerencia (ADR-0036 §5)."""
+        rejected = reject_suggestion_use_case(
+            session_id,
+            suggestion_id,
+            session_repository=SqlAlchemySessionRepository(db),
+            current_user=current_user,
+        )
+        return SuggestionRead.from_persisted(rejected)
+
+    @app.post(
         "/sessions/{session_id}/validate",
         response_model=RevalidateResponse,
         tags=["Validation"],
@@ -1446,6 +1521,7 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            suggestion_model=request.app.state.suggestion_model,
         )
         return RevalidateResponse(
             session_id=result.session_id,
@@ -1482,6 +1558,7 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            suggestion_model=request.app.state.suggestion_model,
         )
         return FinalizeResponse(
             session_id=result.session_id,
@@ -1531,7 +1608,10 @@ def create_app(
             "Añade una corrección humana validada contra el estado actual. "
             "Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). "
             "El 201 devuelve la edición y el estado que crea: current_seq, current_score, su "
-            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037)."
+            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037). Con suggestion_id "
+            "aplica una sugerencia y la marca como aceptada; los errores van en este orden: "
+            "409 de base_seq, 409 'stale_suggestion' y 422 si la edición no es la propuesta "
+            "(ADR-0036 §5)."
         ),
         responses={
             **AUTH_401,
@@ -1563,6 +1643,7 @@ def create_app(
             before=payload.before,
             after=payload.after,
             score_cache=request.app.state.score_cache,
+            suggestion_id=payload.suggestion_id,
         )
         with timed_stage("serialize"):
             edit = EditEventRead.from_edit(applied.edit, session_id)

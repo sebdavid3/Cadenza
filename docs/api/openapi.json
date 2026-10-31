@@ -1423,6 +1423,103 @@
         }
       }
     },
+    "/sessions/{session_id}/suggestions/{suggestion_id}/reject": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Rechazar una sugerencia de la capa",
+        "description": "Guarda que la persona rechaza la sugerencia, con su autoría fijada por el servidor. 409 en una sesión finalizada o si ya se aplicó; rechazar una ya rechazada o de una validación anterior responde 200. No descarta el hallazgo (ADR-0036 §5).",
+        "operationId": "reject_suggestion_endpoint_sessions__session_id__suggestions__suggestion_id__reject_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions/{session_id}/validate": {
       "post": {
         "tags": [
@@ -1673,7 +1770,7 @@
           "Edits"
         ],
         "summary": "Añadir una edición inmutable al log",
-        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). El 201 devuelve la edición y el estado que crea: current_seq, current_score, su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037).",
+        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). El 201 devuelve la edición y el estado que crea: current_seq, current_score, su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037). Con suggestion_id aplica una sugerencia y la marca como aceptada; los errores van en este orden: 409 de base_seq, 409 'stale_suggestion' y 422 si la edición no es la propuesta (ADR-0036 §5).",
         "operationId": "append_edit_sessions__session_id__edits_post",
         "security": [
           {
@@ -2501,6 +2598,18 @@
               }
             ],
             "title": "After"
+          },
+          "suggestion_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion Id",
+            "description": "Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición debe ser la propuesta (si no, 422). Rehacer la reenvía sin él."
           }
         },
         "additionalProperties": false,
@@ -2923,6 +3032,14 @@
               }
             ],
             "title": "Dismissal Reason"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionRead"
+            },
+            "type": "array",
+            "title": "Suggestions",
+            "description": "De cero a tres sugerencias ordenadas por confianza; vacía sin capa de sugerencias (ADR-0036 §4)"
           }
         },
         "type": "object",
@@ -3201,6 +3318,18 @@
             ],
             "title": "Preprocessing",
             "description": "Metadatos y configuración de la etapa de preprocesado aplicada"
+          },
+          "suggestions_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions Version",
+            "description": "Versión de la capa de sugerencias activa al transcribir, o null si no corrió (ADR-0036 §11)"
           }
         },
         "type": "object",
@@ -3752,6 +3881,113 @@
         ],
         "title": "StatusResponse",
         "description": "Respuesta con mensaje de estado de la operación."
+      },
+      "SuggestionRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "op": {
+            "$ref": "#/components/schemas/EditOp"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato"
+          },
+          "confidence_level": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium"
+            ],
+            "title": "Confidence Level"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "learned"
+            ],
+            "title": "Source"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "accepted",
+                  "rejected"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "op",
+          "anchor",
+          "confidence_level",
+          "explanation",
+          "source"
+        ],
+        "title": "SuggestionRead",
+        "description": "Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).\n\n`op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla\nes relativa al `at_seq` de su hallazgo (ADR-0011)."
       },
       "TimeSignaturePayload": {
         "properties": {
