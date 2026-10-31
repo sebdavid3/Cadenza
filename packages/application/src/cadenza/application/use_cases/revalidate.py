@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 
 from cadenza.domain import (
     Anchor,
@@ -22,17 +22,18 @@ from cadenza.validation import ValidationEngine
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
+from ..ports.suggestion_model import SuggestionModel
+from ..suggestions import (
+    anchors_match_position,
+    suggest,
+    was_event_modified_after,
+    with_inherited_rejections,
+)
 from ..user import Role, User
 
 
 def _anchors_match_position(a: Anchor, b: Anchor) -> bool:
-    return (
-        a.part == b.part
-        and a.staff == b.staff
-        and a.measure == b.measure
-        and a.voice == b.voice
-        and a.event_index == b.event_index
-    )
+    return anchors_match_position(a, b)
 
 
 def _was_event_modified_after_dismissal(
@@ -41,25 +42,7 @@ def _was_event_modified_after_dismissal(
     dismissed_at: datetime | None,
     edits: Sequence[EditEvent],
 ) -> bool:
-    if dismissed_at is None:
-        return False
-    # Normalizar zonas horarias si alguna es naive
-    t_dismiss = (
-        dismissed_at if dismissed_at.tzinfo is not None else dismissed_at.replace(tzinfo=UTC)
-    )
-    for edit in edits:
-        t_edit = (
-            edit.created_at
-            if edit.created_at.tzinfo is not None
-            else edit.created_at.replace(tzinfo=UTC)
-        )
-        if t_edit > t_dismiss:
-            anchor_before = translate_anchor(
-                dismissed_anchor, dismissed_at_seq, edit.seq - 1, edits
-            )
-            if anchor_before is not None and _anchors_match_position(anchor_before, edit.anchor):
-                return True
-    return False
+    return was_event_modified_after(dismissed_anchor, dismissed_at_seq, dismissed_at, edits)
 
 
 @dataclass(frozen=True)
@@ -78,6 +61,7 @@ def revalidate(
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
     current_user: User,
+    suggestion_model: SuggestionModel | None = None,
 ) -> RevalidateResult:
     """Revalida la partitura sobre su estado materializado actual.
 
@@ -88,6 +72,9 @@ def revalidate(
     5. Preserva el estado descartado de la validación vigente si el evento señalado no fue
        modificado (#36, ADR-0035).
     6. Persiste los hallazgos vigentes con replace_findings (conservando los históricos).
+
+    Con `suggestion_model`, la capa corre tras las reglas y las sugerencias heredan los
+    rechazos de la validación vigente (ADR-0036 §4).
     """
 
     session_data = session_repository.get(session_id)
@@ -140,7 +127,14 @@ def revalidate(
 
     # 3. Evaluar reglas sobre el documento materializado
     evaluated_findings: list[Finding] = validator.validate(current_doc)
-    findings_with_seq = [replace(f, at_seq=current_seq) for f in evaluated_findings]
+    suggested = suggest(current_doc, evaluated_findings, suggestion_model)
+    findings_with_seq = [replace(f, at_seq=current_seq) for f, _ in suggested]
+    suggestions = with_inherited_rejections(
+        suggested,
+        session_repository.list_suggestions(session_id, at_seq=session_data.validated_at_seq),
+        current_seq=current_seq,
+        edits=edits,
+    )
 
     # 4. Determinar preservación de falsos positivos previamente descartados (#36). Solo
     # cuentan los de la validación vigente: los de validaciones anteriores son historia
@@ -176,6 +170,7 @@ def revalidate(
         findings_with_seq,
         at_seq=current_seq,
         dismissed_statuses=dismissed_statuses,
+        suggestions=suggestions,
     )
 
     # Solo los hallazgos activos se devuelven en el resultado de revalidación (#36)

@@ -16,6 +16,7 @@ from .list_sessions import list_sessions
 from .list_users import list_users
 from .record_effort import record_effort
 from .register_user import register_user
+from .reject_suggestion import reject_suggestion
 from .reopen_session import ReopenResult, reopen_session
 from .restore_finding import restore_finding
 from .revalidate import RevalidateResult, revalidate
@@ -50,6 +51,7 @@ __all__ = [
     "normalize_condition",
     "record_effort",
     "register_user",
+    "reject_suggestion",
     "reopen_session",
     "restore_finding",
     "revalidate",

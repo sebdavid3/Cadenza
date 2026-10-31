@@ -8,9 +8,9 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from cadenza.domain import Finding
+from cadenza.domain import Finding, SuggestedEdit
 
-from ..exceptions import FindingNotFound, SessionNotFound
+from ..exceptions import FindingNotFound, SessionNotFound, SuggestionNotFound
 
 
 @dataclass(frozen=True)
@@ -49,6 +49,46 @@ class SessionSummary:
 
 
 @dataclass(frozen=True)
+class PersistedSuggestion:
+    """Una sugerencia guardada (ADR-0036 §4): la edición propuesta y la respuesta de la persona.
+
+    `finding_id` queda en None si su hallazgo se sustituyó y ella ya tenía respuesta: las
+    respuestas nunca se pierden. `rank` es su orden dentro del hallazgo (0 es la primera).
+    """
+
+    id: int
+    session_id: str
+    finding_id: int | None
+    at_seq: int
+    rank: int
+    op: str
+    anchor: dict[str, Any]
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    confidence: float | None
+    confidence_level: str
+    explanation: str
+    source: str
+    model_version: str | None
+    response: str | None = None
+    responded_by: str | None = None
+    responded_at: datetime | None = None
+    applied_seq: int | None = None
+
+
+@dataclass(frozen=True)
+class NewSuggestion:
+    """Una sugerencia que se va a guardar con su hallazgo.
+
+    `inherited` es el rechazo de la validación vigente que hereda (ADR-0036 §4): se guarda
+    rechazada, con quién y cuándo la rechazó.
+    """
+
+    edit: SuggestedEdit
+    inherited: PersistedSuggestion | None = None
+
+
+@dataclass(frozen=True)
 class PersistedFinding:
     """Representación desacoplada de un hallazgo persistido con su identificador."""
 
@@ -63,14 +103,56 @@ class PersistedFinding:
     dismissed_at: datetime | None = None
     dismissed_by: str | None = None
     dismissal_reason: str | None = None
+    suggestions: tuple[PersistedSuggestion, ...] = ()
+
+
+def suggestion_from_new(
+    new: NewSuggestion,
+    *,
+    id: int,
+    session_id: str,
+    finding_id: int | None,
+    at_seq: int,
+    rank: int,
+) -> PersistedSuggestion:
+    """La fila de una sugerencia nueva, con la respuesta que hereda si la hay."""
+    edit = new.edit
+    inherited = new.inherited
+    return PersistedSuggestion(
+        id=id,
+        session_id=session_id,
+        finding_id=finding_id,
+        at_seq=at_seq,
+        rank=rank,
+        op=edit.op.value,
+        anchor=edit.anchor.to_primitive(),
+        before=None if edit.before is None else dict(edit.before),
+        after=None if edit.after is None else dict(edit.after),
+        confidence=edit.confidence,
+        confidence_level=edit.confidence_level or "medium",
+        explanation=edit.explanation,
+        source=edit.source,
+        model_version=edit.model_version,
+        response=None if inherited is None else inherited.response,
+        responded_by=None if inherited is None else inherited.responded_by,
+        responded_at=None if inherited is None else inherited.responded_at,
+    )
 
 
 class SessionRepository(ABC):
     """Puerto de persistencia para sesiones y sus hallazgos."""
 
     @abstractmethod
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
-        """Persiste una nueva sesión y sus hallazgos asociados."""
+    def add(
+        self,
+        session: SessionData,
+        findings: Sequence[Finding],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
+    ) -> SessionData:
+        """Persiste una nueva sesión y sus hallazgos asociados.
+
+        `suggestions[i]` son las sugerencias del hallazgo `findings[i]` (ADR-0036 §4).
+        """
 
     @abstractmethod
     def get(self, session_id: str) -> SessionData | None:
@@ -84,6 +166,7 @@ class SessionRepository(ABC):
         *,
         at_seq: int,
         dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         """Persiste los hallazgos evaluados en at_seq y actualiza los hallazgos vigentes.
 
@@ -92,6 +175,9 @@ class SessionRepository(ABC):
         secuencias se conservan para el análisis de esfuerzo (#11, ADR-0013).
         Si se provee `dismissed_statuses`, preserva el estado descartado de
         los hallazgos correspondientes (#36).
+        `suggestions[i]` son las sugerencias del hallazgo `findings[i]`. Al sustituir los
+        hallazgos de ese `at_seq`, sus sugerencias sin respuesta se borran con ellos y las que
+        tienen respuesta se conservan desvinculadas (`finding_id` None, ADR-0036 §4).
         Lanza `SessionNotFound` si la sesión no existe.
         """
 
@@ -138,6 +224,29 @@ class SessionRepository(ABC):
         """Devuelve los falsos positivos descartados de la sesión (#36, #18)."""
 
     @abstractmethod
+    def get_suggestion(self, session_id: str, suggestion_id: int) -> PersistedSuggestion | None:
+        """La sugerencia de la sesión con ese id, o None (ADR-0036 §5)."""
+
+    @abstractmethod
+    def respond_suggestion(
+        self,
+        session_id: str,
+        suggestion_id: int,
+        *,
+        response: str,
+        user: str,
+        applied_seq: int | None = None,
+    ) -> PersistedSuggestion:
+        """Guarda la respuesta (`accepted` o `rejected`), quién y cuándo; `SuggestionNotFound`
+        si no está."""
+
+    @abstractmethod
+    def list_suggestions(
+        self, session_id: str, *, at_seq: int | None = None
+    ) -> tuple[PersistedSuggestion, ...]:
+        """Las sugerencias de la sesión (de un `at_seq` si se da), por id."""
+
+    @abstractmethod
     def update_status(self, session_id: str, status: str) -> SessionData:
         """Actualiza el estado del ciclo de vida de la sesión (#34, ADR-0014)."""
 
@@ -169,10 +278,49 @@ class InMemorySessionRepository(SessionRepository):
     def __init__(self, edit_repository: Any | None = None) -> None:
         self.sessions: dict[str, SessionData] = {}
         self.findings: dict[str, list[PersistedFinding]] = {}
+        self.suggestions: dict[str, list[PersistedSuggestion]] = {}
         self._next_finding_id = 1
+        self._next_suggestion_id = 1
         self.edit_repository = edit_repository
 
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
+    def _store_suggestions(
+        self,
+        session_id: str,
+        persisted: Sequence[PersistedFinding],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None,
+    ) -> None:
+        if suggestions is None:
+            return
+        rows = self.suggestions.setdefault(session_id, [])
+        for finding, news in zip(persisted, suggestions, strict=False):
+            for rank, new in enumerate(news):
+                rows.append(
+                    suggestion_from_new(
+                        new,
+                        id=self._next_suggestion_id,
+                        session_id=session_id,
+                        finding_id=finding.id,
+                        at_seq=finding.at_seq,
+                        rank=rank,
+                    )
+                )
+                self._next_suggestion_id += 1
+
+    def _with_suggestions(self, session_id: str, finding: PersistedFinding) -> PersistedFinding:
+        attached = tuple(
+            sorted(
+                (s for s in self.suggestions.get(session_id, []) if s.finding_id == finding.id),
+                key=lambda s: s.rank,
+            )
+        )
+        return replace(finding, suggestions=attached)
+
+    def add(
+        self,
+        session: SessionData,
+        findings: Sequence[Finding],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
+    ) -> SessionData:
         self.sessions[session.id] = session
         persisted: list[PersistedFinding] = []
         for finding in findings:
@@ -189,6 +337,7 @@ class InMemorySessionRepository(SessionRepository):
             )
             self._next_finding_id += 1
         self.findings[session.id] = persisted
+        self._store_suggestions(session.id, persisted, suggestions)
         return session
 
     def get(self, session_id: str) -> SessionData | None:
@@ -201,12 +350,20 @@ class InMemorySessionRepository(SessionRepository):
         *,
         at_seq: int,
         dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         record = self.sessions.get(session_id)
         if record is None:
             raise SessionNotFound(session_id)
 
         self.sessions[session_id] = replace(record, validated_at_seq=at_seq)
+        # Las sugerencias de ese estado: sin respuesta se van con su hallazgo; con respuesta se
+        # conservan desvinculadas (ADR-0036 §4).
+        self.suggestions[session_id] = [
+            s if s.at_seq != at_seq else replace(s, finding_id=None)
+            for s in self.suggestions.get(session_id, [])
+            if s.at_seq != at_seq or s.response is not None
+        ]
         # Re-evaluar el mismo estado sustituye sus hallazgos (ADR-0013).
         self.findings[session_id] = [
             f for f in self.findings.get(session_id, []) if f.at_seq != at_seq
@@ -236,7 +393,8 @@ class InMemorySessionRepository(SessionRepository):
             )
             self._next_finding_id += 1
         self.findings.setdefault(session_id, []).extend(persisted)
-        return tuple(persisted)
+        self._store_suggestions(session_id, persisted, suggestions)
+        return tuple(self._with_suggestions(session_id, f) for f in persisted)
 
     def dismiss_finding(
         self,
@@ -261,7 +419,7 @@ class InMemorySessionRepository(SessionRepository):
                     dismissal_reason=reason,
                 )
                 session_findings[i] = updated
-                return updated
+                return self._with_suggestions(session_id, updated)
         raise FindingNotFound(finding_id)
 
     def restore_finding(
@@ -284,7 +442,7 @@ class InMemorySessionRepository(SessionRepository):
                     dismissal_reason=None,
                 )
                 session_findings[i] = updated
-                return updated
+                return self._with_suggestions(session_id, updated)
         raise FindingNotFound(finding_id)
 
     def list_findings(
@@ -302,10 +460,10 @@ class InMemorySessionRepository(SessionRepository):
         if not include_dismissed:
             findings_list = [f for f in findings_list if f.status == "active"]
         if at_seq is not None:
-            return tuple(f for f in findings_list if f.at_seq == at_seq)
-        if latest_only:
-            return tuple(f for f in findings_list if f.at_seq == record.validated_at_seq)
-        return tuple(findings_list)
+            findings_list = [f for f in findings_list if f.at_seq == at_seq]
+        elif latest_only:
+            findings_list = [f for f in findings_list if f.at_seq == record.validated_at_seq]
+        return tuple(self._with_suggestions(session_id, f) for f in findings_list)
 
     def list_dismissed_findings(
         self,
@@ -314,7 +472,46 @@ class InMemorySessionRepository(SessionRepository):
         record = self.sessions.get(session_id)
         if record is None:
             return ()
-        return tuple(f for f in self.findings.get(session_id, []) if f.status == "dismissed")
+        return tuple(
+            self._with_suggestions(session_id, f)
+            for f in self.findings.get(session_id, [])
+            if f.status == "dismissed"
+        )
+
+    def get_suggestion(self, session_id: str, suggestion_id: int) -> PersistedSuggestion | None:
+        return next(
+            (s for s in self.suggestions.get(session_id, []) if s.id == suggestion_id), None
+        )
+
+    def respond_suggestion(
+        self,
+        session_id: str,
+        suggestion_id: int,
+        *,
+        response: str,
+        user: str,
+        applied_seq: int | None = None,
+    ) -> PersistedSuggestion:
+        rows = self.suggestions.get(session_id, [])
+        for i, row in enumerate(rows):
+            if row.id == suggestion_id:
+                updated = replace(
+                    row,
+                    response=response,
+                    responded_by=user,
+                    responded_at=datetime.now(UTC),
+                    applied_seq=applied_seq,
+                )
+                rows[i] = updated
+                return updated
+        raise SuggestionNotFound(suggestion_id)
+
+    def list_suggestions(
+        self, session_id: str, *, at_seq: int | None = None
+    ) -> tuple[PersistedSuggestion, ...]:
+        return tuple(
+            s for s in self.suggestions.get(session_id, []) if at_seq is None or s.at_seq == at_seq
+        )
 
     def update_status(self, session_id: str, status: str) -> SessionData:
         record = self.sessions.get(session_id)
