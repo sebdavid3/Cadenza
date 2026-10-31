@@ -4,6 +4,7 @@
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0002, ADR-0007, ADR-0011, ADR-0017 y ADR-0027, CLAUDE.md §9)
 - **Enmienda:** [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md), que dejaba fuera del `ScoreIR` «dinámicas, articulaciones ni texto»
+- **Completado por:** [ADR-0039](ADR-0039-anadir-y-quitar-marcas-de-notacion.md), que añade las operaciones para añadir y quitar marcas (§4 y §5)
 - **Relacionado:** [ADR-0002](ADR-0002-score-document-anchor-index.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md), [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), [#213](https://github.com/sebdavid3/Cadenza/issues/213), [#214](https://github.com/sebdavid3/Cadenza/issues/214), [#215](https://github.com/sebdavid3/Cadenza/issues/215)
 
 ---
