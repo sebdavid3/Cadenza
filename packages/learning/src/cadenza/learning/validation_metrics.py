@@ -176,6 +176,16 @@ def categorize_edit_op(op: EditOp | str) -> str:
     return "other"
 
 
+@dataclass(frozen=True, slots=True)
+class MeasureError:
+    """Una corrección real dirigida a un compás: su pentagrama, su número y su operación."""
+
+    part: int
+    staff: int
+    measure: int
+    op: str
+
+
 def evaluate_score_measures(
     score_id: str,
     score_pred: ScoreIR,
@@ -183,6 +193,29 @@ def evaluate_score_measures(
     edits: Sequence[EditEvent],
 ) -> list[MeasureEvaluationRecord]:
     """Evalúa compás a compás la partitura predicha contra hallazgos y ediciones reales."""
+    errors = [
+        MeasureError(
+            part=e.anchor.part,
+            staff=e.anchor.staff,
+            measure=e.anchor.measure,
+            op=e.op.value if hasattr(e.op, "value") else str(e.op),
+        )
+        for e in edits
+    ]
+    return evaluate_measures(score_id, score_pred, findings, errors)
+
+
+def evaluate_measures(
+    score_id: str,
+    score_pred: ScoreIR,
+    findings: Sequence[Finding],
+    errors: Sequence[MeasureError],
+) -> list[MeasureEvaluationRecord]:
+    """La definición por compás de `exp_06` con las correcciones reales dadas por compás.
+
+    Un compás tiene error si alguna corrección real va a él, y está marcado si algún hallazgo
+    está anclado en él. `exp_14` (#257) la usa con las correcciones del corpus de #255.
+    """
     records: list[MeasureEvaluationRecord] = []
 
     for part_idx, part in enumerate(score_pred.parts):
@@ -190,17 +223,15 @@ def evaluate_score_measures(
             for meas in staff.measures:
                 m_num = meas.number
 
-                # Ediciones reales dirigidas a este compás
-                meas_edits = [
+                # Correcciones reales dirigidas a este compás
+                meas_errors = [
                     e
-                    for e in edits
-                    if e.anchor.part == part_idx
-                    and e.anchor.staff == staff_idx
-                    and e.anchor.measure == m_num
+                    for e in errors
+                    if e.part == part_idx and e.staff == staff_idx and e.measure == m_num
                 ]
-                has_error = len(meas_edits) > 0
-                ops = tuple(e.op.value if hasattr(e.op, "value") else str(e.op) for e in meas_edits)
-                cats = tuple(sorted({categorize_edit_op(e.op) for e in meas_edits}))
+                has_error = len(meas_errors) > 0
+                ops = tuple(e.op for e in meas_errors)
+                cats = tuple(sorted({categorize_edit_op(e.op) for e in meas_errors}))
 
                 # Hallazgos del validador dirigidos a este compás
                 meas_findings = [
