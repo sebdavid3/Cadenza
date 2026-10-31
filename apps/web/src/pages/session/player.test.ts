@@ -13,27 +13,36 @@ function playback(totalBeats: number): Playback {
 
 /** Motor que solo anota: el reloj no importa aquí, sino cuándo se crea y se libera. */
 function fakeEngines() {
-  const created: { playback: Playback; handlers: EngineHandlers; dispose: () => void }[] = [];
+  const created: {
+    playback: Playback;
+    handlers: EngineHandlers;
+    dispose: () => void;
+    updates: Playback[];
+  }[] = [];
   vi.spyOn(engineLoader, "load").mockResolvedValue((played, _tempo, handlers) => {
     const dispose = vi.fn();
+    const updates: Playback[] = [];
     const engine: PlaybackEngine = {
+      update: (next) => {
+        updates.push(next);
+      },
       play: vi.fn(() => Promise.resolve()),
       pause: vi.fn(),
       stop: vi.fn(),
       setTempo: vi.fn(),
       dispose,
     };
-    created.push({ playback: played, handlers, dispose });
+    created.push({ playback: played, handlers, dispose, updates });
     return engine;
   });
   return created;
 }
 
 describe("usePlayer", () => {
-  it("otro estado de la misma sesión libera el motor y no hereda el compás", async () => {
+  it("otro estado de la misma sesión no corta lo que suena: el motor sigue con la partitura nueva (#276)", async () => {
     const created = fakeEngines();
     const first = playback(3);
-    const { result, rerender } = renderHook(({ played }) => usePlayer(played), {
+    const { result, rerender, unmount } = renderHook(({ played }) => usePlayer(played), {
       initialProps: { played: first },
     });
     await waitFor(() => {
@@ -45,18 +54,38 @@ describe("usePlayer", () => {
     act(() => {
       created[0]?.handlers.onMeasure(1);
     });
+
+    const second = playback(6);
+    rerender({ played: second });
+
+    expect(created).toHaveLength(1);
+    expect(created[0]?.dispose).not.toHaveBeenCalled();
+    expect(created[0]?.updates).toEqual([second]);
+    expect(result.current.status).toBe("playing");
     expect(result.current.measure).toBe(1);
 
-    rerender({ played: playback(6) });
+    // Al salir de la vista sí se libera.
+    unmount();
+    expect(created[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("si el estado nuevo no tiene nada que sonar, se detiene", async () => {
+    const created = fakeEngines();
+    const { result, rerender } = renderHook(({ played }) => usePlayer(played), {
+      initialProps: { played: playback(3) },
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe("stopped");
+    });
+    act(() => {
+      result.current.play();
+    });
+
+    rerender({ played: { notes: [], measures: [], totalBeats: 3 } });
 
     expect(created[0]?.dispose).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe("stopped");
     expect(result.current.measure).toBeNull();
-    act(() => {
-      result.current.play();
-    });
-    expect(created).toHaveLength(2);
-    expect(created[1]?.playback.totalBeats).toBe(6);
   });
 
   it("no carga Tone.js si no hay nada que sonar", () => {

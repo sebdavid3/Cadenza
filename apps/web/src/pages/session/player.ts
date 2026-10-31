@@ -15,6 +15,8 @@ export interface PlaybackEngine {
   /** Vuelve al principio y calla lo que suene. */
   stop(): void;
   setTempo(bpm: number): void;
+  /** Sigue con otra partitura desde el punto en que está, sin cortar lo que suena (#276). */
+  update(playback: Playback): void;
   dispose(): void;
 }
 
@@ -54,8 +56,8 @@ export function clampTempo(bpm: number): number {
 
 /**
  * Transporte de la vista de una sesión: reproducir, pausar, detener y tempo. El motor se crea
- * en el primer «Reproducir» (dentro del gesto) y se libera al salir de la vista o si cambia lo
- * que se reproduce. Si la página deja de verse, se pausa: con el reloj por `setTimeout`, el
+ * en el primer «Reproducir» (dentro del gesto) y se libera al salir de la vista; una edición le
+ * da la partitura nueva sin cortar lo que suena (#276). Si la página deja de verse, se pausa: con el reloj por `setTimeout`, el
  * navegador lo frena en segundo plano y las notas llegarían a destiempo.
  */
 export function usePlayer(playback: Playback | null) {
@@ -91,14 +93,28 @@ export function usePlayer(playback: Playback | null) {
     setLoadAttempt((attempt) => attempt + 1);
   }, []);
 
-  // Otra partitura (u otra vista) no hereda el motor ni lo que estaba sonando.
+  // Otro estado de la misma partitura (una edición) no corta lo que suena: el motor sigue desde
+  // el mismo punto con las notas nuevas (#276). Sin nada que sonar, se detiene. Mientras el estado
+  // nuevo no tiene sus tiempos (null), sigue lo que sonaba. Otra sesión monta otra vista.
+  const silent = playback !== null && playback.notes.length === 0;
+  if (silent && (state.status === "playing" || state.status === "paused")) setState(STOPPED);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !playback) return;
+    if (playback.notes.length > 0) {
+      engine.update(playback);
+      return;
+    }
+    engine.dispose();
+    engineRef.current = null;
+  }, [playback]);
+  // Al salir de la vista se libera el motor.
   useEffect(
     () => () => {
       engineRef.current?.dispose();
       engineRef.current = null;
-      setState(STOPPED);
     },
-    [playback],
+    [],
   );
 
   const play = useCallback(() => {

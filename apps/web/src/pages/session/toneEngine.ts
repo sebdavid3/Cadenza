@@ -106,29 +106,56 @@ export function createToneEngine(
     voice = createVoice(context);
   };
 
-  for (const note of playback.notes) {
-    const frequency = midiToFrequency(note.midi);
-    const duration = ticks(note.duration);
+  let current = playback;
+  // Si lo programado empieza en un punto de la partitura (tras `update` mientras suena), al volver
+  // al principio hay que programarla entera.
+  let partial = false;
+  /** Termina como al llegar al final: la última nota acaba con su caída, sin fundir la voz. */
+  const finish = () => {
+    intent = "stopped";
+    transport.stop();
+    clearTimers();
+    if (partial) program(0);
+    handlers.onEnd();
+  };
+  /**
+   * Programa la partitura desde el pulso `from`: lo anterior ya sonó. Con el transporte en marcha,
+   * lo del pulso en que está ya lo disparó lo programado antes.
+   */
+  function program(from: number) {
+    transport.cancel(0);
+    partial = from > 0;
+    const running = transport.state === "started";
+    const ahead = (tick: number) => (running ? tick > from : tick >= from);
+    for (const note of current.notes) {
+      const at = Math.round(note.start * transport.PPQ);
+      if (!ahead(at)) continue;
+      const frequency = midiToFrequency(note.midi);
+      const duration = ticks(note.duration);
+      transport.schedule(
+        (time) => {
+          voice.synth.triggerAttackRelease(frequency, duration, time);
+        },
+        `${String(at)}i`,
+      );
+    }
+    for (const measure of current.measures) {
+      const at = Math.round(measure.start * transport.PPQ);
+      if (!ahead(at)) continue;
+      transport.schedule(
+        (time) => {
+          atTime(time, () => {
+            handlers.onMeasure(measure.number);
+          });
+        },
+        `${String(at)}i`,
+      );
+    }
     transport.schedule((time) => {
-      voice.synth.triggerAttackRelease(frequency, duration, time);
-    }, ticks(note.start));
+      atTime(time, finish);
+    }, ticks(current.totalBeats));
   }
-  for (const measure of playback.measures) {
-    transport.schedule((time) => {
-      atTime(time, () => {
-        handlers.onMeasure(measure.number);
-      });
-    }, ticks(measure.start));
-  }
-  transport.schedule((time) => {
-    atTime(time, () => {
-      // La última nota termina con su caída: no se funde la voz.
-      intent = "stopped";
-      transport.stop();
-      clearTimers();
-      handlers.onEnd();
-    });
-  }, ticks(playback.totalBeats));
+  program(0);
 
   return {
     async play() {
@@ -151,6 +178,18 @@ export function createToneEngine(
       intent = "stopped";
       transport.stop(context.immediate());
       silence();
+      if (partial) program(0);
+    },
+    // Otra partitura (una edición) con el transporte donde está: lo que sigue suena con las notas
+    // nuevas, sin cortar lo que ya suena. Si la nueva acaba antes de ese punto, termina.
+    update(next) {
+      current = next;
+      const position = transport.state === "stopped" ? 0 : transport.ticks;
+      if (position >= Math.round(next.totalBeats * transport.PPQ)) {
+        finish();
+        return;
+      }
+      program(position);
     },
     setTempo(bpm) {
       transport.bpm.value = bpm;

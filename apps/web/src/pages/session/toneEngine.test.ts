@@ -57,6 +57,10 @@ const tone = vi.hoisted(() => {
       if (this.state !== "started" || time < this.startedAt) return this.ticksBefore;
       return this.ticksBefore + ((time - this.startedAt) * this.tempo * this.PPQ) / 60;
     }
+    /** Como `Transport.ticks` de Tone: los pulsos en `now()`, con el margen de anticipación. */
+    get ticks() {
+      return this.ticksAt(this.context.now());
+    }
     private timeOf(tick: number) {
       return this.startedAt + ((tick - this.ticksBefore) * 60) / (this.tempo * this.PPQ);
     }
@@ -398,5 +402,70 @@ describe("motor de audio con Tone.js", () => {
     const next = createToneEngine(PLAYBACK, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
     expect(context()).not.toBe(used);
     release(next);
+  });
+
+  it("con otra partitura mientras suena, sigue desde el mismo punto con las notas nuevas (#276)", async () => {
+    const onMeasure = vi.fn();
+    const onEnd = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure, onEnd });
+    const contextBefore = context();
+    await engine.play();
+    advance(0.3);
+    expect(onMeasure.mock.calls).toEqual([[1]]);
+
+    // Una edición sube un tono la segunda nota y la tercera: el transporte no se detiene.
+    engine.update({
+      ...PLAYBACK,
+      notes: [
+        { start: 0, duration: 1, midi: 60, measure: 1 },
+        { start: 1, duration: 1, midi: 66, measure: 1 },
+        { start: 2, duration: 2, midi: 69, measure: 2 },
+      ],
+    });
+    advance(1.2);
+
+    expect(context()).toBe(contextBefore);
+    expect(context().transport.state).toBe("started");
+    // La primera nota ya sonó; las siguientes suenan con su altura nueva y en su instante.
+    expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([262, 370, 440]);
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    advance(1);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    release(engine);
+  });
+
+  it("si la partitura nueva acaba antes del punto que suena, termina", async () => {
+    const onEnd = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure: vi.fn(), onEnd });
+    await engine.play();
+    advance(1.5);
+
+    engine.update({
+      notes: [{ start: 0, duration: 1, midi: 60, measure: 1 }],
+      measures: [{ number: 1, start: 0, end: 1 }],
+      totalBeats: 1,
+    });
+    vi.advanceTimersByTime(10);
+
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(context().transport.state).toBe("stopped");
+    release(engine);
+  });
+
+  it("tras seguir con otra partitura, detener y reproducir la empieza entera", async () => {
+    const onMeasure = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure, onEnd: vi.fn() });
+    await engine.play();
+    advance(1.3);
+    engine.update(PLAYBACK);
+
+    engine.stop();
+    onMeasure.mockClear();
+    await engine.play();
+    advance(0.6);
+
+    expect(onMeasure.mock.calls).toEqual([[1]]);
+    expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([262, 330]);
+    release(engine);
   });
 });
