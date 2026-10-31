@@ -171,6 +171,15 @@ class Settings(BaseSettings):
             "(ADR-0024)."
         ),
     )
+    score_cache_max_entries: int = Field(
+        default=32,
+        ge=0,
+        le=1024,
+        description=(
+            "Estados materializados de sesión (ScoreIR, MusicXML y tiempos) que la API guarda en "
+            "memoria por (sesión, seq); 0 los desactiva (#275, ADR-0037)."
+        ),
+    )
     omr_preprocess_enabled: bool = Field(
         default=False,
         description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",

@@ -82,6 +82,36 @@ export interface DynamicPayload {
 }
 
 /**
+ * 201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).
+ * 
+ * Los campos de `EditEventRead` no cambian; los demás son una ampliación compatible del
+ * contrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la
+ * exportación ni los tiempos.
+ */
+export interface EditAppliedRead {
+  id: string;
+  session_id: string;
+  seq: number;
+  op: EditOp | string;
+  author: string;
+  anchor: AnchorPayload;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reverts_edit_id?: string | null;
+  created_at: string;
+  /** Estado nuevo de la sesión: el seq de esta edición */
+  current_seq: number;
+  /** ScoreIR materializado del estado nuevo */
+  current_score: ScoreIRPayload;
+  /** Estado del ciclo de vida de la sesión tras la edición */
+  status: string;
+  /** MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error) */
+  musicxml: string | null;
+  /** Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq */
+  timing: TimingMapRead | null;
+}
+
+/**
  * Payload de una corrección humana (el servidor asigna id, seq y fecha).
  * 
  * Exige `base_seq`, que identifica el estado sobre el cual se construyó la
@@ -459,6 +489,28 @@ export interface SessionSummaryRead {
 }
 
 /**
+ * Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).
+ * 
+ * Los campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`
+ * (cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.
+ */
+export interface SessionViewRead {
+  session_id: string;
+  document_id: string;
+  omr_engine: string;
+  findings: FindingRead[];
+  edits: EditEventRead[];
+  current_score?: ScoreIRPayload | null;
+  current_seq?: number;
+  image_artifact?: string | null;
+  model_version?: string | null;
+  status?: string;
+  condition?: string;
+  test_score_id?: string | null;
+  owner_id?: string | null;
+}
+
+/**
  * Extremo de una ligadura de expresión en un evento (ADR-0031).
  */
 export interface SlurPayload {
@@ -546,6 +598,12 @@ export interface UndoResponse {
   anchor_index?: AnchorIndexPayload | null;
   compensatory_edit_id?: string | null;
   compensatory_edit?: EditEventRead | null;
+  /** Estado del ciclo de vida de la sesión tras deshacer */
+  status: string;
+  /** MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error) */
+  musicxml: string | null;
+  /** Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq */
+  timing: TimingMapRead | null;
 }
 
 /**
