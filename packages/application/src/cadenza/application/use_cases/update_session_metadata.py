@@ -7,7 +7,7 @@ MusicXML sin cambiar el `seq`, invalida la caché del estado (ADR-0037, D66).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from enum import Enum
 from typing import Final
 
@@ -29,13 +29,16 @@ UNCHANGED: Final = Unchanged.UNCHANGED
 
 
 def _part_count(document: object) -> int:
-    """Cuántas partes tiene la partitura: las ediciones no añaden ni quitan partes."""
-    if isinstance(document, dict):
-        score = document.get("score")
-        if isinstance(score, dict):
-            parts = score.get("parts")
-            if isinstance(parts, list):
-                return len(parts)
+    """Cuántas partes tiene la partitura: las ediciones no añaden ni quitan partes.
+
+    Cuenta las del documento guardado (primitivo o ya construido) sin reconstruir el `ScoreIR`.
+    """
+    score = document.get("score") if isinstance(document, Mapping) else None
+    if score is None:
+        score = getattr(document, "score", None)
+    parts = score.get("parts") if isinstance(score, Mapping) else getattr(score, "parts", None)
+    if isinstance(parts, Sequence) and not isinstance(parts, str):
+        return len(parts)
     return 0
 
 

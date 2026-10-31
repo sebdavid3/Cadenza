@@ -121,6 +121,26 @@ def test_update_metadata_replaces_only_the_metadata(factory: sessionmaker[DbSess
         assert tuple(row) == (None, None, None)
 
 
+def test_unknown_instrument_is_read_as_other(factory: sessionmaker[DbSession]) -> None:
+    # Una versión posterior pudo guardar un instrumento que esta no conoce: el listado sigue.
+    with factory() as db:
+        _repo(db, metadata=METADATA)
+        db.execute(
+            text("UPDATE sessions SET part_instruments = :value"),
+            {"value": '[{"instrument": "kazoo", "name": null}, {"instrument": "piano"}]'},
+        )
+        db.expire_all()
+        repo = SqlAlchemySessionRepository(db)
+        stored = repo.get("s1")
+        assert stored is not None
+        assert stored.metadata.parts == (
+            PartMetadata(Instrument.OTHER, name="kazoo"),
+            PartMetadata(Instrument.PIANO),
+        )
+        (summary,) = repo.list_summaries()
+        assert summary.metadata.parts == stored.metadata.parts
+
+
 def test_update_metadata_of_missing_session(factory: sessionmaker[DbSession]) -> None:
     with factory() as db, pytest.raises(SessionNotFound):
         SqlAlchemySessionRepository(db).update_metadata("nope", METADATA)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -18,23 +19,40 @@ from cadenza.application import (
     SuggestionConflict,
     SuggestionNotFound,
 )
-from cadenza.domain import Finding, ScoreMetadata
+from cadenza.domain import (
+    PART_NAME_MAX_LENGTH,
+    Finding,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+)
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session as DbSession
 
 from .models import EditEventRecord, FindingRecord, SuggestionRecord
 from .models import Session as SessionRecord
 
+logger = logging.getLogger("cadenza.persistence.session_repository")
+
 
 def _metadata(
     title: str | None, composer: str | None, part_instruments: list[dict[str, Any]] | None
 ) -> ScoreMetadata:
-    """Los metadatos de una fila; NULL (una sesión anterior a #235) es sin metadatos."""
-    return ScoreMetadata(
-        title=title,
-        composer=composer,
-        parts=ScoreMetadata.parts_from_primitive(part_instruments),
-    )
+    """Los metadatos de una fila; NULL (una sesión anterior a #235) es sin metadatos.
+
+    Un instrumento que este código no conoce (guardado por una versión posterior) se lee como
+    `other` con su identificador por nombre si no tenía otro: una fila así no deja sin
+    respuesta el listado entero.
+    """
+    parts: list[PartMetadata] = []
+    for item in part_instruments or ():
+        try:
+            parts.append(PartMetadata.from_primitive(item))
+        except ValueError:
+            logger.warning("unknown_part_instrument value=%r", item.get("instrument"))
+            raw_name = item.get("name") or item.get("instrument")
+            parts.append(PartMetadata(Instrument.OTHER, name=str(raw_name)[:PART_NAME_MAX_LENGTH]))
+    return ScoreMetadata(title=title, composer=composer, parts=tuple(parts))
 
 
 def _metadata_columns(metadata: ScoreMetadata) -> dict[str, Any]:
