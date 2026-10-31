@@ -55,7 +55,11 @@ STAFF = "part-0-staff-0"
 
 
 class TwoShortMeasuresEngine(OMREngine):
-    """Dos compases de 4/4 con tres negras: `measure.balance` señala los dos."""
+    """Dos compases de 4/4 con cinco negras: `measure.balance` señala los dos.
+
+    Les sobra una negra y no les falta: un primer compás corto sería una anacrusa, que el
+    catálogo 2 no señala (ADR-0040 §4).
+    """
 
     @property
     def engine_id(self) -> str:
@@ -67,7 +71,7 @@ class TwoShortMeasuresEngine(OMREngine):
                 number=number,
                 events=tuple(
                     Event(kind=EventKind.NOTE, voice=0, pitch=p, duration_beats=Fraction(1))
-                    for p in ("C4", "D4", "E4")
+                    for p in ("C4", "D4", "E4", "F4", "A4")
                 ),
                 time_signature=TimeSignature(4, 4),
             )

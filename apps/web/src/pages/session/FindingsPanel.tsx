@@ -48,8 +48,12 @@ interface FindingsPanelProps {
 }
 
 /**
- * Regla y mensaje de un posible error. Con varios en un compás que se pueden descartar, cada uno
- * lleva su número, el de su botón. El mensaje describe ese botón (`id`).
+ * Regla y mensaje de un posible error, y debajo «Qué revisar» (`suggested_fix`, ADR-0040 §2): qué
+ * mirar en la partitura impresa. Es texto, no una edición que se aplique. Solo en los de las
+ * reglas: en los de la capa (`learned.*`) es la edición propuesta, que se muestra con las
+ * sugerencias (#258). Con varios en un compás
+ * que se pueden descartar, cada uno lleva su número, el de su botón. El mensaje describe ese
+ * botón (`id`).
  */
 function FindingText({
   finding,
@@ -69,6 +73,9 @@ function FindingText({
       <span id={id} className="findings__message">
         {finding.message}
       </span>
+      {finding.suggested_fix && !finding.rule_id.startsWith("learned.") && (
+        <span className="findings__fix">Qué revisar: {finding.suggested_fix}</span>
+      )}
     </>
   );
 }

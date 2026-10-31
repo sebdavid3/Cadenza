@@ -39,7 +39,7 @@ from cadenza.domain import (
     build_anchor_index,
     materialize,
 )
-from cadenza.validation import ValidationEngine
+from cadenza.validation import RULES_CATALOG_VERSION, ValidationEngine
 from cadenza.validation.learned import (
     ARTIFACT_FORMAT,
     ARTIFACT_FORMAT_VERSION,
@@ -642,6 +642,9 @@ def evaluate(
     return {
         "split": split,
         "simulated": False,
+        # Lo que mide de punta a punta depende de las reglas (ADR-0040 §14).
+        "rules_version": validator.rules_version,
+        "rules_catalog_version": RULES_CATALOG_VERSION,
         "incipits": incipits,
         "skipped_incipits": skipped,
         "families": families,
@@ -777,14 +780,19 @@ def _score_end_to_end(
 # --- Promoción -------------------------------------------------------------------------------
 
 
+def _rules_of(metrics: Mapping[str, Any]) -> tuple[object, object]:
+    """Con qué reglas se midió un informe; sin versión del catálogo, el 1 (anterior a #246)."""
+    return metrics.get("rules_version"), metrics.get("rules_catalog_version", 1)
+
+
 def promotion_decision(
     report: Mapping[str, Any], active_metrics: Mapping[str, Any] | None
 ) -> tuple[bool, str]:
     """Si una versión se puede promover (ADR-0036 §9).
 
     Mejora a la activa en la partición de prueba fija (F1 de las familias activas, sin bajar
-    la exactitud de la primera sugerencia); la primera, a no tener capa. Sin métricas
-    medidas, no se promueve.
+    la exactitud de la primera sugerencia), medida con las mismas reglas (ADR-0040 §14); la
+    primera, a no tener capa. Sin métricas medidas, no se promueve.
     """
     if report.get("simulated", True):
         return False, "el informe no es una medición"
@@ -810,6 +818,11 @@ def promotion_decision(
         return True, "mejora a no tener capa"
     if active_metrics.get("evaluation_dataset_hash") != report.get("evaluation_dataset_hash"):
         return False, "la versión activa se midió con otra partición de prueba: no se comparan"
+    if _rules_of(active_metrics) != _rules_of(report):
+        return False, (
+            "la versión activa se midió con otra versión de las reglas: no se comparan "
+            "(ADR-0040 §14)"
+        )
     active_f1 = (active_metrics.get("learned") or {}).get("f1")
     active_top1 = (active_metrics.get("rule_findings") or {}).get("top1_accuracy")
     if active_f1 is None:

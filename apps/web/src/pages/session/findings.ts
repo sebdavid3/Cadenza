@@ -1,15 +1,23 @@
 import type { AnchorPayload, FindingRead, ScoreIRPayload } from "../../types";
 
 /**
- * Familias de reglas del validador (`packages/validation`) con un nombre que se entienda. Una
- * regla nueva sin nombre aquí se muestra con su identificador.
+ * El título de cada regla del catálogo (`packages/validation`, ADR-0040 §3) y de los posibles
+ * errores de la capa de sugerencias (`learned.*`, ADR-0036). Una regla nueva sin título aquí se
+ * muestra con su identificador.
  */
 const RULE_LABELS: Record<string, string> = {
   "measure.balance": "Duración del compás",
-  "key.consistency": "Armadura y alteraciones",
+  "time.signature": "Indicación de compás",
+  "tuplet.incomplete": "Tresillo incompleto",
+  "accidental.repeated": "Alteración repetida",
+  "key.consistency": "Armaduras distintas",
   "pitch.range": "Altura fuera de registro",
   "tie.resolution": "Ligadura sin cerrar",
-  "voice.collision": "Voces que se pisan",
+  "voice.collision": "Acorde mal formado",
+  "learned.accidental": "Alteración dudosa",
+  "learned.duration": "Figura dudosa",
+  "learned.pitch": "Altura dudosa",
+  "learned.delete": "Nota de más",
 };
 
 export function ruleLabel(ruleId: string): string {

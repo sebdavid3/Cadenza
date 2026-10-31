@@ -967,6 +967,79 @@ def test_exp_06_validation_smb_custom_manifest(tmp_path: Path) -> None:
     assert report.global_metrics.accuracy == 1.0
 
 
+def _exp_06_corpus(tmp_path: Path) -> tuple[Path, Path]:
+    piano_xml = (
+        REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "piano.musicxml"
+    ).read_text(encoding="utf-8")
+    root = tmp_path / "corpus"
+    preds_dir = root / "primus" / "predictions"
+    gt_dir = root / "primus" / "gt"
+    preds_dir.mkdir(parents=True)
+    gt_dir.mkdir(parents=True)
+    (gt_dir / "p1.musicxml").write_text(piano_xml, encoding="utf-8")
+    (preds_dir / "p1.musicxml").write_text(piano_xml, encoding="utf-8")
+    manifest = root / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {"corpus": "primus", "entries": [{"id": "p1", "ground_truth": "primus/gt/p1.musicxml"}]}
+        ),
+        encoding="utf-8",
+    )
+    return manifest, preds_dir
+
+
+def test_exp_06_records_the_rules_version_with_every_figure(tmp_path: Path) -> None:
+    """Cada cifra de `exp_06` dice de qué versión de las reglas es (ADR-0040 §15.6)."""
+    import csv
+
+    from cadenza.validation import RULES_CATALOG_VERSION, ValidationEngine
+
+    from ml.experiments import exp_06_validation_metrics
+
+    manifest, preds_dir = _exp_06_corpus(tmp_path)
+    output = tmp_path / "out"
+    exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir, output_dir=output)
+    rules_version = ValidationEngine().rules_version
+    expected: dict[str, object] = {
+        "rules_version": rules_version,
+        "rules_catalog_version": RULES_CATALOG_VERSION,
+    }
+    summary = json.loads((output / "validation_metrics_summary.json").read_text("utf-8"))
+    coverage = json.loads((output / "validation_error_coverage.json").read_text("utf-8"))
+    for payload in (summary, coverage):
+        assert {key: payload[key] for key in expected} == expected
+    assert set(summary["metrics_by_rule"]) == set(rules_version.split(","))
+    for name in ("validation_metrics_by_rule.csv", "validation_metrics_by_measure.csv"):
+        rows = list(csv.DictReader((output / name).open(encoding="utf-8")))
+        assert rows
+        assert all(row["rules_version"] == rules_version for row in rows)
+        assert all(row["rules_catalog_version"] == str(RULES_CATALOG_VERSION) for row in rows)
+    # Nada en el `results/` del experimento: la salida va a `--output-dir`.
+    assert not exp_06_validation_metrics.RESULTS_DIR.exists() or not any(
+        exp_06_validation_metrics.RESULTS_DIR.iterdir()
+    )
+
+
+def test_exp_06_does_not_overwrite_a_measurement_of_another_rules_catalog(
+    tmp_path: Path,
+) -> None:
+    """La medición nueva se documenta junto a la anterior: sin `rules_catalog_version`, el
+    resumen es del catálogo 1 y no se sobrescribe (ADR-0040 §15.6)."""
+    from ml.experiments import exp_06_validation_metrics
+
+    manifest, preds_dir = _exp_06_corpus(tmp_path)
+    output = tmp_path / "out"
+    output.mkdir()
+    previous = output / "validation_metrics_summary.json"
+    previous.write_text(json.dumps({"experiment": "exp_06_validation_metrics"}), "utf-8")
+    with pytest.raises(ValueError, match="catálogo de reglas 1"):
+        exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir, output_dir=output)
+    assert json.loads(previous.read_text("utf-8")) == {"experiment": "exp_06_validation_metrics"}
+    # Una medición de la misma versión sí se rehace.
+    exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir, output_dir=tmp_path)
+    exp_06_validation_metrics.run_validation_experiment(manifest, preds_dir, output_dir=tmp_path)
+
+
 def test_exp_10_effort_study_smoke(tmp_path: Path) -> None:
     from ml.experiments import exp_10_effort_study
 

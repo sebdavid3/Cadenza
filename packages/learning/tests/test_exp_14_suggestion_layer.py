@@ -27,6 +27,7 @@ from cadenza.learning import (
     semantic_note_pitches,
     with_sounding_pitches,
 )
+from cadenza.validation import RULES_CATALOG_VERSION, ValidationEngine
 from cadenza.validation.learned import FEATURE_VERSION
 
 from ml.experiments import common
@@ -239,6 +240,15 @@ def test_the_experiment_measures_the_layer_and_writes_its_outputs(
     )
     rows = list(csv.DictReader((output / exp_14.CSV_NAME).open(encoding="utf-8")))
     assert sorted(row["id"] for row in rows) == sorted(tests)
+    # 9. La versión de las reglas con que se midió, en cada cifra (ADR-0040 §15.6).
+    version = {
+        "rules_version": ValidationEngine().rules_version,
+        "rules_catalog_version": RULES_CATALOG_VERSION,
+    }
+    for payload in (summary, run_info):
+        assert {key: payload[key] for key in version} == version
+    assert all(row["rules_version"] == version["rules_version"] for row in rows)
+    assert all(row["rules_catalog_version"] == str(RULES_CATALOG_VERSION) for row in rows)
 
 
 def test_the_same_seed_gives_the_same_measurement(
@@ -293,6 +303,19 @@ def test_with_a_display_policy_the_output_dir_is_required(world: dict[str, Path]
             output_dir=None,
             display_policy=policy,
         )
+
+
+def test_a_measurement_of_another_rules_catalog_is_not_overwritten(
+    world: dict[str, Path], tmp_path: Path
+) -> None:
+    """La medición de #287 (catálogo 1) se queda donde está: la nueva va a otro directorio."""
+    output = tmp_path / "v1"
+    output.mkdir()
+    previous = output / exp_14.SUMMARY_NAME
+    previous.write_text(json.dumps({"experiment": "exp_14_suggestion_layer"}), "utf-8")
+    with pytest.raises(ValueError, match="catálogo de reglas 1"):
+        _run(world, output, with_omr_ned=False)
+    assert json.loads(previous.read_text("utf-8")) == {"experiment": "exp_14_suggestion_layer"}
 
 
 def test_the_display_policy_comes_from_the_command_line() -> None:

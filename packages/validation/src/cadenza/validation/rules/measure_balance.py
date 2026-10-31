@@ -1,25 +1,23 @@
-"""Regla de balance de compás (M2).
+"""`measure.balance`: duración del compás (ADR-0040 §4).
 
-Comprueba que la suma de duraciones de notas y silencios de un compás coincida
-con su métrica. La duración esperada la aporta el propio valor de dominio
-`TimeSignature.quarter_length`, sin dependencias externas. La regla es de **solo
-lectura** y ancla el hallazgo al primer evento del compás problemático.
+Detecta una voz de un compás cuyas figuras no llenan su capacidad: la métrica del compás o,
+en los compases de un hallazgo de `time.signature`, la suma que da ese hallazgo (§5). Dispara
+cuando una voz se pasa, y cuando se queda corta y ninguna otra voz que se ve la llena; si
+ninguna la llena, cada voz corta se señala aparte (ADR-0032 §4).
 
-Con varias voces en el compás de un pentagrama, cada voz se comprueba aparte, y una
-voz puede salir antes del final del compás si otra que se ve lo completa (ADR-0032):
-MusicXML no obliga a rellenarla. Un silencio invisible (el hueco de una voz que entra
-a mitad del compás) cuenta como cualquier silencio, pero una voz hecha solo de
-silencios invisibles no completa el compás.
+No dispara en los falsos positivos conocidos: la anacrusa, el último compás que la completa,
+el silencio de compás, una voz hecha solo de silencios invisibles, lo que explica un tresillo
+incompleto (que señala `tuplet.incomplete`) y un compás sin métrica.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from fractions import Fraction
 
 from cadenza.domain import (
     Anchor,
-    AnchorIndex,
     EditOp,
     Event,
     EventKind,
@@ -28,26 +26,58 @@ from cadenza.domain import (
     ScoreDocument,
     Severity,
     SuggestedEdit,
-    TimeSignature,
 )
 
-from ..learned.features import figure_of
+from ..language import (
+    Phrase,
+    a,
+    amount,
+    capitalize,
+    count_figures,
+    de,
+    figure_of,
+    in_beat_figures,
+    measure_phrase,
+    meter_name,
+    note_name,
+    number_word,
+    position_phrase,
+    single_figure,
+    voice_phrases,
+)
 from .base import ValidationRule
-from .utils import build_event_anchor_map
+from .support import (
+    DURATION_KINDS,
+    Capacity,
+    Key,
+    PartMeter,
+    active_keys,
+    advance,
+    anchor_map,
+    first_visible,
+    incomplete_tuplets,
+    is_measure_rest,
+    is_visible,
+    measure_sum,
+    onsets,
+    unmarked_triplets_excess,
+    voice_sum,
+    voices_of,
+)
 
 RULE_ID = "measure.balance"
-_DURATION_KINDS = frozenset({EventKind.NOTE, EventKind.REST})
 
 
 def _is_figure(duration: Fraction) -> bool:
-    """Una figura escribible: potencia de dos, con o sin uno o dos puntillos."""
-    return figure_of(duration) is not None
+    """Una figura escribible sin tresillo: potencia de dos, con o sin uno o dos puntillos."""
+    figure = figure_of(duration)
+    return figure is not None and not figure.tuplet
 
 
 def _candidates(
-    voice_events: list[Event],
+    voice_events: Sequence[Event],
     delta: Fraction,
-    anchor_of: dict[int, Anchor],
+    anchor_of: Mapping[int, Anchor],
     end_anchor: Anchor | None,
 ) -> tuple[SuggestedEdit, ...]:
     """Los arreglos que cuadran el compás de una voz a la que le falta (`delta` > 0) o le
@@ -70,7 +100,7 @@ def _candidates(
             or event.is_chord
             or event.hidden
             or starts_chord
-            or event.kind not in _DURATION_KINDS
+            or event.kind not in DURATION_KINDS
         ):
             continue
         target = duration + delta
@@ -95,143 +125,252 @@ def _candidates(
     return (*candidates, *deletions)
 
 
-def _expected_quarter_length(signature: TimeSignature) -> Fraction:
-    """Duración esperada del compás en negras, derivada del dominio."""
-
-    return signature.quarter_length
-
-
-def _voice_durations_sum(events: list[Event]) -> Fraction | None:
-    """Suma de duraciones de una voz en un compás (descontando notas de acordes simultáneas)."""
-
-    total = Fraction(0)
-    for event in events:
-        if event.kind not in _DURATION_KINDS:
-            continue
-        if event.is_chord:
-            continue
-        if event.duration_beats is None:
-            return None
-        total += event.duration_beats
-    return total
+def _explained_by_tuplets(events: Sequence[Event], delta: Fraction) -> bool:
+    """Lo que falta (`delta` > 0) o sobra es exactamente lo que explican sus tresillos
+    incompletos (§6): entonces solo se señala el tresillo."""
+    groups = incomplete_tuplets(events)
+    if not groups:
+        return False
+    if delta > 0:
+        return delta == sum((group.deficit for group in groups), Fraction(0))
+    return -delta == sum((group.surplus for group in groups), Fraction(0))
 
 
-def _first_anchor_by_measure_and_voice(
-    index: AnchorIndex,
-) -> dict[tuple[int, int, int, int], Anchor]:
-    """Primer ancla de cada (part, staff, measure, voice)."""
+def _meter_phrase(capacity: Capacity) -> Phrase:
+    """«el 4/4» o, en un tramo de `time.signature`, «las cuatro negras que suman los demás
+    compases»."""
+    if capacity.span is None:
+        return Phrase("el", meter_name(capacity.signature))
+    total = in_beat_figures(capacity.value, capacity.signature.beat_type)
+    if total.startswith("una "):
+        return Phrase("la", f"{total[4:]} que suman los demás compases")
+    return Phrase("las", f"{total} que suman los demás compases")
 
-    result: dict[tuple[int, int, int, int], Anchor] = {}
-    for anchor in index.anchors():
-        result.setdefault((anchor.part, anchor.staff, anchor.measure, anchor.voice), anchor)
-    return result
 
-
-def _first_anchor_by_measure(index: AnchorIndex) -> dict[tuple[int, int, int], Anchor]:
-    """Primer ancla (evento) de cada compás, en orden determinista (fallback)."""
-
-    result: dict[tuple[int, int, int], Anchor] = {}
-    for anchor in index.anchors():
-        result.setdefault((anchor.part, anchor.staff, anchor.measure), anchor)
-    return result
+def _event_noun(event: Event, fifths: int) -> str:
+    if event.kind is EventKind.REST:
+        return "silencio"
+    return note_name(event.pitch, fifths=fifths)
 
 
 class MeasureBalanceRule(ValidationRule):
-    """La suma de duraciones de cada voz en cada compás debe igualar su métrica."""
+    """Las figuras de cada voz de cada compás llenan su capacidad, ni más ni menos."""
 
     @property
     def rule_id(self) -> str:
         return RULE_ID
 
     def evaluate(self, document: ScoreDocument) -> list[Finding]:
-        first_by_voice = _first_anchor_by_measure_and_voice(document.anchors)
-        first_by_measure = _first_anchor_by_measure(document.anchors)
-        anchor_map = build_event_anchor_map(document.anchors)
+        anchors = anchor_map(document.anchors)
         findings: list[Finding] = []
         for part_index, part in enumerate(document.score.parts):
+            meter = PartMeter.of(part, part_index)
             for staff_index, staff in enumerate(part.staves):
-                for measure in staff.measures:
+                keys = active_keys(staff)
+                measures = staff.measures
+                for position, measure in enumerate(measures):
+                    capacity = meter.capacity(measure)
+                    if capacity is None:
+                        continue
                     findings.extend(
                         self._evaluate_measure(
-                            part_index,
-                            staff_index,
+                            anchors,
+                            (part_index, staff_index),
                             measure,
-                            first_by_voice,
-                            first_by_measure,
-                            anchor_map,
+                            capacity,
+                            keys[position],
+                            first=position == 0 and len(measures) > 1,
+                            last=position == len(measures) - 1 and len(measures) > 1,
+                            opening=measures[0],
+                            opening_capacity=meter.capacity(measures[0]),
                         )
                     )
         return findings
 
     def _evaluate_measure(
         self,
-        part_index: int,
-        staff_index: int,
+        anchors: Mapping[Key, Anchor],
+        where: tuple[int, int],
         measure: Measure,
-        first_by_voice: dict[tuple[int, int, int, int], Anchor],
-        first_by_measure: dict[tuple[int, int, int], Anchor],
-        anchor_map: dict[tuple[int, int, int, int, int], Anchor],
+        capacity: Capacity,
+        fifths: int,
+        *,
+        first: bool,
+        last: bool,
+        opening: Measure,
+        opening_capacity: Capacity | None,
     ) -> list[Finding]:
-        if measure.time_signature is None:
+        voices = voices_of(measure)
+        seen = {voice: events for voice, events in voices.items() if is_visible(events)}
+        if not seen:
             return []
-        expected = _expected_quarter_length(measure.time_signature)
+        full = capacity.value
+        sums = {voice: voice_sum(events) for voice, events in seen.items()}
+        names = voice_phrases(voices)
+        completed = any(total == full for total in sums.values())
+        opening_sum = measure_sum(opening)
+        findings: list[Finding] = []
+        for voice, events in seen.items():
+            total = sums[voice]
+            if total == full or is_measure_rest(
+                events, capacity.value, capacity.signature.quarter_length
+            ):
+                continue
+            if total < full:
+                if completed or first:
+                    continue
+                if (
+                    last
+                    and opening_sum is not None
+                    and opening_capacity is not None
+                    and opening_sum < opening_capacity.value
+                    and opening_sum + total == full
+                ):
+                    continue
+            if _explained_by_tuplets(events, full - total):
+                continue
+            finding = self._finding(
+                anchors, where, measure, voice, events, capacity, fifths, names.get(voice)
+            )
+            if finding is not None:
+                findings.append(finding)
+        return findings
 
-        events_by_voice: dict[int, list[Event]] = {}
-        for event in measure.events:
-            events_by_voice.setdefault(event.voice, []).append(event)
-
-        if not events_by_voice:
-            return []
-
-        sums = {
-            voice: _voice_durations_sum(voice_events)
-            for voice, voice_events in sorted(events_by_voice.items())
+    def _finding(
+        self,
+        anchors: Mapping[Key, Anchor],
+        where: tuple[int, int],
+        measure: Measure,
+        voice: int,
+        events: Sequence[Event],
+        capacity: Capacity,
+        fifths: int,
+        name: Phrase | None,
+    ) -> Finding | None:
+        part_index, staff_index = where
+        anchor = first_visible(anchors, part_index, staff_index, measure, voice)
+        if anchor is None:
+            return None
+        full = capacity.value
+        total = voice_sum(events)
+        delta = full - total
+        anchor_of = {
+            index: found
+            for index in range(len(events))
+            if (found := anchors.get((part_index, staff_index, measure.number, voice, index)))
+            is not None
         }
-        # Con varias voces, la que sale antes del final no es un error si otra que se ve completa
-        # el compás: una voz hecha solo de silencios invisibles no lo completa.
-        completed = len(sums) > 1 and any(
-            sums[voice] == expected and not all(event.hidden for event in voice_events)
-            for voice, voice_events in events_by_voice.items()
+        end_anchor = (
+            replace(anchor_of[0], event_index=len(events), bbox=None, confidence=None)
+            if 0 in anchor_of
+            else None
+        )
+        message, fix = (
+            self._short(measure, events, capacity, name)
+            if delta > 0
+            else self._long(measure, events, capacity, fifths, name)
+        )
+        return Finding(
+            anchor=anchor,
+            rule_id=RULE_ID,
+            severity=Severity.ERROR,
+            message=message,
+            suggested_fix=fix,
+            candidates=_candidates(events, delta, anchor_of, end_anchor),
         )
 
-        findings: list[Finding] = []
-        for voice, actual in sums.items():
-            if actual is None or actual == expected or (completed and actual < expected):
-                continue
-            anchor = first_by_voice.get(
-                (part_index, staff_index, measure.number, voice)
-            ) or first_by_measure.get((part_index, staff_index, measure.number))
-            if anchor is None:
-                continue
-            voice_info = f" (voz {voice})" if len(events_by_voice) > 1 else ""
-            voice_events = events_by_voice[voice]
-            anchor_of = {
-                index: found
-                for index in range(len(voice_events))
-                if (
-                    found := anchor_map.get((part_index, staff_index, measure.number, voice, index))
-                )
-                is not None
-            }
-            end_anchor = (
-                replace(anchor_of[0], event_index=len(voice_events), bbox=None, confidence=None)
-                if 0 in anchor_of
-                else None
+    @staticmethod
+    def _subject(measure: Measure, name: Phrase | None, verb: str) -> str:
+        """«Al compás 3 le falta» o «En el compás 7, a la voz de arriba le falta»; con «sobra»,
+        «En el compás 2 sobra»."""
+        where = measure_phrase(measure.number)
+        if name is not None:
+            return f"En {where}, {a(name)} le {verb}"
+        if verb == "falta":
+            return f"{capitalize(a(where))} le falta"
+        return f"En {where} sobra"
+
+    @staticmethod
+    def _whose(name: Phrase | None) -> str:
+        return "del compás" if name is None else de(name)
+
+    def _short(
+        self,
+        measure: Measure,
+        events: Sequence[Event],
+        capacity: Capacity,
+        name: Phrase | None,
+    ) -> tuple[str, str]:
+        delta = capacity.value - voice_sum(events)
+        how_much = amount(delta) or "duración"
+        ends = position_phrase(voice_sum(events), capacity.signature)
+        figures = "las figuras" if name is None else "sus figuras"
+        message = (
+            f"{self._subject(measure, name, 'falta')} {how_much} para completar "
+            f"{_meter_phrase(capacity)}: {figures} se acaban antes {de(ends)}."
+        )
+        fix = (
+            f"Revisa las figuras {self._whose(name)}: puede que alguna sea más larga de lo que "
+            "se leyó"
+        )
+        alone = single_figure(delta)
+        fix += f", o que falte una nota o un silencio de {alone}." if alone else "."
+        return message, fix
+
+    def _long(
+        self,
+        measure: Measure,
+        events: Sequence[Event],
+        capacity: Capacity,
+        fifths: int,
+        name: Phrase | None,
+    ) -> tuple[str, str]:
+        full = capacity.value
+        excess = voice_sum(events) - full
+        how_much = amount(excess)
+        head = self._subject(measure, name, "sobra")
+        head += f" {how_much}" if how_much else " duración"
+        head += f" para {_meter_phrase(capacity)}"
+        triplets = unmarked_triplets_excess(capacity.signature, full, events)
+        if triplets is not None:
+            durations = {event.duration_beats for event in triplets}
+            noun = (
+                count_figures(len(triplets), next(iter(durations)))
+                if len(durations) == 1
+                else f"{number_word(len(triplets))} figuras"
             )
-            findings.append(
-                Finding(
-                    anchor=anchor,
-                    rule_id=RULE_ID,
-                    severity=Severity.ERROR,
-                    message=(
-                        f"El compás {measure.number}{voice_info} suma {actual} negras y su métrica "
-                        f"{measure.time_signature} exige {expected}."
-                    ),
-                    suggested_fix=(
-                        f"Ajustar las duraciones del compás {measure.number}{voice_info} "
-                        f"para sumar {expected} negras."
-                    ),
-                    candidates=_candidates(voice_events, expected - actual, anchor_of, end_anchor),
-                )
+            return (
+                f"{head}: sus {noun} van en grupos de tres, como los tresillos.",
+                "Si en la partitura son tresillos, márcalos como tresillos; si no, revisa las "
+                "figuras.",
             )
-        return findings
+        starts = onsets(events)
+        detail = "el compás ya está lleno"
+        for index, event in enumerate(events):
+            if event.is_chord or event.hidden:
+                continue
+            if starts[index] + advance(event) <= full:
+                continue
+            noun = _event_noun(event, fifths)
+            if starts[index] < full:
+                where = position_phrase(starts[index], capacity.signature)
+                figure = (
+                    f", {count_figures(1, event.duration_beats)},"
+                    if figure_of(event.duration_beats) is not None
+                    else ""
+                )
+                detail = f"el {noun} {de(where)}{figure} se sale del compás"
+            else:
+                detail = f"el compás ya está lleno cuando llega el {noun}"
+            break
+        fix = (
+            f"Revisa las figuras {self._whose(name)}: puede que alguna sea más corta de lo que "
+            "se leyó"
+        )
+        alone = single_figure(excess)
+        lasts = any(
+            not event.is_chord and not event.hidden and event.duration_beats == excess
+            for event in events
+        )
+        fix += f", o que sobre una nota de {alone}." if alone and lasts else "."
+        return f"{head}: {detail}.", fix

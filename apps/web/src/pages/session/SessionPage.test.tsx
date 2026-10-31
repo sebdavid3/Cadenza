@@ -508,6 +508,90 @@ describe("vista de una sesión", () => {
     expect(screen.queryByText(/^error$/i)).toBeNull();
   });
 
+  it("muestra «Qué revisar» bajo el mensaje de cada posible error (ADR-0040 §2)", async () => {
+    api({
+      findings: [
+        finding(1, 2, {
+          message:
+            "Al compás 2 le falta una corchea para completar el 3/4: las figuras se acaban antes de la segunda corchea del tiempo 3.",
+          suggested_fix:
+            "Revisa las figuras del compás: puede que alguna sea más larga de lo que se leyó, o que falte una nota o un silencio de corchea.",
+        }),
+        finding(2, 3, { rule_id: "accidental.repeated", suggested_fix: null }),
+        finding(3, 1, { rule_id: "learned.accidental", suggested_fix: "Cambiar Si por Si♭." }),
+      ],
+    });
+    renderPage();
+
+    const list = await screen.findByRole("list");
+    const second = within(list).getByRole("button", { name: /^compás 2/i });
+    const fix = within(second).getByText(/^Qué revisar:/);
+    expect(fix).toHaveTextContent(
+      "Qué revisar: Revisa las figuras del compás: puede que alguna sea más larga de lo que se leyó, o que falte una nota o un silencio de corchea.",
+    );
+    // Bajo el mensaje, no antes.
+    const message = within(second).getByText(/^Al compás 2 le falta una corchea/);
+    expect(message.compareDocumentPosition(fix) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Sin «Qué revisar», no se dice nada; el título es el del catálogo.
+    const third = within(list).getByRole("button", { name: /^compás 3/i });
+    expect(third).toHaveTextContent("Alteración repetida");
+    expect(within(third).queryByText(/Qué revisar/)).toBeNull();
+    // En los de la capa, `suggested_fix` es la edición propuesta, no qué revisar (#258).
+    const first = within(list).getByRole("button", { name: /^compás 1/i });
+    expect(first).toHaveTextContent("Alteración dudosa");
+    expect(within(first).queryByText(/Qué revisar/)).toBeNull();
+  });
+
+  it("en una sesión no asistida no muestra nada del validador (ADR-0040 §13.2)", async () => {
+    // Aunque la API devolviera posibles errores, la vista ni los pide.
+    const { calls } = api({
+      detail: detail({
+        condition: "unassisted",
+        edits: [
+          {
+            id: "edit-1",
+            session_id: ID,
+            seq: 1,
+            op: "SetPitch",
+            author: "ana",
+            anchor: finding(1, 2).anchor,
+            before: { pitch: "C4" },
+            after: { pitch: "D4" },
+            created_at: "2026-10-24T10:00:00Z",
+          },
+        ],
+        current_seq: 1,
+      }),
+      findings: [finding(1, 2)],
+    });
+    renderPage();
+
+    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("Sesión 3e951fef");
+    expect(await screen.findByAltText("Imagen original de la partitura")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(osmd.loaded.length).toBeGreaterThan(0);
+    });
+    // Quedan la partitura, la imagen y el editor.
+    expect(screen.getByRole("application", { name: /^partitura transcrita\./i })).toBeVisible();
+    expect(screen.getByRole("button", { name: /^deshacer/i })).toBeInTheDocument();
+    // Ni el panel, ni las marcas, ni «Revalidar», ni ningún aviso sobre la validación.
+    expect(screen.queryByRole("heading", { name: /posibles errores/i })).toBeNull();
+    expect(screen.queryByText(/validador|validación|posibles errores|tramados/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /revalidar/i })).toBeNull();
+    expect(document.querySelector(".notation__mark")).toBeNull();
+    expect(calls.some((call) => call.key === `GET /sessions/${ID}/findings`)).toBe(false);
+  });
+
+  it("en una sesión no asistida, si no se dibuja la partitura, no habla de posibles errores", async () => {
+    osmd.fail = true;
+    api({ detail: detail({ condition: "unassisted" }) });
+    renderPage();
+
+    expect(await screen.findByText("No se pudo dibujar la partitura.")).toBeVisible();
+    expect(screen.getByText(/la imagen original sigue disponible/i)).toBeVisible();
+    expect(screen.queryByText(/posibles errores/i)).toBeNull();
+  });
+
   it("al elegir un compás de la lista lo resalta en la partitura", async () => {
     api({ findings: [finding(1, 1), finding(2, 3)] });
     renderPage();

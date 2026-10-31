@@ -277,6 +277,14 @@ def test_promotion_requires_measured_improvement() -> None:
     assert promotion_decision(base, active)[0] is True
     assert promotion_decision(base, {**base})[0] is False  # mismo F1: no mejora
     assert promotion_decision(base, {**active, "evaluation_dataset_hash": "otra"})[0] is False
+    # Solo se compara con una activa medida con las mismas reglas (ADR-0040 §14, opción A).
+    v2 = {**base, "rules_version": "a,b", "rules_catalog_version": 2}
+    assert (
+        promotion_decision(v2, {**active, "rules_version": "a,b", "rules_catalog_version": 2})[0]
+        is True
+    )
+    allowed, reason = promotion_decision(v2, {**active, "rules_version": "a,b"})
+    assert allowed is False and "otra versión de las reglas" in reason
     assert promotion_decision({**base, "rule_findings": {"top1_accuracy": 0.7}}, active)[0] is False
 
 

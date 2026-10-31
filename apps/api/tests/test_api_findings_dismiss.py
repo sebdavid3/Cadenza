@@ -59,7 +59,9 @@ PNG_BYTES = (
 
 
 class MultiMeasureUnbalancedOMR(OMREngine):
-    """OMR determinista con compases 1 y 2 desbalanceados (3 tiempos en 4/4)."""
+    """OMR determinista con compases 1 y 2 desbalanceados en 4/4: el 1 se pasa (cinco negras)
+    y al 2, el último, le falta una negra. Un primer compás corto sería la anacrusa, que no se
+    señala (ADR-0040 §4)."""
 
     @property
     def engine_id(self) -> str:
@@ -76,6 +78,8 @@ class MultiMeasureUnbalancedOMR(OMREngine):
                 Event(kind=EventKind.NOTE, voice=0, pitch="C4", duration_beats=Fraction(1)),
                 Event(kind=EventKind.NOTE, voice=0, pitch="D4", duration_beats=Fraction(1)),
                 Event(kind=EventKind.NOTE, voice=0, pitch="E4", duration_beats=Fraction(1)),
+                Event(kind=EventKind.NOTE, voice=0, pitch="F4", duration_beats=Fraction(1)),
+                Event(kind=EventKind.NOTE, voice=0, pitch="G4", duration_beats=Fraction(1)),
             ),
             time_signature=TimeSignature(4, 4),
         )

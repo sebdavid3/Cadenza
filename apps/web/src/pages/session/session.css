@@ -955,6 +955,12 @@ button.findings__item:hover {
   max-width: 48ch;
 }
 
+/* «Qué revisar»: bajo el mensaje, más discreto que él (ADR-0040 §2). */
+.findings__fix {
+  max-width: 48ch;
+  color: var(--color-ink-muted);
+}
+
 /* Acciones sobre los posibles errores de un compás: enlaces de rótulo bajo su texto. */
 .findings__actions {
   display: grid;

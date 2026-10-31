@@ -48,8 +48,9 @@ SECRET = "secret-key-at-least-32-bytes-long-for-testing"
 
 
 class FMajorEngine(OMREngine):
-    """Fa mayor: en el compás 1 faltan dos tiempos; en el 2, un Si natural que las reglas no
-    ven y que la capa sabe que suele ser Si bemol."""
+    """Fa mayor: en el compás 1, un Si natural que las reglas no ven y que la capa sabe que
+    suele ser Si bemol; en el 2, el último, faltan dos tiempos (un primer compás corto sería la
+    anacrusa, que no se señala: ADR-0040 §4)."""
 
     @property
     def engine_id(self) -> str:
@@ -64,11 +65,11 @@ class FMajorEngine(OMREngine):
         measures = (
             Measure(
                 number=1,
-                events=notes("F4", "A4"),
+                events=notes("C5", "B4", "A4", "G4"),
                 time_signature=TimeSignature(4, 4),
                 key_signature=KeySignature(fifths=-1),
             ),
-            Measure(number=2, events=notes("C5", "B4", "A4", "G4")),
+            Measure(number=2, events=notes("F4", "A4"), time_signature=TimeSignature(4, 4)),
         )
         score = ScoreIR(parts=(Part(id="P1", staves=(Staff(id="P1-S1", measures=measures),)),))
         return ScoreDocument(
@@ -244,7 +245,7 @@ def test_the_promoted_layer_is_loaded_and_suggests(tmp_path: Path) -> None:
         {"accidental": ""},
     )
     assert fix["confidence_level"] == "high" and fix["model_version"] == "sug-1"
-    assert by_rule["learned.accidental"]["anchor"]["measure"] == 2
+    assert by_rule["learned.accidental"]["anchor"]["measure"] == 1
     detail = client.get(f"/sessions/{session_id}", headers=headers["owner"]).json()
     assert detail["document"]["provenance"]["suggestions_version"] == "sug-1"
     assert {f["rule_id"] for f in detail["findings"]} == set(by_rule)
