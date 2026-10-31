@@ -70,6 +70,7 @@ from .ports import (
 )
 from .session_status import SessionStatus
 from .stage_timing import collect_stage_timings, timed_stage
+from .suggestions import SUGGESTION_FAMILIES, PolicySuggestionModel, SuggestionPolicy
 from .use_cases import (
     AppliedEdit,
     FinalizeResult,
@@ -108,6 +109,7 @@ from .use_cases import (
 from .user import Role, User
 
 __all__ = [
+    "SUGGESTION_FAMILIES",
     "ApplicationError",
     "AppliedEdit",
     "ArtifactNotFound",
@@ -144,6 +146,7 @@ __all__ = [
     "PasswordHasher",
     "PersistedFinding",
     "PersistedSuggestion",
+    "PolicySuggestionModel",
     "PromotionRejected",
     "PromotionThreshold",
     "ReopenResult",
@@ -167,6 +170,7 @@ __all__ = [
     "SuggestionModelRegistry",
     "SuggestionModelVersionData",
     "SuggestionNotFound",
+    "SuggestionPolicy",
     "TokenPayload",
     "TokenService",
     "TranscribeResult",
