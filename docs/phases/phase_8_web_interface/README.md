@@ -54,8 +54,8 @@ El alcance final y el calendario los fija el plan de cierre
 | | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista; es la forma de poner los matices, que no se reconocen ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Su ADR fija la política de `EditOp` para el dataset y las métricas | #213 | — |
 | | [#241](https://github.com/sebdavid3/Cadenza/issues/241) | Cambiar el compás (números, C o ¢) y poner tresillos desde la barra de corrección | [#236](https://github.com/sebdavid3/Cadenza/issues/236) | — |
 | | [#243](https://github.com/sebdavid3/Cadenza/issues/243) | Cambiar la figura de un acorde entero | — | D61 |
-| | [#275](https://github.com/sebdavid3/Cadenza/issues/275) | Una edición en un solo viaje, sin rehacer el estado en el servidor, medida antes y después (**prioridad alta**: el estudio mide tiempos) | — | — |
-| | [#276](https://github.com/sebdavid3/Cadenza/issues/276) | Redibujar la partitura tras una edición sin parpadeos ni órdenes perdidas (**prioridad alta**) | #275 | — |
+| | ~~[#275](https://github.com/sebdavid3/Cadenza/issues/275)~~ | **Hecho:** una edición en un solo viaje: la respuesta trae el estado nuevo, con caché del estado materializado y `Server-Timing` (ADR-0037) | — | D66 |
+| | ~~[#276](https://github.com/sebdavid3/Cadenza/issues/276)~~ | **Hecho:** redibujar en una sola instancia de OSMD sin perder la nota elegida, una orden en espera mientras se guarda y la reproducción que sigue (ADR-0038) | #275 | D67 |
 | **Datos de la partitura** | [#235](https://github.com/sebdavid3/Cadenza/issues/235) | Título, compositor e instrumento de cada parte en la API, el MusicXML y el MIDI | — | — |
 | | [#240](https://github.com/sebdavid3/Cadenza/issues/240) | Nombre e instrumento antes de transcribir; el nombre es el de la sesión | #235 | — |
 | **Portada** | [#277](https://github.com/sebdavid3/Cadenza/issues/277) | Subir una imagen y ver su transcripción desde la portada; para editar, se entra a la sesión | #240 | — |

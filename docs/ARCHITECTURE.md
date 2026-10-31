@@ -922,7 +922,7 @@ reproducirla con el compás en curso resaltado, corregir la altura, la duración
 alteración de una nota, insertar y borrar notas y silencios, y cambiar la clave y la
 armadura de un compás ([#184](https://github.com/sebdavid3/Cadenza/issues/184), ADR-0033), y deshacer y rehacer esas correcciones,
 con la historia de ediciones de la sesión ([#185](https://github.com/sebdavid3/Cadenza/issues/185), ADR-0034), y descartar, restaurar y revalidar
-sus posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), ADR-0035). Cada corrección es un solo viaje: la respuesta trae el estado nuevo, que la API saca de una caché del estado materializado ([#275](https://github.com/sebdavid3/Cadenza/issues/275), ADR-0037). Está publicada en el homelab (ADR-0023). La partitura muestra las
+sus posibles errores ([#186](https://github.com/sebdavid3/Cadenza/issues/186), ADR-0035). Cada corrección es un solo viaje: la respuesta trae el estado nuevo, que la API saca de una caché del estado materializado ([#275](https://github.com/sebdavid3/Cadenza/issues/275), ADR-0037), y la vista la redibuja en una sola instancia de OSMD sin perder la nota elegida ni las órdenes que llegan mientras se guarda ([#276](https://github.com/sebdavid3/Cadenza/issues/276), ADR-0038; OSMD dibuja la página entera, D67). Está publicada en el homelab (ADR-0023). La partitura muestra las
 articulaciones, los calderones, las ligaduras de expresión, las dinámicas y los reguladores
 ([#213](https://github.com/sebdavid3/Cadenza/issues/213), ADR-0031), y las varias voces de un
 pentagrama con su ritmo y con las plicas separadas
@@ -995,6 +995,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0035](adr/ADR-0035-descartar-restaurar-y-revalidar-desde-la-vista.md) | Descartar, restaurar y revalidar los posibles errores desde la vista: cada posible error con su motivo opcional, el lenguaje honesto, la revalidación explícita con el `current_seq` que devuelve, quién puede hacerlo y que una revalidación solo herede los descartes de la validación vigente |
 | [ADR-0036](adr/ADR-0036-capa-de-sugerencias-aprendida.md) | Capa de sugerencias que aprende de las correcciones: frecuencias suavizadas con retroceso, las reglas acotan y la capa ordena, sugerencias que se aplican o rechazan, umbral por validación cruzada y registro propio |
 | [ADR-0037](adr/ADR-0037-una-edicion-en-un-solo-viaje.md) | Una edición en un solo viaje: la respuesta de la edición y de deshacer trae el estado nuevo, caché del estado materializado por `(sesión, seq, última edición)`, `fields=view` en el detalle, `Server-Timing` y `X-Request-ID`, y `exp_13` |
+| [ADR-0038](adr/ADR-0038-redibujar-tras-una-edicion-y-ordenes-en-espera.md) | Redibujar tras una edición en una sola instancia de OSMD, antes de pintar y entera; la nota elegida que espera al dibujo nuevo; una sola orden en espera mientras se guarda, planeada de nuevo y nunca reintentada; y la reproducción que sigue |
 
 
 ---
