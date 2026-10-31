@@ -53,6 +53,24 @@ afterEach(() => {
 });
 
 describe("cuentas", () => {
+  it("con el registro abierto en el build, dice que cualquiera puede crear una cuenta", async () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
+    mockApi({ "GET /users": () => jsonResponse([STUDY, INV, REGISTERED]) });
+    renderAt(INV);
+
+    expect(await screen.findByText(/cualquiera puede crear una cuenta/i)).toBeVisible();
+  });
+
+  it("con el registro cerrado, dice que está cerrado y que las del registro siguen entrando (#248)", async () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
+    mockApi({ "GET /users": () => jsonResponse([STUDY, INV, REGISTERED]) });
+    renderAt(INV);
+
+    expect(await screen.findByText(/el registro está cerrado/i)).toBeVisible();
+    expect(screen.getByText(/desactívalas/i)).toBeVisible();
+    expect(screen.queryByText(/cualquiera puede crear una cuenta/i)).toBeNull();
+  });
+
   it("lista por fecha de alta y distingue las del registro de las del estudio", async () => {
     mockApi({ "GET /users": () => jsonResponse([STUDY, INV, REGISTERED]) });
     renderAt(INV);
