@@ -93,4 +93,9 @@ def test_edit_op_members() -> None:
         EditOp.DELETE_EVENT,
         EditOp.SET_CLEF,
         EditOp.SET_KEY,
+        # Marcas de notación (ADR-0039): fuera del dataset y de las métricas (`MARK_EDIT_OPS`).
+        EditOp.SET_NOTE_MARKS,
+        EditOp.SET_DYNAMIC,
+        EditOp.SET_WEDGE,
+        EditOp.SET_SLUR,
     }

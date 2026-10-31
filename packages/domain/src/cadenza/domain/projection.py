@@ -15,8 +15,9 @@ from typing import Any, Final
 
 from .anchor import Anchor, EventKind
 from .clef import Clef
-from .edit import EditEvent, EditOp
+from .edit import MARK_EDIT_OPS, EditEvent, EditOp
 from .key_signature import KeySignature
+from .mark_edits import apply_mark_edit
 from .notation_marks import Articulation, Slur
 from .score import Event, Measure, ScoreIR
 from .tie import Tie
@@ -216,6 +217,10 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
 
 def apply_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
     """Devuelve un nuevo `ScoreIR` con `edit` aplicado; el original no se muta."""
+
+    # Las marcas (ADR-0039): una ligadura o un regulador fijan extremos en toda la parte.
+    if edit.op in MARK_EDIT_OPS:
+        return apply_mark_edit(score, edit)
 
     anchor = edit.anchor
     if anchor.part >= len(score.parts):

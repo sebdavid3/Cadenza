@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
-from .edit import EditEvent, EditOp, create_inverse_edit, get_last_active_edit
+from .edit import (
+    CONTENT_EDIT_OPS,
+    MARK_EDIT_OPS,
+    EditEvent,
+    EditOp,
+    create_inverse_edit,
+    get_last_active_edit,
+)
 from .edit_payload import (
     InvalidEditPayload,
     has_complete_before,
@@ -59,6 +66,8 @@ from .timing import EventTiming, TimingMap, compute_timing_map
 
 __all__ = [
     "CONFIDENCE_LEVELS",
+    "CONTENT_EDIT_OPS",
+    "MARK_EDIT_OPS",
     "SUGGESTION_SOURCES",
     "Anchor",
     "AnchorIndex",
