@@ -7,7 +7,7 @@ import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
-import { PRIVATE_HOME } from "../../config";
+import { PRIVATE_HOME, registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { UserRead } from "../../types";
 import "../login/login.css";
@@ -31,11 +31,47 @@ function autoLoginNotice(error: unknown): string {
 }
 
 /**
- * Registro de una cuenta (ADR-0022, ADR-0025): solo usuario y contraseña, sin correo. La cuenta
- * nace activa: tras crearla, la vista entra con ella y lleva a la zona privada. Si ese acceso
- * falla, dice que la cuenta existe y enlaza a la página de entrar.
+ * Registro de una cuenta (ADR-0022, ADR-0025). Con el registro cerrado en el build
+ * (`VITE_REGISTRATION_ENABLED`), la ruta sigue existiendo para quien llegue con un enlace
+ * antiguo, pero no ofrece el formulario: dice que está cerrado y lleva a entrar (#248).
  */
 export function RegisterPage() {
+  return registrationEnabled() ? <RegisterForm /> : <RegistrationClosed />;
+}
+
+/** El registro cerrado: sin formulario ni llamadas a la API, solo el camino a entrar (#248). */
+function RegistrationClosed() {
+  useDocumentTitle("Registro cerrado");
+  const status = useAuthStore((state) => state.status);
+  if (status === "authenticated") return <Navigate to={PRIVATE_HOME} replace />;
+  return (
+    <>
+      <SiteHeader showSections={false} />
+      <main className="login">
+        <h1 className="login__title">
+          <span>Registro cerrado</span>
+        </h1>
+        <div className="login__form">
+          <p className="login__notice">
+            Ahora no se pueden crear cuentas: las cuentas las crea un investigador del proyecto. Si
+            el equipo te dio una, entra con tu usuario y tu contraseña.
+          </p>
+          <Link className="button login__submit" to="/entrar">
+            Ir a entrar
+            <PixelIcon name="arrow-right" />
+          </Link>
+        </div>
+      </main>
+    </>
+  );
+}
+
+/**
+ * Formulario del registro: solo usuario y contraseña, sin correo. La cuenta nace activa: tras
+ * crearla, la vista entra con ella y lleva a la zona privada. Si ese acceso falla, dice que la
+ * cuenta existe y enlaza a la página de entrar.
+ */
+function RegisterForm() {
   useDocumentTitle("Crear una cuenta");
   const status = useAuthStore((state) => state.status);
   const [username, setUsername] = useState("");

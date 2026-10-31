@@ -3,6 +3,7 @@ import { useState } from "react";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
+import { registrationEnabled } from "../../config";
 import "../../components/button.css";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { UserRead } from "../../types";
@@ -75,9 +76,9 @@ function AccountsView() {
       <header className="accounts__head">
         <h1 className="accounts__title">Cuentas</h1>
         <p className="accounts__lead">
-          Cualquiera puede crear una cuenta desde el registro y entra en el momento. Esas cuentas no
-          forman parte del estudio; las del estudio las crea un investigador. Desactiva una cuenta
-          para que no pueda entrar, por ejemplo si se usa mal.
+          {registrationEnabled()
+            ? "Cualquiera puede crear una cuenta desde el registro y entra en el momento. Esas cuentas no forman parte del estudio; las del estudio las crea un investigador. Desactiva una cuenta para que no pueda entrar, por ejemplo si se usa mal."
+            : "El registro está cerrado: las cuentas nuevas las crea un investigador. Las que se crearon desde el registro siguen pudiendo entrar mientras estén activas; desactívalas si solo deben entrar las del estudio."}
         </p>
       </header>
 

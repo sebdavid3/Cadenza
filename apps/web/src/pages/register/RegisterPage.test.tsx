@@ -37,6 +37,8 @@ const CREATED: UserRead = {
 
 beforeEach(() => {
   resetAuth();
+  // La vista ofrece el formulario solo si el build declara el registro abierto (#248).
+  vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
 });
 
 afterEach(() => {
@@ -232,5 +234,33 @@ describe("registro de cuentas", () => {
     expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
     expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.queryByDisplayValue(PASSWORD)).toBeNull();
+  });
+});
+
+describe("registro cerrado en el build (#248)", () => {
+  it("no ofrece el formulario, dice que está cerrado y enlaza a entrar", async () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
+    const { fetchMock } = mockApi({});
+    renderAt();
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /registro cerrado/i }),
+    ).toBeVisible();
+    expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
+    expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
+    expect(screen.queryByLabelText("Usuario")).toBeNull();
+    expect(screen.queryByRole("button", { name: /crear cuenta/i })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("con sesión iniciada sigue llevando a la zona privada", async () => {
+    vi.stubEnv("VITE_REGISTRATION_ENABLED", "false");
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    signInAs(ANA);
+    const router = renderAt();
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/transcripcion");
+    });
   });
 });
