@@ -37,6 +37,14 @@ Mide:
    `test`; se informa cuántas correcciones tiene cada punto.
 7. Sesiones del estudio: no hay todavía; el resultado lo dice y no inventa ninguna cifra.
 
+Con `--min-level` o `--families`, todo lo anterior (la prueba, los pliegues y la curva) se
+mide con la capa envuelta en la política de qué se muestra de la API (`SuggestionPolicy` y
+`PolicySuggestionModel`, ADR-0036 enmienda 19): solo las sugerencias de ese nivel de
+confianza y de esas familias, y los hallazgos de las reglas, aunque se queden sin ellas. Lo
+que no se da no filtra; sin ninguna de las dos, se mide todo lo admisible, como en #287. La
+línea base del orden de la regla y las métricas de la promoción (`evaluate`) no pasan por la
+política: son las del modelo.
+
 Decisiones de la medición:
 - La SER se calcula sin aplicar la armadura (`apply_key_signature=False`): las alturas del
   `ScoreIR` son las que suenan, en la predicción y en la verdad; aplicándola, un Si natural
@@ -81,6 +89,12 @@ from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from cadenza.application import (
+    SUGGESTION_FAMILIES,
+    PolicySuggestionModel,
+    SuggestionModel,
+    SuggestionPolicy,
+)
 from cadenza.domain import ScoreIR, materialize
 from cadenza.interchange import Music21ScoreExporter, read_score
 from cadenza.learning import (
@@ -427,10 +441,39 @@ def _model(artifact: Mapping[str, Any], label: str) -> FrequencyBackoffModel:
     return FrequencyBackoffModel(artifact, version=label)
 
 
+def display_policy_of(min_level: str | None, families: str | None) -> SuggestionPolicy | None:
+    """La política de qué se muestra de la línea de órdenes, o None sin ninguna de las dos.
+    Lo que no se da no filtra: cualquier nivel (`medium`) o todas las familias."""
+    if min_level is None and families is None:
+        return None
+    return SuggestionPolicy.parse(
+        "medium" if min_level is None else min_level,
+        ",".join(SUGGESTION_FAMILIES) if families is None else families,
+    )
+
+
+def _policy_report(policy: SuggestionPolicy | None) -> dict[str, Any] | None:
+    if policy is None:
+        return None
+    return {
+        "min_level": policy.min_level,
+        "families": sorted(policy.families),
+        "scope": (
+            "la prueba, los pliegues y la curva se miden con la capa envuelta en esta política "
+            "(PolicySuggestionModel, ADR-0036 enmienda 19); la línea base del orden de la regla "
+            "y promotion_metrics, sin ella"
+        ),
+    }
+
+
 def _measure(
-    cases: Sequence[IncipitCase], model: FrequencyBackoffModel, validator: ValidationEngine
+    cases: Sequence[IncipitCase],
+    model: FrequencyBackoffModel,
+    validator: ValidationEngine,
+    policy: SuggestionPolicy | None = None,
 ) -> list[IncipitMeasurement]:
-    return [measure_incipit(case, model, validator) for case in cases]
+    shown: SuggestionModel = model if policy is None else PolicySuggestionModel(model, policy)
+    return [measure_incipit(case, shown, validator) for case in cases]
 
 
 def _corrections(records: Sequence[Mapping[str, Any]]) -> int:
@@ -462,6 +505,7 @@ def run(
     seed: int = DEFAULT_SEED,
     with_omr_ned: bool = True,
     workers: int = 1,
+    display_policy: SuggestionPolicy | None = None,
 ) -> dict[str, Any]:
     started = time.monotonic()
     results = RESULTS_DIR if output_dir is None else output_dir
@@ -523,7 +567,7 @@ def run(
     content = artifact_bytes(artifact)
     artifact_sha256 = hashlib.sha256(content).hexdigest()
     model = _model(artifact, f"exp_14:{artifact_sha256[:12]}")
-    measured = _measure(cases["test"], model, validator)
+    measured = _measure(cases["test"], model, validator, display_policy)
     test_summary = summarize(measured)
     print(f"[exp_14] medida la partición de prueba ({len(measured)} incipits)", flush=True)
 
@@ -638,7 +682,7 @@ def run(
         fold_artifact = train(relabelled, config, dataset_hash=dataset_hash)
         check_partition(fold_artifact, relabelled)
         fold_summary = summarize(
-            _measure(held, _model(fold_artifact, f"exp_14:cv{fold}"), validator)
+            _measure(held, _model(fold_artifact, f"exp_14:cv{fold}"), validator, display_policy)
         )
         folds.append(
             {
@@ -665,7 +709,12 @@ def run(
             point_artifact = train(subset, config, dataset_hash=dataset_hash)
             check_partition(point_artifact, subset)
             point_summary = summarize(
-                _measure(cases["test"], _model(point_artifact, f"exp_14:{fraction}"), validator)
+                _measure(
+                    cases["test"],
+                    _model(point_artifact, f"exp_14:{fraction}"),
+                    validator,
+                    display_policy,
+                )
             )
         points.append(
             {
@@ -718,6 +767,7 @@ def run(
             "promoted": False,
         },
         "rules_version": validator.rules_version,
+        "display_policy": _policy_report(display_policy),
         "test": test_summary,
         "before_after": before_after,
         "promotion_metrics": promotion_metrics,
@@ -767,6 +817,7 @@ def run(
         "fractions": list(FRACTIONS),
         "omr_ned": with_omr_ned,
         "workers": workers,
+        "display_policy": _policy_report(display_policy),
         "duration_seconds": round(time.monotonic() - started, 1),
     }
     summary["run_info"] = run_info
@@ -809,7 +860,25 @@ def main() -> None:
         default=max(1, (os.cpu_count() or 2) - 1),
         help="procesos para leer las partituras y calcular el OMR-NED",
     )
+    parser.add_argument(
+        "--min-level",
+        choices=("medium", "high"),
+        default=None,
+        help="política de qué se muestra: nivel de confianza mínimo (por defecto, cualquiera)",
+    )
+    parser.add_argument(
+        "--families",
+        default=None,
+        help=(
+            "política de qué se muestra: familias separadas por comas, de "
+            f"{','.join(SUGGESTION_FAMILIES)} (por defecto, todas)"
+        ),
+    )
     args = parser.parse_args()
+    try:
+        display_policy = display_policy_of(args.min_level, args.families)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     _worker_init()
     summary = run(
@@ -821,6 +890,7 @@ def main() -> None:
         seed=args.seed,
         with_omr_ned=not args.no_omr_ned,
         workers=args.workers,
+        display_policy=display_policy,
     )
     test = summary["test"]
     ranking = test["rule_suggestions"]

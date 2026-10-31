@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cadenza.application import SuggestionPolicy
 from cadenza.domain import EventKind, ScoreIR, materialize
 from cadenza.interchange import Music21ScoreExporter, read_score
 from cadenza.learning import (
@@ -251,6 +252,49 @@ def test_the_same_seed_gives_the_same_measurement(
     assert again["before_after"]["omr_ned"] is None
     # Nada en el `results/` del experimento: la salida va a `--output-dir`.
     assert not any(common.RESULTS_DIR.iterdir())
+
+
+def test_the_experiment_can_measure_the_display_policy_of_production(
+    world: dict[str, Path], measured: tuple[dict[str, Any], Path], tmp_path: Path
+) -> None:
+    """La política de la API (ADR-0036, enmienda 19) se mide por el mismo camino; sin ella,
+    la medición es la de #287, con todo lo admisible."""
+    everything, _ = measured
+    assert everything["display_policy"] is None
+    assert everything["run_info"]["display_policy"] is None
+    # En el corpus sintético ninguna familia llega a la confianza alta: se mide con `medium`.
+    policy = SuggestionPolicy(min_level="medium", families=frozenset({"accidental"}))
+    shown = _run(world, tmp_path / "shown", with_omr_ned=False, display_policy=policy)
+    assert shown["display_policy"]["min_level"] == "medium"
+    assert shown["display_policy"]["families"] == ["accidental"]
+    assert shown["run_info"]["display_policy"] == shown["display_policy"]
+    # Los candidatos de duración y de inserción de measure.balance ya no se muestran.
+    assert shown["test"]["rule_suggestions"]["rule_findings"] == (
+        everything["test"]["rule_suggestions"]["rule_findings"]
+    )
+    assert (
+        shown["test"]["damage"]["first"]["selected"]["suggestions"]
+        < everything["test"]["damage"]["first"]["selected"]["suggestions"]
+    )
+    # Las métricas de la promoción son las del modelo, sin la política (ADR-0036 §9).
+    assert shown["promotion_metrics"] == everything["promotion_metrics"]
+
+
+def test_the_display_policy_comes_from_the_command_line() -> None:
+    assert exp_14.display_policy_of(None, None) is None
+    assert exp_14.display_policy_of("high", "accidental") == SuggestionPolicy(
+        min_level="high", families=frozenset({"accidental"})
+    )
+    # Lo que no se da no filtra: cualquier nivel o todas las familias.
+    assert exp_14.display_policy_of("high", None) == SuggestionPolicy(
+        min_level="high",
+        families=frozenset({"accidental", "duration", "pitch", "delete", "insertion"}),
+    )
+    assert exp_14.display_policy_of(None, "accidental") == SuggestionPolicy(
+        min_level="medium", families=frozenset({"accidental"})
+    )
+    with pytest.raises(ValueError):
+        exp_14.display_policy_of("low", "accidental")
 
 
 # --- Sin datos no hay medición -----------------------------------------------------------

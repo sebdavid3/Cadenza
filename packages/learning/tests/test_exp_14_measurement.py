@@ -12,6 +12,7 @@ from fractions import Fraction
 from typing import Any
 
 import pytest
+from cadenza.application import PolicySuggestionModel, SuggestionPolicy
 from cadenza.application.suggestions import suggest
 from cadenza.domain import (
     Anchor,
@@ -190,6 +191,35 @@ def test_a_suggestion_on_a_correct_note_is_damage(model: FrequencyBackoffModel) 
     assert measured.applied["first"]["damaged_correct_attributes"] == 1
     assert measured.applied["first"]["correct"] == 0
     assert measured.counts["correct_events"] == 8
+
+
+def test_the_measurement_follows_the_display_policy_of_production(
+    model: FrequencyBackoffModel,
+) -> None:
+    """Con la capa envuelta en la política de la API, la medición solo ve lo que se mostraría:
+    los hallazgos de las reglas siguen, sin los candidatos de otras familias (ADR-0036,
+    enmienda 19). En el corpus sintético ninguna familia llega a la confianza alta, así que se
+    mide con `medium`."""
+    work, index = _find(lambda w, i: _has_eighth(w, i) and _case_of(w, i) < 7)
+    case = _case(work, index)
+    everything = measure_incipit(case, model, ValidationEngine())
+    policy = SuggestionPolicy(min_level="medium", families=frozenset({"accidental"}))
+    shown = measure_incipit(case, PolicySuggestionModel(model, policy), ValidationEngine())
+
+    def rules(measured: Any) -> list[str]:
+        return [f.rule_id for f, _ in measured.suggested if not f.rule_id.startswith("learned.")]
+
+    assert rules(shown) == rules(everything)
+    assert any(
+        s.op is not EditOp.SET_ACCIDENTAL
+        for _, suggestions in everything.suggested
+        for s in suggestions
+    )
+    assert all(
+        s.op is EditOp.SET_ACCIDENTAL for _, suggestions in shown.suggested for s in suggestions
+    )
+    assert shown.counts["learned_findings"] == everything.counts["learned_findings:accidental"]
+    assert shown.selected["first"]["suggestions"] < everything.selected["first"]["suggestions"]
 
 
 def test_rule_suggestions_are_scored_top1_and_top3_against_the_rule_order(
