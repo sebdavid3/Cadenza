@@ -998,6 +998,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0038](adr/ADR-0038-redibujar-tras-una-edicion-y-ordenes-en-espera.md) | Redibujar tras una edición en una sola instancia de OSMD, antes de pintar y entera; la nota elegida que espera al dibujo nuevo; una sola orden en espera mientras se guarda, planeada de nuevo y nunca reintentada; y la reproducción que sigue |
 | [ADR-0039](adr/ADR-0039-anadir-y-quitar-marcas-de-notacion.md) | Añadir y quitar marcas de notación: cuatro operaciones de tipo «fijar» y la política de `EditOp` para el dataset y las métricas (contenido frente a marcas) |
 | [ADR-0040](adr/ADR-0040-catalogo-de-reglas-y-mensajes-en-lenguaje-musical.md) | Catálogo de reglas del validador y mensajes en lenguaje musical: vocabulario común, ocho reglas (tres nuevas), sin falsos positivos conocidos, y nada del validador en la condición no asistida |
+| [ADR-0042](adr/ADR-0042-login-con-el-mismo-trabajo-de-hash.md) | El login hace el mismo trabajo de hash en los tres casos del 401: hash de relleno con los parámetros reales (`PasswordHasher.dummy_hash`) |
 
 
 ---

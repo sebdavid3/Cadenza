@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -19,9 +20,22 @@ class Argon2PasswordHasher(PasswordHasher):
 
     def __init__(self) -> None:
         self._hasher = argon2.PasswordHasher()
+        self._dummy_hash: str | None = None
+        self._dummy_lock = threading.Lock()
 
     def hash(self, password: str) -> str:
         return self._hasher.hash(password)
+
+    def dummy_hash(self) -> str:
+        # Se calcula con el mismo `argon2.PasswordHasher`, así que sigue sus parámetros si
+        # cambian; con una contraseña aleatoria que nadie conoce. Una sola vez por adaptador, al
+        # primer usuario inexistente: calcularlo al construirlo encarecería cada `create_app`
+        # (#226, ADR-0042).
+        if self._dummy_hash is None:
+            with self._dummy_lock:
+                if self._dummy_hash is None:
+                    self._dummy_hash = self._hasher.hash(secrets.token_urlsafe(32))
+        return self._dummy_hash
 
     def verify(self, password: str, password_hash: str) -> bool:
         try:

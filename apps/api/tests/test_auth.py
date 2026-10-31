@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 import pytest
 from cadenza.api import Argon2PasswordHasher, JwtTokenService, Settings, create_app
 from cadenza.application import NotAuthenticated, Role, User
@@ -31,6 +33,21 @@ def test_argon2_password_hasher() -> None:
     assert hasher.verify("plain-text-pass", hashed) is True
     assert hasher.verify("wrong-pass", hashed) is False
     assert hasher.verify("plain-text-pass", "invalid_hash_string") is False
+
+
+def test_argon2_dummy_hash_uses_the_real_parameters_and_matches_no_password() -> None:
+    """El hash de relleno del login (#226, ADR-0042) cuesta lo mismo que uno real."""
+    hasher = Argon2PasswordHasher()
+    real = hasher.hash(secrets.token_urlsafe(16))
+    dummy = hasher.dummy_hash()
+
+    # Mismo algoritmo, versión y parámetros (m, t, p): verificarlo cuesta lo mismo.
+    assert dummy.rsplit("$", 2)[0] == real.rsplit("$", 2)[0]
+    assert dummy.startswith("$argon2id$")
+    # Se calcula una vez por adaptador.
+    assert hasher.dummy_hash() is dummy
+    assert hasher.verify(secrets.token_urlsafe(16), dummy) is False
+    assert hasher.verify("", dummy) is False
 
 
 def test_jwt_token_service() -> None:
@@ -145,6 +162,20 @@ def test_login_inactive_user_returns_401(auth_client: TestClient) -> None:
     assert response.status_code == 401
     data = response.json()
     assert data["detail"] == "Credenciales inválidas"
+
+
+def test_login_401_cases_are_indistinguishable(auth_client: TestClient) -> None:
+    """Mismo código, cuerpo y cabeceras de autenticación en los tres casos (#143, #226)."""
+    wrong = secrets.token_urlsafe(16)
+    responses = [
+        auth_client.post("/auth/login", data=_form_credentials(user, pwd))
+        for user, pwd in (("nadie", wrong), ("alice", wrong), ("bob", PASS_BOB))
+    ]
+
+    assert {r.status_code for r in responses} == {401}
+    assert len({r.content for r in responses}) == 1
+    assert responses[0].json() == {"detail": "Credenciales inválidas"}
+    assert {r.headers.get("www-authenticate") for r in responses} == {"Bearer"}
 
 
 def test_get_me_success(auth_client: TestClient) -> None:
