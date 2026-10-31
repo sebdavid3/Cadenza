@@ -17,7 +17,11 @@ Y dos maneras de cargar el estado nuevo:
 
 - `five_requests`: lo que hacía la web antes de #275. `POST /edits` y, después, el detalle de
   la sesión, el MusicXML, los posibles errores y el mapa de tiempos (cinco peticiones, aquí
-  seguidas: el cliente de pruebas no las solapa).
+  seguidas: el cliente de pruebas no las solapa). Solo reproduce el servidor anterior si se
+  ejecuta contra el código anterior a #275: con #275, el `POST` ya exporta y calcula los
+  tiempos, y el `GET /export` siguiente sale de la caché, así que en esa API mide un híbrido
+  que no existe. La comparación de antes y después es `five_requests` contra el código
+  anterior frente a `single_trip` contra el nuevo, en el mismo equipo.
 - `single_trip`: lo que hace la web con #275. Solo `POST /edits`, cuya respuesta trae el
   estado nuevo. Si la API no lo devuelve (una versión anterior), se registra como no
   disponible en lugar de medir otra cosa.
