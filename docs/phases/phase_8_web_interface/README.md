@@ -51,7 +51,7 @@ El alcance final y el calendario los fija el plan de cierre
 | | ~~[#184](https://github.com/sebdavid3/Cadenza/issues/184)~~ | **Hecho:** insertar y borrar eventos, y cambiar la clave y la armadura (ADR-0033) | #183, #213, #218 | D61 (ampliada: la primera nota de un acorde), D62 (sin selección tampoco se edita) |
 | | ~~[#185](https://github.com/sebdavid3/Cadenza/issues/185)~~ | **Hecho:** deshacer en el servidor y rehacer, con la historia de ediciones (ADR-0034) | #183 | — |
 | | ~~[#186](https://github.com/sebdavid3/Cadenza/issues/186)~~ | **Hecho:** descartar, restaurar y revalidar los posibles errores (ADR-0035) | #183 | D64 |
-| | [#214](https://github.com/sebdavid3/Cadenza/issues/214) | Añadir y quitar marcas de notación desde la vista; es la forma de poner los matices, que no se reconocen ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Su ADR fija la política de `EditOp` para el dataset y las métricas | #213 | — |
+| | ~~[#214](https://github.com/sebdavid3/Cadenza/issues/214)~~ | **Hecho:** añadir y quitar articulaciones, calderón, dinámicas, ligaduras de expresión y reguladores desde la barra, con teclado (ADR-0039); es la forma de poner los matices | #213 | — |
 | | [#241](https://github.com/sebdavid3/Cadenza/issues/241) | Cambiar el compás (números, C o ¢) y poner tresillos desde la barra de corrección | [#236](https://github.com/sebdavid3/Cadenza/issues/236) | — |
 | | [#243](https://github.com/sebdavid3/Cadenza/issues/243) | Cambiar la figura de un acorde entero | — | D61 |
 | | ~~[#275](https://github.com/sebdavid3/Cadenza/issues/275)~~ | **Hecho:** una edición en un solo viaje: la respuesta trae el estado nuevo, con caché del estado materializado y `Server-Timing` (ADR-0037) | — | D66 |
