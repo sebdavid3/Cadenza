@@ -129,6 +129,10 @@ def _admissible(
     return tuple(kept)
 
 
+def _is_learned(finding: Finding) -> bool:
+    return finding.rule_id.startswith(LEARNED_PREFIX)
+
+
 def suggest(
     document: ScoreDocument,
     findings: Sequence[Finding],
@@ -146,11 +150,17 @@ def suggest(
     except Exception:
         logger.exception("suggestion_layer_failed version=%s", getattr(model, "version", None))
         return [(finding, ()) for finding in findings]
+    ruled = [item.finding for item in result.findings if not _is_learned(item.finding)]
+    if ruled != list(findings):
+        # El puerto debe devolver los hallazgos de las reglas, en su orden: si no, ninguno se
+        # pierde en silencio y se valida sin capa.
+        logger.error("suggestion_layer_dropped_rule_findings version=%s", model.version)
+        return [(finding, ()) for finding in findings]
     suggested: list[tuple[Finding, tuple[SuggestedEdit, ...]]] = []
     for item in result.findings:
         admissible = _admissible(document, item.suggestions)
         # Un posible error propio existe por su arreglo: sin arreglo admisible, no se muestra.
-        if item.finding.rule_id.startswith(LEARNED_PREFIX) and not admissible:
+        if _is_learned(item.finding) and not admissible:
             continue
         suggested.append((item.finding, admissible))
     return suggested

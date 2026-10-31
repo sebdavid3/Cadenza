@@ -32,6 +32,8 @@ from ..exceptions import (
     SessionClosed,
     SessionNotFound,
     StaleSuggestion,
+    SuggestionConflict,
+    SuggestionNotFound,
 )
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.score_exporter import ScoreExporter
@@ -346,13 +348,18 @@ def _append(
 
         # La sugerencia aplicada pasa a aceptada en la misma transacción (ADR-0036 §5).
         if suggestion_id is not None:
-            session_repository.respond_suggestion(
-                session_id,
-                suggestion_id,
-                response=ACCEPTED,
-                user=current_user.username,
-                applied_seq=appended.seq,
-            )
+            try:
+                session_repository.respond_suggestion(
+                    session_id,
+                    suggestion_id,
+                    response=ACCEPTED,
+                    user=current_user.username,
+                    applied_seq=appended.seq,
+                )
+            except (SuggestionConflict, SuggestionNotFound) as exc:
+                # Otra petición la respondió entre la comprobación y aquí: la transacción no
+                # se confirma y la edición no queda guardada.
+                raise StaleSuggestion(suggestion_id) from exc
 
         # 8. Si la sesión estaba en 'transcribed', pasa a 'correcting' (#34, ADR-0014)
         status = str(session_data.status)

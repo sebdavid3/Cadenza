@@ -48,6 +48,8 @@ def reject_suggestion(
         )
     if suggestion.response == REJECTED:
         return suggestion
+    # Si otra petición la respondió entre la lectura y aquí, el repositorio lanza
+    # SuggestionConflict (409): la respuesta guardada no cambia.
     return session_repository.respond_suggestion(
         session_id, suggestion_id, response=REJECTED, user=current_user.username
     )

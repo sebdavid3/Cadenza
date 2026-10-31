@@ -13,6 +13,7 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InvalidEdit,
+    PersistedSuggestion,
     Role,
     SequenceConflict,
     SessionClosed,
@@ -393,6 +394,15 @@ def test_rejecting_a_suggestion(
     with pytest.raises(SuggestionConflict):
         reject_suggestion(session_id, accepted, session_repository=sessions, current_user=owner)
     # Una de una validación anterior: 200, como descartar.
+    revalidate(
+        session_id,
+        validator=ValidationEngine(),
+        session_repository=sessions,
+        edit_repository=edits,
+        current_user=owner,
+    )
+    revalidated = sessions.get(session_id)
+    assert revalidated is not None and revalidated.validated_at_seq == 1
     assert (
         reject_suggestion(
             session_id, balance.suggestions[1].id, session_repository=sessions, current_user=owner
@@ -410,8 +420,8 @@ def test_rejecting_a_suggestion(
         reject_suggestion(session_id, sid, session_repository=sessions, current_user=owner)
 
 
-def _suggestion_key(s: object) -> tuple[str, int, str]:
-    return (s.op, s.anchor["event_index"], str(s.after))  # type: ignore[attr-defined]
+def _suggestion_key(s: PersistedSuggestion) -> tuple[str, int, str]:
+    return (s.op, s.anchor["event_index"], str(s.after))
 
 
 def test_revalidation_inherits_rejections_only_from_the_current_validation(
@@ -561,3 +571,62 @@ def test_the_validation_layer_model_satisfies_the_port() -> None:
         "families": {},
     }
     assert accepts(FrequencyBackoffModel(artifact, version="v1")) == "v1"
+
+
+def test_a_rejection_from_a_replaced_validation_is_not_inherited(
+    tmp_path: Path, repos: Repos, owner: User
+) -> None:
+    sessions, edits = repos
+    model = FakeModel()
+    session_id = _transcribe(tmp_path, sessions, owner, model)
+    balance = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
+    old = balance.suggestions[0]
+    # Una edición en el compás 2 y una revalidación: la validación vigente pasa a ser la de 1.
+    sid = _learned_fix(sessions, session_id)
+    _apply(sessions, edits, owner, session_id, sid, base_seq=0)
+
+    def run() -> None:
+        revalidate(
+            session_id,
+            validator=ValidationEngine(),
+            session_repository=sessions,
+            edit_repository=edits,
+            current_user=owner,
+            suggestion_model=model,
+        )
+
+    run()
+    # Se rechaza la de la validación sustituida (de seq 0): responde 200, pero no se hereda.
+    reject_suggestion(session_id, old.id, session_repository=sessions, current_user=owner)
+    run()
+    current = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
+    assert all(s.response is None for s in current.suggestions)
+
+
+def test_a_stored_response_never_changes(tmp_path: Path, repos: Repos, owner: User) -> None:
+    sessions, _ = repos
+    session_id = _transcribe(tmp_path, sessions, owner, FakeModel())
+    sid = _learned_fix(sessions, session_id)
+    sessions.respond_suggestion(session_id, sid, response="accepted", user="ana", applied_seq=1)
+    with pytest.raises(SuggestionConflict):
+        sessions.respond_suggestion(session_id, sid, response="rejected", user="ana")
+    stored = sessions.get_suggestion(session_id, sid)
+    assert stored is not None and (stored.response, stored.applied_seq) == ("accepted", 1)
+
+
+def test_a_layer_that_drops_rule_findings_is_ignored(
+    tmp_path: Path, repos: Repos, owner: User
+) -> None:
+    class Forgetful(FakeModel):
+        def suggest(self, document: ScoreDocument, findings: Sequence[Finding]) -> SuggestionResult:
+            result = super().suggest(document, findings)
+            return SuggestionResult(
+                findings=tuple(
+                    sf for sf in result.findings if sf.finding.rule_id.startswith("learned.")
+                )
+            )
+
+    sessions, _ = repos
+    session_id = _transcribe(tmp_path, sessions, owner, Forgetful())
+    findings = sessions.list_findings(session_id)
+    assert [(f.rule_id, f.suggestions) for f in findings] == [("measure.balance", ())]

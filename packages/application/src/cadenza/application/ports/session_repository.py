@@ -10,7 +10,12 @@ from typing import Any
 
 from cadenza.domain import Finding, SuggestedEdit
 
-from ..exceptions import FindingNotFound, SessionNotFound, SuggestionNotFound
+from ..exceptions import (
+    FindingNotFound,
+    SessionNotFound,
+    SuggestionConflict,
+    SuggestionNotFound,
+)
 
 
 @dataclass(frozen=True)
@@ -74,6 +79,8 @@ class PersistedSuggestion:
     responded_by: str | None = None
     responded_at: datetime | None = None
     applied_seq: int | None = None
+    # El rechazo que hereda (ADR-0036 §4): repite la respuesta de esa fila, no es otra.
+    inherited_from: int | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +143,7 @@ def suggestion_from_new(
         response=None if inherited is None else inherited.response,
         responded_by=None if inherited is None else inherited.responded_by,
         responded_at=None if inherited is None else inherited.responded_at,
+        inherited_from=None if inherited is None else inherited.inherited_from or inherited.id,
     )
 
 
@@ -237,8 +245,9 @@ class SessionRepository(ABC):
         user: str,
         applied_seq: int | None = None,
     ) -> PersistedSuggestion:
-        """Guarda la respuesta (`accepted` o `rejected`), quién y cuándo; `SuggestionNotFound`
-        si no está."""
+        """Guarda la respuesta (`accepted` o `rejected`), quién y cuándo, solo si no tenía
+        ninguna: la respuesta guardada no cambia después (ADR-0036 §5). `SuggestionNotFound` si
+        no está y `SuggestionConflict` si ya tenía respuesta (dos peticiones a la vez)."""
 
     @abstractmethod
     def list_suggestions(
@@ -495,6 +504,10 @@ class InMemorySessionRepository(SessionRepository):
         rows = self.suggestions.get(session_id, [])
         for i, row in enumerate(rows):
             if row.id == suggestion_id:
+                if row.response is not None:
+                    raise SuggestionConflict(
+                        suggestion_id, f"La sugerencia {suggestion_id} ya tiene respuesta"
+                    )
                 updated = replace(
                     row,
                     response=response,
