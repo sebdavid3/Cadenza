@@ -8,6 +8,7 @@ manuscritos históricos) queda fuera.
 
 from __future__ import annotations
 
+import copy
 import re
 import threading
 import xml.etree.ElementTree as ET
@@ -25,10 +26,13 @@ from cadenza.domain import (
     DynamicMark,
     Event,
     EventKind,
+    Instrument,
     KeySignature,
     Measure,
     Part,
+    PartMetadata,
     ScoreIR,
+    ScoreMetadata,
     Slur,
     SlurType,
     Staff,
@@ -45,6 +49,7 @@ from music21 import (
     defaults,
     dynamics,
     expressions,
+    instrument,
     key,
     layout,
     meter,
@@ -86,6 +91,47 @@ _AnchorKey = tuple[int, int, Fraction]
 
 class InterchangeError(ValueError):
     """No se pudo interpretar o serializar una partitura."""
+
+
+@dataclass(frozen=True, slots=True)
+class _InstrumentSound:
+    """Cómo se escribe un instrumento de la lista cerrada (ADR-0041 §2).
+
+    `label` es el nombre de la parte si no se da otro; `program`, el programa General MIDI
+    numerado desde 1, como `midi-program` en MusicXML (el MIDI lo numera desde 0); `sound`, el
+    `instrument-sound` de MusicXML.
+    """
+
+    label: str
+    program: int
+    sound: str | None
+
+
+_INSTRUMENT_SOUNDS: Final[dict[Instrument, _InstrumentSound]] = {
+    Instrument.PIANO: _InstrumentSound("Piano", 1, "keyboard.piano"),
+    Instrument.VOICE: _InstrumentSound("Voz", 53, "voice.vocals"),
+    Instrument.VIOLIN: _InstrumentSound("Violín", 41, "strings.violin"),
+    Instrument.CELLO: _InstrumentSound("Violonchelo", 43, "strings.cello"),
+    Instrument.FLUTE: _InstrumentSound("Flauta", 74, "wind.flutes.flute"),
+    Instrument.CLARINET: _InstrumentSound("Clarinete", 72, "wind.reed.clarinet"),
+    Instrument.GUITAR: _InstrumentSound("Guitarra", 25, "pluck.guitar.nylon-string"),
+    # «Otro» suena como el piano y su nombre es el que se dé (#240).
+    Instrument.OTHER: _InstrumentSound("Otro", 1, None),
+}
+# Canales MIDI de las partes en MusicXML (1-16), sin el 10, el de percusión en General MIDI.
+_MIDI_CHANNELS: Final[tuple[int, ...]] = tuple(c for c in range(1, 17) if c != 10)
+# Lo que precede a `score-instrument` en un `score-part` (MusicXML 4.0).
+_SCORE_PART_HEAD: Final[frozenset[str]] = frozenset(
+    {
+        "identification",
+        "part-link",
+        "part-name",
+        "part-name-display",
+        "part-abbreviation",
+        "part-abbreviation-display",
+        "group",
+    }
+)
 
 
 def _register_converters() -> None:
@@ -999,8 +1045,26 @@ def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
     numerar del 1 al 6 en ciclo.
     """
 
+    return _build_music21(score, marks=marks)
+
+
+def _midi_instrument(part: PartMetadata) -> instrument.Instrument | None:
+    """El instrumento de music21 que fija el programa MIDI de una parte, o None sin él."""
+    if part.instrument is None:
+        return None
+    built = instrument.Instrument()
+    built.midiProgram = _INSTRUMENT_SOUNDS[part.instrument].program - 1
+    return built
+
+
+def _build_music21(
+    score: ScoreIR, *, marks: bool, metadata: ScoreMetadata | None = None
+) -> stream.Score:
+    """`score_ir_to_music21` y, con ``metadata``, el programa MIDI de cada parte (ADR-0041)."""
+
     out = stream.Score()
     for part_index, part in enumerate(score.parts):
+        sound = None if metadata is None else _midi_instrument(metadata.part(part_index))
         built_staves = [_build_staff_measures(staff.measures, marks=marks) for staff in part.staves]
         if len(part.staves) > 1:
             part_staffs: list[stream.PartStaff] = []
@@ -1009,6 +1073,8 @@ def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
                     id=f"{part.id or f'P{part_index + 1}'}-Staff{staff_index + 1}"
                 )
                 p_staff.partName = part.id
+                if sound is not None:
+                    p_staff.insert(0, copy.deepcopy(sound))
                 for built_measure, _owners in built:
                     p_staff.append(built_measure)
                 part_staffs.append(p_staff)
@@ -1017,6 +1083,8 @@ def score_ir_to_music21(score: ScoreIR, *, marks: bool = True) -> stream.Score:
             out.insert(0, sg)
         else:
             built_part = stream.Part(id=part.id or f"P{part_index + 1}")
+            if sound is not None:
+                built_part.insert(0, sound)
             for built in built_staves:
                 for built_measure, _owners in built:
                     built_part.append(built_measure)
@@ -1043,7 +1111,57 @@ def _drop_placeholder_metadata(root: Any) -> None:
                 identification.remove(creator)
 
 
-def score_ir_to_musicxml(score: ScoreIR) -> str:
+def _write_metadata(root: Any, metadata: ScoreMetadata) -> None:
+    """Escribe el título, el compositor y el nombre y el instrumento de cada parte (ADR-0041).
+
+    Sobre el árbol que exporta music21, que sin metadatos no escribe nada de esto: `work` va
+    primero en `score-partwise`, el `creator` primero en `identification`, y en cada
+    `score-part` el nombre sustituye al que había y el instrumento va en `score-instrument` y
+    `midi-instrument`. Las partes sin datos quedan como estaban.
+    """
+
+    if metadata.title is not None:
+        work = ET.Element("work")
+        ET.SubElement(work, "work-title").text = metadata.title
+        root.insert(0, work)
+    if metadata.composer is not None:
+        identification = root.find("identification")
+        if identification is None:
+            identification = ET.Element("identification")
+            root.insert(1 if metadata.title is not None else 0, identification)
+        creator = ET.Element("creator", {"type": "composer"})
+        creator.text = metadata.composer
+        identification.insert(0, creator)
+
+    for index, score_part in enumerate(root.findall("part-list/score-part")):
+        part = metadata.part(index)
+        if part.is_empty:
+            continue
+        sound = None if part.instrument is None else _INSTRUMENT_SOUNDS[part.instrument]
+        name = part.name or (None if sound is None else sound.label)
+        part_name = score_part.find("part-name")
+        if part_name is None:
+            part_name = ET.Element("part-name")
+            score_part.insert(0, part_name)
+        part_name.text = name
+        if sound is None:
+            continue
+        for stale in score_part.findall("score-instrument") + score_part.findall("midi-instrument"):
+            score_part.remove(stale)
+        instrument_id = f"{score_part.get('id')}-I1"
+        score_instrument = ET.Element("score-instrument", {"id": instrument_id})
+        ET.SubElement(score_instrument, "instrument-name").text = name
+        if sound.sound is not None:
+            ET.SubElement(score_instrument, "instrument-sound").text = sound.sound
+        head = sum(1 for child in score_part if child.tag in _SCORE_PART_HEAD)
+        score_part.insert(head, score_instrument)
+        midi_instrument = ET.SubElement(score_part, "midi-instrument", {"id": instrument_id})
+        channel = _MIDI_CHANNELS[index % len(_MIDI_CHANNELS)]
+        ET.SubElement(midi_instrument, "midi-channel").text = str(channel)
+        ET.SubElement(midi_instrument, "midi-program").text = str(sound.program)
+
+
+def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
     """Serializa un `ScoreIR` a MusicXML 4.0 tal como está (base para la exportación, D11).
 
     No pasa por `GeneralObjectExporter`, que rellena los compases incompletos con silencios
@@ -1058,6 +1176,9 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
 
     Lleva las marcas de notación (ADR-0031): articulaciones, calderones, dinámicas y las
     ligaduras de expresión y los reguladores completos; un extremo sin pareja no se dibuja.
+
+    Con ``metadata``, el título, el compositor y el nombre y el instrumento de cada parte
+    (ADR-0041); sin ellos, o vacíos, la exportación no cambia.
     """
 
     if not score.parts:
@@ -1067,6 +1188,8 @@ def score_ir_to_musicxml(score: ScoreIR) -> str:
     with _keeping_spanner_numbers():
         root = exporter.parse()
     _drop_placeholder_metadata(root)
+    if metadata is not None and not metadata.is_empty:
+        _write_metadata(root, metadata)
     _number_voices_by_staff(root, score)
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
@@ -1146,7 +1269,7 @@ def _keeping_spanner_numbers() -> Iterator[None]:
             spanner.SpannerBundle.setIdLocals = original
 
 
-def score_ir_to_midi(score: ScoreIR) -> bytes:
+def score_ir_to_midi(score: ScoreIR, metadata: ScoreMetadata | None = None) -> bytes:
     """Serializa un `ScoreIR` a bytes en formato MIDI 1.0 (Issue #12, ADR-0010).
 
     Las notas de adorno (duración cero o nula, ADR-0028) no entran: music21 escribiría su
@@ -1155,9 +1278,12 @@ def score_ir_to_midi(score: ScoreIR) -> bytes:
 
     Tampoco las marcas de notación (ADR-0031): las dinámicas cambiarían las velocidades, y el
     volumen según las dinámicas es otro issue (#215).
+
+    Con ``metadata``, cada parte con instrumento fija su programa General MIDI en todas sus
+    pistas (ADR-0041); sin instrumento no hay cambio de programa, como antes.
     """
 
-    out = score_ir_to_music21(score, marks=False)
+    out = _build_music21(score, marks=False, metadata=metadata)
     for element in list(out.recurse().notes):
         site = element.activeSite
         if element.duration.isGrace and site is not None:
