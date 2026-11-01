@@ -88,6 +88,31 @@ describe("usePlayer", () => {
     expect(result.current.measure).toBeNull();
   });
 
+  it("tras el final, un aviso de compás que llega tarde no cambia la lectura (#299)", async () => {
+    const created = fakeEngines();
+    const { result } = renderHook(() => usePlayer(playback(3)));
+    await waitFor(() => {
+      expect(result.current.status).toBe("stopped");
+    });
+    act(() => {
+      result.current.play();
+    });
+    act(() => {
+      created[0]?.handlers.onMeasure(1);
+    });
+    act(() => {
+      created[0]?.handlers.onEnd();
+    });
+
+    act(() => {
+      created[0]?.handlers.onMeasure(1);
+    });
+
+    expect(result.current.status).toBe("stopped");
+    expect(result.current.measure).toBeNull();
+    expect(result.current.announcement).toBe("Fin de la partitura.");
+  });
+
   it("no carga Tone.js si no hay nada que sonar", () => {
     const load = vi.spyOn(engineLoader, "load");
     renderHook(() => usePlayer({ notes: [], measures: [], totalBeats: 3 }));

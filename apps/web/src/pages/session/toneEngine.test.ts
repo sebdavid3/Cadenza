@@ -7,7 +7,8 @@ import { SOUNDS, type Sound } from "./sounds";
 // `core/clock/Clock.js` y `Transport.js`): arranca en `now()` (el instante actual más el margen
 // de anticipación), dispara lo programado hasta ese margen, no pausa en un instante anterior al
 // arranque y, al reanudar, vuelve a disparar lo anticipado después de la pausa. Es un modelo:
-// codifica esa lectura del código de Tone, no lo sustituye.
+// codifica esa lectura del código de Tone, no lo sustituye. Salvo una cosa, vista en el navegador
+// y no leída en su código: el pulso 0 disparado antes de una parada por llegar (#299, en `stop`).
 interface VoiceRecord {
   notes: [number, string, number][];
   disposed: boolean;
@@ -95,13 +96,25 @@ const tone = vi.hoisted(() => {
       this.state = "paused";
       for (const event of this.events) if (event.tick >= this.ticksBefore) event.fired = false;
     }
-    stop() {
+    /** Parada en un instante por llegar, con el transporte en marcha (ver `stop`). */
+    private stopping: number | null = null;
+    stop(time = this.context.now()) {
+      // Visto en el navegador con Tone 15.1.22 (#299), no leído en su código: parado en marcha
+      // en un instante por llegar (`stop()` sin instante para en `now()`, el margen por delante),
+      // el reloj puede disparar lo programado en el pulso 0 en su tic anterior a la parada. No
+      // pasa siempre; el modelo lo hace siempre.
+      if (this.state === "started" && time > this.context.currentTime) this.stopping = time;
       this.state = "stopped";
       this.ticksBefore = 0;
       for (const event of this.events) event.fired = false;
     }
     /** Lo que el reloj de Tone haría en un tic: disparar lo que cae antes del margen. */
     tick() {
+      if (this.stopping !== null) {
+        const at = this.stopping;
+        this.stopping = null;
+        for (const event of this.events) if (event.tick === 0) event.callback(at);
+      }
       if (this.state !== "started") return;
       const horizon = this.ticksAt(this.context.now());
       for (const event of this.events) {
@@ -343,6 +356,47 @@ describe("motor de audio con Tone.js", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
     expect(played?.fades).toEqual([]);
     expect(played?.disposed).toBe(false);
+    release(engine);
+  });
+
+  it("tras el final no vuelve al compás 1 aunque Tone dispare el pulso 0 antes de parar (#299)", async () => {
+    const onMeasure = vi.fn();
+    const onEnd = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure, onEnd });
+    const played = voice();
+    await engine.play();
+    // El final llega hacia 2,05 s y para en `now()`, 2,15 s; el tic de 2,1 s dispara el pulso 0.
+    advance(2.4);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+
+    // Ni el aviso del compás 1 ni su primera nota, tampoco más tarde: lo que dispara el transporte
+    // ya parado no suena ni avisa.
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    expect(played?.notes).toHaveLength(3);
+    advance(1);
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    expect(played?.notes).toHaveLength(3);
+    release(engine);
+  });
+
+  it("tras el final, reproducir empieza desde el principio (#299)", async () => {
+    const onMeasure = vi.fn();
+    const onEnd = vi.fn();
+    const engine = createToneEngine(PLAYBACK, 120, { onMeasure, onEnd });
+    const played = voice();
+    await engine.play();
+    advance(3);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    onMeasure.mockClear();
+
+    await engine.play();
+    advance(0.6);
+
+    expect(onMeasure.mock.calls).toEqual([[1]]);
+    expect(played?.notes.slice(3).map(([frequency]) => Math.round(frequency))).toEqual([262, 330]);
+    advance(2);
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    expect(onEnd).toHaveBeenCalledTimes(2);
     release(engine);
   });
 
