@@ -477,7 +477,7 @@ def main() -> int:
     parser.add_argument(
         "--db-url",
         default=None,
-        help="URL de base de datos SQLAlchemy (opcional)",
+        help="URL de la base de datos con las sesiones del estudio (obligatoria salvo con --smoke)",
     )
     parser.add_argument(
         "--output-dir",

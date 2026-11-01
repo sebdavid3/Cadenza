@@ -509,8 +509,9 @@ def test_cli_train_no_longer_offers_a_trainer_backend(
     """`--trainer` elegía `PyTorchTrainer`, retirado en #271."""
     dataset = tmp_path / "dataset.json"
     args = _train_args(tmp_path, populated_db_url, dataset, tmp_path / "trained.json")
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as excinfo:
         main([*args, "--ser", "0.05", "--omr-ned", "0.04", "--trainer", "torch"])
+    assert excinfo.value.code == 2
 
 
 def test_cli_run_without_metrics_stops_at_train(tmp_path: Path, populated_db_url: str) -> None:
@@ -527,8 +528,8 @@ def test_cli_run_without_metrics_stops_at_train(tmp_path: Path, populated_db_url
         ]
     )
     assert rc == 1
-    assert not (work_dir / "trained_artifact.json").exists()
-    assert not (work_dir / "promotion_result.json").exists()
+    # Falla antes de construir el dataset: nada a medias en --work-dir.
+    assert not work_dir.exists()
 
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "learning" / "default.json"

@@ -1036,6 +1036,23 @@ def test_exp_10_smoke_never_writes_into_results(tmp_path: Path) -> None:
     assert not list(common.RESULTS_DIR.glob("effort_study_*"))
 
 
+def test_exp_10_smoke_refuses_any_path_into_the_repository_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """También `results` relativo y sus subcarpetas: el del repositorio, no solo el en uso."""
+    from ml.experiments import exp_10_effort_study
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(exp_10_effort_study, "REPO_ROOT", repo)
+    monkeypatch.chdir(repo)
+
+    for output_dir in ("results", "./results/sub", repo / "results" / "x"):
+        with pytest.raises(ValueError, match="results"):
+            exp_10_effort_study.run_effort_study_export(smoke=True, output_dir=output_dir)
+    assert not (repo / "results").exists()
+
+
 def test_exp_10_without_database_fails(tmp_path: Path) -> None:
     """Sin `--db-url` ni `--smoke` no hay estudio que exportar ni datos de reserva (#271)."""
     from ml.experiments import exp_10_effort_study

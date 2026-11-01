@@ -221,7 +221,22 @@ MISSING_METRICS_ERROR = (
 )
 
 
+def _missing_metrics_error(ser: float | None, omr_ned: float | None) -> str | None:
+    """El error si faltan --ser o --omr-ned: no hay métricas de reserva (#271)."""
+    if ser is not None and omr_ned is not None:
+        return None
+    if (ser is None) != (omr_ned is None):
+        return "Error: --ser y --omr-ned se indican juntos o ninguno de los dos."
+    return MISSING_METRICS_ERROR
+
+
 def train_command(args: argparse.Namespace) -> int:
+    # Las métricas las da quien llama, siempre las dos: se comprueba antes que nada.
+    metrics_error = _missing_metrics_error(args.ser, args.omr_ned)
+    if metrics_error is not None:
+        print(metrics_error, file=sys.stderr)
+        return 1
+
     input_path = Path(args.input)
     if not input_path.is_file():
         print(f"Error: No se encontró el archivo de muestras en '{input_path}'", file=sys.stderr)
@@ -237,15 +252,6 @@ def train_command(args: argparse.Namespace) -> int:
     samples = deserialize_dataset(raw_input)
     d_hash = str(raw_input.get("dataset_hash", dataset_hash(samples)))
 
-    # Las métricas las da quien llama, siempre las dos: no hay valores de reserva (#271).
-    if args.ser is None or args.omr_ned is None:
-        if (args.ser is None) != (args.omr_ned is None):
-            print(
-                "Error: --ser y --omr-ned se indican juntos o ninguno de los dos.", file=sys.stderr
-            )
-        else:
-            print(MISSING_METRICS_ERROR, file=sys.stderr)
-        return 1
     trainer_metrics = EvaluationMetrics(ser=float(args.ser), omr_ned=float(args.omr_ned))
 
     trainer = FakeTrainer(trainer_metrics)
@@ -571,6 +577,12 @@ def run_command(args: argparse.Namespace) -> int:
     print("Cadenza Offline Learning Pipeline — Ejecución de Punta a Punta")
     print("=" * 60)
 
+    # Sin métricas, `train` fallaría: se comprueba antes de escribir nada en --work-dir.
+    metrics_error = _missing_metrics_error(args.ser, args.omr_ned)
+    if metrics_error is not None:
+        print(metrics_error, file=sys.stderr)
+        return 1
+
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -877,7 +889,11 @@ def build_parser() -> argparse.ArgumentParser:
         "export-effort",
         help="Exporta métricas del estudio de esfuerzo a formato tabular (#33).",
     )
-    p_effort.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
+    p_effort.add_argument(
+        "--db-url",
+        default=None,
+        help="URL de la base con las sesiones del estudio (obligatoria salvo con --smoke).",
+    )
     p_effort.add_argument(
         "--output-dir",
         default=None,

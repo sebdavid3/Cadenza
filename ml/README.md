@@ -345,9 +345,10 @@ y el único entrenador, `FakeTrainer`, no evalúa el modelo que produce. Por eso
 valores fijos de reserva ([#271](https://github.com/sebdavid3/Cadenza/issues/271)). Las
 métricas que recibe van **siempre** marcadas con `"simulated": true`; `evaluate` y `promote`
 propagan la marca a sus informes, y la tabla `model_versions` no la guarda. `run` exige
-también `--ser` y `--omr-ned`, y `--trainer` ya no existe: elegía `PyTorchTrainer`, una red
-auxiliar con métricas de reserva retirada en #271. `promote` registra siempre las métricas del artefacto que recibe, no las de
-`evaluate`. `evaluate --manifest` mide las predicciones de `--predictions-dir` (sin comprobar que
+también `--ser` y `--omr-ned`, y lo comprueba antes de escribir nada en `--work-dir`.
+`--trainer` ya no existe: elegía `PyTorchTrainer`, una red auxiliar, retirada en #271, que
+devolvía métricas de reserva. `promote` registra siempre las métricas del artefacto que
+recibe, no las de `evaluate`. `evaluate --manifest` mide las predicciones de `--predictions-dir` (sin comprobar que
 procedan del artefacto) y, como `exp_03`, exige que cada entrada sin predicción figure en
 `failures.json`.
 
