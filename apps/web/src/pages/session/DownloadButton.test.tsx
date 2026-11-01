@@ -2,7 +2,7 @@ import { startTransition, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deferred } from "../../test/auth-helpers";
-import { DownloadButton } from "./DownloadButton";
+import { DownloadButton, MidiDownloadButton } from "./DownloadButton";
 
 const ID = "3e951fef-8a58-489e-abc9-68cfc3cd405b";
 
@@ -81,6 +81,42 @@ describe("DownloadButton", () => {
           <Next
             onCommit={() => {
               retry.resolve("<score-partwise/>");
+            }}
+          />,
+        );
+      });
+      await until(() => host.textContent.includes("Otra vista"), "la otra vista");
+      await tick();
+
+      expect(host.querySelector("button")).toBeNull();
+      expect(names).toEqual([]);
+    } finally {
+      root.unmount();
+      host.remove();
+    }
+  });
+
+  it("no descarga el MIDI que llega al salir de la vista, antes de que React limpie sus efectos", async () => {
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      const midi = deferred<Blob>();
+      root.render(<MidiDownloadButton sessionId={ID} ready fetchMidi={() => midi.promise} />);
+      await until(() => host.querySelector("button") !== null, "el botón");
+
+      host.querySelector("button")?.click();
+      startTransition(() => {
+        root.render(
+          <Next
+            onCommit={() => {
+              midi.resolve(new Blob(["MThd"]));
             }}
           />,
         );

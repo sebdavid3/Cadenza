@@ -13,6 +13,7 @@ import {
   mockApi,
   resetAuth,
   signInAs,
+  type Route,
 } from "../../test/auth-helpers";
 import type {
   EditEventCreate,
@@ -416,7 +417,7 @@ const xml = () =>
   new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml+xml" } });
 
 /** La API de una sesión sin hallazgos con otra respuesta para `/export`. */
-function withExport(route: (init: RequestInit | undefined) => Response | Promise<Response>) {
+function withExport(route: Route) {
   return mockApi({
     [`GET /sessions/${ID}`]: () => jsonResponse(detail()),
     [`GET /sessions/${ID}/findings`]: () => jsonResponse([]),
@@ -425,6 +426,24 @@ function withExport(route: (init: RequestInit | undefined) => Response | Promise
     [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
   });
 }
+
+/** Cabecera de un MIDI de una pista (`MThd`), como empieza el que exporta music21. */
+const MIDI_BYTES = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 1, 0, 1, 0x04, 0]);
+const midi = () => new Response(MIDI_BYTES, { headers: { "Content-Type": "audio/midi" } });
+
+/** La API de una sesión sin hallazgos: `/export` da el MusicXML y, con `format=midi`, `route`. */
+function withMidi(route: Route) {
+  return withExport((init, url) =>
+    url.searchParams.get("format") === "midi" ? route(init, url) : xml(),
+  );
+}
+
+/** Peticiones del MIDI a `/export`. */
+const midiCalls = (calls: { key: string; url: URL }[]) =>
+  calls.filter(
+    (call) =>
+      call.key === `GET /sessions/${ID}/export` && call.url.searchParams.get("format") === "midi",
+  );
 
 /** Nombres de los archivos que la vista descarga (jsdom no navega a una URL de Blob). */
 function captureDownloads() {
@@ -445,6 +464,13 @@ function musicXmlBlobs() {
       (value): value is Blob =>
         value instanceof Blob && value.type === "application/vnd.recordare.musicxml+xml",
     );
+}
+
+/** Blobs de MIDI entregados a `URL.createObjectURL`. */
+function midiBlobs() {
+  return createObjectURL.mock.calls
+    .map(([value]) => value)
+    .filter((value): value is Blob => value instanceof Blob && value.type === "audio/midi");
 }
 
 let createObjectURL: MockInstance<typeof URL.createObjectURL>;
@@ -949,6 +975,162 @@ describe("vista de una sesión", () => {
     });
     // La respuesta llega cuando la vista ya no está.
     late.resolve(xml());
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(saved.names).toEqual([]);
+  });
+
+  it("pide el MIDI solo al pulsar «Descargar MIDI» y lo guarda como .mid de tipo audio/midi", async () => {
+    const { calls } = withMidi(midi);
+    const saved = captureDownloads();
+    renderPage();
+
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    // La partitura ya está lista y el MIDI aún no se ha pedido.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Descargar MusicXML" })).not.toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+    });
+    expect(midiCalls(calls)).toHaveLength(0);
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.mid"]);
+    });
+    const [blob] = midiBlobs();
+    if (!blob) throw new Error("no se guardó ningún MIDI");
+    expect(blob.type).toBe("audio/midi");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(MIDI_BYTES);
+    expect(midiCalls(calls)).toHaveLength(1);
+    expect(button).not.toHaveAccessibleDescription(/midi/i);
+  });
+
+  it("mientras prepara el MIDI lo dice y no lo vuelve a pedir; al llegar lo descarga una vez", async () => {
+    const pending = deferred<Response>();
+    const { calls } = withMidi(() => pending.promise);
+    const saved = captureDownloads();
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el MIDI…");
+    });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(button);
+    expect(midiCalls(calls)).toHaveLength(1);
+    expect(saved.names).toEqual([]);
+
+    pending.resolve(midi());
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.mid"]);
+    });
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAccessibleDescription(/midi/i);
+  });
+
+  it("si el MIDI falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a pedir y descarga", async () => {
+    let fail = true;
+    const { calls } = withMidi(() => (fail ? jsonResponse({ detail: "fallo" }, 500) : midi()));
+    const saved = captureDownloads();
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(/no se pudo preparar el midi/i);
+    });
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+    // Nada más en la vista dice que falló: se anuncia en una región de estado.
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((region) => /no se pudo preparar el midi/i.test(region.textContent)),
+    ).toBe(true);
+    expect(saved.names).toEqual([]);
+
+    fail = false;
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.mid"]);
+    });
+    expect(midiCalls(calls)).toHaveLength(2);
+    expect(screen.queryByText(/no se pudo preparar el midi/i)).toBeNull();
+  });
+
+  it("si la respuesta no es un MIDI (no empieza por MThd), no la guarda y lo dice", async () => {
+    withMidi(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
+    const saved = captureDownloads();
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(/no se pudo preparar el midi/i);
+    });
+    expect(saved.names).toEqual([]);
+  });
+
+  it("si el MIDI llega mucho después del clic no descarga por sorpresa: dice que está listo", async () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    const { calls } = withMidi(() => {
+      clock = 10_000;
+      return midi();
+    });
+    const saved = captureDownloads();
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(/el midi ya está listo/i);
+    });
+    expect(saved.names).toEqual([]);
+
+    // El segundo clic lo guarda sin volver a pedirlo.
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.mid"]);
+    });
+    expect(midiCalls(calls)).toHaveLength(1);
+    expect(button).not.toHaveAccessibleDescription(/midi/i);
+  });
+
+  it("hasta saber qué estado se ve, «Descargar MIDI» no pide nada", async () => {
+    const { calls } = mockApi({ [`GET /sessions/${ID}`]: hangUntilAborted });
+    renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(button);
+
+    expect(midiCalls(calls)).toHaveLength(0);
+  });
+
+  it("si se sale de la vista mientras prepara el MIDI, no descarga al llegar", async () => {
+    const late = deferred<Response>();
+    withMidi(() => late.promise);
+    const saved = captureDownloads();
+    const router = renderPage();
+    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+
+    await userEvent.click(button);
+    await router.navigate("/transcripcion");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Descargar MIDI" })).toBeNull();
+    });
+    late.resolve(midi());
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(saved.names).toEqual([]);
