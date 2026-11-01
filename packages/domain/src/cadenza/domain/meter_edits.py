@@ -11,9 +11,10 @@ el estado que sustituyen, con la forma de su `after`, y la compensatoria interca
   La importación da a cada compás su métrica efectiva, así que «hasta el siguiente cambio» es
   el **tramo**: el compás del ancla y los siguientes que llevan su misma indicación (o ninguna),
   hasta el primero que lleva otra. El compás del ancla pasa a llevar la indicación de `after`
-  (None: ninguna, hereda la del anterior) y los demás del tramo que llevaban una, la nueva
-  vigente. `measures` fija la longitud del tramo; sin él, la calcula el servidor. La instantánea
-  la lleva siempre, para que deshacer devuelva exactamente esos compases.
+  y los demás del tramo que llevaban una, la nueva vigente. `measures` fija cuántos compases
+  cambia; sin él, el tramo entero. La instantánea los lleva siempre, para que deshacer devuelva
+  exactamente esos compases. Solo la compensatoria escribe ``None`` (un compás que no llevaba
+  indicación y hereda la del anterior); de un cliente, se rechaza.
 - `SetTuplet`, anclada al primer evento de un tramo de una voz de un compás:
   ``{"durations": [d1, ..., dn]}``, las figuras finales de los n eventos seguidos desde el ancla.
   Poner un tresillo de 3:2 multiplica cada figura por 2/3 y quitarlo, por 3/2: el servidor
@@ -191,15 +192,16 @@ def _check_time(score: ScoreIR, anchor: Anchor, after: object) -> None:
         )
     if "time_signature" not in after:
         raise InvalidEditPayload("SetTime requiere time_signature en 'after'")
-    signature = _parse_signature(after["time_signature"])
-    part, staves, run = _time_scope(score, anchor)
-    if signature is None:
-        staff, position = next((s, p) for s, p in staves if s == anchor.staff)
-        if _effective_before(part.staves[staff].measures, position) is None:
-            raise InvalidEditPayload(
-                f"el compás {anchor.measure} no puede quedarse sin indicación de compás: no hay "
-                "uno anterior que la lleve"
-            )
+    if after["time_signature"] is None:
+        # La importación da a cada compás su métrica: un compás sin ella dejaría de comprobarse
+        # (ADR-0040) y de rellenarse al exportar (#152). Solo la compensatoria escribe null, para
+        # devolver un compás que no la tenía.
+        raise InvalidEditPayload(
+            "SetTime requiere un compás en 'time_signature': para quitar un cambio, pon el del "
+            "compás anterior"
+        )
+    _parse_signature(after["time_signature"])
+    _, _, run = _time_scope(score, anchor)
     if "measures" in after:
         measures = _parse_measures(after["measures"])
         if measures > run:
@@ -209,13 +211,15 @@ def _check_time(score: ScoreIR, anchor: Anchor, after: object) -> None:
             )
 
 
-def _snapshot_time(score: ScoreIR, anchor: Anchor) -> dict[str, Any]:
+def _snapshot_time(score: ScoreIR, anchor: Anchor, after: object) -> dict[str, Any]:
     part, staves, run = _time_scope(score, anchor)
     staff, position = staves[0]
     signature = part.staves[staff].measures[position].time_signature
+    # Los compases que cambia la edición: los que da el cliente o el tramo entero.
+    measures = after.get("measures", run) if isinstance(after, Mapping) else run
     return {
         "time_signature": None if signature is None else signature.to_primitive(),
-        "measures": run,
+        "measures": measures,
     }
 
 
@@ -306,12 +310,19 @@ def _check_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> None:
                 f"un tresillo multiplica cada figura por 2/3 (ponerlo) o por 3/2 (quitarlo): "
                 f"{event.duration_beats} no pasa a {duration}"
             )
-        if (ratio == PUT_TRIPLET) == _has_triplet(event.duration_beats):
+        putting = ratio == PUT_TRIPLET
+        if putting == _has_triplet(event.duration_beats) or putting != _has_triplet(duration):
+            # Una figura con puntillo por 2/3 es otra figura sin tresillo (3/2 → 1).
             raise InvalidEditPayload(
-                "solo se pone el tresillo a figuras que no lo llevan y solo se quita a las que lo "
-                f"llevan: {event.duration_beats} no pasa a {duration}"
+                "solo se pone el tresillo a figuras que no lo llevan y que pasan a llevarlo, y "
+                f"solo se quita a las que lo llevan: {event.duration_beats} no pasa a {duration}"
             )
         ratios.add(ratio)
+    if not ratios:
+        raise InvalidEditPayload(
+            "el tramo solo tiene notas de adorno: no hay figuras a las que poner o quitar el "
+            "tresillo"
+        )
     if len(ratios) != 1:
         raise InvalidEditPayload(
             "SetTuplet pone o quita el tresillo a todo el tramo, no las dos cosas a la vez"
@@ -381,7 +392,7 @@ def snapshot_meter_before(
     `SetTime`). Se calcula sobre un `after` ya validado."""
 
     if op is EditOp.SET_TIME:
-        return _snapshot_time(score, anchor)
+        return _snapshot_time(score, anchor, after)
     if op is EditOp.SET_TUPLET:
         return _snapshot_tuplet(score, anchor, after)
     raise ValueError(f"operación que no es de compás ni de tresillos: {op.value}")

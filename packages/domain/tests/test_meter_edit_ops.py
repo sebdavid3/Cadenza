@@ -215,16 +215,15 @@ def test_set_time_keeps_measures_without_signature_inheriting() -> None:
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
 
 
-def test_set_time_null_removes_the_change_of_the_measure() -> None:
-    score = _score([FOUR, THREE, THREE, FOUR])
-    edit = _edit(score, EditOp.SET_TIME, _anchor(2), {"time_signature": None})
+def test_undoing_set_time_on_a_measure_without_signature_leaves_it_without_one() -> None:
+    # La compensatoria escribe null: el compás 2 heredaba y vuelve a heredar.
+    score = _score([FOUR, None, FOUR, THREE])
+    after = {"time_signature": {"beats": 3, "beat_type": 8}}
+    edit = _edit(score, EditOp.SET_TIME, _anchor(2), after)
+    assert edit.before == {"time_signature": None, "measures": 2}
     changed = apply_edit(score, edit)
-    assert _signatures(changed) == [
-        FOUR.to_primitive(),
-        None,
-        FOUR.to_primitive(),
-        FOUR.to_primitive(),
-    ]
+    eight = {"beats": 3, "beat_type": 8}
+    assert _signatures(changed) == [FOUR.to_primitive(), eight, eight, THREE.to_primitive()]
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
 
 
@@ -255,6 +254,8 @@ def test_set_time_with_explicit_measures_changes_only_those() -> None:
     score = _score([FOUR, FOUR, FOUR, FOUR])
     after = {"time_signature": {"beats": 3, "beat_type": 4}, "measures": 2}
     edit = _edit(score, EditOp.SET_TIME, _anchor(1), after)
+    # La instantánea tiene la forma del `after`: los compases que cambia.
+    assert edit.before == {"time_signature": FOUR.to_primitive(), "measures": 2}
     changed = apply_edit(score, edit)
     assert _signatures(changed) == [THREE.to_primitive()] * 2 + [FOUR.to_primitive()] * 2
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
@@ -286,6 +287,7 @@ def test_set_time_does_not_move_anchors() -> None:
         ({"time_signature": {"beats": 3, "beat_type": 4}, "measures": 0}, "'measures'"),
         ({"time_signature": {"beats": 3, "beat_type": 4}, "measures": True}, "'measures'"),
         ({"time_signature": {"beats": 3, "beat_type": 4}, "measures": 3}, "siguiente cambio"),
+        ({"time_signature": None}, "requiere un compás"),
         (None, "objeto 'after'"),
     ],
 )
@@ -293,11 +295,6 @@ def test_set_time_rejects_invalid_after(after: dict[str, Any] | None, message: s
     score = _score([FOUR, FOUR, THREE])
     with pytest.raises(InvalidEditPayload, match=message):
         validate_after(score, _anchor(1), EditOp.SET_TIME, after)
-
-
-def test_set_time_null_needs_a_previous_signature() -> None:
-    with pytest.raises(InvalidEditPayload, match="sin indicación"):
-        validate_after(_score([FOUR, FOUR]), _anchor(1), EditOp.SET_TIME, {"time_signature": None})
 
 
 def test_set_time_rejects_staves_with_different_signatures() -> None:
@@ -442,6 +439,19 @@ def test_set_tuplet_puts_or_removes_the_triplet_in_the_whole_range() -> None:
     score = _measure_score((_note("C5", Fraction(1, 2)), _note("D5", Fraction(1, 3))))
     with pytest.raises(InvalidEditPayload, match="no las dos cosas"):
         validate_after(score, _anchor(), EditOp.SET_TUPLET, {"durations": ["1/3", "1/2"]})
+
+
+def test_set_tuplet_rejects_dotted_figures_that_would_not_be_triplets() -> None:
+    # Una negra con puntillo por 2/3 es una negra: no un tresillo.
+    dotted = _measure_score(tuple(_note("C5", Fraction(3, 2)) for _ in range(2)))
+    with pytest.raises(InvalidEditPayload, match="pasan a llevarlo"):
+        validate_after(dotted, _anchor(), EditOp.SET_TUPLET, {"durations": ["1", "1"]})
+
+
+def test_set_tuplet_needs_a_figure_with_duration() -> None:
+    grace = _measure_score((_note("C5", None), _note("D5", 4)))
+    with pytest.raises(InvalidEditPayload, match="solo tiene notas de adorno"):
+        validate_after(grace, _anchor(), EditOp.SET_TUPLET, {"durations": [None]})
 
 
 def test_set_tuplet_does_not_split_a_chord() -> None:
