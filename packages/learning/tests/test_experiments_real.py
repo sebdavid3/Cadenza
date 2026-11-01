@@ -1165,6 +1165,29 @@ def test_exp_10_only_counts_finalized_and_measured_sessions() -> None:
     assert unmeasured == ["s-sin-medir"]
 
 
+def test_exp_10_an_accumulated_record_without_segments_is_not_a_measurement() -> None:
+    """Un descarte crea el registro acumulado aunque no llegara ningún tramo de tiempo: sin
+    tramos no hay medición, y si hay un registro suelto se usa ese (ADR-0050)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-sin-tramos", "p01")
+        _exp_10_effort(
+            db, "s-sin-tramos", "a1", duration_ms=0, accumulated=True, findings_dismissed=1
+        )
+        _exp_10_session(db, "s-suelto", "p01")
+        _exp_10_effort(db, "s-suelto", "a2", duration_ms=0, accumulated=True)
+        _exp_10_effort(db, "s-suelto", "suelto", duration_ms=7_000)
+        db.commit()
+
+        sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+        unmeasured = exp_10_effort_study.finalized_sessions_without_effort(db)
+
+    assert [(row.session_id, row.duration_ms) for row in sessions] == [("s-suelto", 7_000)]
+    assert sessions[0].findings_dismissed is None
+    assert unmeasured == ["s-sin-tramos"]
+
+
 def test_exp_10_reads_the_accumulated_record_of_the_web() -> None:
     """El registro que acumula la web es el de la sesión aunque haya otro suelto más nuevo, y
     trae las intervenciones por clase y lo que se cuenta aparte (#188, ADR-0050)."""
@@ -1183,6 +1206,7 @@ def test_exp_10_reads_the_accumulated_record_of_the_web() -> None:
             interventions={"1": 3, "2": 1},
             created_at=datetime(2026, 11, 1, tzinfo=UTC),
             accumulated=True,
+            segments=[{"id": "tab-a", "active_ms": 90_000, "first_edit_ms": 12_000}],
             interventions_by_class={"content": {"1": 2}, "mark": {"2": 1}, "meter": {"1": 1}},
             findings_dismissed=2,
             findings_restored=1,
