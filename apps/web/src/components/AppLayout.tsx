@@ -32,10 +32,12 @@ export function AppLayout() {
           )}
         </nav>
         {user && (
-          <div className="app-header__user">
+          // La persona en sesión lleva a su cuenta, donde cambia la contraseña (#190).
+          <NavLink className="app-header__user" to="/cuenta">
+            <span className="visually-hidden">Tu cuenta: </span>
             <span className="app-header__name">{user.username}</span>
             <span className="label app-header__role">{ROLE_LABELS[user.role] ?? user.role}</span>
-          </div>
+          </NavLink>
         )}
         <button
           type="button"

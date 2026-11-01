@@ -35,7 +35,8 @@ export interface RegisterError {
   field: RegisterField | null;
 }
 
-function minutes(seconds: number) {
+/** Un plazo de `Retry-After` en minutos, redondeado hacia arriba: «un minuto», «3 minutos». */
+export function minutes(seconds: number) {
   const value = Math.max(1, Math.ceil(seconds / 60));
   return value === 1 ? "un minuto" : `${String(value)} minutos`;
 }

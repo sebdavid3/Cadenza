@@ -47,9 +47,23 @@
   text-align: right;
 }
 
+/* Lleva a «Tu cuenta»: el nombre se subraya como un enlace, y con trazo grueso en su página. */
+.app-header__user {
+  padding-block: var(--space-1);
+  text-decoration: none;
+}
+
 .app-header__name {
   font-weight: 500;
   overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+.app-header__user:hover .app-header__name,
+.app-header__user[aria-current="page"] .app-header__name {
+  text-decoration-thickness: 3px;
 }
 
 .app-header__role {
