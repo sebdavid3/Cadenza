@@ -9,7 +9,7 @@ Capa de persistencia relacional y almacenamiento de Cadenza ([ADR-0004](https://
 - `FindingRecord` (`findings`): hallazgos de reglas de validación musical vinculados al `at_seq` de evaluación. Incluye resolución y descarte como falso positivo (`status`, `dismissed_at`, `dismissed_by`, `dismissal_reason`).
 - `UserRecord` (`users`): cuentas de investigadores y transcriptores con hash de contraseña Argon2id y rol tipado ([ADR-0012](https://github.com/sebdavid3/Cadenza/blob/dev/docs/adr/ADR-0012-autenticacion-e-identidad.md)).
 - `ArtifactRecord` (`artifacts`): metadatos de archivos direccionados por contenido (`sha256`, tipo MIME, tamaño y ruta física en disco).
-- `EffortMetricsRecord` (`effort_metrics`): métricas de esfuerzo cognitivo y temporal de corrección humana asociadas a cada sesión.
+- `EffortMetricsRecord` (`effort_metrics`): métricas de esfuerzo cognitivo y temporal de corrección humana asociadas a cada sesión. Un registro por sesión, `accumulated`, es el que acumula la web por tramos (índice único parcial, migración 0015, ADR-0050); los demás son registros sueltos de `POST /effort`.
 
 ## Dialectos de Base de Datos y JSONB
 
