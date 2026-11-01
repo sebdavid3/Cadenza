@@ -16,6 +16,7 @@ import {
   SESSIONS_QUERY_KEY,
   statusLabel,
 } from "./sessions";
+import { sessionName } from "./scoreData";
 import { SessionThumb } from "./SessionThumb";
 
 /**
@@ -156,12 +157,12 @@ export function SessionsPanel() {
                     <SessionThumb sessionId={session.session_id} />
                   </td>
                   <td role="cell" className="sessions__key">
+                    {/* El nombre de la sesión es el enlace a su vista (#240). */}
                     <Link
-                      className="label sessions__id"
+                      className="sessions__name"
                       to={`/sesiones/${encodeURIComponent(session.session_id)}`}
-                      aria-label={`Ver la sesión ${session.session_id.slice(0, 8)}`}
                     >
-                      {session.session_id.slice(0, 8)}
+                      <span>{sessionName(session)}</span>
                       <PixelIcon name="arrow-right" />
                     </Link>
                   </td>

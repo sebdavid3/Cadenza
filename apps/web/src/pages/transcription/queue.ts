@@ -5,6 +5,7 @@ import { ApiError } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import { registerPendingWork } from "../../pendingWork";
 import type { TranscribeResponse } from "../../types";
+import { appendScoreData, emptyDraft, type ScoreDataDraft } from "./scoreData";
 
 /** Límite de la API: `max_upload_size_bytes` (20 MB). */
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -23,6 +24,22 @@ export interface QueueItem {
   error?: string;
   /** Rechazado antes de enviarlo: no se puede reintentar tal cual. */
   rejected?: boolean;
+  /** Los datos de la partitura que se envían con la imagen (#240); sin ellos, ninguno. */
+  data?: ScoreDataDraft;
+}
+
+/**
+ * Partes que pide el formulario antes de transcribir: la voz o el instrumento de arriba y la
+ * segunda, el piano que acompaña. Las que HOMR no detecte se descartan sin error (ADR-0041 §3).
+ */
+export const PREPARED_PARTS = 2;
+
+/** Una imagen elegida que espera a «Transcribir» (#240, ADR-0045). */
+export interface PreparedItem {
+  id: string;
+  file: File;
+  /** Sus propios datos; null, los comunes del lote. */
+  own: ScoreDataDraft | null;
 }
 
 /** Comprobación previa en el navegador; la API sigue siendo la autoridad (magic bytes). */
@@ -67,9 +84,25 @@ interface QueueState {
   paused: boolean;
   /** Persona dueña de la cola: solo se envía con su sesión, y si entra otra, la cola se vacía. */
   ownerId: string | null;
+  /** Imágenes elegidas que aún no se han enviado, y los datos comunes del lote (#240). */
+  prepared: PreparedItem[];
+  common: ScoreDataDraft;
   claim: (ownerId: string) => void;
   reset: () => void;
+  /** Pone las imágenes en la cola, sin datos, y pide que se envíen. */
   add: (files: Iterable<File>) => void;
+  /**
+   * Prepara las imágenes elegidas: esperan a `submitPrepared` para enviarse. Las que no pasan la
+   * comprobación previa van directamente a la cola como rechazadas.
+   */
+  prepare: (files: Iterable<File>) => void;
+  setCommon: (data: ScoreDataDraft) => void;
+  /** Datos propios de una imagen preparada; null vuelve a los comunes. */
+  setOwn: (id: string, data: ScoreDataDraft | null) => void;
+  unprepare: (id: string) => void;
+  discardPrepared: () => void;
+  /** Pasa lo preparado a la cola, cada imagen con sus datos, y deja el formulario como estaba. */
+  submitPrepared: () => void;
   remove: (id: string) => void;
   retry: (id: string) => void;
   clearFinished: () => void;
@@ -98,30 +131,107 @@ export const useQueueStore = create<QueueState>()((set, get) => {
     inFlight = null;
   };
 
+  const rejectedItem = (file: File, problem: string): QueueItem => ({
+    id: newId(),
+    file,
+    status: "error",
+    error: problem,
+    rejected: true,
+  });
+
   return {
     items: [],
     running: false,
     paused: false,
+    prepared: [],
+    common: emptyDraft(PREPARED_PARTS),
     // Si este módulo se carga con la sesión ya abierta, la cola es de quien está dentro.
     ownerId: useAuthStore.getState().user?.id ?? null,
     claim: (ownerId) => {
       if (get().ownerId === ownerId) return;
       cancel();
-      set({ items: [], running: false, paused: false, ownerId });
+      set({
+        items: [],
+        running: false,
+        paused: false,
+        ownerId,
+        prepared: [],
+        common: emptyDraft(PREPARED_PARTS),
+      });
     },
     reset: () => {
       cancel();
-      set({ items: [], running: false, paused: false, ownerId: null });
+      set({
+        items: [],
+        running: false,
+        paused: false,
+        ownerId: null,
+        prepared: [],
+        common: emptyDraft(PREPARED_PARTS),
+      });
     },
     add: (files) => {
       const added = [...files].map((file): QueueItem => {
         const problem = precheck(file);
-        return problem
-          ? { id: newId(), file, status: "error", error: problem, rejected: true }
-          : { id: newId(), file, status: "queued" };
+        return problem ? rejectedItem(file, problem) : { id: newId(), file, status: "queued" };
       });
       // Añadir es pedir que se envíe: si la cola estaba en pausa, se vuelve a intentar.
       set((state) => ({ items: [...state.items, ...added], paused: false }));
+    },
+    prepare: (files) => {
+      const rejected: QueueItem[] = [];
+      const prepared: PreparedItem[] = [];
+      for (const file of files) {
+        const problem = precheck(file);
+        if (problem) rejected.push(rejectedItem(file, problem));
+        else prepared.push({ id: newId(), file, own: null });
+      }
+      set((state) => ({
+        items: [...state.items, ...rejected],
+        prepared: [...state.prepared, ...prepared],
+      }));
+    },
+    setCommon: (common) => {
+      set({ common });
+    },
+    setOwn: (id, own) => {
+      set((state) => ({
+        prepared: state.prepared.map((item) => (item.id === id ? { ...item, own } : item)),
+      }));
+    },
+    unprepare: (id) => {
+      set((state) => {
+        const prepared = state.prepared.filter((item) => item.id !== id);
+        // Sin imágenes, el formulario vuelve a sus valores por defecto, como al descartar.
+        if (prepared.length === 0) return { prepared, common: emptyDraft(PREPARED_PARTS) };
+        // Con una sola, el recuadro enseña los datos comunes: si ella tenía los suyos, pasan a
+        // serlo, para que lo que se ve sea lo que se envía.
+        const [only] = prepared;
+        if (prepared.length === 1 && only?.own) {
+          return { prepared: [{ ...only, own: null }], common: only.own };
+        }
+        return { prepared };
+      });
+    },
+    discardPrepared: () => {
+      set({ prepared: [], common: emptyDraft(PREPARED_PARTS) });
+    },
+    submitPrepared: () => {
+      const { prepared, common } = get();
+      if (prepared.length === 0) return;
+      const queued = prepared.map((item): QueueItem => ({
+        id: item.id,
+        file: item.file,
+        status: "queued",
+        data: item.own ?? common,
+      }));
+      // Enviar es pedirlo: si la cola estaba en pausa, se vuelve a intentar.
+      set((state) => ({
+        items: [...state.items, ...queued],
+        prepared: [],
+        common: emptyDraft(PREPARED_PARTS),
+        paused: false,
+      }));
     },
     remove: (id) => {
       set((state) => ({
@@ -164,6 +274,7 @@ export const useQueueStore = create<QueueState>()((set, get) => {
           inFlight = controller;
           const body = new FormData();
           body.append("file", next.file, next.file.name);
+          if (next.data) appendScoreData(body, next.data);
           try {
             const result = await api.request<TranscribeResponse>("/transcribe", {
               method: "POST",

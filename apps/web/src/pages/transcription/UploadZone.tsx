@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent, type Ref } from "react";
 import "../../components/button.css";
 
 interface UploadZoneProps {
   onFiles: (files: File[]) => void;
+  buttonRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -26,7 +27,7 @@ function useBlockStrayDrops() {
 }
 
 /** Zona para elegir o soltar imágenes. Acepta varias a la vez. */
-export function UploadZone({ onFiles }: UploadZoneProps) {
+export function UploadZone({ onFiles, buttonRef }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   useBlockStrayDrops();
@@ -70,6 +71,7 @@ export function UploadZone({ onFiles }: UploadZoneProps) {
         }}
       />
       <button
+        ref={buttonRef}
         type="button"
         className="button button--primary"
         onClick={() => inputRef.current?.click()}
@@ -78,7 +80,7 @@ export function UploadZone({ onFiles }: UploadZoneProps) {
       </button>
       <p className="upload__hint">
         o arrástralas aquí. PNG o JPEG de partituras impresas, de hasta 20 MB; cada imagen crea una
-        sesión.
+        sesión. Antes de transcribirlas podrás darles nombre e instrumentos.
       </p>
     </div>
   );
