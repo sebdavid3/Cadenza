@@ -11,6 +11,7 @@ from typing import Any
 
 from cadenza.domain import (
     MARK_EDIT_OPS,
+    METER_EDIT_OPS,
     Anchor,
     Clef,
     EditEvent,
@@ -19,6 +20,7 @@ from cadenza.domain import (
     KeySignature,
     ScoreIR,
     ScoreMetadata,
+    TimeSignature,
     TimingMap,
     UnsupportedEditOpError,
     apply_edit,
@@ -100,11 +102,12 @@ def _validate_before(
 ) -> None:
     """Exige que el `before` que envía el cliente, si lo envía, coincida con el estado.
 
-    El de una edición de marcas (ADR-0039) se compara después, con la instantánea del servidor
-    (`_check_mark_before`): depende de lo que fija su `after`.
+    El de una edición de marcas (ADR-0039), de compás o de tresillos (ADR-0044) se compara
+    después, con la instantánea del servidor (`_check_snapshot_before`): depende de lo que fija
+    su `after`.
     """
 
-    if not before or op in MARK_EDIT_OPS:
+    if not before or op in _SNAPSHOT_COMPARED_OPS:
         return
     try:
         _check_before(score, anchor, op, before)
@@ -205,9 +208,29 @@ def _check_before(
             )
 
 
+# Operaciones cuyo `before` del cliente se compara con la instantánea del servidor.
+_SNAPSHOT_COMPARED_OPS = MARK_EDIT_OPS | METER_EDIT_OPS
+
+
+def _meter_state(op: EditOp, state: Mapping[str, Any]) -> Any:
+    """Forma comparable del estado de un compás o de un tresillo (ADR-0044): la indicación con su
+    símbolo y, si el cliente la da, la longitud del tramo; las figuras como fracciones, sin
+    depender de su grafía («1/2», «0.5»)."""
+
+    if op is EditOp.SET_TIME:
+        raw = state["time_signature"]
+        signature = None if raw is None else TimeSignature.from_primitive(raw)
+        notation = None if signature is None else (signature, signature.symbol)
+        return (notation, state.get("measures"))
+    return tuple(None if d is None else Fraction(str(d)) for d in state["durations"])
+
+
 def _mark_state(op: EditOp, state: Mapping[str, Any]) -> Any:
     """Forma comparable del estado de una marca: sin depender del orden de las articulaciones
     ni de la grafía de las posiciones («1/2», «0.5»)."""
+
+    if op in METER_EDIT_OPS:
+        return _meter_state(op, state)
 
     def offset(value: Any) -> Fraction:
         return Fraction(str(value))
@@ -232,17 +255,20 @@ def _mark_state(op: EditOp, state: Mapping[str, Any]) -> Any:
     return (state["number"], end(state["start"]), end(state["stop"]))
 
 
-def _check_mark_before(
+def _check_snapshot_before(
     op: EditOp, before: Mapping[str, Any] | None, server_before: Mapping[str, Any] | None
 ) -> None:
-    """El `before` que envía el cliente para una edición de marcas, si lo envía, debe ser el
-    estado que sustituye (ADR-0017)."""
+    """El `before` que envía el cliente para una edición de marcas, de compás o de tresillos, si
+    lo envía, debe ser el estado que sustituye (ADR-0017)."""
 
     if not before or server_before is None:
         return
+    if op is EditOp.SET_TIME and "measures" not in before:
+        # La longitud del tramo la calcula el servidor: el cliente puede no darla.
+        server_before = {**server_before, "measures": None}
     try:
         same = _mark_state(op, before) == _mark_state(op, server_before)
-    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
         raise InvalidEdit(f"Estado previo 'before' no válido para {op.value}: {exc!r}") from exc
     if not same:
         raise InvalidEdit(
@@ -369,8 +395,8 @@ def _append(
         except (TypeError, ValueError, OverflowError) as exc:
             # Defensa: un valor JSON inesperado nunca debe producir un 500 ni persistirse.
             raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc!r}") from exc
-        if op in MARK_EDIT_OPS:
-            _check_mark_before(op, before, server_before)
+        if op in _SNAPSHOT_COMPARED_OPS:
+            _check_snapshot_before(op, before, server_before)
 
         # El log leído es el del estado `base_seq`: la edición siguiente es la `current_seq + 1`
         # (#275: sin otra consulta). La restricción única (sesión, seq) sigue impidiendo que dos

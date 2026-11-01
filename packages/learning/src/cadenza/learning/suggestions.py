@@ -62,6 +62,7 @@ from .alignment import derive_edit_events, is_structurally_equal
 from .config import compute_config_hash
 from .correction_corpus import assign_split, build_correction_records
 from .primus import primus_work_id
+from .validation_metrics import with_content_candidates
 
 THRESHOLD_GRID: Final[tuple[float, ...]] = tuple(round(0.05 * step, 2) for step in range(1, 20))
 _ACCIDENTAL_KEYS: Final[tuple[str, ...]] = (
@@ -607,7 +608,8 @@ def evaluate(
                 anchors=build_anchor_index(score),
                 provenance=Provenance(omr_engine="corpus"),
             )
-            findings = validator.validate(document)
+            # Solo los candidatos que la verdad puede juzgar (ADR-0044).
+            findings = with_content_candidates(validator.validate(document))
             # El mismo camino que producción: la capa y el filtro de admisibilidad de los
             # casos de uso (validate_after, sin duplicados, tres por hallazgo).
             suggested = suggest_with_layer(document, findings, model)

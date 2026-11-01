@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from cadenza.domain import (
+    SYMBOL_METERS,
     Articulation,
     Clef,
     Dynamic,
@@ -347,7 +348,13 @@ def _measure_signature(measure: Any) -> TimeSignature | None:
         signature = measure.getContextByClass(meter.TimeSignature)
     if signature is None:
         return None
-    return TimeSignature(int(signature.numerator), int(signature.denominator))
+    beats, beat_type = int(signature.numerator), int(signature.denominator)
+    # C y ¢ (ADR-0044): solo si escriben su métrica; otro `symbol` de music21 (``single-number``,
+    # ``normal``) o un C sobre otra métrica se queda en los números.
+    symbol = signature.symbol if signature.symbol in SYMBOL_METERS else None
+    if symbol is not None and SYMBOL_METERS[symbol] != (beats, beat_type):
+        symbol = None
+    return TimeSignature(beats, beat_type, symbol)
 
 
 def _measure_clef(measure: Any, is_first: bool = False) -> Clef | None:
@@ -881,9 +888,13 @@ def _build_measure(
         if measure.key_signature.mode is not None:
             k.mode = measure.key_signature.mode
         built.insert(0, k)
-    if measure.time_signature is not None and measure.time_signature != previous_signature:
-        signature = measure.time_signature
-        built.insert(0, meter.TimeSignature(f"{signature.beats}/{signature.beat_type}"))
+    signature = measure.time_signature
+    # Donde cambia la métrica o su grafía: de C a 4/4 con números también se escribe (ADR-0044).
+    if signature is not None and not signature.same_notation(previous_signature):
+        written = meter.TimeSignature(f"{signature.beats}/{signature.beat_type}")
+        if signature.symbol is not None:
+            written.symbol = signature.symbol
+        built.insert(0, written)
 
     by_voice: dict[int, list[int]] = {}
     for index, event in enumerate(measure.events):

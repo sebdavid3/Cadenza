@@ -116,6 +116,7 @@ from cadenza.learning import (
     score_ser_pair,
     semantic_note_pitches,
     with_sounding_pitches,
+    without_time_symbols,
 )
 from cadenza.learning.suggestion_measurement import (
     POLICIES,
@@ -511,7 +512,9 @@ def _corrections(records: Sequence[Mapping[str, Any]]) -> int:
 
 
 def _export(score: ScoreIR, path: Path, exporter: Music21ScoreExporter) -> Path:
-    path.write_text(exporter.to_musicxml(score), encoding="utf-8")
+    # Sin el símbolo del compás (ADR-0044 §1): HOMR no lo escribe y la verdad lo trae desde #236;
+    # con él, el OMR-NED contaría una diferencia de grafía que antes no medía.
+    path.write_text(exporter.to_musicxml(without_time_symbols(score)), encoding="utf-8")
     return path
 
 

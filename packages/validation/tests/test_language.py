@@ -19,6 +19,7 @@ from cadenza.validation.language import (
     key_name,
     measure_phrase,
     measures_phrase,
+    meter_name,
     meter_of,
     note_name,
     position_phrase,
@@ -144,6 +145,11 @@ def test_meter_key_and_clef() -> None:
     assert meter_of(Fraction(2), 8) == TimeSignature(2, 4)
     assert meter_of(Fraction(7, 2), 4) == TimeSignature(7, 8)
     assert meter_of(Fraction(7, 4), 4) is None
+    # La métrica como se escribe: con su símbolo si lo lleva (#236).
+    assert meter_name(TimeSignature(3, 4)) == "3/4"
+    assert meter_name(TimeSignature(4, 4)) == "4/4"
+    assert meter_name(TimeSignature(4, 4, "common")) == "C"
+    assert meter_name(TimeSignature(2, 2, "cut")) == "¢"
     assert key_name(2) == "dos sostenidos"
     assert key_name(-1) == "un bemol"
     assert key_name(-3) == "tres bemoles"

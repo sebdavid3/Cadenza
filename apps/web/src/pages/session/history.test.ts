@@ -202,6 +202,63 @@ describe("describeEdit", () => {
   });
 });
 
+describe("compás y tresillos (ADR-0044)", () => {
+  it("dice el compás nuevo, con su símbolo, y si se pone o se quita el tresillo", () => {
+    expect(describeEdit(edit(1, "SetTime", { time_signature: { beats: 3, beat_type: 4 } }))).toBe(
+      "compás 3/4",
+    );
+    expect(
+      describeEdit(
+        edit(1, "SetTime", { time_signature: { beats: 4, beat_type: 4, symbol: "common" } }),
+      ),
+    ).toBe("compás C");
+    expect(
+      describeEdit(
+        edit(1, "SetTime", { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } }),
+      ),
+    ).toBe("compás ¢");
+    expect(describeEdit(edit(1, "SetTime", { time_signature: null }))).toBe(
+      "quitar el cambio de compás",
+    );
+    const triplet = edit(
+      1,
+      "SetTuplet",
+      { durations: ["1/3", "1/3", "1/3"] },
+      {
+        before: { durations: ["1/2", "1/2", "1/2"] },
+      },
+    );
+    expect(describeEdit(triplet)).toBe("tresillo en 3 figuras");
+    const removed = edit(
+      1,
+      "SetTuplet",
+      { durations: ["1/2", "1/2", "1/2"] },
+      {
+        before: { durations: ["1/3", "1/3", "1/3"] },
+      },
+    );
+    expect(describeEdit(removed)).toBe("quitar el tresillo de 3 figuras");
+  });
+
+  it("el compás es del compás, sin voz, no mueve la selección y se deshace con su instantánea", () => {
+    expect(placeOf({ op: "SetTime", anchor: anchor(3) }, false)).toBe("compás 3");
+    expect(placeOf({ op: "SetTuplet", anchor: anchor(3) }, false)).toBe("compás 3, voz 1");
+    expect(
+      hasCompleteBefore(
+        edit(1, "SetTime", null, { before: { time_signature: null, measures: 2 } }),
+      ),
+    ).toBe(true);
+    expect(hasCompleteBefore(edit(1, "SetTime", null, { before: { time_signature: null } }))).toBe(
+      false,
+    );
+    expect(hasCompleteBefore(edit(1, "SetTuplet", null, { before: { durations: ["1/2"] } }))).toBe(
+      true,
+    );
+    const score = { parts: [] } as unknown as Parameters<typeof historyPlacement>[1];
+    expect(historyPlacement(edit(1, "SetTime", { time_signature: null }), score)).toBeUndefined();
+  });
+});
+
 describe("placeOf", () => {
   it("dice el compás y la voz, y el compás solo en la clave y la armadura", () => {
     expect(placeOf({ op: "SetPitch", anchor: anchor(2, 1, 1) }, false)).toBe("compás 2, voz 2");

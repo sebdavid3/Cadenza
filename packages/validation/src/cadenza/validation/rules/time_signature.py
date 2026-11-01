@@ -5,12 +5,13 @@ HOMR (#237), que con la métrica leída daría un `measure.balance` por compás,
 falsos. El cálculo (tramos, rachas y su suma S) está en `support.meter_spans`, porque
 `measure.balance` comprueba esos compases contra S.
 
-Sin la operación de #236 para cambiar el compás, el hallazgo no trae candidatos.
+Su candidato es cambiar el compás a S desde el compás del ancla (`SetTime`, #236, ADR-0044):
+una sola edición, que rige hasta el siguiente cambio.
 """
 
 from __future__ import annotations
 
-from cadenza.domain import Finding, ScoreDocument, Severity
+from cadenza.domain import EditOp, Finding, ScoreDocument, Severity, SuggestedEdit
 
 from ..language import (
     capitalize,
@@ -80,6 +81,13 @@ class TimeSignatureRule(ValidationRule):
                     continue
                 start, anchor = found
                 message, fix = _texts(span, start)
+                proposed = span.proposed
+                if proposed is None:  # `meter_spans` solo da sumas que son métrica
+                    continue
+                after: dict[str, object] = {"time_signature": proposed.to_primitive()}
+                if not span.whole:
+                    # Desde un compás: S rige solo en la racha; después, la métrica leída.
+                    after["measures"] = sum(1 for number in span.numbers if number >= start)
                 findings.append(
                     Finding(
                         anchor=anchor,
@@ -87,6 +95,13 @@ class TimeSignatureRule(ValidationRule):
                         severity=Severity.WARNING,
                         message=message,
                         suggested_fix=fix,
+                        candidates=(
+                            SuggestedEdit(
+                                op=EditOp.SET_TIME,
+                                anchor=anchor,
+                                after=after,
+                            ),
+                        ),
                     )
                 )
         return findings

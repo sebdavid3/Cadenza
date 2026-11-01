@@ -233,3 +233,21 @@ def test_mark_edits_are_not_samples() -> None:
     assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
     assert samples[0].anchor.event_index == 1
     assert samples == DatasetBuilder().build(document, [pitch])
+
+
+def test_meter_edits_are_not_samples() -> None:
+    """Las ediciones del compás y de los tresillos no son muestras del dataset (ADR-0044): la
+    muestra es de un evento y su altura, y `derive_edit_events` no las produce."""
+    document = make_document()
+    time = make_edit(1, make_anchor(0), None, None, op=EditOp.SET_TIME)
+    object.__setattr__(time, "before", {"time_signature": None, "measures": 1})
+    object.__setattr__(time, "after", {"time_signature": {"beats": 3, "beat_type": 4}})
+    tuplet = make_edit(2, make_anchor(0), None, None, op=EditOp.SET_TUPLET)
+    object.__setattr__(tuplet, "before", {"durations": ["1/2"]})
+    object.__setattr__(tuplet, "after", {"durations": ["1/3"]})
+    pitch = make_edit(3, make_anchor(1), "D4", "E4")
+
+    samples = DatasetBuilder().build(document, [time, tuplet, pitch])
+
+    assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
+    assert samples == DatasetBuilder().build(document, [pitch])

@@ -78,6 +78,20 @@ class EditOp(StrEnum):
         - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.
         - ``before``/``after``: ``{"number": int, "start": {"staff", "measure", "voice",
           "event_index"} | None, "stop": {...} | None}``.
+
+    Compás y tresillos (ADR-0044). También de tipo «fijar», y tampoco mueven ningún evento.
+
+    12. `SET_TIME` ("SetTime"):
+        - Cambia la indicación de compás desde el compás del ancla hasta el siguiente cambio, en
+          todos los pentagramas de la parte.
+        - ``before``/``after``: ``{"time_signature": {"beats": int, "beat_type": int,
+          "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
+          número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
+          ``time_signature`` solo lo escribe la compensatoria).
+
+    13. `SET_TUPLET` ("SetTuplet"):
+        - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
+        - ``before``/``after``: ``{"durations": [str | None, ...]}``, sus figuras.
     """
 
     SET_PITCH = "SetPitch"
@@ -91,6 +105,8 @@ class EditOp(StrEnum):
     SET_DYNAMIC = "SetDynamic"
     SET_WEDGE = "SetWedge"
     SET_SLUR = "SetSlur"
+    SET_TIME = "SetTime"
+    SET_TUPLET = "SetTuplet"
 
 
 MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
@@ -99,10 +115,25 @@ MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
 """Operaciones sobre las marcas de notación (ADR-0039). No entran en el dataset ni en las
 métricas de los experimentos, como las marcas mismas (ADR-0031 §6)."""
 
-CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(set(EditOp) - MARK_EDIT_OPS)
+METER_EDIT_OPS: frozenset[EditOp] = frozenset({EditOp.SET_TIME, EditOp.SET_TUPLET})
+"""Operaciones sobre el compás y los tresillos (ADR-0044). `derive_edit_events` no las produce
+(no alinea las indicaciones de compás, y un tresillo sale como un `SetDuration` por figura), así
+que no entran en la cobertura de `exp_02` ni son muestras del dataset."""
+
+CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(
+    {
+        EditOp.SET_PITCH,
+        EditOp.SET_DURATION,
+        EditOp.SET_ACCIDENTAL,
+        EditOp.INSERT_EVENT,
+        EditOp.DELETE_EVENT,
+        EditOp.SET_CLEF,
+        EditOp.SET_KEY,
+    }
+)
 """Operaciones sobre el contenido (alturas, duraciones, eventos, clave y armadura): las que
 derivan los experimentos del diff con la verdad (`derive_edit_events`) y las que cubre el
-dataset (ADR-0039)."""
+dataset (ADR-0039). Una operación nueva se clasifica al crearla (ADR-0039 §3.7)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,8 +240,9 @@ def create_inverse_edit(
     """Construye el evento compensatorio inverso de una edición (ADR-0007, #35).
 
     Invierte semánticamente cualquier operación de `EditOp`:
-    - SetPitch / SetDuration / SetAccidental / SetClef / SetKey y las de marcas (SetNoteMarks,
-      SetDynamic, SetWedge, SetSlur, ADR-0039): intercambia `before` y `after`.
+    - SetPitch / SetDuration / SetAccidental / SetClef / SetKey, las de marcas (SetNoteMarks,
+      SetDynamic, SetWedge, SetSlur, ADR-0039) y las de compás y tresillos (SetTime,
+      SetTuplet, ADR-0044): intercambia `before` y `after`.
     - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
       `before = edit.after` y `after = None`.
     - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con

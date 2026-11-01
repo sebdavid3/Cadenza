@@ -44,6 +44,8 @@ from .evaluation import (
     score_to_symbol_sequence,
     score_to_symbols,
     symbol_error_rate,
+    time_symbol_agreement,
+    without_time_symbols,
 )
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
@@ -79,6 +81,7 @@ from .validation_metrics import (
     compute_binary_metrics,
     evaluate_pair,
     evaluate_score_measures,
+    with_content_candidates,
 )
 
 __all__ = [
@@ -153,5 +156,8 @@ __all__ = [
     "serialize_dataset",
     "split_pitch",
     "symbol_error_rate",
+    "time_symbol_agreement",
+    "with_content_candidates",
     "with_sounding_pitches",
+    "without_time_symbols",
 ]

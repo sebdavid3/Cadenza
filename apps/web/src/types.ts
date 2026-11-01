@@ -208,8 +208,22 @@ export interface EditEventRead {
  *     - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.
  *     - ``before``/``after``: ``{"number": int, "start": {"staff", "measure", "voice",
  *       "event_index"} | None, "stop": {...} | None}``.
+ * 
+ * Compás y tresillos (ADR-0044). También de tipo «fijar», y tampoco mueven ningún evento.
+ * 
+ * 12. `SET_TIME` ("SetTime"):
+ *     - Cambia la indicación de compás desde el compás del ancla hasta el siguiente cambio, en
+ *       todos los pentagramas de la parte.
+ *     - ``before``/``after``: ``{"time_signature": {"beats": int, "beat_type": int,
+ *       "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
+ *       número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
+ *       ``time_signature`` solo lo escribe la compensatoria).
+ * 
+ * 13. `SET_TUPLET` ("SetTuplet"):
+ *     - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
+ *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, sus figuras.
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).
@@ -658,6 +672,8 @@ export interface TimeSignaturePayload {
   beats: number;
   /** Figura musical que representa un pulso */
   beat_type: number;
+  /** Símbolo con que se escribe la indicación (ADR-0044): 'common' (C) en 4/4, 'cut' (¢) en 2/2, o null si se escribe con números */
+  symbol?: "common" | "cut" | null;
 }
 
 /**

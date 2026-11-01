@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any, Final
 
@@ -230,3 +230,69 @@ def normalized_edit_distance(reference: Sequence[str], hypothesis: Sequence[str]
     if denominator == 0:
         return 0.0
     return _levenshtein(reference, hypothesis) / denominator
+
+
+# --- El símbolo del compás en las mediciones (ADR-0044 §1) -------------------------------
+
+
+def without_time_symbols(score: ScoreIR) -> ScoreIR:
+    """La partitura sin el símbolo del compás (C y ¢ pasan a 4/4 y 2/2 con números).
+
+    Las mediciones que exportan el `ScoreIR` para compararlo (el OMR-NED de `exp_14`) lo
+    exportan así: HOMR nunca escribe el símbolo y la verdad lo trae desde #236, así que musicdiff
+    contaría una diferencia de grafía y el OMR-NED dejaría de ser comparable con el medido antes.
+    Sin símbolos, devuelve la misma partitura."""
+
+    if not any(
+        m.time_signature is not None and m.time_signature.symbol is not None
+        for part in score.parts
+        for staff in part.staves
+        for m in staff.measures
+    ):
+        return score
+
+    def plain(signature: TimeSignature | None) -> TimeSignature | None:
+        if signature is None or signature.symbol is None:
+            return signature
+        return TimeSignature(signature.beats, signature.beat_type)
+
+    return replace(
+        score,
+        parts=tuple(
+            replace(
+                part,
+                staves=tuple(
+                    replace(
+                        staff,
+                        measures=tuple(
+                            replace(m, time_signature=plain(m.time_signature))
+                            for m in staff.measures
+                        ),
+                    )
+                    for staff in part.staves
+                ),
+            )
+            for part in score.parts
+        ),
+    )
+
+
+def time_symbol_agreement(predicted: ScoreIR, truth: ScoreIR) -> dict[str, int]:
+    """Cuántos compases tienen bien o mal leído el símbolo del compás, aparte del OMR-NED.
+
+    Se comparan los compases por su posición en cada pentagrama de cada parte y solo cuentan los
+    que llevan símbolo en la verdad o en la lectura: bien si los dos se escriben igual (misma
+    métrica y mismo símbolo), mal si no."""
+
+    counts = {"correct": 0, "wrong": 0}
+    for predicted_part, truth_part in zip(predicted.parts, truth.parts, strict=False):
+        for predicted_staff, truth_staff in zip(
+            predicted_part.staves, truth_part.staves, strict=False
+        ):
+            for read, true in zip(predicted_staff.measures, truth_staff.measures, strict=False):
+                a, b = read.time_signature, true.time_signature
+                if (a is None or a.symbol is None) and (b is None or b.symbol is None):
+                    continue
+                same = a is not None and a.same_notation(b)
+                counts["correct" if same else "wrong"] += 1
+    return counts

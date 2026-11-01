@@ -78,6 +78,13 @@ class TimeSignaturePayload(BaseModel):
 
     beats: int = Field(gt=0, description="Número de pulsos por compás")
     beat_type: int = Field(gt=0, description="Figura musical que representa un pulso")
+    symbol: Literal["common", "cut"] | None = Field(
+        default=None,
+        description=(
+            "Símbolo con que se escribe la indicación (ADR-0044): 'common' (C) en 4/4, 'cut' (¢) "
+            "en 2/2, o null si se escribe con números"
+        ),
+    )
 
 
 class ClefPayload(BaseModel):
