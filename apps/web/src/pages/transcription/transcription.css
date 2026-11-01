@@ -327,8 +327,7 @@
   white-space: nowrap;
 }
 
-.queue__size,
-.queue__session {
+.queue__size {
   color: var(--color-ink-muted);
 }
 
@@ -360,8 +359,13 @@
   font-size: var(--text-small);
 }
 
+/* El enlace a la sesión de una imagen transcrita (#277), con el alto de un objetivo táctil. */
 .queue__session {
   grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
 }
 
 .queue__actions {

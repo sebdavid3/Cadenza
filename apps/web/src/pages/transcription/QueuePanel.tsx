@@ -1,4 +1,5 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { Link } from "react-router";
 import { formatSize } from "./format";
 import { useQueueStore, type QueueItem } from "./queue";
 import { nonBlank } from "./scoreData";
@@ -35,7 +36,7 @@ function subscribeToClock(onTick: () => void) {
 }
 
 /** Segundos desde que empezó la transcripción en curso: progreso visible sin bloquear. */
-function Elapsed({ since }: { since: number }) {
+export function Elapsed({ since }: { since: number }) {
   const seconds = useSyncExternalStore(subscribeToClock, () =>
     Math.max(0, Math.floor((Date.now() - since) / 1000)),
   );
@@ -184,9 +185,14 @@ export function QueuePanel() {
                 </div>
                 {item.error && <p className="queue__error">{item.error}</p>}
                 {item.status === "done" && item.result && (
-                  <p className="label queue__session">
-                    Sesión {item.result.session_id.slice(0, 8)}
-                  </p>
+                  // Cada resultado lleva a su sesión, para verla o corregirla (#277).
+                  <Link
+                    className="label queue__session"
+                    to={`/sesiones/${encodeURIComponent(item.result.session_id)}`}
+                    aria-label={`Abrir la sesión de ${titleOf(item) ?? item.file.name}`}
+                  >
+                    Abrir la sesión
+                  </Link>
                 )}
                 <div className="queue__actions">
                   {item.status === "queued" && (

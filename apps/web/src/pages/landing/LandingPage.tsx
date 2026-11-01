@@ -10,6 +10,7 @@ import { IncipitDemo } from "./IncipitDemo";
 import { IncipitScan } from "./IncipitScan";
 import { IncipitStaff } from "./IncipitStaff";
 import "./landing.css";
+import { LandingUpload } from "./LandingUpload";
 
 // Las figuras de los pasos: el mismo incipit sintético en cada momento del proceso.
 const STEP_FIGURES = [
@@ -58,6 +59,8 @@ export function LandingPage() {
             </p>
           </div>
         </section>
+
+        <LandingUpload />
 
         <IncipitDemo />
 
