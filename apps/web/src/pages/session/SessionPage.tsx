@@ -160,10 +160,10 @@ function SessionView({ sessionId }: { sessionId: string }) {
   );
   // Lo que suena: el mapa de tiempos con las alturas del mismo estado (ADR-0026), cada parte con
   // su instrumento (ADR-0046).
-  const instruments = detail.data?.instruments;
+  const partInstruments = detail.data?.instruments;
   const playback = useMemo(
-    () => (score && timing.data ? buildPlayback(score, timing.data, instruments) : null),
-    [score, timing.data, instruments],
+    () => (score && timing.data ? buildPlayback(score, timing.data, partInstruments) : null),
+    [score, timing.data, partInstruments],
   );
   const player = usePlayer(playback);
   const playing = useMemo(
