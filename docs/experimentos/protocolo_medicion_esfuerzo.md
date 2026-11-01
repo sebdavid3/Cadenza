@@ -35,10 +35,11 @@ Para maximizar la potencia estadística y neutralizar la alta varianza inherente
 1. **Condición Asistida (`assisted`):**
    * El pipeline OMR transcribe la imagen y el `ValidationEngine` evalúa el catálogo de reglas musicales sintácticas (balance rítmico, coherencia métrica, alteraciones tonales).
    * La interfaz gráfica resalta visualmente los compases y eventos con discrepancias mediante anclas espaciales y semánticas, proveyendo mensajes de error explicables y sugerencias de corrección.
+   * **Sugerencias aprendidas (#244, decisión del responsable del 2026-10-31):** la condición asistida incluye las sugerencias de la capa que aprende de las correcciones (ADR-0036), **solo las de alteración de confianza alta** (enmienda 19), y se prueban en el piloto (#251).
    * Las revalidaciones interactivas (`POST /sessions/{id}/validate`) actualizan los hallazgos tras cada corrección.
 2. **Condición No Asistida (`unassisted`):**
    * El pipeline OMR genera la transcripción cruda, pero el validador **se desactiva completamente a nivel de sesión** (`findings = ()`).
-   * La interfaz presenta el visor interactivo sin alertas, marcas de validación ni sugerencias.
+   * La interfaz presenta el visor interactivo sin alertas, marcas de validación ni sugerencias. Tampoco ofrece «Revalidar» ni dice nada del validador, y al finalizar no se valida (ADR-0040 §13, ADR-0043).
    * El usuario debe inspeccionar secuencialmente cada compás comparándolo visualmente con la imagen original sin asistencia automatizada.
 
 ### 2.3 Banco de Partituras de Prueba (`test_score_id`)
@@ -46,7 +47,7 @@ Se establecen cuatro partituras de prueba calibradas en dificultad y complejidad
 * **`TS-01` (Monofónica básica):** 4 compases en compás simple (4/4), tonalidad mayor básica, figuras regulares (negras, corcheas). Línea base de baja complejidad.
 * **`TS-02` (Alteraciones y armaduras):** 8 compases con armadura de 3 alteraciones, accidentes cromáticos incidentales y síncopas moderadas.
 * **`TS-03` (Rítmica compleja y ligaduras):** 8 compases con compás compuesto (6/8), tresillos, ligaduras de prolongación y silencios intercalados.
-* **`TS-04` (Polifonía / Pianoform):** 12 compases distribuidos en sistema de dos pentagramas (clave de sol y fa), contrapunto a dos voces y acordes simultáneos.
+* **`TS-04` (Voz y piano):** voz superior con acompañamiento de piano en dos pentagramas (clave de sol y fa), con acordes simultáneos. Decidido por el responsable el 2026-11-01 (#244), según el alcance del plan de cierre; depende de #239.
 
 ### 2.4 Matriz de Contrabalanceo y Asignación de Bloques
 Con una muestra mínima de $N=8$ transcriptores musicales:
@@ -73,9 +74,9 @@ Con una muestra mínima de $N=8$ transcriptores musicales:
 
 ### 3.2 Variables Dependientes Cuantitativas (Telemetría Objetiva)
 Registradas de forma inmutable en `sessions`, `edit_events` y `effort_metrics`:
-1. **Duración total de corrección ($T_{\text{total}}$):** tiempo transcurrido en milisegundos (`duration_ms` / `duration_s`) desde la carga de la sesión hasta su finalización formal.
+1. **Duración total de corrección ($T_{\text{total}}$):** tiempo **con la página visible y con actividad**, en milisegundos (`duration_ms` / `duration_s`), desde la primera carga de la sesión hasta su finalización formal (definición en el §3.4).
 2. **Latencia a la primera edición ($T_{\text{first}}$):** tiempo de inspección exploratoria previa a la primera acción correctiva (`time_to_first_edit_ms`).
-3. **Intervenciones manuales por compás ($I_{m}$):** conteo de operaciones de corrección (INSERT, UPDATE, DELETE) agrupadas por compás (`interventions`).
+3. **Intervenciones manuales por compás ($I_{m}$):** conteo de las ediciones guardadas agrupadas por compás (`interventions`), según el §3.4.
 4. **Tiempo por compás ($T_{\text{compás}}$):** duración normalizada $T_{\text{total}} / N_{\text{compases}}$.
 5. **Tasa de intervenciones ($I_{\text{tasa}}$):** intervenciones totales normalizadas $I_{\text{total}} / N_{\text{compases}}$.
 6. **Eventos totales de edición ($E_{\text{count}}$):** total de correcciones en el log inmutable de `edit_events`.
@@ -90,6 +91,15 @@ Al concluir cada condición, el participante diligencia el cuestionario multidim
 * **Esfuerzo:** ¿Cuán duro tuvo que trabajar para alcanzar su nivel de rendimiento?
 * **Frustración:** ¿Cuán inseguro, desalentado o irritado se sintió durante la corrección?
 * **Puntaje Global TLX:** promedio directo (*Raw TLX*) y ponderado por parejas.
+
+**Recogida (#244, decisión del responsable del 2026-11-01):** el cuestionario se rellena fuera de la web (en papel o en un formulario en línea) y se pasa a un CSV con una fila por participante y bloque, que `exp_10` une por esas dos columnas (#250). Sin dato, la celda queda vacía, nunca a 0.
+
+### 3.4 Definiciones operativas (#244)
+Decididas por el responsable el 2026-11-01 para que #188 registre el esfuerzo sin ambigüedad:
+* **Duración: solo el tiempo con la pantalla delante.** Se suman los tramos en que la página de la sesión está visible (`document.visibilityState`) y hay actividad. Se descuenta lo que la pestaña estuvo oculta y cada pausa sin actividad (ni teclado ni ratón ni toque) más larga que el umbral, de la que solo cuenta el umbral. **Umbral propuesto: 2 minutos, pendiente de confirmar por el responsable antes del piloto (#251).** Las recargas de la página no cortan la medición: se acumula sobre el mismo registro. Una partitura que no se finaliza no entra en el análisis.
+* **Intervenciones: cada acción cuenta.** Cada edición guardada es una intervención en el compás de su ancla, también deshacer y rehacer, que son ediciones que compensan otra (ADR-0034), y las marcas, el compás y los tresillos (ADR-0039 y ADR-0044, contadas por su clase). Descartar y restaurar un posible error, y aplicar o rechazar una sugerencia, se cuentan aparte.
+* **Reabrir: un solo registro por sesión.** Si se reabre una sesión finalizada y se vuelve a finalizar, el registro acumula todo hasta la última finalización.
+* **Condición no asistida:** no se muestra nada del validador ni de la capa de sugerencias (ADR-0040 §13).
 
 ---
 
