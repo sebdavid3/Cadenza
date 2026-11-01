@@ -2170,7 +2170,13 @@ describe("corregir la nota elegida", () => {
     const extrasOf = (next: SessionDetailRead, op: string) => ({
       status: next.status ?? "correcting",
       musicxml: exportStatus ? null : xmlOf(next),
-      timing: ["SetDuration", "SetChordDuration", "SetTuplet", "InsertEvent", "DeleteEvent"].includes(op)
+      timing: [
+        "SetDuration",
+        "SetChordDuration",
+        "SetTuplet",
+        "InsertEvent",
+        "DeleteEvent",
+      ].includes(op)
         ? timingMap()
         : null,
     });
