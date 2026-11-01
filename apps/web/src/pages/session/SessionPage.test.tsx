@@ -1912,6 +1912,20 @@ describe("corregir la nota elegida", () => {
       before = { duration_beats: event.duration_beats };
       event.duration_beats = String(after.duration_beats);
     }
+    // La figura de un acorde (ADR-0049): una por nota, desde la primera.
+    if (event && position !== undefined && body.op === "SetChordDuration") {
+      const durations = after.durations as (string | null)[];
+      const notes = durations.map((_, offset) => {
+        const index = positions[body.anchor.event_index + offset];
+        const chordNote = index === undefined ? undefined : measure.events[index];
+        if (!chordNote) throw new Error("acorde sin esa nota");
+        return chordNote;
+      });
+      before = { durations: notes.map((chordNote) => chordNote.duration_beats) };
+      notes.forEach((chordNote, offset) => {
+        chordNote.duration_beats = durations[offset] ?? null;
+      });
+    }
     if (event && body.op === "SetAccidental") {
       before = { accidental: /^[A-G]([#b]*)\d$/.exec(event.pitch ?? "")?.[1] ?? null };
       const written = typeof after.accidental === "string" ? after.accidental : "";
@@ -2126,7 +2140,9 @@ describe("corregir la nota elegida", () => {
     const extrasOf = (next: SessionDetailRead, op: string) => ({
       status: next.status ?? "correcting",
       musicxml: exportStatus ? null : xmlOf(next),
-      timing: ["SetDuration", "InsertEvent", "DeleteEvent"].includes(op) ? timingMap() : null,
+      timing: ["SetDuration", "SetChordDuration", "InsertEvent", "DeleteEvent"].includes(op)
+        ? timingMap()
+        : null,
     });
     /** Guarda la edición como el servidor y responde 201; con `bare`, sin el estado nuevo. */
     const save = (body: EditEventCreate, bare: boolean) => {
@@ -4099,6 +4115,49 @@ describe("corregir la nota elegida", () => {
         seq: 2,
         anchor: anchorOf(2),
       });
+    });
+
+    it("en un acorde, la figura cambia todas sus notas en una edición y se deshace de un paso (#243)", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      // Mi4, la segunda nota del acorde.
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+      expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
+      expect(button("Blanca")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Negra")).toHaveAttribute("aria-disabled", "false");
+
+      fireEvent.click(button("Negra"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: figura negra con puntillo en el acorde.");
+      });
+      expect(server.bodies).toHaveLength(1);
+      expect(server.bodies[0]).toMatchObject({
+        base_seq: 0,
+        op: "SetChordDuration",
+        anchor: { measure: 2, voice: 0, event_index: 0 },
+        after: { durations: ["3/2", "3/2"] },
+      });
+      // La nota elegida sigue elegida, con la figura nueva.
+      expect(screen.getByText("Mi4 · negra con puntillo")).toBeVisible();
+      expect(button("Negra")).toHaveAttribute("aria-pressed", "true");
+      const events = () => server.current().current_score?.parts[0]?.staves[0]?.measures[1]?.events;
+      expect(events()?.map((event) => event.duration_beats)).toEqual(["3/2", "3/2"]);
+      expect(historyNote()).toHaveTextContent(
+        "Deshace: figura negra con puntillo en el acorde (compás 2, voz 1).",
+      );
+
+      fireEvent.keyDown(region, ctrl("z"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Deshecho: figura negra con puntillo en el acorde (compás 2, voz 1).",
+        );
+      });
+      expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
+      expect(events()?.map((event) => event.duration_beats)).toEqual(["3", "3"]);
     });
 
     it("Ctrl+Z mientras se guarda una corrección espera y deshace esa corrección (#276)", async () => {

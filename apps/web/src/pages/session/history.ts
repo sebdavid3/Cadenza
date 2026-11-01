@@ -228,6 +228,11 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return timeChange(after);
     case "SetTuplet":
       return tupletChange(edit.before, after);
+    // La figura de un acorde entero (ADR-0049).
+    case "SetChordDuration": {
+      const durations = Array.isArray(after.durations) ? after.durations : [];
+      return `figura ${durationName(text(durations[0]))} en el acorde`;
+    }
     // Las marcas de notación (ADR-0039), por lo que cambian respecto de la instantánea.
     case "SetNoteMarks":
     case "SetDynamic":
@@ -286,6 +291,7 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
     case "SetTime":
       return "time_signature" in before && "measures" in before;
     case "SetTuplet":
+    case "SetChordDuration":
       return Array.isArray(before.durations);
     case "SetNoteMarks":
     case "SetDynamic":

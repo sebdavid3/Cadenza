@@ -6,6 +6,7 @@ import {
   activeFifths,
   attributeRange,
   CLEFS,
+  drawnDuration,
   figureOf,
   FIGURES,
   keyLabel,
@@ -325,7 +326,7 @@ function hint(target: EditTarget | null, available: boolean): string | null {
   if (!target) return available ? "Elige una nota o un silencio para corregirlo." : null;
   if (target.event.kind !== "note") return "Un silencio no tiene altura ni alteración.";
   if (target.chord) {
-    return "En un acorde se cambian la altura y la alteración de cada nota, pero todavía no la figura; su primera nota se borra después de las demás.";
+    return "En un acorde, la altura y la alteración son de cada nota y la figura, de todas a la vez; su primera nota se borra después de las demás.";
   }
   return null;
 }
@@ -717,7 +718,8 @@ export function EditBar({
   const { reload } = said;
   const busy = status.kind === "saving" || status.kind === "reloading";
 
-  const current = target ? figureOf(target.event.duration_beats) : { figure: null, dotted: false };
+  // La figura que se dibuja: en un acorde, la de su primera nota, que cambia con todas (ADR-0049).
+  const current = target ? figureOf(drawnDuration(target, score)) : { figure: null, dotted: false };
   const accidental = target?.event.kind === "note" ? accidentalOf(target.event.pitch) : null;
   // Las marcas de nota del evento elegido: en un acorde, las de su primera nota (ADR-0031).
   const holder = target && score ? marksHolder(score, target.anchor) : null;
