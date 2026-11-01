@@ -102,8 +102,14 @@ class EffortRepository(ABC):
         """Devuelve la medición de esfuerzo más reciente de la sesión, o None."""
 
     @abstractmethod
-    def get_accumulated(self, session_id: str) -> EffortMetricsData | None:
-        """El registro que acumula la web para la sesión (ADR-0050), o None si aún no hay."""
+    def get_accumulated(
+        self, session_id: str, *, for_update: bool = False
+    ) -> EffortMetricsData | None:
+        """El registro que acumula la web para la sesión (ADR-0050), o None si aún no hay.
+
+        Con `for_update`, la fila queda bloqueada hasta el final de la transacción: quien lo lee
+        para reescribirlo no pisa otra escritura que llegue a la vez (`SELECT … FOR UPDATE`).
+        """
 
     @abstractmethod
     def save_accumulated(self, metrics: EffortMetricsData) -> EffortMetricsData:
@@ -135,7 +141,9 @@ class InMemoryEffortRepository(EffortRepository):
         entries = self.records.get(session_id, [])
         return entries[-1] if entries else None
 
-    def get_accumulated(self, session_id: str) -> EffortMetricsData | None:
+    def get_accumulated(
+        self, session_id: str, *, for_update: bool = False
+    ) -> EffortMetricsData | None:
         return next((m for m in self.records.get(session_id, []) if m.accumulated), None)
 
     def _put(self, metrics: EffortMetricsData) -> EffortMetricsData:

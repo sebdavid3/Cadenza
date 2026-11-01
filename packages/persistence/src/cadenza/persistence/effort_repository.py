@@ -54,16 +54,23 @@ class SqlAlchemyEffortRepository(EffortRepository):
             return None
         return self._to_dto(record)
 
-    def _accumulated(self, session_id: str) -> EffortMetricsRecord | None:
-        return self._session.scalars(
-            select(EffortMetricsRecord).where(
-                EffortMetricsRecord.session_id == session_id,
-                EffortMetricsRecord.accumulated.is_(True),
-            )
-        ).one_or_none()
+    def _accumulated(
+        self, session_id: str, *, for_update: bool = False
+    ) -> EffortMetricsRecord | None:
+        stmt = select(EffortMetricsRecord).where(
+            EffortMetricsRecord.session_id == session_id,
+            EffortMetricsRecord.accumulated.is_(True),
+        )
+        # En PostgreSQL bloquea la fila hasta el final de la transacción; SQLite lo ignora (y
+        # escribe de una en una).
+        if for_update:
+            stmt = stmt.with_for_update()
+        return self._session.scalars(stmt).one_or_none()
 
-    def get_accumulated(self, session_id: str) -> EffortMetricsData | None:
-        record = self._accumulated(session_id)
+    def get_accumulated(
+        self, session_id: str, *, for_update: bool = False
+    ) -> EffortMetricsData | None:
+        record = self._accumulated(session_id, for_update=for_update)
         return None if record is None else self._to_dto(record)
 
     def _create(self, metrics: EffortMetricsData) -> EffortMetricsRecord:
@@ -90,7 +97,7 @@ class SqlAlchemyEffortRepository(EffortRepository):
         return record
 
     def save_accumulated(self, metrics: EffortMetricsData) -> EffortMetricsData:
-        record = self._accumulated(metrics.session_id) or self._create(metrics)
+        record = self._accumulated(metrics.session_id, for_update=True) or self._create(metrics)
         record.duration_ms = metrics.duration_ms
         record.time_to_first_edit_ms = metrics.time_to_first_edit_ms
         record.interventions = dict(metrics.interventions)

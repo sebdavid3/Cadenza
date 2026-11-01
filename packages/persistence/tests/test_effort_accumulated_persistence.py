@@ -114,6 +114,28 @@ def test_counters_add_up_in_the_database_and_saving_keeps_them(db: DbSession) ->
     assert len(repo.list_by_session("s1")) == 1
 
 
+def test_writing_reads_the_accumulated_row_for_update(
+    db: DbSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Quien lee el registro para reescribirlo lo bloquea (`FOR UPDATE` en PostgreSQL): dos
+    tramos a la vez no se pisan (ADR-0050 §2)."""
+    repo = SqlAlchemyEffortRepository(db)
+    repo.save_accumulated(_metrics())
+    locks: list[bool] = []
+    scalars = db.scalars
+
+    def spy(statement: Any, *args: Any, **kwargs: Any) -> Any:
+        locks.append(getattr(statement, "_for_update_arg", None) is not None)
+        return scalars(statement, *args, **kwargs)
+
+    monkeypatch.setattr(db, "scalars", spy)
+    repo.get_accumulated("s1")
+    repo.get_accumulated("s1", for_update=True)
+    repo.save_accumulated(_metrics(duration_ms=5))
+
+    assert locks == [False, True, True]
+
+
 def test_loose_records_are_not_the_accumulated_one(db: DbSession) -> None:
     repo = SqlAlchemyEffortRepository(db)
     loose = repo.add(

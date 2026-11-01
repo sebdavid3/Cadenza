@@ -39,7 +39,7 @@ def refresh_accumulated_effort(
 ) -> EffortMetricsData | None:
     """Vuelve a calcular lo que el registro acumulado deriva del log y de las sugerencias, si lo
     hay (al finalizar, ADR-0050 §3). Sin registro no crea ninguno: nada se midió."""
-    record = effort_repository.get_accumulated(session_id)
+    record = effort_repository.get_accumulated(session_id, for_update=True)
     if record is None:
         return None
     return effort_repository.save_accumulated(
@@ -99,7 +99,10 @@ def record_effort_segment(
         raise InvalidEffortSegment("El umbral de las pausas tiene que ser positivo")
 
     moment = now or datetime.now(UTC)
-    record = effort_repository.get_accumulated(session_id) or empty_accumulated(session_id, moment)
+    # Bloqueada hasta guardar: dos tramos a la vez no se pisan (ADR-0050 §2).
+    record = effort_repository.get_accumulated(session_id, for_update=True) or empty_accumulated(
+        session_id, moment
+    )
     segments = merge_segment(
         record.segments,
         EffortSegment(segment_id, active_ms, first_edit_ms, idle_threshold_ms),
