@@ -215,8 +215,9 @@ export interface EditEventRead {
  *     - Cambia la indicación de compás desde el compás del ancla hasta el siguiente cambio, en
  *       todos los pentagramas de la parte.
  *     - ``before``/``after``: ``{"time_signature": {"beats": int, "beat_type": int,
- *       "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, la
- *       longitud del tramo, es opcional en el ``after`` del cliente).
+ *       "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
+ *       número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
+ *       ``time_signature`` solo lo escribe la compensatoria).
  * 
  * 13. `SET_TUPLET` ("SetTuplet"):
  *     - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
