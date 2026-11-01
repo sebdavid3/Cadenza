@@ -1,21 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deferred } from "../../test/auth-helpers";
 import type { Playback } from "./playback";
+import { SOUNDS, type Sound } from "./sounds";
 
 // Tone.js sin audio. El transporte falso reproduce lo que hace el de Tone 15.1.22 (leído en
 // `core/clock/Clock.js` y `Transport.js`): arranca en `now()` (el instante actual más el margen
 // de anticipación), dispara lo programado hasta ese margen, no pausa en un instante anterior al
 // arranque y, al reanudar, vuelve a disparar lo anticipado después de la pausa. Es un modelo:
 // codifica esa lectura del código de Tone, no lo sustituye.
+interface VoiceRecord {
+  notes: [number, string, number][];
+  disposed: boolean;
+  fades: [number, number, number][];
+  /** Lo que recibió el `PolySynth`, su volumen y si se liberó. */
+  synth: {
+    options?: { oscillator: unknown; envelope: unknown };
+    volume: { value: number };
+    disposed: boolean;
+  };
+  /** Filtros y vibratos entre el sintetizador y la ganancia, con sus opciones. */
+  effects: { kind: "filter" | "vibrato"; options: Record<string, unknown>; disposed: boolean }[];
+  /** Conexiones de la voz, de nodo a nodo: «synth», «filter», «vibrato», «gain», «destination». */
+  links: [string, string][];
+}
+
 const tone = vi.hoisted(() => {
   const LOOK_AHEAD = 0.1;
   const state = {
     contexts: [] as { options: unknown; disposed: boolean }[],
-    voices: [] as {
-      notes: [number, string, number][];
-      disposed: boolean;
-      fades: [number, number, number][];
-    }[],
+    voices: [] as VoiceRecord[],
     setContext: [] as unknown[],
     resumed: 0,
     resume: null as null | (() => Promise<void>),
@@ -129,13 +142,17 @@ const tone = vi.hoisted(() => {
   }
 
   // Cada voz es una ganancia propia con su sintetizador: se anotan sus notas y sus fundidos.
-  let current: (typeof state.voices)[number] | null = null;
+  let current: VoiceRecord | null = null;
   class FakeGain {
-    record = {
-      notes: [] as [number, string, number][],
+    record: VoiceRecord = {
+      notes: [],
       disposed: false,
-      fades: [] as [number, number, number][],
+      fades: [],
+      synth: { volume: { value: 0 }, disposed: false },
+      effects: [],
+      links: [],
     };
+    readonly label = "gain";
     gain = {
       rampTo: (value: number, ramp: number, start: number) => {
         this.record.fades.push([value, ramp, start]);
@@ -146,6 +163,7 @@ const tone = vi.hoisted(() => {
       current = this.record;
     }
     toDestination() {
+      this.record.links.push([this.label, "destination"]);
       return this;
     }
     dispose() {
@@ -154,25 +172,60 @@ const tone = vi.hoisted(() => {
   }
   class FakePolySynth {
     volume = { value: 0 };
+    readonly label = "synth";
     private readonly record = current;
-    connect() {
+    constructor(options: { options: { oscillator: unknown; envelope: unknown } }) {
+      if (this.record) {
+        this.record.synth = { options: options.options, volume: this.volume, disposed: false };
+      }
+    }
+    connect(target: { label: string }) {
+      this.record?.links.push([this.label, target.label]);
       return this;
     }
     triggerAttackRelease(frequency: number, duration: string, time: number) {
       this.record?.notes.push([frequency, duration, time]);
     }
     dispose() {
-      // La voz se da por liberada con su ganancia.
+      if (this.record) this.record.synth.disposed = true;
     }
   }
 
-  return { state, FakeContext, FakeGain, FakePolySynth };
+  // Filtro y vibrato: se anotan en la voz que se está montando (se crean tras su ganancia).
+  const effect = (kind: "filter" | "vibrato") =>
+    class {
+      readonly label = kind;
+      private readonly record: VoiceRecord["effects"][number];
+      private readonly voice = current;
+      constructor(options: Record<string, unknown>) {
+        this.record = { kind, options, disposed: false };
+        this.voice?.effects.push(this.record);
+      }
+      connect(target: { label: string }) {
+        this.voice?.links.push([this.label, target.label]);
+        return this;
+      }
+      dispose() {
+        this.record.disposed = true;
+      }
+    };
+
+  return {
+    state,
+    FakeContext,
+    FakeGain,
+    FakePolySynth,
+    FakeFilter: effect("filter"),
+    FakeVibrato: effect("vibrato"),
+  };
 });
 
 vi.mock("tone/build/esm/classes.js", () => ({
   Context: tone.FakeContext,
   Gain: tone.FakeGain,
   PolySynth: tone.FakePolySynth,
+  Filter: tone.FakeFilter,
+  Vibrato: tone.FakeVibrato,
   // El doble de PolySynth no usa la voz: basta con algo que pasarle.
   Synth: { name: "Synth" },
 }));
@@ -185,9 +238,9 @@ const { createToneEngine } = await import("./toneEngine");
 // Dos compases de 2/4 a 120 negras por minuto: cada negra dura medio segundo.
 const PLAYBACK: Playback = {
   notes: [
-    { start: 0, duration: 1, midi: 60, measure: 1 },
-    { start: 1, duration: 1, midi: 64, measure: 1 },
-    { start: 2, duration: 2, midi: 67, measure: 2 },
+    { start: 0, duration: 1, midi: 60, measure: 1, sound: "piano" },
+    { start: 1, duration: 1, midi: 64, measure: 1, sound: "piano" },
+    { start: 2, duration: 2, midi: 67, measure: 2, sound: "piano" },
   ],
   measures: [
     { number: 1, start: 0, end: 2 },
@@ -417,9 +470,9 @@ describe("motor de audio con Tone.js", () => {
     engine.update({
       ...PLAYBACK,
       notes: [
-        { start: 0, duration: 1, midi: 60, measure: 1 },
-        { start: 1, duration: 1, midi: 66, measure: 1 },
-        { start: 2, duration: 2, midi: 69, measure: 2 },
+        { start: 0, duration: 1, midi: 60, measure: 1, sound: "piano" },
+        { start: 1, duration: 1, midi: 66, measure: 1, sound: "piano" },
+        { start: 2, duration: 2, midi: 69, measure: 2, sound: "piano" },
       ],
     });
     advance(1.2);
@@ -441,7 +494,7 @@ describe("motor de audio con Tone.js", () => {
     advance(1.5);
 
     engine.update({
-      notes: [{ start: 0, duration: 1, midi: 60, measure: 1 }],
+      notes: [{ start: 0, duration: 1, midi: 60, measure: 1, sound: "piano" }],
       measures: [{ number: 1, start: 0, end: 1 }],
       totalBeats: 1,
     });
@@ -480,9 +533,9 @@ describe("motor de audio con Tone.js", () => {
     engine.update({
       ...PLAYBACK,
       notes: [
-        { start: 0, duration: 1, midi: 60, measure: 1 },
-        { start: 1, duration: 1, midi: 66, measure: 1 },
-        { start: 2, duration: 2, midi: 69, measure: 2 },
+        { start: 0, duration: 1, midi: 60, measure: 1, sound: "piano" },
+        { start: 1, duration: 1, midi: 66, measure: 1, sound: "piano" },
+        { start: 2, duration: 2, midi: 69, measure: 2, sound: "piano" },
       ],
     });
     advance(0.8);
@@ -530,5 +583,184 @@ describe("motor de audio con Tone.js", () => {
     expect(voice()?.notes.map(([frequency]) => Math.round(frequency))).toEqual([370, 440]);
     expect(onMeasure.mock.calls).toEqual([[1], [2]]);
     release(engine);
+  });
+});
+
+describe("cada parte con su instrumento (#242, ADR-0046)", () => {
+  // Dos partes que suenan a la vez: la voz arriba y el piano abajo, en dos compases de 2/4.
+  const DUO: Playback = {
+    notes: [
+      { start: 0, duration: 2, midi: 72, measure: 1, sound: "voice" },
+      { start: 0, duration: 1, midi: 48, measure: 1, sound: "piano" },
+      { start: 1, duration: 1, midi: 55, measure: 1, sound: "piano" },
+      { start: 2, duration: 2, midi: 74, measure: 2, sound: "voice" },
+      { start: 2, duration: 2, midi: 43, measure: 2, sound: "piano" },
+    ],
+    measures: PLAYBACK.measures,
+    totalBeats: 4,
+  };
+  /** Las voces de un sonido creadas desde `from`, reconocidas por lo que recibió su sintetizador. */
+  const voicesOf = (sound: Sound, from: number) =>
+    tone.state.voices.slice(from).filter(
+      (record) =>
+        JSON.stringify(record.synth.options) ===
+        JSON.stringify({
+          oscillator: SOUNDS[sound].oscillator,
+          envelope: SOUNDS[sound].envelope,
+        }),
+    );
+  const pitches = (record: VoiceRecord | undefined) =>
+    record?.notes.map(([frequency]) => Math.round(frequency));
+
+  it("cada nota suena con el sintetizador de su parte, con su onda, su filtro y su vibrato", async () => {
+    const from = tone.state.voices.length;
+    const engine = createToneEngine(DUO, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
+    await engine.play();
+    advance(2.2);
+
+    expect(tone.state.voices.length - from).toBe(2);
+    const [voice] = voicesOf("voice", from);
+    const [piano] = voicesOf("piano", from);
+    expect(pitches(voice)).toEqual([523, 587]);
+    expect(pitches(piano)).toEqual([131, 196, 98]);
+    expect(voice?.synth.volume.value).toBe(SOUNDS.voice.volume);
+    expect(piano?.synth.volume.value).toBe(SOUNDS.piano.volume);
+    // La voz pasa por su filtro de paso bajo y su vibrato; el piano, por nada (ADR-0026).
+    expect(voice?.effects.map(({ kind, options }) => [kind, options])).toEqual([
+      ["vibrato", expect.objectContaining(SOUNDS.voice.vibrato)],
+      ["filter", expect.objectContaining({ type: "lowpass", frequency: SOUNDS.voice.lowpass })],
+    ]);
+    const chain = (record: VoiceRecord | undefined) => {
+      const next = new Map(record?.links);
+      const path = ["synth"];
+      for (let node = next.get("synth"); node; node = next.get(node)) path.push(node);
+      return path;
+    };
+    expect(chain(voice)).toEqual(["synth", "filter", "vibrato", "gain", "destination"]);
+    expect(voice?.links).toHaveLength(4);
+    expect(piano?.effects).toEqual([]);
+    expect(chain(piano)).toEqual(["synth", "gain", "destination"]);
+    release(engine);
+  });
+
+  it("los instrumentos no cambian el compás que suena ni el final", async () => {
+    const timeline = async (playback: Playback) => {
+      const onMeasure = vi.fn();
+      const onEnd = vi.fn();
+      const engine = createToneEngine(playback, 120, { onMeasure, onEnd });
+      await engine.play();
+      const seen: number[][] = [];
+      for (let step = 0; step < 50; step += 1) {
+        advance(0.05);
+        seen.push([onMeasure.mock.calls.length, onEnd.mock.calls.length]);
+      }
+      release(engine);
+      return { seen, measures: onMeasure.mock.calls, ends: onEnd.mock.calls.length };
+    };
+
+    const asPiano = {
+      ...DUO,
+      notes: DUO.notes.map((note) => ({ ...note, sound: "piano" as const })),
+    };
+    const dressed = await timeline(DUO);
+    expect(dressed).toEqual(await timeline(asPiano));
+    expect(dressed.measures).toEqual([[1], [2]]);
+    expect(dressed.ends).toBe(1);
+  });
+
+  it("al pausar funde todas las voces; al reanudar cada parte sigue con su sonido", async () => {
+    const from = tone.state.voices.length;
+    const engine = createToneEngine(DUO, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
+    await engine.play();
+    advance(0.3);
+    const [voiceBefore] = voicesOf("voice", from);
+    const [pianoBefore] = voicesOf("piano", from);
+
+    // Pausar funde las voces y prepara otras para lo que sigue.
+    const resumedFrom = tone.state.voices.length;
+    engine.pause();
+    advance(0.2);
+    expect(voiceBefore?.fades).toHaveLength(1);
+    expect(pianoBefore?.fades).toHaveLength(1);
+    expect(voiceBefore?.disposed).toBe(true);
+    expect(voiceBefore?.synth.disposed).toBe(true);
+    expect(voiceBefore?.effects.every((effect) => effect.disposed)).toBe(true);
+
+    await engine.play();
+    advance(2);
+    expect(pitches(voicesOf("voice", resumedFrom)[0])).toEqual([587]);
+    expect(pitches(voicesOf("piano", resumedFrom)[0])).toEqual([196, 98]);
+    release(engine);
+  });
+
+  it("si cambia el instrumento mientras suena, lo que sigue suena con el nuevo sin cortar", async () => {
+    const from = tone.state.voices.length;
+    const onMeasure = vi.fn();
+    const engine = createToneEngine(DUO, 120, { onMeasure, onEnd: vi.fn() });
+    await engine.play();
+    advance(0.3);
+
+    // La parte de arriba pasa de voz a violín (otro estado de la sesión): sigue desde el punto.
+    engine.update({
+      ...DUO,
+      notes: DUO.notes.map((note) =>
+        note.sound === "voice" ? { ...note, sound: "violin" as const } : note,
+      ),
+    });
+    expect(context().transport.state).toBe("started");
+    advance(2);
+
+    expect(pitches(voicesOf("voice", from)[0])).toEqual([523]);
+    expect(pitches(voicesOf("violin", from)[0])).toEqual([587]);
+    expect(pitches(voicesOf("piano", from)[0])).toEqual([131, 196, 98]);
+    // La voz que ya sonaba no se corta: termina con su caída.
+    expect(voicesOf("voice", from)[0]?.fades).toEqual([]);
+    expect(onMeasure.mock.calls).toEqual([[1], [2]]);
+    release(engine);
+  });
+
+  it("la voz de un instrumento que ya no se usa se libera al pausar y no se vuelve a crear", async () => {
+    const from = tone.state.voices.length;
+    const engine = createToneEngine(DUO, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
+    await engine.play();
+    advance(0.3);
+    engine.update({
+      ...DUO,
+      notes: DUO.notes.map((note) =>
+        note.sound === "voice" ? { ...note, sound: "violin" as const } : note,
+      ),
+    });
+    advance(0.2);
+    const [unused] = voicesOf("voice", from);
+    const afterUpdate = tone.state.voices.length;
+
+    engine.pause();
+    vi.advanceTimersByTime(200);
+
+    expect(unused?.disposed).toBe(true);
+    expect(unused?.synth.disposed).toBe(true);
+    expect(unused?.effects.every((effect) => effect.disposed)).toBe(true);
+    // Pausar prepara las voces de lo que sigue: el violín y el piano, no la voz.
+    expect(voicesOf("voice", afterUpdate)).toEqual([]);
+    expect(voicesOf("violin", afterUpdate)).toHaveLength(1);
+    expect(voicesOf("piano", afterUpdate)).toHaveLength(1);
+    release(engine);
+  });
+
+  it("al liberarse funde y libera todas las voces con sus efectos", () => {
+    const from = tone.state.voices.length;
+    const engine = createToneEngine(DUO, 120, { onMeasure: vi.fn(), onEnd: vi.fn() });
+
+    engine.dispose();
+    vi.advanceTimersByTime(200);
+
+    const created = tone.state.voices.slice(from);
+    expect(created).toHaveLength(2);
+    for (const record of created) {
+      expect(record.fades).toHaveLength(1);
+      expect(record.disposed).toBe(true);
+      expect(record.synth.disposed).toBe(true);
+      expect(record.effects.every((effect) => effect.disposed)).toBe(true);
+    }
   });
 });

@@ -139,10 +139,12 @@ function SessionView({ sessionId }: { sessionId: string }) {
         : null,
     [musicXml.data, score, seq],
   );
-  // Lo que suena: el mapa de tiempos con las alturas del mismo estado (ADR-0026).
+  // Lo que suena: el mapa de tiempos con las alturas del mismo estado (ADR-0026), cada parte con
+  // su instrumento (ADR-0046).
+  const instruments = detail.data?.instruments;
   const playback = useMemo(
-    () => (score && timing.data ? buildPlayback(score, timing.data) : null),
-    [score, timing.data],
+    () => (score && timing.data ? buildPlayback(score, timing.data, instruments) : null),
+    [score, timing.data, instruments],
   );
   const player = usePlayer(playback);
   const playing = useMemo(

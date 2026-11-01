@@ -1021,6 +1021,36 @@ describe("reproducción de la partitura", () => {
     expect(engine().position).toBe(0);
   });
 
+  it("cada parte suena con el instrumento de la sesión (#242)", async () => {
+    api({ detail: detail({ instruments: [{ instrument: "voice", name: null }] }) });
+    renderPage();
+    await userEvent.click(await playButton());
+
+    expect(engine().playback.notes.map((note) => (note as { sound?: unknown }).sound)).toEqual([
+      "voice",
+      "voice",
+      "voice",
+    ]);
+    // El compás que suena se resalta igual.
+    act(() => {
+      engine().advance(0.5);
+    });
+    expect(playhead()?.style.left).toBe("75px");
+    expect(screen.getByText("Compás 1")).toBeVisible();
+  });
+
+  it("una sesión sin instrumentos suena como antes, con el piano", async () => {
+    api();
+    renderPage();
+    await userEvent.click(await playButton());
+
+    expect(engine().playback.notes.map((note) => (note as { sound?: unknown }).sound)).toEqual([
+      "piano",
+      "piano",
+      "piano",
+    ]);
+  });
+
   it("se maneja con el teclado y el foco sigue en el mismo botón", async () => {
     api();
     renderPage();

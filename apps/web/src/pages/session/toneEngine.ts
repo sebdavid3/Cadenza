@@ -1,9 +1,18 @@
 // Tone.js por sus módulos, no por `tone`: su índice crea un contexto de audio al importarse, con
 // el reloj en un Worker desde `blob:` que la CSP de producción bloquea sin avisar (ADR-0026).
-import { Context, Gain, PolySynth, Synth } from "tone/build/esm/classes.js";
+import {
+  Context,
+  Filter,
+  Gain,
+  PolySynth,
+  Synth,
+  Vibrato,
+  type ToneAudioNode,
+} from "tone/build/esm/classes.js";
 import { setContext } from "tone/build/esm/core/Global.js";
 import type { EngineHandlers, PlaybackEngine } from "./player";
 import { midiToFrequency, type Playback } from "./playback";
+import { SOUNDS, type Sound } from "./sounds";
 
 /** Fundido al pausar, detener o salir: corta sin chasquido lo que suena. */
 const FADE_SECONDS = 0.03;
@@ -24,38 +33,55 @@ function audioContext(): Context {
 
 interface Voice {
   synth: PolySynth;
+  /** Vibrato y filtro entre el sintetizador y la ganancia, si el sonido los tiene. */
+  effects: ToneAudioNode[];
   output: Gain;
 }
 
 /**
- * Voz sintetizada, sin muestras: una onda triangular con un ataque corto. Va por una ganancia
- * propia para poder fundirla.
+ * Voz de un sonido (ADR-0046), sintetizada y sin muestras: su onda con su envolvente, por su
+ * filtro de paso bajo y su vibrato si los tiene, y por una ganancia propia para poder fundirla.
+ * El piano es la de ADR-0026: onda triangular con un ataque corto, sin efectos.
  */
-function createVoice(context: Context): Voice {
+function createVoice(context: Context, sound: Sound): Voice {
+  const spec = SOUNDS[sound];
   const output = new Gain({ context, gain: 1 }).toDestination();
+  const effects: ToneAudioNode[] = [];
+  let input: ToneAudioNode = output;
+  if (spec.vibrato) {
+    const vibrato = new Vibrato({ context, ...spec.vibrato }).connect(input);
+    effects.push(vibrato);
+    input = vibrato;
+  }
+  if (spec.lowpass !== undefined) {
+    const filter = new Filter({ context, type: "lowpass", frequency: spec.lowpass }).connect(input);
+    effects.push(filter);
+    input = filter;
+  }
   const synth = new PolySynth({
     context,
     voice: Synth,
     maxPolyphony: 16,
-    options: {
-      oscillator: { type: "triangle" },
-      envelope: { attack: 0.01, decay: 0.12, sustain: 0.4, release: 0.2 },
-    },
-  }).connect(output);
-  synth.volume.value = -10;
-  return { synth, output };
+    options: { oscillator: spec.oscillator, envelope: spec.envelope },
+  }).connect(input);
+  synth.volume.value = spec.volume;
+  return { synth, effects, output };
 }
 
 /**
- * Funde una voz y la libera: calla lo que suena y también las notas que el transporte ya había
- * programado dentro de su margen de anticipación.
+ * Funde unas voces y las libera: calla lo que suena y también las notas que el transporte ya
+ * había programado dentro de su margen de anticipación.
  */
-function fadeOut(context: Context, voice: Voice, then?: () => void) {
-  voice.output.gain.rampTo(0, FADE_SECONDS, context.immediate());
+function fadeOut(context: Context, voices: Iterable<Voice>, then?: () => void) {
+  const fading = [...voices];
+  for (const voice of fading) voice.output.gain.rampTo(0, FADE_SECONDS, context.immediate());
   setTimeout(
     () => {
-      voice.synth.dispose();
-      voice.output.dispose();
+      for (const voice of fading) {
+        voice.synth.dispose();
+        for (const effect of voice.effects) effect.dispose();
+        voice.output.dispose();
+      }
       then?.();
     },
     FADE_SECONDS * 1000 + 50,
@@ -65,6 +91,8 @@ function fadeOut(context: Context, voice: Voice, then?: () => void) {
 /**
  * Reproductor de una partitura con Tone.js. Las notas y los cambios de compás se programan en el
  * transporte en pulsos (ticks), así que un cambio de tempo los recoloca sin volver a programar.
+ * Cada nota suena con la voz de su sonido (el instrumento de su parte, ADR-0046): una voz por
+ * sonido, creada al programar la primera nota que lo usa.
  */
 export function createToneEngine(
   playback: Playback,
@@ -76,7 +104,16 @@ export function createToneEngine(
   transport.stop();
   transport.cancel(0);
   transport.bpm.value = tempo;
-  let voice = createVoice(context);
+  // Las voces en uso, una por sonido. Fundir las libera; las siguientes notas crean otras.
+  let voices = new Map<Sound, Voice>();
+  const voiceFor = (sound: Sound) => {
+    let voice = voices.get(sound);
+    if (!voice) {
+      voice = createVoice(context, sound);
+      voices.set(sound, voice);
+    }
+    return voice;
+  };
   // Lo último que pidió la persona: «Pausa» o «Detener» mientras el audio se reanuda gana.
   let intent: "playing" | "paused" | "stopped" = "stopped";
   // Función y no variable: TypeScript no sabe que `intent` puede cambiar durante un await.
@@ -102,8 +139,9 @@ export function createToneEngine(
   };
   const silence = () => {
     clearTimers();
-    fadeOut(context, voice);
-    voice = createVoice(context);
+    fadeOut(context, voices.values());
+    voices = new Map();
+    for (const note of current.notes) voiceFor(note.sound);
   };
 
   let current = playback;
@@ -146,8 +184,10 @@ export function createToneEngine(
     for (const note of current.notes) {
       const frequency = midiToFrequency(note.midi);
       const duration = ticks(note.duration);
+      // La voz se crea al programar, no al sonar; se busca al sonar porque pausar la renueva.
+      voiceFor(note.sound);
       at(Math.round(note.start * transport.PPQ), (time) => {
-        voice.synth.triggerAttackRelease(frequency, duration, time);
+        voiceFor(note.sound).synth.triggerAttackRelease(frequency, duration, time);
       });
     }
     for (const measure of current.measures) {
@@ -218,9 +258,10 @@ export function createToneEngine(
       clearTimers();
       // El contexto se cierra tras el fundido; la próxima vista crea otro en su gesto.
       if (shared === context) shared = null;
-      fadeOut(context, voice, () => {
+      fadeOut(context, voices.values(), () => {
         context.dispose();
       });
+      voices = new Map();
     },
   };
 }
