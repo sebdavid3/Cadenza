@@ -30,7 +30,9 @@ import {
   type SpanKind,
 } from "./markEdits";
 import { KeyCap } from "./SelectionBar";
-import type { EditEventRead } from "../../types";
+import { SuggestionList, type SuggestionActions } from "./SuggestionList";
+import type { SuggestionItem } from "./suggestions";
+import type { EditEventRead, FindingRead } from "../../types";
 
 interface EditBarProps {
   editor: Editor;
@@ -59,6 +61,15 @@ interface EditBarProps {
    * dejó de poder dibujarse, y la barra se montó en otro sitio): esta se lo devuelve.
    */
   focusMemoryRef?: MutableRefObject<string | null>;
+  /**
+   * Sugerencias de la capa para la nota elegida (#258), con lo que se puede hacer con ellas y
+   * cómo se nombra su posible error. Sin ninguna, la barra no las menciona.
+   */
+  suggestions?: {
+    items: readonly SuggestionItem[];
+    labelOf: (finding: FindingRead) => string;
+    actions?: SuggestionActions;
+  };
 }
 
 const PITCH: { command: PlannedCommand; label: string; word: string; icon: PixelIconName }[] = [
@@ -236,6 +247,13 @@ function feedback(
       const { request } = status;
       const words = WORDS[request.kind];
       const base = `${words.notDone}: ${what(request)}. La sesión cambió en otra pestaña o dispositivo antes de ${words.it}; ya ves su estado actual.`;
+      // Una sugerencia no se vuelve a aplicar: sobre el estado nuevo es antigua (#258).
+      if (request.kind === "edit" && request.suggestion) {
+        return {
+          text: `${base} La sugerencia ya es antigua: revalida para aplicarla.`,
+          reload: false,
+        };
+      }
       if (request.kind !== "edit" || !retry || retry.plan.kind === "edit") {
         return { text: base, reload: false };
       }
@@ -259,6 +277,11 @@ function feedback(
     }
     case "rejected":
       return { text: rejection(status.request, inline(status.request)), reload: false };
+    case "stale-suggestion":
+      return {
+        text: `No se aplicó la sugerencia (${inline(status.request)}): ya no es de la última validación, porque se revalidó o se respondió en otra pestaña o dispositivo. Revalida para tener las sugerencias al día.`,
+        reload: false,
+      };
     case "forbidden":
       return {
         text: `${WORDS[status.request.kind].notDone}: solo la persona que hizo la transcripción puede corregirla.`,
@@ -676,7 +699,9 @@ export function EditBar({
   keysId,
   focusScore,
   focusMemoryRef,
+  suggestions,
 }: EditBarProps) {
+  const suggestionsId = useId();
   const groupId = useId();
   const { status, refusal, blocked, retry, targetRef } = editor;
   // La orden en espera se planea con la nota que la vista ofrece corregir en el estado que se ve.
@@ -758,6 +783,22 @@ export function EditBar({
         lastFocused.current = event.target;
       }}
     >
+      {editable && suggestions && suggestions.items.length > 0 && (
+        <div
+          className="editor__group editor__group--suggestions"
+          role="group"
+          aria-labelledby={suggestionsId}
+        >
+          <p className="label editor__label" id={suggestionsId}>
+            Sugerencias para esta nota
+          </p>
+          <SuggestionList
+            items={suggestions.items}
+            labelOf={suggestions.labelOf}
+            actions={suggestions.actions}
+          />
+        </div>
+      )}
       {(editable || undoable) && (
         <div className="editor__groups">
           {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} score={score} />}

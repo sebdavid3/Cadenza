@@ -1,7 +1,9 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import type { FindingRead } from "../../types";
+import type { FindingRead, SuggestionRead } from "../../types";
 import type { FindingOutcome } from "./findingActions";
 import { ruleLabel, type MeasureMark, type ValidationState } from "./findings";
+import { SuggestionList } from "./SuggestionList";
+import { isLearned, originLabel, suggestionItems } from "./suggestions";
 
 /**
  * Lo que puede hacer con los posibles errores quien transcribió la sesión, mientras no esté
@@ -19,6 +21,15 @@ export interface FindingsPanelActions {
   onRevalidate: () => Promise<FindingOutcome>;
   /** Carga el estado actual de la sesión, si la lista es de uno posterior al que se ve. */
   onReload: () => Promise<number | null>;
+  /**
+   * No se puede aplicar una sugerencia ahora: el editor no admite órdenes (se revalida, se
+   * finaliza, no se sabe en qué estado quedó la sesión).
+   */
+  applyBlocked: boolean;
+  /** Aplica una sugerencia como una corrección (#258); acaba cuando se guarda o falla. */
+  onApply: (finding: FindingRead, suggestion: SuggestionRead) => Promise<boolean>;
+  /** Rechaza una sugerencia (#258): guarda la respuesta y deja el posible error como estaba. */
+  onReject: (finding: FindingRead, suggestion: SuggestionRead) => Promise<FindingOutcome>;
 }
 
 interface FindingsPanelProps {
@@ -30,6 +41,10 @@ interface FindingsPanelProps {
   validation: ValidationState;
   /** Ediciones de la sesión: sin ninguna, la validación es la de la transcripción. */
   edits: number;
+  /** Estado que se ve: una sugerencia de una validación anterior es antigua (#258). */
+  seq: number;
+  /** Sugerencias que el servidor dio por antiguas al aplicarlas (`stale_suggestion`). */
+  staleSuggestions: ReadonlySet<number>;
   /** Con varios pentagramas, cada compás dice en cuál está. */
   multiStaff: boolean;
   /** Si las marcas no se pudieron situar, los compases de la lista no se pueden resaltar. */
@@ -48,7 +63,7 @@ interface FindingsPanelProps {
 }
 
 /**
- * Regla y mensaje de un posible error, y debajo «Qué revisar» (`suggested_fix`, ADR-0040 §2): qué
+ * Regla, origen y mensaje de un posible error, y debajo «Qué revisar» (`suggested_fix`, ADR-0040 §2): qué
  * mirar en la partitura impresa. Es texto, no una edición que se aplique. Solo en los de las
  * reglas: en los de la capa (`learned.*`) es la edición propuesta, que se muestra con las
  * sugerencias (#258). Con varios en un compás
@@ -69,6 +84,12 @@ function FindingText({
       <span className="label findings__rule">
         {ordinal !== null && `${String(ordinal)} · `}
         {ruleLabel(finding.rule_id)}
+      </span>
+      {/* Lo que señala la capa se distingue de lo que señalan las reglas (#258). */}
+      <span
+        className={`label findings__origin${isLearned(finding) ? " findings__origin--learned" : ""}`}
+      >
+        {originLabel(finding)}
       </span>
       <span id={id} className="findings__message">
         {finding.message}
@@ -129,7 +150,11 @@ function validatedState(seq: number) {
 }
 
 /** Tras una orden, a dónde va el foco: lo que lo tenía puede haber desaparecido. */
-type FocusTarget = { kind: "dismiss"; id: number } | { kind: "revalidate" } | { kind: "heading" };
+type FocusTarget =
+  | { kind: "dismiss"; id: number }
+  | { kind: "suggestion"; id: number }
+  | { kind: "revalidate" }
+  | { kind: "heading" };
 
 /** El formulario del descarte: dice antes de enviarlo que descartar no corrige nada (ADR-0021 §4). */
 function DismissForm({
@@ -297,6 +322,8 @@ export function FindingsPanel({
   dismissed,
   validation,
   edits,
+  seq,
+  staleSuggestions,
   multiStaff,
   selectable,
   selectedKey,
@@ -328,9 +355,11 @@ export function FindingsPanel({
     const element =
       target.kind === "dismiss"
         ? panel?.querySelector<HTMLElement>(`[data-dismiss="${String(target.id)}"]`)
-        : target.kind === "revalidate"
-          ? panel?.querySelector<HTMLElement>(".findings__revalidate")
-          : null;
+        : target.kind === "suggestion"
+          ? panel?.querySelector<HTMLElement>(`[data-suggestion="${String(target.id)}"]`)
+          : target.kind === "revalidate"
+            ? panel?.querySelector<HTMLElement>(".findings__revalidate")
+            : null;
     (element ?? headingRef.current)?.focus();
   }, [focusRequest]);
   const focusAfter = (target: FocusTarget) => {
@@ -373,6 +402,46 @@ export function FindingsPanel({
     if (outcome === "done") focusAfter({ kind: "revalidate" });
   }
 
+  // Tras aplicar o rechazar, su botón puede desaparecer: el foco pasa a la sugerencia, que sigue
+  // en la lista con su respuesta, o, si ya no está, al título.
+  async function apply(finding: FindingRead, suggestion: SuggestionRead) {
+    if (!actions) return;
+    // Si no salió (había otra orden, era antigua), el foco se queda donde estaba.
+    if (await actions.onApply(finding, suggestion)) {
+      focusAfter({ kind: "suggestion", id: suggestion.id });
+    }
+  }
+
+  async function reject(finding: FindingRead, suggestion: SuggestionRead) {
+    if (!actions || busy) return;
+    const outcome = await actions.onReject(finding, suggestion);
+    if (outcome === "done") focusAfter({ kind: "suggestion", id: suggestion.id });
+    else if (outcome === "gone" || outcome === "closed") focusAfter({ kind: "heading" });
+  }
+
+  /** Las sugerencias de los posibles errores de un compás, con su número si hay varios. */
+  function suggestionsOf(findings: readonly FindingRead[]) {
+    const items = findings.flatMap((finding) => suggestionItems(finding, seq, staleSuggestions));
+    return (
+      <SuggestionList
+        items={items}
+        labelOf={placeLabel}
+        ordinalOf={(finding) =>
+          actions && findings.length > 1 ? findings.indexOf(finding) + 1 : null
+        }
+        actions={
+          actions && {
+            applyBlocked: busy || actions.applyBlocked,
+            // Mientras se guarda una corrección (quizá esta misma sugerencia), tampoco.
+            rejectBlocked: busy || actions.editorBusy,
+            onApply: (finding, suggestion) => void apply(finding, suggestion),
+            onReject: (finding, suggestion) => void reject(finding, suggestion),
+          }
+        }
+      />
+    );
+  }
+
   async function reload() {
     if (!actions || busy || actions.editorBusy) return;
     if ((await actions.onReload()) !== null) focusAfter({ kind: "heading" });
@@ -404,6 +473,17 @@ export function FindingsPanel({
       </div>
     );
   }
+
+  const placeLabel = (finding: FindingRead) => `${ruleLabel(finding.rule_id)}, ${placeOf(finding)}`;
+  const shownFindings = [...marks.flatMap((mark) => mark.findings), ...unplaced];
+  const suggested = shownFindings.some((finding) => (finding.suggestions ?? []).length > 0);
+  // El servidor dio por antigua una sugerencia de la validación que se ve: se revalidó o se
+  // respondió en otra pestaña. Hay que revalidar para tener las de ahora.
+  const staleShown = shownFindings.some((finding) =>
+    (finding.suggestions ?? []).some(
+      (suggestion) => !suggestion.response && staleSuggestions.has(suggestion.id),
+    ),
+  );
 
   const revalidateButton = actions && (
     <button
@@ -478,6 +558,16 @@ export function FindingsPanel({
         </div>
       )}
 
+      {status === "ready" && validation.kind === "current" && staleShown && (
+        <div className="findings__stale">
+          <p>
+            Alguna sugerencia ya no es de la última validación: se revalidó o se respondió en otra
+            pestaña o dispositivo. Revalida para tener las sugerencias al día.
+          </p>
+          {revalidateButton}
+        </div>
+      )}
+
       {status === "ready" && total === 0 && (
         <EmptyMessage dismissed={dismissed.length} edits={edits} validation={validation} />
       )}
@@ -517,6 +607,7 @@ export function FindingsPanel({
                 ) : (
                   <div className="findings__item findings__item--static">{content}</div>
                 )}
+                {suggestionsOf(mark.findings)}
                 {dismissControls(mark.findings)}
               </li>
             );
@@ -532,6 +623,7 @@ export function FindingsPanel({
                   Ese compás ya no está en la partitura: no se puede marcar.
                 </span>
               </div>
+              {suggestionsOf([finding])}
               {dismissControls([finding])}
             </li>
           ))}
@@ -542,6 +634,10 @@ export function FindingsPanel({
         El validador señala compases que conviene revisar con la imagen. No lo detecta todo: que no
         señale un compás no garantiza que esté bien transcrito.
         {actions && " Descartar un posible error no corrige la partitura: solo deja de señalarlo."}
+        {suggested &&
+          (actions
+            ? " Las sugerencias proponen un arreglo aprendido de otras correcciones: aplicarlo es una corrección tuya, que se puede deshacer, y rechazarlo no descarta el posible error."
+            : " Las sugerencias proponen un arreglo aprendido de otras correcciones.")}
       </p>
 
       {status === "ready" && dismissed.length > 0 && (

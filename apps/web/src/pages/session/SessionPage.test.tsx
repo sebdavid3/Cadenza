@@ -20,6 +20,7 @@ import type {
   FindingRead,
   ScoreEventPayload,
   SessionDetailRead,
+  SuggestionRead,
   TimingMapRead,
   UserRead,
 } from "../../types";
@@ -5877,6 +5878,547 @@ describe("corregir la nota elegida", () => {
       await screen.findByText(/sesión de otra persona/i);
       expect(screen.queryByRole("button", { name: "Reabrir la sesión" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Finalizar la corrección" })).toBeNull();
+    });
+  });
+
+  describe("ver, aplicar y rechazar las sugerencias de la capa (#258)", () => {
+    const panel = () => screen.getByRole("region", { name: "Posibles errores" });
+    const findingsStatus = () => document.querySelector(".findings__status");
+    const markCount = () => document.querySelectorAll(".notation__mark").length;
+    const EXPLANATION = "Cambiar Do4 por Do♯4. En 28 de 30 casos parecidos, la corrección fue esa.";
+
+    function suggestion(id: number, measureNumber: number, changes: Partial<SuggestionRead> = {}) {
+      return {
+        id,
+        op: "SetAccidental",
+        anchor: anchorOf(measureNumber),
+        before: { accidental: null },
+        after: { accidental: "#" },
+        confidence: 0.93,
+        confidence_level: "high",
+        explanation: EXPLANATION,
+        source: "learned",
+        model_version: "sug-258",
+        response: null,
+        ...changes,
+      } satisfies SuggestionRead;
+    }
+
+    /** Un posible error de la capa, con su sugerencia (id 10 × el suyo). */
+    function learned(id: number, measureNumber: number, changes: Partial<FindingRead> = {}) {
+      return finding(id, measureNumber, {
+        rule_id: "learned.accidental",
+        severity: "warning",
+        message: "Puede que este Do4 sea Do♯4.",
+        suggested_fix: "Cambiar Do4 por Do♯4.",
+        suggestions: [suggestion(id * 10, measureNumber)],
+        ...changes,
+      });
+    }
+
+    /**
+     * La API editable con las sugerencias como el servidor (ADR-0036 §5): aplicar comprueba el
+     * `base_seq` (409), después la sugerencia (409 `stale_suggestion`) y, con el 201, la da por
+     * aceptada; rechazar guarda la respuesta (404 si no está, 409 si se aplicó o está finalizada).
+     */
+    function suggestionApi(start: SessionDetailRead, initial: FindingRead[]) {
+      const server = editableApi(start, { findings: initial });
+      const inner = server.fetchMock.getMockImplementation();
+      if (!inner) throw new Error("falta la API");
+      let findings = initial;
+      const rejectCalls: number[] = [];
+      const rejectQueue: (() => Response | Promise<Response>)[] = [];
+      let forceStale = false;
+      const respond = (id: number, response: "accepted" | "rejected") => {
+        findings = findings.map((candidate) => ({
+          ...candidate,
+          suggestions: candidate.suggestions?.map((item) =>
+            item.id === id ? { ...item, response } : item,
+          ),
+        }));
+        server.setFindings(findings);
+      };
+      const lookup = (id: number) => {
+        for (const candidate of findings) {
+          const found = candidate.suggestions?.find((item) => item.id === id);
+          if (found) return { finding: candidate, suggestion: found };
+        }
+        return null;
+      };
+      const acceptReject = (id: number) => {
+        const found = lookup(id);
+        if (!found) return jsonResponse({ detail: "suggestion not found" }, 404);
+        if (server.current().status === "finalized" || found.suggestion.response === "accepted") {
+          return jsonResponse({ detail: "no se puede rechazar" }, 409);
+        }
+        respond(id, "rejected");
+        return jsonResponse({ ...found.suggestion, response: "rejected" });
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const href =
+            input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+          const path = new URL(href, "http://localhost").pathname.replace(/^\/api/, "");
+          const rejecting = /^\/sessions\/[^/]+\/suggestions\/(\d+)\/reject$/.exec(path);
+          if (init?.method === "POST" && rejecting) {
+            const id = Number(rejecting[1]);
+            rejectCalls.push(id);
+            return (rejectQueue.shift() ?? (() => acceptReject(id)))();
+          }
+          if (init?.method === "POST" && path === `/sessions/${ID}/edits`) {
+            const body = JSON.parse(typeof init.body === "string" ? init.body : "") as {
+              base_seq: number;
+              suggestion_id?: number | null;
+            };
+            const id = body.suggestion_id;
+            const seq = server.current().current_seq ?? 0;
+            if (typeof id === "number" && body.base_seq === seq) {
+              const found = lookup(id);
+              if (
+                forceStale ||
+                !found ||
+                found.suggestion.response ||
+                (found.finding.at_seq ?? 0) !== seq
+              ) {
+                forceStale = false;
+                server.bodies.push(body as EditEventCreate);
+                return jsonResponse({ detail: "stale_suggestion" }, 409);
+              }
+              const response = await inner(input, init);
+              if (response.status === 201) respond(id, "accepted");
+              return response;
+            }
+          }
+          return inner(input, init);
+        }),
+      );
+      return {
+        ...server,
+        rejectCalls,
+        /** Otra respuesta para el siguiente rechazo. */
+        respondReject(route: () => Response | Promise<Response>) {
+          rejectQueue.push(route);
+        },
+        /** La siguiente sugerencia que se aplique responde 409 `stale_suggestion`. */
+        staleNext() {
+          forceStale = true;
+        },
+      };
+    }
+
+    const applyButton = (label: string, within_: HTMLElement = panel()) =>
+      within(within_).getByRole("button", { name: `Aplicar la sugerencia · ${label}` });
+    const rejectButton = (label: string, within_: HTMLElement = panel()) =>
+      within(within_).getByRole("button", { name: `Rechazar la sugerencia · ${label}` });
+    const suggestionItem = (id: number) =>
+      document.querySelector<HTMLElement>(`.findings [data-suggestion="${String(id)}"]`);
+
+    it("muestra cada sugerencia en lenguaje musical, con su confianza en palabras, y distingue lo aprendido de las reglas", async () => {
+      const rule = finding(1, 1, {
+        suggestions: [
+          suggestion(11, 1, {
+            op: "SetDuration",
+            before: { duration_beats: "3" },
+            after: { duration_beats: "2" },
+            confidence: null,
+            confidence_level: "medium",
+            explanation: "Cambiar la blanca con puntillo por blanca.",
+            source: "rule",
+          }),
+        ],
+      });
+      suggestionApi(detail(), [rule, learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(2);
+      });
+      const region = panel();
+      expect(within(region).getByText(EXPLANATION)).toBeVisible();
+      expect(within(region).getByText("Cambiar la blanca con puntillo por blanca.")).toBeVisible();
+      expect(within(region).getByText("Confianza alta")).toBeVisible();
+      expect(within(region).getByText("Confianza media")).toBeVisible();
+      // Nunca en porcentaje.
+      expect(region).not.toHaveTextContent(/%|0[.,]9/);
+      // El origen se distingue: la regla y lo aprendido de las correcciones.
+      expect(within(region).getByText("Regla del validador")).toBeVisible();
+      expect(within(region).getByText("Aprendido de las correcciones")).toHaveClass(
+        "findings__origin--learned",
+      );
+      // En los de la capa, `suggested_fix` es la sugerencia: no se repite como «Qué revisar».
+      expect(within(region).queryByText(/qué revisar/i)).toBeNull();
+      expect(applyButton("Alteración dudosa, compás 2")).toHaveAccessibleDescription(EXPLANATION);
+      expect(rejectButton("Duración del compás, compás 1")).toBeVisible();
+    });
+
+    it("aplica la sugerencia como una edición con su base_seq y suggestion_id, deja elegida su nota y se puede deshacer", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await findScore();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      expect(useSelectionStore.getState().selection).toBeNull();
+
+      await userEvent.click(applyButton("Alteración dudosa, compás 2"));
+
+      expect(server.bodies).toEqual([
+        {
+          base_seq: 0,
+          op: "SetAccidental",
+          anchor: anchorOf(2),
+          before: null,
+          after: { accidental: "#" },
+          suggestion_id: 20,
+        },
+      ]);
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          /^Guardado: alteración .+\. Sugerencia aplicada: para aplicar otra, revalida la partitura\.$/,
+        );
+      });
+      // Tras aplicarla, la nota queda elegida en el estado nuevo.
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: { measure: 2, event_index: 0 },
+      });
+      expect(suggestionItem(20)).toHaveTextContent("Aplicada");
+      expect(suggestionItem(20)).toHaveFocus();
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+
+      // Se deshace como cualquier otra edición; rehacerla no la vuelve a dar por aceptada.
+      await userEvent.click(button("Deshacer"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Deshecho:/);
+      });
+      await userEvent.click(button("Rehacer"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Rehecho:/);
+      });
+      expect(server.undoBodies).toHaveLength(1);
+      expect(server.bodies).toHaveLength(2);
+      expect(server.bodies[1]).not.toHaveProperty("suggestion_id");
+    });
+
+    it("en la nota elegida, la barra muestra sus sugerencias y las aplica", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await chooseMeasure(1);
+      expect(
+        within(editor()).queryByRole("group", { name: "Sugerencias para esta nota" }),
+      ).toBeNull();
+
+      await chooseMeasure(2);
+      const group = within(editor()).getByRole("group", { name: "Sugerencias para esta nota" });
+      expect(within(group).getByText(EXPLANATION)).toBeVisible();
+      expect(within(group).getByText("Confianza alta")).toBeVisible();
+
+      await userEvent.click(applyButton("Alteración dudosa, compás 2", group));
+
+      expect(server.bodies.map((body) => body.suggestion_id)).toEqual([20]);
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Guardado: alteración/);
+      });
+      expect(
+        within(
+          within(editor()).getByRole("group", { name: "Sugerencias para esta nota" }),
+        ).getByText("Aplicada"),
+      ).toBeVisible();
+    });
+
+    it("si la sesión avanzó desde la validación, la sugerencia es antigua y no se aplica hasta revalidar", async () => {
+      const { next } = apply(detail(), {
+        base_seq: 0,
+        op: "SetPitch",
+        anchor: anchorOf(1),
+        before: null,
+        after: { pitch: "D4" },
+      });
+      const server = suggestionApi(next, [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      expect(suggestionItem(20)).toHaveTextContent("Antigua: revalida para aplicarla");
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      // Rechazarla sí se puede, y revalidar está a mano.
+      expect(rejectButton("Alteración dudosa, compás 2")).toBeVisible();
+      expect(within(panel()).getByRole("button", { name: "Revalidar" })).toBeVisible();
+
+      // En la barra, igual: la nota sigue siendo la suya, pero no se aplica.
+      await chooseMeasure(2);
+      const group = within(editor()).getByRole("group", { name: "Sugerencias para esta nota" });
+      expect(within(group).getByText("Antigua: revalida para aplicarla")).toBeVisible();
+      expect(within(group).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      expect(server.bodies).toEqual([]);
+    });
+
+    it("con un 409 stale_suggestion no la reintenta: la marca antigua y ofrece revalidar", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      server.staleNext();
+
+      await userEvent.click(applyButton("Alteración dudosa, compás 2"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          /^No se aplicó la sugerencia \(alteración .+\): ya no es de la última validación/,
+        );
+      });
+      expect(server.bodies).toHaveLength(1);
+      expect(suggestionItem(20)).toHaveTextContent("Antigua: revalida para aplicarla");
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      expect(
+        within(panel()).getByText(/alguna sugerencia ya no es de la última validación/i),
+      ).toBeVisible();
+      expect(within(panel()).getByRole("button", { name: "Revalidar" })).toBeVisible();
+      // La partitura no cambió: no se recarga el estado, solo se vuelve a pedir la lista.
+      expect(server.count(`GET /sessions/${ID}`)).toBe(1);
+      await waitFor(() => {
+        expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
+      });
+      expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+    });
+
+    it("con un 409 de base_seq recarga el estado y no ofrece volver a aplicarla", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      // Otra pestaña editó antes.
+      server.replace(
+        apply(detail(), {
+          base_seq: 0,
+          op: "SetPitch",
+          anchor: anchorOf(1),
+          before: null,
+          after: { pitch: "D4" },
+        }).next,
+      );
+
+      await userEvent.click(applyButton("Alteración dudosa, compás 2"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          /La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual\. La sugerencia ya es antigua: revalida para aplicarla\.$/,
+        );
+      });
+      expect(within(editor()).queryByRole("button", { name: "Volver a aplicar" })).toBeNull();
+      expect(suggestionItem(20)).toHaveTextContent("Antigua: revalida para aplicarla");
+    });
+
+    it("con un 422 no se guarda nada y la sugerencia sigue sin respuesta", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      server.respond(() => jsonResponse({ detail: "La edición no es la propuesta" }, 422));
+
+      await userEvent.click(applyButton("Alteración dudosa, compás 2"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^El servidor no aceptó el cambio/);
+      });
+      expect(suggestionItem(20)).not.toHaveTextContent("Aplicada");
+      expect(applyButton("Alteración dudosa, compás 2")).toBeVisible();
+    });
+
+    it("rechazar guarda la respuesta y deja el posible error como estaba", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      const pending = deferred<Response>();
+      server.respondReject(() => pending.promise);
+
+      await userEvent.click(rejectButton("Alteración dudosa, compás 2"));
+
+      expect(server.rejectCalls).toEqual([20]);
+      expect(findingsStatus()).toHaveTextContent("Rechazando la sugerencia…");
+      // Sin la respuesta no se da por rechazada.
+      expect(suggestionItem(20)).not.toHaveTextContent("Rechazada");
+      pending.resolve(jsonResponse({ ...suggestion(20, 2), response: "rejected" }));
+
+      await waitFor(() => {
+        expect(suggestionItem(20)).toHaveTextContent("Rechazada");
+      });
+      expect(findingsStatus()).toHaveTextContent(
+        "Sugerencia rechazada: Alteración dudosa, compás 2. El posible error sigue señalado; si no es un error, descártalo.",
+      );
+      expect(suggestionItem(20)).toHaveFocus();
+      // El posible error sigue activo y marcado: rechazar no es descartar.
+      expect(markCount()).toBe(1);
+      expect(server.findingCalls).toEqual([]);
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: /^Rechazar/ })).toBeNull();
+      expect(
+        within(panel()).getByRole("button", {
+          name: "Descartar como falso positivo · Alteración dudosa, compás 2",
+        }),
+      ).toBeVisible();
+    });
+
+    it("rechazar una sugerencia que ya no está vuelve a pedir la lista y lo dice", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      server.respondReject(() => jsonResponse({ detail: "suggestion not found" }, 404));
+
+      await userEvent.click(rejectButton("Alteración dudosa, compás 2"));
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No se rechazó: esa sugerencia ya no está en la última validación. Ya ves la lista actual.",
+        );
+      });
+      expect(server.count(`GET /sessions/${ID}/findings`)).toBe(2);
+    });
+
+    it("en solo lectura se ven las sugerencias, sin aplicar ni rechazar", async () => {
+      suggestionApi(detail(), [learned(2, 2)]);
+      renderPage(INVESTIGADORA);
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      expect(within(panel()).getByText(EXPLANATION)).toBeVisible();
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: /^Rechazar/ })).toBeNull();
+    });
+
+    it("mientras se guarda otra corrección no la encola ni deja rechazarla: lo dice", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await chooseMeasure(1);
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+      await userEvent.click(button("Subir un paso"));
+      expect(editStatus()).toHaveTextContent("Guardando…");
+
+      // Rechazar espera, como revalidar: podría ser la misma sugerencia que se está guardando.
+      expect(rejectButton("Alteración dudosa, compás 2")).toHaveAttribute("aria-disabled", "true");
+      await userEvent.click(applyButton("Alteración dudosa, compás 2"));
+
+      expect(document.querySelector(".editor__refusal")).toHaveTextContent(
+        "No se aplicó la sugerencia: se está guardando otra corrección, y con ella la sugerencia pasará a ser antigua.",
+      );
+      expect(applyButton("Alteración dudosa, compás 2")).toHaveFocus();
+      const first = server.bodies[0];
+      if (!first) throw new Error("falta la corrección");
+      pending.resolve(server.accept(first));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Guardado: altura/);
+      });
+      // Solo salió la corrección: la sugerencia no se encoló, y ahora es antigua.
+      expect(server.bodies.map((body) => body.suggestion_id)).toEqual([undefined]);
+      expect(suggestionItem(20)).toHaveTextContent("Antigua: revalida para aplicarla");
+    });
+
+    it("una sugerencia que borra deja elegida la nota vecina", async () => {
+      const start = detail();
+      const second = structuredClone(start.current_score?.parts[0]?.staves[0]?.measures[1]);
+      const event = second?.events[0];
+      if (!second || !event) throw new Error("falta el compás");
+      second.events = [
+        { ...event, duration_beats: "1" },
+        { ...event, pitch: "E4", duration_beats: "2" },
+      ];
+      const measures = start.current_score?.parts[0]?.staves[0]?.measures;
+      if (measures) measures[1] = second;
+      const deleting = learned(2, 2, {
+        rule_id: "learned.delete",
+        suggestions: [
+          suggestion(20, 2, {
+            op: "DeleteEvent",
+            before: null,
+            after: null,
+            explanation: "Borrar este Do4.",
+          }),
+        ],
+      });
+      const server = suggestionApi(start, [deleting]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+
+      await userEvent.click(applyButton("Nota de más, compás 2"));
+
+      expect(server.bodies[0]).toMatchObject({ op: "DeleteEvent", after: null, suggestion_id: 20 });
+      await waitFor(() => {
+        expect(useSelectionStore.getState().selection).toMatchObject({
+          seq: 1,
+          anchor: { measure: 2, event_index: 0 },
+        });
+      });
+    });
+
+    it("con la sesión finalizada se ven sin aplicar ni rechazar, y con su respuesta", async () => {
+      const answered = learned(2, 2, {
+        suggestions: [suggestion(20, 2, { response: "rejected" })],
+      });
+      suggestionApi(detail({ status: "finalized" }), [answered, learned(3, 3)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(2);
+      });
+      expect(suggestionItem(20)).toHaveTextContent("Rechazada");
+      expect(suggestionItem(30)).toHaveTextContent(EXPLANATION);
+      expect(within(panel()).queryByRole("button", { name: /^Aplicar/ })).toBeNull();
+      expect(within(panel()).queryByRole("button", { name: /^Rechazar/ })).toBeNull();
+    });
+
+    it("rechazar una ya aplicada en otra pestaña recarga la lista y lo dice", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await waitFor(() => {
+        expect(markCount()).toBe(1);
+      });
+      server.respondReject(() => jsonResponse({ detail: "ya aplicada" }, 409));
+
+      await userEvent.click(rejectButton("Alteración dudosa, compás 2"));
+
+      await waitFor(() => {
+        expect(findingsStatus()).toHaveTextContent(
+          "No se rechazó: esa sugerencia ya se aplicó. Ya ves la lista actual.",
+        );
+      });
+      expect(server.count(`GET /sessions/${ID}/findings`)).toBeGreaterThanOrEqual(2);
+    });
+
+    it("rechaza desde la barra de la nota elegida", async () => {
+      const server = suggestionApi(detail(), [learned(2, 2)]);
+      renderPage();
+      await chooseMeasure(2);
+      const group = within(editor()).getByRole("group", { name: "Sugerencias para esta nota" });
+
+      await userEvent.click(rejectButton("Alteración dudosa, compás 2", group));
+
+      expect(server.rejectCalls).toEqual([20]);
+      await waitFor(() => {
+        expect(suggestionItem(20)).toHaveTextContent("Rechazada");
+      });
+      expect(server.bodies).toEqual([]);
+    });
+
+    it("en una sesión no asistida la barra no habla de sugerencias", async () => {
+      suggestionApi(detail({ condition: "unassisted" }), [learned(2, 2)]);
+      renderPage();
+      await chooseMeasure(2);
+      expect(
+        within(editor()).queryByRole("group", { name: "Sugerencias para esta nota" }),
+      ).toBeNull();
+      expect(screen.queryByText(EXPLANATION)).toBeNull();
     });
   });
 });

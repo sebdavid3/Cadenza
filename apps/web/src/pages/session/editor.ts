@@ -9,6 +9,7 @@ import type {
   FindingRead,
   ScoreIRPayload,
   SessionViewRead,
+  SuggestionRead,
   TimingMapRead,
 } from "../../types";
 import {
@@ -17,6 +18,8 @@ import {
   eventName,
   planCommand,
   replan,
+  selectAfterDelete,
+  type DecidedEdit,
   type EditCommand,
   type EditPlan,
   type EditRequestLike,
@@ -31,10 +34,12 @@ import {
   postEdit,
   postUndo,
   sessionDetailQuery,
+  sessionFindingsKey,
   sessionFindingsQuery,
   sessionMusicXmlQuery,
   sessionTimingQuery,
 } from "./session";
+import { withResponse } from "./suggestions";
 
 /**
  * Edición enviada: lo que se pidió (con qué se dice y qué queda elegido al guardarla), sobre qué
@@ -44,6 +49,12 @@ export type EditRequest = Extract<EditPlan, { kind: "edit" }> &
   EditRequestLike & {
     /** Evento elegido cuando se dio la orden, en el estado `baseSeq`. */
     target: AnchorPayload;
+    /**
+     * La sugerencia que aplica la edición (#258, ADR-0036 §5): su id, que va como
+     * `suggestion_id`, su `after` tal como lo propuso el servidor y la nota elegida al aplicarla
+     * (su clave, o null): si cambia mientras se guarda, se respeta.
+     */
+    suggestion?: { id: number; after: Record<string, unknown> | null; chosen: string | null };
   };
 
 /**
@@ -99,6 +110,11 @@ export type EditorStatus =
   | { kind: "outdated"; request: EditorRequest }
   /** 422 (u otro rechazo del servidor): no se guardó nada. */
   | { kind: "rejected"; request: EditorRequest }
+  /**
+   * 409 `stale_suggestion` (ADR-0036 §5): la sugerencia ya no es de la validación del estado que
+   * se ve o ya tiene respuesta. No se guardó nada ni se reintenta: hay que revalidar.
+   */
+  | { kind: "stale-suggestion"; request: EditorRequest }
   /** 403: la sesión no es de quien la ve (ADR-0012). */
   | { kind: "forbidden"; request: EditorRequest }
   /** 404: la sesión ya no existe o no se tiene acceso. */
@@ -139,6 +155,7 @@ const LASTING = new Set<EditorStatus["kind"]>([
   "closed",
   "outdated",
   "rejected",
+  "stale-suggestion",
   "forbidden",
   "missing",
   "unknown",
@@ -155,10 +172,32 @@ const STALE_ON_FINALIZE = new Set<EditorStatus["kind"]>([
   // Un 409 de otra pestaña o un 422 anteriores: su «Volver a aplicar» ya no tendría sentido.
   "conflict",
   "rejected",
+  "stale-suggestion",
 ]);
 
 /** Avisos que caducan al reabrirla: también el de que estaba finalizada. */
 const STALE_ON_REOPEN = new Set<EditorStatus["kind"]>([...STALE_ON_FINALIZE, "closed"]);
+
+/**
+ * La edición que propone una sugerencia, como las que decide la barra (para decir qué cambia), o
+ * null si su operación no es una de las que propone la capa (ADR-0036 §1).
+ */
+function decidedOf(suggestion: SuggestionRead): DecidedEdit | null {
+  const after = Object.fromEntries(
+    Object.entries(suggestion.after ?? {}).map(([key, value]) => [key, String(value)]),
+  );
+  switch (suggestion.op) {
+    case "SetPitch":
+    case "SetDuration":
+    case "SetAccidental":
+    case "InsertEvent":
+      return { op: suggestion.op, after };
+    case "DeleteEvent":
+      return { op: "DeleteEvent", after: null };
+    default:
+      return null;
+  }
+}
 
 /** Qué pasó según el error de una orden que no es un 409, o null si no hay nada que decir. */
 function failure(
@@ -264,6 +303,9 @@ export function useEditor(
   const originUsed = useRef<{ seq: number; anchor: AnchorPayload } | null>(null);
   // Una orden guardada cuyo estado nuevo no se pudo cargar: qué deja elegido, para la recarga.
   const pendingPlacement = useRef<{ request: EditorRequest; seq: number } | null>(null);
+  // Sugerencias que el servidor dio por antiguas al aplicarlas (`stale_suggestion`): no se
+  // vuelven a ofrecer para aplicar hasta revalidar, que trae otras con otro id (#258).
+  const [staleSuggestions, setStaleSuggestions] = useState<ReadonlySet<number>>(() => new Set());
   const nonce = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
   useEffect(
@@ -294,7 +336,14 @@ export function useEditor(
   function place(request: EditorRequest, seq: number) {
     if (request.select === undefined) return;
     const { selection, select, clear } = useSelectionStore.getState();
-    if (request.kind === "edit") {
+    if (request.kind === "edit" && request.suggestion) {
+      // Aplicada desde la lista o desde la barra: queda elegida su nota (#258), salvo que la
+      // persona eligiera otra mientras se guardaba.
+      if (chosenAt(request.baseSeq) !== request.suggestion.chosen) return;
+      // Una orden en espera (ADR-0038) se dio para la nota elegida: si la sugerencia es de otra,
+      // la selección no salta, para que la orden no caiga en una nota que no se eligió.
+      if (queuedRef.current && request.suggestion.chosen !== anchorKey(request.target)) return;
+    } else if (request.kind === "edit") {
       if (
         selection?.sessionId !== sessionId ||
         selection.seq !== request.baseSeq ||
@@ -422,6 +471,21 @@ export function useEditor(
         markReceived(order, sessionId, outcome.seq);
       } catch (error) {
         if (cancelled()) return;
+        // La sugerencia ya no vale (ADR-0036 §5): el `base_seq` sí era el del servidor, así que la
+        // partitura no cambió. Se marca antigua, sin reintentarla, y se vuelve a pedir la lista
+        // de posibles errores, que puede haber cambiado en otra pestaña.
+        const suggestion = request.kind === "edit" ? request.suggestion : undefined;
+        if (
+          suggestion &&
+          error instanceof ApiError &&
+          error.kind === "conflict" &&
+          error.detail === "stale_suggestion"
+        ) {
+          setStaleSuggestions((previous) => new Set(previous).add(suggestion.id));
+          setStatus({ kind: "stale-suggestion", request });
+          void queryClient.invalidateQueries({ queryKey: sessionFindingsKey(sessionId) });
+          return;
+        }
         if (!(error instanceof ApiError && error.kind === "conflict")) {
           const next = failure(error, request);
           if (next) setStatus(next);
@@ -438,6 +502,15 @@ export function useEditor(
       }
       const done = outcome.request ?? request;
       const saved = outcome.seq;
+      // La sugerencia aplicada queda aceptada en el servidor con la edición (ADR-0036 §5): la
+      // lista lo dice sin volver a pedirla, también la que se copia al estado nuevo.
+      if (done.kind === "edit" && done.suggestion) {
+        const { id } = done.suggestion;
+        queryClient.setQueriesData<FindingRead[]>(
+          { queryKey: sessionFindingsKey(sessionId) },
+          (list) => (list ? withResponse(list, id, "accepted") : list),
+        );
+      }
       const placeSaved = () => {
         place(done, saved);
       };
@@ -471,7 +544,9 @@ export function useEditor(
           anchor: request.anchor,
           // El servidor fija el estado previo (ADR-0017).
           before: null,
-          after: request.after,
+          // Una sugerencia va como la propuso el servidor, con su id (ADR-0036 §5).
+          after: request.suggestion ? request.suggestion.after : request.after,
+          ...(request.suggestion ? { suggestion_id: request.suggestion.id } : {}),
         },
         signal,
         requestId,
@@ -612,6 +687,56 @@ export function useEditor(
     if (!target) return;
     if ("span" in plan) originUsed.current = origin;
     void send(requestOf(plan, target.anchor, seq));
+  }
+
+  /**
+   * Aplica una sugerencia de la capa (#258, ADR-0036 §5): una edición como cualquier otra, con el
+   * `base_seq` del estado que se ve, su `op`, su ancla y su `after`, y `suggestion_id`. Solo si es
+   * de la validación de ese estado: si la sesión avanzó, es antigua y hay que revalidar. No
+   * espera turno: tras guardarse la orden en curso, la sugerencia ya sería antigua. Al guardarla,
+   * queda elegida su nota (la vecina, si la borra). Devuelve si se envió.
+   */
+  async function applySuggestion(
+    finding: FindingRead,
+    suggestion: SuggestionRead,
+  ): Promise<boolean> {
+    if (!score) return false;
+    if (mustWait()) {
+      refuse(
+        "No se aplicó la sugerencia: se está guardando otra corrección, y con ella la sugerencia pasará a ser antigua.",
+      );
+      return false;
+    }
+    if (stopped) return false;
+    if ((finding.at_seq ?? 0) !== seq || staleSuggestions.has(suggestion.id)) {
+      refuse("Esta sugerencia es antigua: revalida la partitura para aplicarla.");
+      return false;
+    }
+    if (suggestion.response) return false;
+    const decided = decidedOf(suggestion);
+    if (!decided) {
+      refuse(
+        "No se aplicó la sugerencia: propone una operación que la vista no aplica como sugerencia.",
+      );
+      return false;
+    }
+    const { anchor } = suggestion;
+    await send({
+      kind: "edit",
+      ...decided,
+      anchor,
+      baseSeq: seq,
+      target: anchor,
+      change: describeEdit({
+        op: suggestion.op,
+        before: suggestion.before ?? null,
+        after: suggestion.after ?? null,
+      }),
+      select: suggestion.op === "DeleteEvent" ? selectAfterDelete(score, anchor) : anchor,
+      notice: "Sugerencia aplicada: para aplicar otra, revalida la partitura.",
+      suggestion: { id: suggestion.id, after: suggestion.after ?? null, chosen: chosenAt(seq) },
+    });
+    return true;
   }
 
   /**
@@ -773,8 +898,11 @@ export function useEditor(
    * envía si la persona lo pide. Deshacer y rehacer no se vuelven a aplicar: sobre el estado
    * recargado serían otra orden, que se da con sus propios controles.
    */
+  // Una sugerencia no se vuelve a aplicar: sobre el estado recargado ya es antigua (ADR-0036).
   const conflicted =
-    status.kind === "conflict" && status.request.kind === "edit" ? status.request : null;
+    status.kind === "conflict" && status.request.kind === "edit" && !status.request.suggestion
+      ? status.request
+      : null;
   const retry: { plan: EditPlan; anchor: AnchorPayload | null } | null =
     conflicted && detail && score ? replan(conflicted, detail) : null;
 
@@ -796,6 +924,9 @@ export function useEditor(
     /** Donde la barra deja la nota que la vista ofrece corregir, para la orden en espera. */
     targetRef,
     run,
+    applySuggestion,
+    /** Sugerencias que el servidor dio por antiguas al aplicarlas: hay que revalidar (#258). */
+    staleSuggestions,
     reload,
     retry,
     reapply,

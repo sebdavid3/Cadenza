@@ -12,7 +12,7 @@ import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
 import { useEditor, type Editor } from "./editor";
-import { carryAnchor } from "./edits";
+import { carryAnchor, type EditTarget } from "./edits";
 import { useFindingActions } from "./findingActions";
 import {
   findingLabel,
@@ -41,6 +41,8 @@ import {
   sessionTimingQuery,
   validatedSeqQuery,
 } from "./session";
+import { suggestionsAt } from "./suggestions";
+import type { SuggestionActions } from "./SuggestionList";
 import "./session.css";
 
 function BackLink() {
@@ -222,6 +224,27 @@ function SessionView({ sessionId }: { sessionId: string }) {
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [undoShown]);
+  const labelOf = (finding: FindingRead) => findingLabel(score, finding, multiStaff);
+  // Aplicar y rechazar una sugerencia (#258): aplicar es una corrección del editor; rechazar, una
+  // orden sobre los posibles errores, como descartar.
+  const suggestionActions: SuggestionActions | undefined = editable
+    ? {
+        applyBlocked: editor.blocked || findingActions.busy || lifecycle.busy,
+        rejectBlocked:
+          findingActions.busy ||
+          lifecycle.busy ||
+          editor.status.kind === "saving" ||
+          editor.status.kind === "reloading" ||
+          editor.queued,
+        onApply: (finding, suggestion) => void editor.applySuggestion(finding, suggestion),
+        onReject: (finding, suggestion) => void findingActions.reject(finding, suggestion),
+      }
+    : undefined;
+  /** Las sugerencias de la nota elegida en el estado que se ve (#258). */
+  const noteSuggestions = (target: EditTarget | null) =>
+    assisted && target
+      ? suggestionsAt(active, target.anchor, detail.data, editor.staleSuggestions)
+      : [];
   // Sin controles, la barra sigue si tiene algo que decir (un 409 que dejó la sesión cerrada).
   const showEditor = editable || editor.status.kind !== "idle";
   // El control que tenía el foco en la barra cuando esta pasa de un sitio a otro (ADR-0034).
@@ -377,6 +400,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           keysId={editKeysId}
                           focusScore={focusScore}
                           focusMemoryRef={editorFocusRef}
+                          suggestions={{
+                            items: noteSuggestions(target),
+                            labelOf,
+                            actions: suggestionActions,
+                          }}
                         />
                       )
                     : undefined
@@ -433,6 +461,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
               dismissed={dismissed}
               validation={validation}
               edits={edits}
+              seq={seq}
+              staleSuggestions={editor.staleSuggestions}
               multiStaff={multiStaff}
               selectable={placed && musicXml.isSuccess}
               selectedKey={selectedKey}
@@ -455,6 +485,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
                       onRestore: findingActions.restore,
                       onRevalidate: findingActions.revalidate,
                       onReload: editor.reload,
+                      applyBlocked: editor.blocked || lifecycle.busy,
+                      onApply: editor.applySuggestion,
+                      onReject: findingActions.reject,
                     }
                   : undefined
               }

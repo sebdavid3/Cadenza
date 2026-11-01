@@ -444,6 +444,16 @@
   min-width: 0;
 }
 
+/* Sugerencias para la nota elegida (#258): ocupan la barra entera, encima de los controles. */
+.editor__group--suggestions {
+  flex-basis: 100%;
+  min-width: 0;
+}
+
+.editor__group--suggestions .suggestions {
+  padding: 0;
+}
+
 .editor__spans {
   display: flex;
   flex-wrap: wrap;
@@ -1065,6 +1075,95 @@ button.findings__item:hover {
 
 .findings__reason {
   font-size: var(--text-small);
+}
+
+/* De dónde viene un posible error (#258): las reglas, en tinta discreta; lo aprendido de las
+   correcciones, en un rótulo violeta enmarcado, para que se distinga sin leer. */
+.findings__origin {
+  color: var(--color-ink-muted);
+  font-size: var(--text-label);
+}
+
+.findings__origin--learned {
+  padding: 0 var(--space-1);
+  border: 2px solid var(--color-accent);
+  color: var(--color-accent);
+}
+
+.findings__item[aria-pressed="true"] .findings__origin {
+  border-color: var(--color-paper);
+  color: var(--color-paper);
+}
+
+/* Sugerencias de la capa (#258): bajo el posible error, una por bloque con filete a la
+   izquierda; la confianza en palabras al lado del rótulo; aplicar y rechazar debajo. */
+.suggestions {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  list-style: none;
+}
+
+.suggestion {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--rule-width) solid var(--color-accent);
+}
+
+.suggestion:focus-visible {
+  outline-offset: 2px;
+}
+
+.suggestion__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+}
+
+.suggestion__title {
+  color: var(--color-accent);
+}
+
+.suggestion__level {
+  color: var(--color-ink-muted);
+}
+
+.suggestion__level--high {
+  color: var(--color-ink);
+}
+
+.suggestion__text {
+  max-width: 48ch;
+}
+
+.suggestion__state {
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+.suggestion__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  padding-top: var(--space-1);
+}
+
+/* Respondida o antigua: filete discontinuo, el patrón de lo que ya no pide acción. */
+.suggestion[data-state="accepted"],
+.suggestion[data-state="rejected"],
+.suggestion[data-state="old"],
+.suggestion[data-state="later"] {
+  border-left-style: dashed;
+}
+
+.suggestion[data-state="accepted"] .suggestion__text,
+.suggestion[data-state="rejected"] .suggestion__text {
+  color: var(--color-ink-muted);
 }
 
 /* Historia de ediciones: el log entero, de la más reciente a la primera. Lo deshecho se tacha
