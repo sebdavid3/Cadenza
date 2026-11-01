@@ -61,7 +61,7 @@ export class ApiError extends Error {
   readonly status: number | null;
   /** `detail` de la respuesta, solo para depurar: nunca se muestra en la interfaz. */
   readonly detail: unknown;
-  /** Segundos de `Retry-After` en un 429, o null si no llegó. */
+  /** Segundos de `Retry-After` (un 429, o el 503 de huecos ocupados), o null si no llegó. */
   readonly retryAfterSeconds: number | null;
 
   constructor(

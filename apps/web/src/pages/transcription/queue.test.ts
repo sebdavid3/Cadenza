@@ -253,6 +253,24 @@ describe("cola secuencial", () => {
     },
   );
 
+  it("un 503 dice que el servidor está ocupado y cuándo volver a probar (ADR-0024)", async () => {
+    mockApi({
+      "POST /transcribe": () =>
+        new Response(JSON.stringify({ detail: "en bruto" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json", "Retry-After": "10" },
+        }),
+    });
+    const store = useQueueStore.getState();
+    store.add([png("a.png")]);
+
+    await store.run(api);
+
+    expect(useQueueStore.getState().items[0]?.error).toBe(
+      "El servidor está ocupado con otras transcripciones. Vuelve a probar en 10 s.",
+    );
+  });
+
   it.each([
     ["un fallo de red", () => Promise.reject(new TypeError("Failed to fetch"))],
     ["un 503", () => jsonResponse({ detail: "x" }, 503)],

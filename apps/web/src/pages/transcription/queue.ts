@@ -69,6 +69,15 @@ export function transcribeErrorMessage(error: unknown): string {
     case "timeout":
       // La imagen ya se había enviado: la API puede terminar y crear la sesión igualmente.
       return "La transcripción tardó más de 30 s. Puede que se haya creado; revisa el listado antes de reintentar.";
+    case "server":
+      // Con los huecos de HOMR ocupados, la API responde 503 con `Retry-After` (ADR-0024).
+      if (error.status === 503) {
+        const wait = error.retryAfterSeconds;
+        return wait !== null
+          ? `El servidor está ocupado con otras transcripciones. Vuelve a probar en ${String(wait)} s.`
+          : "El servidor está ocupado con otras transcripciones. Vuelve a probar en unos segundos.";
+      }
+      return error.message;
     default:
       return error.message;
   }
