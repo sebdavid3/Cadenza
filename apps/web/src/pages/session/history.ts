@@ -152,6 +152,36 @@ function keyChange(after: Record<string, unknown>): string {
   return fifths === 0 ? "armadura sin alteraciones" : `armadura de ${keyName(fifths)}`;
 }
 
+const TIME_SYMBOLS: Record<string, string> = { common: "C", cut: "¢" };
+
+/** El compás que fija `SetTime`: «compás 3/4», «compás C». */
+function timeChange(after: Record<string, unknown>): string {
+  const signature = record(after.time_signature);
+  if (!signature) return "quitar el cambio de compás";
+  const symbol = TIME_SYMBOLS[text(signature.symbol) ?? ""];
+  if (symbol) return `compás ${symbol}`;
+  const beats = Number(signature.beats);
+  const beatType = Number(signature.beat_type);
+  if (!Number.isInteger(beats) || !Number.isInteger(beatType)) return "compás";
+  return `compás ${String(beats)}/${String(beatType)}`;
+}
+
+/** Si `SetTuplet` pone o quita el tresillo: lo quita si sus figuras de antes eran de tresillo. */
+function tupletChange(before: unknown, after: Record<string, unknown>): string {
+  const durations = Array.isArray(after.durations) ? after.durations : [];
+  const count = durations.filter((d) => d !== null).length;
+  const figures = `${String(count)} ${count === 1 ? "figura" : "figuras"}`;
+  const previous = record(before)?.durations;
+  const wasTriplet = Array.isArray(previous) && previous.some(hasThree);
+  return wasTriplet ? `quitar el tresillo de ${figures}` : `tresillo en ${figures}`;
+}
+
+/** Si una figura («1/3», «2/3») tiene un 3 en el denominador: es de tresillo. */
+function hasThree(value: unknown): boolean {
+  const [, denominator] = (text(value) ?? "").split("/");
+  return denominator !== undefined && Number(denominator) % 3 === 0;
+}
+
 /**
  * El evento de una inserción o de la instantánea de un borrado: «Re 4, negra», «un silencio de
  * negra»; un silencio invisible (ADR-0032) no se ve en la partitura, y se dice.
@@ -193,6 +223,11 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return clefChange(after);
     case "SetKey":
       return keyChange(after);
+    // El compás y los tresillos (ADR-0044).
+    case "SetTime":
+      return timeChange(after);
+    case "SetTuplet":
+      return tupletChange(edit.before, after);
     // Las marcas de notación (ADR-0039), por lo que cambian respecto de la instantánea.
     case "SetNoteMarks":
     case "SetDynamic":
@@ -214,7 +249,7 @@ export function placeOf(
   multiStaff: boolean,
   score: ScoreIRPayload | null = null,
 ): string {
-  const measureOnly = ["SetClef", "SetKey", "SetDynamic", "SetWedge"].includes(op);
+  const measureOnly = ["SetClef", "SetKey", "SetTime", "SetDynamic", "SetWedge"].includes(op);
   const place = measureOnly
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
@@ -248,6 +283,10 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
       return has("clef", "sign");
     case "SetKey":
       return has("key_signature", "key", "fifths");
+    case "SetTime":
+      return "time_signature" in before && "measures" in before;
+    case "SetTuplet":
+      return Array.isArray(before.durations);
     case "SetNoteMarks":
     case "SetDynamic":
     case "SetSlur":
@@ -285,6 +324,7 @@ export function historyPlacement(
   switch (edit.op) {
     case "SetClef":
     case "SetKey":
+    case "SetTime":
     case "SetDynamic":
     case "SetSlur":
     case "SetWedge":
