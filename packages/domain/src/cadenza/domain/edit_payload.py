@@ -10,7 +10,8 @@ Dos reglas puras que la capa de aplicación aplica antes de persistir una edici�
   que se aplica la edición, de modo que el evento inverso (`create_inverse_edit`)
   restaure siempre el estado exacto, sin depender de lo que envíe el cliente.
 
-Las operaciones de las marcas de notación (ADR-0039) tienen sus reglas en `mark_edits`.
+Las operaciones de las marcas de notación (ADR-0039) tienen sus reglas en `mark_edits`, y las del
+compás y los tresillos (ADR-0044), en `meter_edits`.
 """
 
 from __future__ import annotations
@@ -18,15 +19,16 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
-from fractions import Fraction
 from typing import Any, Final
 
 from .anchor import Anchor, EventKind
 from .clef import Clef
-from .edit import MARK_EDIT_OPS, EditEvent, EditOp
+from .duration_rules import check_duration
+from .edit import MARK_EDIT_OPS, METER_EDIT_OPS, EditEvent, EditOp
 from .edit_errors import InvalidEditPayload
 from .key_signature import KeySignature
 from .mark_edits import has_complete_mark_before, snapshot_mark_before, validate_mark_after
+from .meter_edits import has_complete_meter_before, snapshot_meter_before, validate_meter_after
 from .notation_marks import Articulation, SlurType
 from .projection import _ACCIDENTAL_MAP, _PITCH_RE, _apply_accidental
 from .score import Event, Measure, ScoreIR
@@ -44,14 +46,6 @@ _STEP_SEMITONES: Final[dict[str, int]] = {
 }
 _ALTER_SEMITONES: Final[dict[str, int]] = {"": 0, "#": 1, "##": 2, "b": -1, "bb": -2}
 _MIDI_MAX: Final[int] = 127
-
-# Duraciones: hasta una longa (16 pulsos de negra) y denominadores 2^a·t con t en
-# {1, 3, 5, 7} hasta 128 (fusas de tresillo, quintillo y septillo). Con ese vocabulario el
-# exportador escribe MusicXML y MIDI; fuera de él, music21 rechaza duraciones como 1/17 o
-# 3/1000 y tarda sin límite con duraciones enormes.
-_MAX_DURATION_BEATS: Final[Fraction] = Fraction(16)
-_MAX_DURATION_DENOMINATOR: Final[int] = 128
-_TUPLET_FACTORS: Final[frozenset[int]] = frozenset({1, 3, 5, 7})
 
 # Alteraciones de `SetAccidental`: las que la proyección y el plano offline
 # (`DatasetBuilder`) interpretan igual.
@@ -177,28 +171,7 @@ def _check_pitch(value: object) -> None:
 
 
 def _check_duration(value: object) -> None:
-    if isinstance(value, bool) or not isinstance(value, int | float | str | Fraction):
-        raise InvalidEditPayload(f"duración no válida: {value!r}")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise InvalidEditPayload(f"duración no válida: {value!r}")
-    try:
-        duration = Fraction(str(value))
-    except (ValueError, ZeroDivisionError) as exc:
-        raise InvalidEditPayload(f"duración no válida: {value!r}") from exc
-    if not 0 < duration <= _MAX_DURATION_BEATS:
-        raise InvalidEditPayload(
-            f"la duración debe estar entre 0 (excluido) y {_MAX_DURATION_BEATS} pulsos: "
-            f"{value!r}"
-        )
-    tuplet = duration.denominator
-    while tuplet % 2 == 0:
-        tuplet //= 2
-    if duration.denominator > _MAX_DURATION_DENOMINATOR or tuplet not in _TUPLET_FACTORS:
-        raise InvalidEditPayload(
-            f"duración no representable: {value!r} (el denominador debe ser 2^a·t con t "
-            f"1, 3, 5 o 7 y como mucho {_MAX_DURATION_DENOMINATOR}, p. ej. '1/2', '1/3', "
-            "'3/4')"
-        )
+    check_duration(value)
 
 
 def _check_int(name: str, value: object, low: int, high: int) -> int:
@@ -395,6 +368,9 @@ def validate_after(
     if op in MARK_EDIT_OPS:
         validate_mark_after(score, anchor, op, after)
         return
+    if op in METER_EDIT_OPS:
+        validate_meter_after(score, anchor, op, after)
+        return
 
     if op is EditOp.DELETE_EVENT:
         _locate_event(score, anchor)
@@ -506,6 +482,8 @@ def snapshot_before(
 
     if op in MARK_EDIT_OPS:
         return snapshot_mark_before(score, anchor, op, after)
+    if op in METER_EDIT_OPS:
+        return snapshot_meter_before(score, anchor, op, after)
     if op is EditOp.INSERT_EVENT:
         return None
     if op is EditOp.SET_CLEF:
@@ -553,4 +531,6 @@ def has_complete_before(edit: EditEvent) -> bool:
         return not {"key_signature", "key", "fifths"}.isdisjoint(keys)
     if edit.op in MARK_EDIT_OPS:
         return has_complete_mark_before(edit.op, before)
+    if edit.op in METER_EDIT_OPS:
+        return has_complete_meter_before(edit.op, before)
     return False

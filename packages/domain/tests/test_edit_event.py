@@ -98,4 +98,7 @@ def test_edit_op_members() -> None:
         EditOp.SET_DYNAMIC,
         EditOp.SET_WEDGE,
         EditOp.SET_SLUR,
+        # Compás y tresillos (ADR-0044): fuera del dataset y de las métricas (`METER_EDIT_OPS`).
+        EditOp.SET_TIME,
+        EditOp.SET_TUPLET,
     }

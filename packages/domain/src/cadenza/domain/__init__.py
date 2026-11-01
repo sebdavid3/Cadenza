@@ -12,6 +12,7 @@ from .clef import Clef
 from .edit import (
     CONTENT_EDIT_OPS,
     MARK_EDIT_OPS,
+    METER_EDIT_OPS,
     EditEvent,
     EditOp,
     create_inverse_edit,
@@ -72,7 +73,7 @@ from .score_metadata import (
 )
 from .suggestion import CONFIDENCE_LEVELS, SUGGESTION_SOURCES, SuggestedEdit
 from .tie import Tie
-from .time_signature import TimeSignature
+from .time_signature import SYMBOL_METERS, TimeSignature, same_time_notation
 from .timing import EventTiming, TimingMap, compute_timing_map
 
 __all__ = [
@@ -81,9 +82,11 @@ __all__ = [
     "CONTENT_EDIT_OPS",
     "MARK_EDIT_OPS",
     "MAX_PARTS",
+    "METER_EDIT_OPS",
     "PART_NAME_MAX_LENGTH",
     "SOURCE_FILENAME_MAX_LENGTH",
     "SUGGESTION_SOURCES",
+    "SYMBOL_METERS",
     "TITLE_MAX_LENGTH",
     "Anchor",
     "AnchorIndex",
@@ -133,6 +136,7 @@ __all__ = [
     "normalize_accidental",
     "normalize_source_filename",
     "origin_anchor",
+    "same_time_notation",
     "snapshot_before",
     "translate_anchor",
     "translate_finding",
