@@ -124,8 +124,11 @@ export function usePlayer(playback: Playback | null) {
     if (!engine) {
       try {
         engine = create(playback, tempoRef.current, {
+          // Un aviso que llega con la reproducción ya parada no cambia la lectura (#299).
           onMeasure: (measure) => {
-            setState((previous) => ({ ...previous, measure }));
+            setState((previous) =>
+              previous.status === "playing" ? { ...previous, measure } : previous,
+            );
           },
           onEnd: () => {
             setState({ status: "stopped", measure: null, announcement: "Fin de la partitura." });

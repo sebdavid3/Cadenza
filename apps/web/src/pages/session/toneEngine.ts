@@ -166,6 +166,10 @@ export function createToneEngine(
    * Programa la partitura a partir del pulso `from`: lo anterior ya sonó. Con el transporte en
    * marcha, `from` es el último pulso disparado y no se vuelve a programar; en pausa o detenido,
    * es el pulso en que seguirá.
+   *
+   * Solo suena y avisa mientras la persona reproduce. Al terminar, el transporte para en `now()`,
+   * el margen por delante, y Tone puede disparar entre tanto lo programado en el pulso 0: la
+   * primera nota y el compás 1, que devolvía la lectura a «En pausa · Compás 1» (#299).
    */
   function program(from: number) {
     transport.cancel(0);
@@ -175,6 +179,7 @@ export function createToneEngine(
       if (running ? tick <= from : tick < from) return;
       transport.schedule(
         (time) => {
+          if (wanted() !== "playing") return;
           fired = Math.max(fired, tick);
           callback(time);
         },
@@ -200,6 +205,7 @@ export function createToneEngine(
     const end = endTick();
     transport.schedule(
       (time) => {
+        if (wanted() !== "playing") return;
         atTime(time, () => {
           // Un final ya anticipado de una partitura que una edición alargó no termina nada.
           if (end === endTick()) finish();
