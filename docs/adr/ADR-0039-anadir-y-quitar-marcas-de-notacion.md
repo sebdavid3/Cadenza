@@ -69,6 +69,7 @@ Y fija:
 6. **Las métricas de esfuerzo del estudio** (D38, [#188](https://github.com/sebdavid3/Cadenza/issues/188)) cuentan las ediciones de marcas como intervenciones de la persona en el compás de su ancla (son trabajo), y las dan también por separado con `MARK_EDIT_OPS`, para que las ediciones de contenido se puedan comparar con las de antes de este ADR.
 7. **Operaciones futuras** ([#236](https://github.com/sebdavid3/Cadenza/issues/236), [#243](https://github.com/sebdavid3/Cadenza/issues/243)): una operación nueva se clasifica al crearla en una de las dos clases (o en una clase nueva, con su ADR). Si es de contenido, `derive_edit_events` debe poder producirla o el ADR dice por qué no, y cambiar `len(CONTENT_EDIT_OPS)` cambia la cobertura de `exp_02`: esa cifra se regenera y se cita como nueva medición, no como la anterior. Ningún experimento usa `len(EditOp)`.
    - *Aplicado en #236 ([ADR-0044](ADR-0044-compas-con-su-simbolo-y-tresillos-como-edicion.md) §4):* `SetTime` y `SetTuplet` forman una clase nueva, `METER_EDIT_OPS`, porque `derive_edit_events` no las produce; `CONTENT_EDIT_OPS` pasa a ser una lista explícita de siete y la cobertura de `exp_02` no cambia.
+   - *Aplicado en #243 ([ADR-0049](ADR-0049-figura-de-un-acorde.md) §3):* `SetChordDuration` entra en `METER_EDIT_OPS` (una figura de acorde mal leída sale del diff como una `SetDuration` por nota); `len(CONTENT_EDIT_OPS)` sigue siendo 7.
 
 ### 4. Web: la barra «Corregir»
 
