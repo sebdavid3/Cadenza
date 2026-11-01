@@ -308,9 +308,10 @@ uv run python -m ml build-dataset --config configs/learning/default.json --outpu
 uv run python -m ml select --input data/datasets/dataset.json --output data/datasets/selected.json `
   --strategy hybrid --budget 10 --seed 42
 
-# 3. Entrenar modelo (FakeTrainer / Trainer) y almacenar pesos en el ArtifactStore
+# 3. Guardar los pesos de FakeTrainer en el ArtifactStore, con unas métricas dadas
+#    (obligatorias y marcadas siempre como simuladas: ningún entrenador evalúa el modelo)
 uv run python -m ml train --input data/datasets/selected.json --output results/trained_artifact.json `
-  --artifacts-dir data/artifacts
+  --artifacts-dir data/artifacts --ser <SER> --omr-ned <OMR-NED>
 
 # 4. Evaluar el artefacto entrenado contra los umbrales de promoción
 uv run python -m ml evaluate --input results/trained_artifact.json --output results/evaluation_report.json
@@ -321,7 +322,7 @@ uv run python -m ml promote --input results/trained_artifact.json --version v1.1
 
 # 6. Pipeline encadenado completo (de punta a punta)
 uv run python -m ml run --config configs/learning/default.json --work-dir results/pipeline_run `
-  --strategy hybrid --budget 10 --version v1.1.0
+  --strategy hybrid --budget 10 --version v1.1.0 --ser <SER> --omr-ned <OMR-NED>
 ```
 
 ### Encadenamiento y trazabilidad de artefactos
@@ -337,13 +338,15 @@ uv run python -m ml run --config configs/learning/default.json --work-dir result
 `evaluate` toma la SER y el OMR-NED, por este orden, de `--ser`/`--omr-ned`, de `--manifest`
 (medidas con `exp_03`) o del artefacto, y guarda la fuente de cada una en `metrics_source`.
 Sin ninguna de esas fuentes falla, igual que `promote` con un artefacto sin métricas: ninguno
-usa métricas de reserva (#139). Las métricas que escribe `train` **no son mediciones**: sin
-`--ser` y `--omr-ned`, `FakeTrainer` y `PyTorchTrainer` devuelven valores fijos, porque el
-ajuste fino real del modelo no existe (D14, [#103](https://github.com/sebdavid3/Cadenza/issues/103)).
-`train` marca **siempre** sus métricas con `"simulated": true`, también con `--ser` y
-`--omr-ned` (que se indican juntos o ninguno), porque ningún entrenador evalúa el modelo que
-produce; `evaluate` y `promote` propagan la marca a sus informes, y la tabla `model_versions` no
-la guarda. `promote` registra siempre las métricas del artefacto que recibe, no las de
+usa métricas de reserva (#139). Las métricas que escribe `train` **no son mediciones**: el
+ajuste fino real del modelo no existe (D14, [#103](https://github.com/sebdavid3/Cadenza/issues/103))
+y el único entrenador, `FakeTrainer`, no evalúa el modelo que produce. Por eso `train` exige
+`--ser` y `--omr-ned` (juntos) y, sin ellas, falla con un mensaje que lo explica; no hay
+valores fijos de reserva ([#271](https://github.com/sebdavid3/Cadenza/issues/271)). Las
+métricas que recibe van **siempre** marcadas con `"simulated": true`; `evaluate` y `promote`
+propagan la marca a sus informes, y la tabla `model_versions` no la guarda. `run` exige
+también `--ser` y `--omr-ned`, y `--trainer` ya no existe: elegía `PyTorchTrainer`, una red
+auxiliar con métricas de reserva retirada en #271. `promote` registra siempre las métricas del artefacto que recibe, no las de
 `evaluate`. `evaluate --manifest` mide las predicciones de `--predictions-dir` (sin comprobar que
 procedan del artefacto) y, como `exp_03`, exige que cada entrada sin predicción figure en
 `failures.json`.
@@ -351,7 +354,7 @@ procedan del artefacto) y, como `exp_03`, exige que cada entrada sin predicción
 ### Capa de sugerencias (`ml suggestions`, #256, ADR-0036)
 
 La capa que aprende de las correcciones sustituye en el flujo de aprendizaje a la red de
-`PyTorchTrainer`, que se retira del código con
+`PyTorchTrainer`, retirada del código en
 [#271](https://github.com/sebdavid3/Cadenza/issues/271). Ningún comando escribe por defecto en
 `results/` ni en `data/`: las rutas se dan siempre.
 
@@ -394,6 +397,28 @@ Entre el congelado (#252) y el final del estudio no se promueve ninguna versión
 
 El coste en línea se mide con `scripts/measure_suggestion_cost.py` sobre una página real (no
 escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
+
+## Experimentos retirados y datos simulados (#271)
+
+- **`exp_09` (SMB y MUSCIMA++) se retiró en [#271](https://github.com/sebdavid3/Cadenza/issues/271).**
+  No evaluaba ningún corpus real: SMB eran tres filas sintéticas sobre una partitura de
+  prueba y MUSCIMA++ un texto fijo; los dos corpus son trabajo futuro
+  ([#102](https://github.com/sebdavid3/Cadenza/issues/102)). Lo que dejó en `results/`
+  (`multicorpus_evaluation_summary.json`, `smb_baseline.csv` y `exp_09_run_info.json`, del
+  2026-10-08) es sintético aunque no lleve `"simulated"`, y no se cita.
+- **`exp_08` (línea base de oemer) se retiró en [#130](https://github.com/sebdavid3/Cadenza/issues/130)**
+  sin haber ejecutado oemer: `oemer_baseline.csv`, `oemer_baseline_summary.json` y
+  `exp_08_run_info.json` registran 100 fallos por falta de predicciones y no se citan.
+- **`exp_10` solo exporta sesiones reales** (`--db-url`). Sin base de datos, o con una sin
+  sesiones del estudio, falla en vez de rellenar con datos sintéticos. `--smoke` genera
+  datos sintéticos para probar la exportación, marcados con `"simulated": true` también en
+  su `exp_10_run_info.json`, y se niega a escribir en `results/`: exige un `--output-dir`
+  fuera de él. Los `effort_study_*` y `exp_10_run_info.json` que hay en `results/` (del
+  2026-10-12) son de una ejecución sintética anterior y no se citan; el estudio real llega
+  con [#250](https://github.com/sebdavid3/Cadenza/issues/250) y
+  [#253](https://github.com/sebdavid3/Cadenza/issues/253).
+
+Archivar o borrar esas salidas de `results/` lo decide el responsable (`CLAUDE.md` §9).
 
 ## Reproducibilidad
 
