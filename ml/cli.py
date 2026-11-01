@@ -3,13 +3,14 @@
 Comandos implementados:
   - build-dataset : extrae muestras de la base de datos y calcula el dataset_hash canónico.
   - select        : aplica una AcquisitionStrategy (hybrid, uncertainty, diversity, etc.).
-  - train         : ajusta el modelo (FakeTrainer/Trainer) y guarda los pesos en ArtifactStore.
+  - train         : guarda en el ArtifactStore los pesos de `FakeTrainer`, con las métricas de
+                    --ser/--omr-ned marcadas como simuladas: ningún entrenador evalúa el modelo.
   - evaluate      : evalúa las métricas simbólicas (SER, OMR-NED) contra el umbral de promoción.
   - promote       : registra y activa la versión en el ModelRegistry persistente.
   - run           : ejecuta el pipeline completo de punta a punta de forma encadenada.
   - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
                     (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
-                    red de `PyTorchTrainer`, que se retira del código con #271.
+                    red de `PyTorchTrainer`, retirada del código en #271.
 """
 
 from __future__ import annotations
@@ -33,12 +34,12 @@ from cadenza.learning import (
     AcquisitionStrategy,
     DiversityAcquisition,
     ErrorDensityAcquisition,
+    FakeTrainer,
     HybridAcquisition,
     JobConfig,
     RandomAcquisition,
     RepositoryDatasetReader,
     TrainingSample,
-    create_trainer,
     dataset_hash,
     deserialize_dataset,
     load_job_config,
@@ -208,8 +209,15 @@ def select_command(args: argparse.Namespace) -> int:
 
 SIMULATED_METRICS_WARNING = (
     "Métricas no medidas sobre el modelo entrenado: el entrenador no evalúa el modelo, porque "
-    "el ajuste fino real no existe (D14, #103). Son sus valores fijos o los de --ser/--omr-ned. "
+    "el ajuste fino real no existe (D14, #103). Son las de --ser/--omr-ned. "
     "No citar como resultado (CLAUDE.md §8.2)."
+)
+
+MISSING_METRICS_ERROR = (
+    "Error: `train` necesita --ser y --omr-ned. Ningún entrenador evalúa el modelo que produce "
+    "(D14, #103) y no hay métricas de reserva (CLAUDE.md §8.1, #271): las que se indiquen se "
+    "guardan marcadas como simuladas. La capa que aprende de las correcciones se entrena y se "
+    "mide con `ml suggestions train` y `ml suggestions evaluate` (ADR-0036)."
 )
 
 
@@ -229,19 +237,18 @@ def train_command(args: argparse.Namespace) -> int:
     samples = deserialize_dataset(raw_input)
     d_hash = str(raw_input.get("dataset_hash", dataset_hash(samples)))
 
-    # Métricas simuladas si se configuran o default
-    ser_override = float(args.ser) if args.ser is not None else None
-    omr_ned_override = float(args.omr_ned) if args.omr_ned is not None else None
-
-    if (ser_override is None) != (omr_ned_override is None):
-        print("Error: --ser y --omr-ned se indican juntos o ninguno de los dos.", file=sys.stderr)
+    # Las métricas las da quien llama, siempre las dos: no hay valores de reserva (#271).
+    if args.ser is None or args.omr_ned is None:
+        if (args.ser is None) != (args.omr_ned is None):
+            print(
+                "Error: --ser y --omr-ned se indican juntos o ninguno de los dos.", file=sys.stderr
+            )
+        else:
+            print(MISSING_METRICS_ERROR, file=sys.stderr)
         return 1
-    trainer_metrics = None
-    if ser_override is not None and omr_ned_override is not None:
-        trainer_metrics = EvaluationMetrics(ser=ser_override, omr_ned=omr_ned_override)
+    trainer_metrics = EvaluationMetrics(ser=float(args.ser), omr_ned=float(args.omr_ned))
 
-    trainer_backend = getattr(args, "trainer", "auto")
-    trainer = create_trainer(backend=trainer_backend, metrics=trainer_metrics)
+    trainer = FakeTrainer(trainer_metrics)
     trained_artifact = trainer.train(samples, config.to_training_config())
 
     # Persistir los pesos binarios en el ArtifactStore
@@ -283,9 +290,9 @@ def train_command(args: argparse.Namespace) -> int:
             "omr_ned": trained_artifact.metrics.omr_ned,
         },
         "samples_count": len(samples),
-        "metrics_source": "arguments" if trainer_metrics is not None else "trainer_default",
+        "metrics_source": "arguments",
         # Ningún entrenador evalúa el modelo que produce (D14): sus métricas nunca son medidas.
-        "simulated": True,
+        "simulated": trained_artifact.simulated,
         "simulation_warning": SIMULATED_METRICS_WARNING,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
@@ -611,7 +618,6 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         ser=args.ser,
         omr_ned=args.omr_ned,
-        trainer=getattr(args, "trainer", "auto"),
     )
     rc = train_command(t_args)
     if rc != 0:
@@ -718,7 +724,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 3. train
     p_train = subparsers.add_parser(
-        "train", help="Entrena un modelo (FakeTrainer) y persiste los pesos."
+        "train",
+        help=(
+            "Persiste los pesos de FakeTrainer con las métricas de --ser/--omr-ned, "
+            "marcadas como simuladas."
+        ),
     )
     p_train.add_argument(
         "--input",
@@ -740,19 +750,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_train.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
     p_train.add_argument(
-        "--ser", type=float, default=None, help="SER para el entrenador simulado (opcional)."
+        "--ser",
+        type=float,
+        default=None,
+        help="SER del artefacto, que se guarda como simulada (obligatoria con --omr-ned).",
     )
     p_train.add_argument(
         "--omr-ned",
         type=float,
         default=None,
-        help="OMR-NED para el entrenador simulado (opcional).",
-    )
-    p_train.add_argument(
-        "--trainer",
-        choices=["auto", "fake", "torch"],
-        default="auto",
-        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
+        help="OMR-NED del artefacto, que se guarda como simulada (obligatoria con --ser).",
     )
 
     # 4. evaluate
@@ -848,9 +855,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--budget", type=int, default=None, help="Presupuesto de adquisición.")
     p_run.add_argument("--seed", type=int, default=None, help="Semilla.")
     p_run.add_argument("--version", default=None, help="Identificador de versión para registrar.")
-    p_run.add_argument("--ser", type=float, default=None, help="SER para el modelo entrenado.")
     p_run.add_argument(
-        "--omr-ned", type=float, default=None, help="OMR-NED para el modelo entrenado."
+        "--ser", type=float, default=None, help="SER del modelo entrenado (simulada, obligatoria)."
+    )
+    p_run.add_argument(
+        "--omr-ned",
+        type=float,
+        default=None,
+        help="OMR-NED del modelo entrenado (simulada, obligatoria).",
     )
     p_run.add_argument("--max-ser", type=float, default=None, help="Sobreescribir umbral máx SER.")
     p_run.add_argument(
@@ -858,12 +870,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument(
         "--allow-rejected", action="store_true", help="No fallar si la promoción es rechazada."
-    )
-    p_run.add_argument(
-        "--trainer",
-        choices=["auto", "fake", "torch"],
-        default="auto",
-        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
     )
 
     # 7. export-effort (#33, D38)
@@ -874,13 +880,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_effort.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
     p_effort.add_argument(
         "--output-dir",
-        default="results",
-        help="Directorio de destino para los archivos CSV y JSON.",
+        default=None,
+        help="Directorio de destino para los archivos CSV y JSON (por defecto, results/).",
     )
     p_effort.add_argument(
         "--smoke",
         action="store_true",
-        help="Generar datos sintéticos deterministas para pruebas rápidas.",
+        help=(
+            "Probar la exportación con datos sintéticos, marcados como simulados; exige un "
+            "--output-dir fuera de results/."
+        ),
     )
     p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
 
@@ -900,13 +909,17 @@ def export_effort_command(args: argparse.Namespace) -> int:
 
     from ml.experiments.exp_10_effort_study import run_effort_study_export
 
-    summary = run_effort_study_export(
-        db_url=args.db_url,
-        output_dir=args.output_dir,
-        smoke=args.smoke,
-        seed=args.seed,
-    )
-    print(f"Exportación de esfuerzo completada en: {args.output_dir}")
+    try:
+        summary = run_effort_study_export(
+            db_url=args.db_url,
+            output_dir=args.output_dir,
+            smoke=args.smoke,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Exportación de esfuerzo completada en: {args.output_dir or 'results/'}")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
