@@ -1080,6 +1080,7 @@ describe("la figura de un acorde entero (ADR-0049)", () => {
       kind: "edit",
       op: "SetDuration",
       after: { duration_beats: "1/2" },
+      anchor: anchor(1, 3),
       change: "figura corchea",
     });
   });
@@ -1154,6 +1155,41 @@ describe("la figura de un acorde entero (ADR-0049)", () => {
       op: "SetChordDuration",
       after: { durations: ["1/2", "1/2"] },
       anchor: { event_index: 2 },
+    });
+  });
+
+  it("si su primera nota ya no es de un acorde, la figura va a esa nota y no a la elegida", () => {
+    const request: EditRequestLike = {
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2"] },
+      anchor: anchor(1, 0),
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó una nota entre las dos: la elegida (Mi4) es ahora de otro acorde.
+    const state = staffScore([
+      { events: [note("C4"), note("D4"), note("E4", "1", { is_chord: true })] },
+    ]);
+    const inserted: EditEventRead = {
+      id: "e1",
+      session_id: "s",
+      seq: 1,
+      op: "InsertEvent",
+      author: "ana",
+      anchor: anchor(1, 1),
+      before: null,
+      after: null,
+      created_at: "2026-11-01T00:00:00Z",
+    };
+    const reloaded = {
+      current_seq: 1,
+      edits: [inserted],
+      current_score: state,
+    } as SessionDetailRead;
+    expect(replan(request, reloaded).plan).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "1/2" },
+      anchor: { event_index: 0 },
     });
   });
 });

@@ -540,6 +540,9 @@ function planFigure(duration: string, target: EditTarget, score: ScoreIRPayload 
     kind: "edit",
     op: "SetDuration",
     after: { duration_beats: duration },
+    // El ancla es la del evento para el que se calculó: tras un 409 de una figura de acorde, la
+    // primera nota del acorde, que puede no ser la elegida.
+    anchor: target.anchor,
     change: `figura ${durationName(duration)}`,
   };
 }
