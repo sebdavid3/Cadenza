@@ -9,10 +9,12 @@ from cadenza.validation import ValidationEngine
 from ..current_validation import store_current_validation
 from ..exceptions import Forbidden, SessionClosed, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
+from ..ports.effort_repository import EffortRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
 from ..ports.suggestion_model import SuggestionModel
 from ..session_status import SessionStatus
 from ..user import Role, User
+from .record_effort_segment import refresh_accumulated_effort
 
 
 @dataclass(frozen=True)
@@ -33,6 +35,7 @@ def finalize_session(
     edit_repository: EditEventRepository,
     current_user: User,
     suggestion_model: SuggestionModel | None = None,
+    effort_repository: EffortRepository | None = None,
 ) -> FinalizeResult:
     """Finaliza una sesión marcándola como cerrada para nuevas ediciones.
 
@@ -43,7 +46,10 @@ def finalize_session(
        reglas y la capa, heredando los descartes y los rechazos de la validación vigente; en
        `unassisted` no corre nada y se guardan los hallazgos vacíos (ADR-0040 §13).
     4. Actualiza el estado a `finalized` (#34).
-    5. Devuelve el estado, el seq final y los hallazgos activos, como `revalidate`.
+    5. Con `effort_repository`, vuelve a contar en el registro de esfuerzo de la sesión, si lo
+       hay, las intervenciones del log y las respuestas a las sugerencias hasta esta
+       finalización (#188, ADR-0050 §3).
+    6. Devuelve el estado, el seq final y los hallazgos activos, como `revalidate`.
     """
 
     session_data = session_repository.get(session_id)
@@ -67,6 +73,13 @@ def finalize_session(
         suggestion_model=suggestion_model,
     )
     updated = session_repository.update_status(session_id, SessionStatus.FINALIZED)
+    if effort_repository is not None:
+        refresh_accumulated_effort(
+            session_id,
+            session_repository=session_repository,
+            edit_repository=edit_repository,
+            effort_repository=effort_repository,
+        )
 
     return FinalizeResult(
         session_id=session_id,

@@ -45,6 +45,11 @@ export interface RequestOptions {
    * se relaciona lo que mide la vista con el registro del servidor (#275).
    */
   requestId?: string;
+  /**
+   * La petición sigue aunque la página se cierre (`fetch` con `keepalive`): para enviar lo medido
+   * al ocultar o dejar la vista (#188). El cuerpo tiene que ser pequeño (64 KiB como mucho).
+   */
+  keepalive?: boolean;
 }
 
 /** Un identificador de petición: `web-` y 20 cifras hexadecimales, la forma que acepta la API. */
@@ -127,6 +132,7 @@ export function createApiClient(options: ApiClientOptions = {}) {
           headers,
           body,
           signal: controller.signal,
+          ...(req.keepalive ? { keepalive: true } : {}),
         });
       } catch {
         throw failure();

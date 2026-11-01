@@ -17,6 +17,7 @@ import {
 import type {
   EditEventCreate,
   EditEventRead,
+  EffortSegmentUpdate,
   FindingRead,
   ScoreEventPayload,
   SessionDetailRead,
@@ -6514,6 +6515,185 @@ describe("corregir la nota elegida", () => {
         within(editor()).queryByRole("group", { name: "Sugerencias para esta nota" }),
       ).toBeNull();
       expect(screen.queryByText(EXPLANATION)).toBeNull();
+    });
+  });
+
+  describe("medir el esfuerzo de la corrección (#188)", () => {
+    const visibility = { state: "visible" as DocumentVisibilityState };
+
+    beforeEach(() => {
+      visibility.state = "visible";
+      vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility.state);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /**
+     * La API editable con los tramos de esfuerzo y finalizar como el servidor: los tramos se
+     * guardan mientras la sesión está abierta (409 si está finalizada), y `order` apunta el orden
+     * de los tramos y las finalizaciones.
+     */
+    function effortApi(start: SessionDetailRead = detail()) {
+      const server = editableApi(start);
+      const inner = server.fetchMock.getMockImplementation();
+      if (!inner) throw new Error("falta la API");
+      const segments: { path: string; body: EffortSegmentUpdate; keepalive: boolean }[] = [];
+      const order: string[] = [];
+      let failNext = 0;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+          const href =
+            input instanceof Request ? input.url : input instanceof URL ? input.href : input;
+          const path = new URL(href, "http://localhost").pathname.replace(/^\/api/, "");
+          if (init?.method === "PUT" && path.startsWith(`/sessions/${ID}/effort/segments/`)) {
+            if (failNext > 0) {
+              failNext -= 1;
+              return Promise.reject(new TypeError("Failed to fetch"));
+            }
+            order.push("effort");
+            segments.push({
+              path,
+              body: JSON.parse(
+                typeof init.body === "string" ? init.body : "null",
+              ) as EffortSegmentUpdate,
+              keepalive: init.keepalive === true,
+            });
+            return Promise.resolve(
+              server.current().status === "finalized"
+                ? jsonResponse({ detail: "Sesión cerrada" }, 409)
+                : jsonResponse({}),
+            );
+          }
+          if (init?.method === "POST" && path === `/sessions/${ID}/finalize`) {
+            order.push("finalize");
+            const current = server.current();
+            server.replace({ ...current, status: "finalized" });
+            return Promise.resolve(
+              jsonResponse({
+                session_id: ID,
+                status: "finalized",
+                final_seq: current.current_seq ?? 0,
+                findings: [],
+              }),
+            );
+          }
+          return inner(input, init);
+        }),
+      );
+      return {
+        ...server,
+        segments,
+        order,
+        /** Las siguientes `count` peticiones de tramos fallan sin respuesta. */
+        failSegments(count: number) {
+          failNext = count;
+        },
+      };
+    }
+
+    async function finalize() {
+      await userEvent.click(await screen.findByRole("button", { name: "Finalizar la corrección" }));
+      await userEvent.click(screen.getByRole("button", { name: "Sí, finalizar" }));
+    }
+
+    it("mide a quien la transcribió, apunta la primera edición y envía lo medido antes de finalizar", async () => {
+      const server = effortApi();
+      renderPage();
+
+      // Al cargar se abre el tramo de esta pestaña, con el umbral con que se mide.
+      await waitFor(() => {
+        expect(server.segments).toHaveLength(1);
+      });
+      const [first] = server.segments;
+      expect(first?.path).toMatch(new RegExp(`^/sessions/${ID}/effort/segments/[0-9a-f]{32}$`));
+      expect(first?.body).toMatchObject({ first_edit_ms: null, idle_threshold_ms: 120_000 });
+
+      await chooseMeasure(2);
+      fireEvent.click(button("Subir un paso"));
+      // La primera edición del log (seq 1) se apunta y se envía al guardarse.
+      await waitFor(() => {
+        expect(server.segments.at(-1)?.body.first_edit_ms).not.toBeNull();
+      });
+      const edited = server.segments.at(-1)?.body;
+      expect(edited?.first_edit_ms).toBeLessThanOrEqual(edited?.active_ms ?? -1);
+
+      await finalize();
+      await waitFor(() => {
+        expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeVisible();
+      });
+      // Lo medido sale antes de finalizar, en el mismo tramo.
+      expect(server.order.slice(-2)).toEqual(["effort", "finalize"]);
+      expect(new Set(server.segments.map((segment) => segment.path)).size).toBe(1);
+      // Finalizada, ya no se mide: dejar la página no envía nada más.
+      const sent = server.segments.length;
+      window.dispatchEvent(new Event("pagehide"));
+      expect(server.segments).toHaveLength(sent);
+      // Nada de la medición se ve.
+      expect(screen.queryByText(/esfuerzo|tramo|active_ms/i)).toBeNull();
+    });
+
+    it("si no llega la confirmación de lo medido, no finaliza y lo dice", async () => {
+      const server = effortApi();
+      renderPage();
+      await waitFor(() => {
+        expect(server.segments).toHaveLength(1);
+      });
+      fireEvent.pointerMove(window);
+      server.failSegments(1);
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(document.querySelector(".lifecycle__status")).toHaveTextContent(
+          "No se finalizó: no llegó la confirmación del servidor.",
+        );
+      });
+      expect(server.order).not.toContain("finalize");
+      expect(screen.getByText("Transcrita")).toBeVisible();
+
+      // El segundo intento envía lo medido y finaliza.
+      await finalize();
+      await waitFor(() => {
+        expect(server.order.at(-1)).toBe("finalize");
+      });
+      expect(server.order.at(-2)).toBe("effort");
+    });
+
+    it("ocultar la pestaña envía lo medido con keepalive", async () => {
+      const server = effortApi();
+      renderPage();
+      await waitFor(() => {
+        expect(server.segments).toHaveLength(1);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      fireEvent.pointerMove(window);
+
+      visibility.state = "hidden";
+      document.dispatchEvent(new Event("visibilitychange"));
+
+      await waitFor(() => {
+        expect(server.segments.at(-1)?.keepalive).toBe(true);
+      });
+    });
+
+    it("no mide una sesión finalizada", async () => {
+      const finalized = effortApi(detail({ status: "finalized" }));
+      renderPage();
+      expect(await screen.findByRole("button", { name: "Reabrir la sesión" })).toBeVisible();
+      window.dispatchEvent(new Event("pagehide"));
+      expect(finalized.segments).toHaveLength(0);
+    });
+
+    it("no mide la sesión de otra persona", async () => {
+      const server = effortApi();
+      renderPage(INVESTIGADORA);
+      expect(await screen.findByRole("heading", { level: 1 })).toBeVisible();
+      await screen.findByRole("application", { name: /partitura transcrita/i });
+      window.dispatchEvent(new Event("pagehide"));
+      expect(server.segments).toHaveLength(0);
     });
   });
 

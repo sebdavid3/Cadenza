@@ -282,7 +282,7 @@ y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad
 | Edición | `POST /sessions/{id}/edits` · `POST /sessions/{id}/undo` |
 | Hallazgos | `GET /sessions/{id}/findings` · `POST /sessions/{id}/validate` · `POST /sessions/{id}/findings/{finding_id}/dismiss` · `POST /sessions/{id}/findings/{finding_id}/restore` |
 | Ciclo de vida | `POST /sessions/{id}/finalize` · `POST /sessions/{id}/reopen` |
-| Esfuerzo | `POST /sessions/{id}/effort` · `GET /sessions/{id}/effort` |
+| Esfuerzo | `POST /sessions/{id}/effort` · `GET /sessions/{id}/effort` · `PUT /sessions/{id}/effort/segments/{segment_id}` |
 
 `POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)).
 El contrato se genera desde el código y no se edita a mano:

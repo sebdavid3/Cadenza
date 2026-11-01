@@ -62,7 +62,7 @@ El alcance final y el calendario los fija el plan de cierre
 | | [#278](https://github.com/sebdavid3/Cadenza/issues/278) | Transcribir sin cuenta desde la portada y entrar para editar; se despliega después del estudio | #277, #248 | — |
 | **Reproducción** | ~~[#242](https://github.com/sebdavid3/Cadenza/issues/242)~~ | **Hecho:** cada parte suena con su instrumento, sintetizado con Tone.js (ADR-0046) | #235 | — |
 | **Cierre** | ~~[#187](https://github.com/sebdavid3/Cadenza/issues/187)~~ | **Hecho:** finalizar y reabrir una sesión; finalizar conserva los descartes (ADR-0043) | #183 | D65 (resuelta) |
-| | [#188](https://github.com/sebdavid3/Cadenza/issues/188) | Registrar las métricas de esfuerzo según el protocolo, con las definiciones que cierre [#244](https://github.com/sebdavid3/Cadenza/issues/244) | #187, #244 | D38 |
+| | ~~[#188](https://github.com/sebdavid3/Cadenza/issues/188)~~ | **Hecho:** registrar las métricas de esfuerzo según el protocolo (ADR-0050) | #187, #244 | D38 |
 | | [#189](https://github.com/sebdavid3/Cadenza/issues/189) | Descargar el MIDI | — | — |
 | **Cuenta** | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña | — | — |
 | **Deuda** | ~~[#191](https://github.com/sebdavid3/Cadenza/issues/191)~~ | **Hecho:** excluir del dataset las sesiones de cuentas autorregistradas | — | D55 (resuelta) |

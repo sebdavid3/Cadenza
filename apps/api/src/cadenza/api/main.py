@@ -27,6 +27,7 @@ from cadenza.application import (
     Forbidden,
     InMemoryScoreStateCache,
     InvalidEdit,
+    InvalidEffortSegment,
     InvalidSessionMetadata,
     NoEditsToUndo,
     NotAuthenticated,
@@ -100,6 +101,9 @@ from cadenza.application import (
     record_effort as record_effort_use_case,
 )
 from cadenza.application import (
+    record_effort_segment as record_effort_segment_use_case,
+)
+from cadenza.application import (
     register_user as register_user_use_case,
 )
 from cadenza.application import (
@@ -156,7 +160,18 @@ from cadenza.persistence import (
     create_session_factory,
 )
 from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi import Path as PathParam
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -177,6 +192,7 @@ from .schemas import (
     EditEventRead,
     EffortMetricsCreate,
     EffortMetricsRead,
+    EffortSegmentUpdate,
     ErrorDetail,
     EventTimingRead,
     FinalizeResponse,
@@ -762,6 +778,13 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.message},
+        )
+
+    @app.exception_handler(InvalidEffortSegment)
+    def invalid_effort_segment_handler(request: Request, exc: InvalidEffortSegment) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": exc.message},
         )
 
@@ -1631,6 +1654,7 @@ def create_app(
             session_repository=session_repo,
             current_user=current_user,
             reason=reason,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FindingRead.from_persisted(dismissed)
 
@@ -1658,6 +1682,7 @@ def create_app(
             finding_id,
             session_repository=session_repo,
             current_user=current_user,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FindingRead.from_persisted(restored)
 
@@ -1758,6 +1783,7 @@ def create_app(
             edit_repository=edit_repo,
             current_user=current_user,
             suggestion_model=request.app.state.suggestion_model,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FinalizeResponse(
             session_id=result.session_id,
@@ -1948,6 +1974,52 @@ def create_app(
             duration_ms=payload.duration_ms,
             time_to_first_edit_ms=payload.time_to_first_edit_ms,
             interventions=payload.interventions,
+            current_user=current_user,
+        )
+        return EffortMetricsRead.from_data(data)
+
+    @app.put(
+        "/sessions/{session_id}/effort/segments/{segment_id}",
+        response_model=EffortMetricsRead,
+        tags=["Effort"],
+        summary="Sumar un tramo al registro de esfuerzo de la sesión",
+        description=(
+            "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página "
+            "visible y con actividad y, si en ella se guardó la primera edición, el tiempo en "
+            "ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), "
+            "suma los tramos, cuenta las ediciones del log por compás y por clase, y las "
+            "respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta "
+            "dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador "
+            "ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser "
+            "(#188, ADR-0050)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+    )
+    def record_effort_segment_endpoint(
+        session_id: str,
+        segment_id: Annotated[
+            str,
+            PathParam(
+                min_length=1,
+                max_length=64,
+                pattern=r"^[A-Za-z0-9_-]+$",
+                description="Identificador del tramo: uno por pestaña, que dura sus recargas",
+            ),
+        ],
+        payload: EffortSegmentUpdate,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> EffortMetricsRead:
+        """Suma un tramo al registro de esfuerzo acumulado de la sesión (#188, ADR-0050)."""
+        data = record_effort_segment_use_case(
+            session_id,
+            segment_id,
+            active_ms=payload.active_ms,
+            first_edit_ms=payload.first_edit_ms,
+            idle_threshold_ms=payload.idle_threshold_ms,
+            session_repository=SqlAlchemySessionRepository(db),
+            edit_repository=SqlAlchemyEditEventRepository(db),
+            effort_repository=SqlAlchemyEffortRepository(db),
             current_user=current_user,
         )
         return EffortMetricsRead.from_data(data)

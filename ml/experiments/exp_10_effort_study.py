@@ -84,6 +84,15 @@ class EffortSessionRow:
     nasa_tlx_global: float
     status: str
     created_at: str
+    # Del registro que acumula la web (#188, ADR-0050). None en los datos sintéticos, que no
+    # los simulan, y en los registros sueltos de `POST /effort`: la celda queda vacía.
+    content_interventions: int | None = None
+    mark_interventions: int | None = None
+    meter_interventions: int | None = None
+    findings_dismissed: int | None = None
+    findings_restored: int | None = None
+    suggestions_applied: int | None = None
+    suggestions_rejected: int | None = None
 
     def to_csv_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -202,35 +211,71 @@ def generate_synthetic_study_dataset(
     return session_rows, measure_rows
 
 
-def extract_study_data_from_db(
-    db: DbSession,
-) -> tuple[list[EffortSessionRow], list[MeasureInterventionRow]]:
-    """Extrae las sesiones de estudio y métricas persistidas en la base de datos."""
-    # Las cuentas del registro público no forman parte del estudio (ADR-0022).
+def _study_sessions(db: DbSession) -> list[tuple[SessionRecord, UserRecord]]:
+    """Las sesiones finalizadas de las cuentas del estudio, por orden de creación.
+
+    Las cuentas del registro público no forman parte del estudio (ADR-0022), y una partitura
+    sin finalizar no entra en el análisis (protocolo §3.4, #244).
+    """
     stmt = (
         select(SessionRecord, UserRecord)
         .join(UserRecord, SessionRecord.owner_id == UserRecord.id)
         .where(UserRecord.self_registered.is_(False))
+        .where(SessionRecord.status == "finalized")
         .order_by(SessionRecord.created_at)
     )
-    results = db.execute(stmt).all()
+    return [(sess, user) for sess, user in db.execute(stmt).all()]
 
+
+def _session_effort(db: DbSession, session_id: str) -> EffortMetricsRecord | None:
+    """El registro que acumula la web (uno por sesión, ADR-0050) si midió algún tramo o, si no,
+    el registro suelto más reciente de `POST /effort` (#13).
+
+    Un registro acumulado sin tramos no es una medición: lo crea también un descarte o una
+    restauración (`add_finding_action`) aunque ningún tramo de tiempo llegara al servidor.
+    """
+    records = db.scalars(
+        select(EffortMetricsRecord)
+        .where(EffortMetricsRecord.session_id == session_id)
+        .order_by(EffortMetricsRecord.created_at.desc(), EffortMetricsRecord.id.desc())
+    ).all()
+    accumulated = next((r for r in records if r.accumulated), None)
+    if accumulated is not None and accumulated.segments:
+        return accumulated
+    return next((r for r in records if not r.accumulated), None)
+
+
+def finalized_sessions_without_effort(db: DbSession) -> list[str]:
+    """Sesiones del estudio finalizadas sin ningún registro de esfuerzo: no se midieron y no
+    entran en las filas, pero el resumen las nombra para que no se pierdan en silencio."""
+    return [sess.id for sess, _ in _study_sessions(db) if _session_effort(db, sess.id) is None]
+
+
+def _class_total(by_class: dict[str, Any], name: str) -> int:
+    return sum(int(count) for count in (by_class.get(name) or {}).values())
+
+
+def extract_study_data_from_db(
+    db: DbSession,
+) -> tuple[list[EffortSessionRow], list[MeasureInterventionRow]]:
+    """Extrae las sesiones de estudio y métricas persistidas en la base de datos.
+
+    Solo las sesiones finalizadas de las cuentas del estudio con un registro de esfuerzo: sin
+    él no hay medición (`finalized_sessions_without_effort`).
+    """
     session_rows: list[EffortSessionRow] = []
     measure_rows: list[MeasureInterventionRow] = []
 
-    for sess, user in results:
-        # Recuperar esfuerzo más reciente
-        effort_stmt = (
-            select(EffortMetricsRecord)
-            .where(EffortMetricsRecord.session_id == sess.id)
-            .order_by(EffortMetricsRecord.created_at.desc())
-            .limit(1)
-        )
-        effort = db.scalars(effort_stmt).first()
+    for sess, user in _study_sessions(db):
+        effort = _session_effort(db, sess.id)
+        if effort is None:
+            continue
 
-        duration_ms = effort.duration_ms if effort else 0
-        time_to_first = effort.time_to_first_edit_ms if effort else None
-        interventions = effort.interventions if effort else {}
+        duration_ms = effort.duration_ms
+        time_to_first = effort.time_to_first_edit_ms
+        interventions = effort.interventions or {}
+        accumulated = bool(effort.accumulated)
+        by_class = effort.interventions_by_class or {}
 
         # Contar compases del documento ScoreIR
         doc = sess.document or {}
@@ -302,6 +347,13 @@ def extract_study_data_from_db(
                 nasa_tlx_global=0.0,
                 status=sess.status,
                 created_at=sess.created_at.isoformat() if sess.created_at else "",
+                content_interventions=_class_total(by_class, "content") if accumulated else None,
+                mark_interventions=_class_total(by_class, "mark") if accumulated else None,
+                meter_interventions=_class_total(by_class, "meter") if accumulated else None,
+                findings_dismissed=effort.findings_dismissed if accumulated else None,
+                findings_restored=effort.findings_restored if accumulated else None,
+                suggestions_applied=effort.suggestions_applied if accumulated else None,
+                suggestions_rejected=effort.suggestions_rejected if accumulated else None,
             )
         )
 
@@ -398,6 +450,7 @@ def run_effort_study_export(
     measure_rows: list[MeasureInterventionRow] = []
 
     synthetic = smoke
+    unmeasured: list[str] = []
     if smoke:
         session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
     else:
@@ -407,11 +460,12 @@ def run_effort_study_export(
         factory = create_session_factory(engine)
         with factory() as db:
             session_rows, measure_rows = extract_study_data_from_db(db)
+            unmeasured = finalized_sessions_without_effort(db)
         if not session_rows:
             # Sin sesiones del estudio no se inventan: un resultado es una medición (#96, #271).
             raise ValueError(
-                "La base de datos no tiene sesiones del estudio (las cuentas del registro "
-                "público no cuentan): no hay nada que exportar."
+                "La base de datos no tiene sesiones del estudio finalizadas y medidas (las "
+                "cuentas del registro público no cuentan): no hay nada que exportar."
             )
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -441,6 +495,8 @@ def run_effort_study_export(
     # probar la exportación, no como resultado del estudio con participantes (#96).
     summary["data_source"] = "synthetic" if synthetic else "database"
     summary["simulated"] = synthetic
+    # Finalizadas sin registro de esfuerzo: no se midieron y no están en las filas (ADR-0050).
+    summary["finalized_sessions_without_effort"] = unmeasured
     if synthetic:
         summary["simulation_warning"] = SYNTHETIC_WARNING
     summary_json_path = out_dir / "effort_study_summary.json"

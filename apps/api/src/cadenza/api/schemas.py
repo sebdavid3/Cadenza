@@ -767,8 +767,52 @@ class EffortMetricsCreate(BaseModel):
     )
 
 
+class EffortSegmentUpdate(BaseModel):
+    """Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).
+
+    Solo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta
+    dos veces.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_ms: int = Field(
+        ge=0,
+        description=(
+            "Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas "
+            "más allá del umbral (protocolo §3.4)"
+        ),
+    )
+    first_edit_ms: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en "
+            "este tramo; una vez conocido, el servidor lo conserva"
+        ),
+    )
+    idle_threshold_ms: int | None = Field(
+        default=None,
+        ge=1,
+        description="Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4)",
+    )
+
+
+class EffortSegmentRead(BaseModel):
+    """Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2)."""
+
+    id: str
+    active_ms: int
+    first_edit_ms: int | None
+    idle_threshold_ms: int | None = None
+
+
 class EffortMetricsRead(BaseModel):
-    """Métricas de esfuerzo persistidas para una sesión (#13)."""
+    """Métricas de esfuerzo persistidas para una sesión (#13, #188).
+
+    El registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás
+    son registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero.
+    """
 
     id: str
     session_id: str
@@ -776,6 +820,31 @@ class EffortMetricsRead(BaseModel):
     time_to_first_edit_ms: int | None
     interventions: dict[str, int]
     created_at: datetime
+    accumulated: bool = Field(
+        default=False, description="Si es el registro que acumula la web (ADR-0050)"
+    )
+    segments: list[EffortSegmentRead] = Field(
+        default_factory=list, description="Tramos de tiempo de cada pestaña, en orden de llegada"
+    )
+    interventions_by_class: dict[str, dict[str, int]] = Field(
+        default_factory=dict,
+        description=(
+            "Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla"
+        ),
+    )
+    findings_dismissed: int = Field(
+        default=0, description="Posibles errores descartados (cambiaron de activo a descartado)"
+    )
+    findings_restored: int = Field(
+        default=0, description="Posibles errores restaurados (de descartado a activo)"
+    )
+    suggestions_applied: int = Field(default=0, description="Sugerencias aplicadas")
+    suggestions_rejected: int = Field(
+        default=0, description="Sugerencias rechazadas (sin contar los rechazos heredados)"
+    )
+    updated_at: datetime | None = Field(
+        default=None, description="Último cambio del registro acumulado"
+    )
 
     @classmethod
     def from_data(cls, data: EffortMetricsData) -> EffortMetricsRead:
@@ -786,6 +855,22 @@ class EffortMetricsRead(BaseModel):
             time_to_first_edit_ms=data.time_to_first_edit_ms,
             interventions=data.interventions,
             created_at=data.created_at,
+            accumulated=data.accumulated,
+            segments=[
+                EffortSegmentRead(
+                    id=segment.id,
+                    active_ms=segment.active_ms,
+                    first_edit_ms=segment.first_edit_ms,
+                    idle_threshold_ms=segment.idle_threshold_ms,
+                )
+                for segment in data.segments
+            ],
+            interventions_by_class=data.interventions_by_class,
+            findings_dismissed=data.findings_dismissed,
+            findings_restored=data.findings_restored,
+            suggestions_applied=data.suggestions_applied,
+            suggestions_rejected=data.suggestions_rejected,
+            updated_at=data.updated_at,
         )
 
 

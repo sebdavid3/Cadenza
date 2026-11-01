@@ -7,6 +7,7 @@ import math
 import random
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cadenza.domain import CONTENT_EDIT_OPS, Anchor, EditOp
@@ -1074,46 +1075,165 @@ def test_exp_10_empty_database_fails_instead_of_inventing_sessions(tmp_path: Pat
     assert not (tmp_path / "out" / "effort_study_summary.json").exists()
 
 
-def test_exp_10_excludes_self_registered_accounts() -> None:
-    """Las sesiones de cuentas del registro público no entran en el estudio (ADR-0022, #154)."""
+def _exp_10_session(
+    db: Any,
+    session_id: str,
+    owner: str,
+    *,
+    status: str = "finalized",
+    self_registered: bool = False,
+) -> None:
     from cadenza.persistence import Session as SessionRecord
-    from cadenza.persistence import (
-        UserRecord,
-        create_memory_engine,
-        create_schema,
-        create_session_factory,
+    from cadenza.persistence import UserRecord
+
+    if db.get(UserRecord, owner) is None:
+        db.add(
+            UserRecord(
+                id=owner,
+                username=owner,
+                password_hash="hash",
+                role="transcriptor",
+                self_registered=self_registered,
+            )
+        )
+    db.add(
+        SessionRecord(
+            id=session_id,
+            owner_id=owner,
+            document_id=f"d-{session_id}",
+            omr_engine="homr",
+            document={"score": {"parts": []}},
+            status=status,
+        )
     )
 
-    from ml.experiments import exp_10_effort_study
+
+def _exp_10_effort(db: Any, session_id: str, record_id: str, **values: Any) -> None:
+    from cadenza.persistence import EffortMetricsRecord
+
+    db.add(
+        EffortMetricsRecord(
+            id=record_id,
+            session_id=session_id,
+            duration_ms=values.pop("duration_ms", 1000),
+            interventions=values.pop("interventions", {}),
+            **values,
+        )
+    )
+
+
+def _exp_10_db() -> Any:
+    from cadenza.persistence import create_memory_engine, create_schema, create_session_factory
 
     engine = create_memory_engine()
     create_schema(engine)
-    factory = create_session_factory(engine)
-    with factory() as db:
+    return create_session_factory(engine)()
+
+
+def test_exp_10_excludes_self_registered_accounts() -> None:
+    """Las sesiones de cuentas del registro público no entran en el estudio (ADR-0022, #154)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
         for user_id, self_registered in (("estudio", False), ("publico", True)):
-            db.add(
-                UserRecord(
-                    id=user_id,
-                    username=user_id,
-                    password_hash="hash",
-                    role="transcriptor",
-                    self_registered=self_registered,
-                )
-            )
-            db.add(
-                SessionRecord(
-                    id=f"s-{user_id}",
-                    owner_id=user_id,
-                    document_id=f"d-{user_id}",
-                    omr_engine="homr",
-                    document={"score": {"parts": []}},
-                )
-            )
+            _exp_10_session(db, f"s-{user_id}", user_id, self_registered=self_registered)
+            _exp_10_effort(db, f"s-{user_id}", f"e-{user_id}")
         db.commit()
 
         sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
 
     assert [row.session_id for row in sessions] == ["s-estudio"]
+
+
+def test_exp_10_only_counts_finalized_and_measured_sessions() -> None:
+    """Una partitura sin finalizar no entra en el análisis, y una finalizada sin registro de
+    esfuerzo no se midió: no entra, pero el resumen la nombra (protocolo §3.4, ADR-0050)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-abierta", "p01", status="correcting")
+        _exp_10_effort(db, "s-abierta", "e-abierta")
+        _exp_10_session(db, "s-sin-medir", "p01")
+        _exp_10_session(db, "s-medida", "p01")
+        _exp_10_effort(db, "s-medida", "e-medida")
+        db.commit()
+
+        sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+        unmeasured = exp_10_effort_study.finalized_sessions_without_effort(db)
+
+    assert [row.session_id for row in sessions] == ["s-medida"]
+    assert unmeasured == ["s-sin-medir"]
+
+
+def test_exp_10_an_accumulated_record_without_segments_is_not_a_measurement() -> None:
+    """Un descarte crea el registro acumulado aunque no llegara ningún tramo de tiempo: sin
+    tramos no hay medición, y si hay un registro suelto se usa ese (ADR-0050)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-sin-tramos", "p01")
+        _exp_10_effort(
+            db, "s-sin-tramos", "a1", duration_ms=0, accumulated=True, findings_dismissed=1
+        )
+        _exp_10_session(db, "s-suelto", "p01")
+        _exp_10_effort(db, "s-suelto", "a2", duration_ms=0, accumulated=True)
+        _exp_10_effort(db, "s-suelto", "suelto", duration_ms=7_000)
+        db.commit()
+
+        sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+        unmeasured = exp_10_effort_study.finalized_sessions_without_effort(db)
+
+    assert [(row.session_id, row.duration_ms) for row in sessions] == [("s-suelto", 7_000)]
+    assert sessions[0].findings_dismissed is None
+    assert unmeasured == ["s-sin-tramos"]
+
+
+def test_exp_10_reads_the_accumulated_record_of_the_web() -> None:
+    """El registro que acumula la web es el de la sesión aunque haya otro suelto más nuevo, y
+    trae las intervenciones por clase y lo que se cuenta aparte (#188, ADR-0050)."""
+    from datetime import UTC, datetime
+
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-1", "p01")
+        _exp_10_effort(
+            db,
+            "s-1",
+            "acumulado",
+            duration_ms=90_000,
+            time_to_first_edit_ms=12_000,
+            interventions={"1": 3, "2": 1},
+            created_at=datetime(2026, 11, 1, tzinfo=UTC),
+            accumulated=True,
+            segments=[{"id": "tab-a", "active_ms": 90_000, "first_edit_ms": 12_000}],
+            interventions_by_class={"content": {"1": 2}, "mark": {"2": 1}, "meter": {"1": 1}},
+            findings_dismissed=2,
+            findings_restored=1,
+            suggestions_applied=1,
+            suggestions_rejected=3,
+        )
+        _exp_10_effort(
+            db,
+            "s-1",
+            "suelto",
+            duration_ms=5,
+            created_at=datetime(2026, 11, 2, tzinfo=UTC),
+        )
+        db.commit()
+
+        (row,), measures = exp_10_effort_study.extract_study_data_from_db(db)
+
+    assert (row.duration_ms, row.time_to_first_edit_ms) == (90_000, 12_000)
+    assert row.total_interventions == 4
+    assert (row.content_interventions, row.mark_interventions, row.meter_interventions) == (
+        2,
+        1,
+        1,
+    )
+    assert (row.findings_dismissed, row.findings_restored) == (2, 1)
+    assert (row.suggestions_applied, row.suggestions_rejected) == (1, 3)
+    assert sorted((m.measure_number, m.interventions_count) for m in measures) == [(1, 3), (2, 1)]
 
 
 def test_ml_cli_export_effort(tmp_path: Path) -> None:

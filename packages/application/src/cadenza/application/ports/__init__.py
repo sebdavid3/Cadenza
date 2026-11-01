@@ -11,6 +11,8 @@ from .edit_event_repository import EditEventRepository, InMemoryEditEventReposit
 from .effort_repository import (
     EffortMetricsData,
     EffortRepository,
+    EffortSegment,
+    FindingAction,
     InMemoryEffortRepository,
 )
 from .model_registry import (
@@ -58,7 +60,9 @@ __all__ = [
     "EditEventRepository",
     "EffortMetricsData",
     "EffortRepository",
+    "EffortSegment",
     "EvaluationMetrics",
+    "FindingAction",
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
     "InMemoryEffortRepository",

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { newRequestId, type ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type {
@@ -275,13 +275,15 @@ function outcomeOfEdit(applied: EditAppliedRead): Outcome {
  * vez, sin pedir nada más. Tras un 409 se recarga todo: el detalle de la sesión y, antes de
  * mostrarlo, el MusicXML, los posibles errores y los tiempos de ese estado. Un 409 nunca se
  * reintenta solo. Con `held`, las órdenes esperan: se está revalidando y una edición cambiaría el
- * estado validado (ADR-0035).
+ * estado validado (ADR-0035). `onSaved` se llama con el `seq` de cada orden guardada, al llegar
+ * su respuesta: la medición del esfuerzo apunta así la primera edición (#188).
  */
 export function useEditor(
   api: ApiClient,
   sessionId: string,
   detail: SessionViewRead | undefined,
   held = false,
+  onSaved?: (seq: number) => void,
 ) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<EditorStatus>({ kind: "idle" });
@@ -309,6 +311,10 @@ export function useEditor(
   const [staleSuggestions, setStaleSuggestions] = useState<ReadonlySet<number>>(() => new Set());
   const nonce = useRef(0);
   const controllerRef = useRef<AbortController | null>(null);
+  const onSavedRef = useRef(onSaved);
+  useLayoutEffect(() => {
+    onSavedRef.current = onSaved;
+  });
   useEffect(
     () => () => {
       controllerRef.current?.abort();
@@ -470,6 +476,7 @@ export function useEditor(
       try {
         outcome = await post(signal, requestId);
         markReceived(order, sessionId, outcome.seq);
+        onSavedRef.current?.(outcome.seq);
       } catch (error) {
         if (cancelled()) return;
         // La sugerencia ya no vale (ADR-0036 §5): el `base_seq` sí era el del servidor, así que la

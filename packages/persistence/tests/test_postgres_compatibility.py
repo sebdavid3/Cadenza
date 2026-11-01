@@ -99,6 +99,7 @@ def test_alembic_migrations_offline_sql_generation_for_postgresql() -> None:
     assert "CREATE TABLE suggestion_model_versions" in generated_sql
     assert "0013_suggestions" in generated_sql
     assert "0014_session_metadata" in generated_sql
+    assert "0015_effort_accumulated" in generated_sql
 
 
 def _get_live_postgres_url() -> str | None:
@@ -182,6 +183,15 @@ def test_postgres_live_migrations_and_jsonb_types(postgres_engine: Any) -> None:
     }
     command.upgrade(alembic_cfg, "head")
     assert "self_registered" in {c["name"] for c in inspect(postgres_engine).get_columns("users")}
+
+    # 0015 (ADR-0050): el registro acumulado de esfuerzo, único por sesión.
+    effort_cols = {c["name"]: c for c in inspect(postgres_engine).get_columns("effort_metrics")}
+    assert isinstance(effort_cols["segments"]["type"], JSONB)
+    assert effort_cols["accumulated"]["nullable"] is False
+    effort_indexes = {
+        index["name"]: index for index in inspect(postgres_engine).get_indexes("effort_metrics")
+    }
+    assert effort_indexes["uq_effort_metrics_accumulated_session"]["unique"]
 
 
 def test_postgres_live_unique_constraint_and_restrict_delete(postgres_engine: Any) -> None:
