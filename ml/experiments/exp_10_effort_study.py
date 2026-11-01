@@ -14,6 +14,11 @@ Genera salidas tabulares reproducibles para análisis estadístico (ANOVA, GLMM,
 - `results/effort_study_by_measure.csv`
 - `results/effort_study_summary.json`
 - `results/exp_10_run_info.json`
+
+Solo exporta sesiones reales de una base de datos (`--db-url`). Sin base, o con una base sin
+sesiones del estudio, falla: no hay datos de reserva (CLAUDE.md §8.1, #271). Los datos
+sintéticos de `--smoke` solo prueban la exportación, van marcados como simulados y nunca se
+escriben en `results/`.
 """
 
 from __future__ import annotations
@@ -45,8 +50,14 @@ from sqlalchemy.orm import Session as DbSession
 
 from ml.experiments.common import (
     DEFAULT_SEED,
+    REPO_ROOT,
     RESULTS_DIR,
-    write_run_info,
+    get_run_info,
+)
+
+SYNTHETIC_WARNING = (
+    "Datos sintéticos: no hay sesiones de un estudio real. "
+    "No citar como resultado del estudio con participantes (#96, #271)."
 )
 
 
@@ -364,28 +375,45 @@ def run_effort_study_export(
     smoke: bool = False,
     seed: int = DEFAULT_SEED,
 ) -> dict[str, Any]:
-    """Ejecuta la exportación y análisis del estudio de esfuerzo a formato tabular."""
+    """Ejecuta la exportación y análisis del estudio de esfuerzo a formato tabular.
+
+    Lanza `ValueError` sin `db_url` (salvo con `smoke`), si la base no tiene sesiones del
+    estudio o si `smoke` escribiría en `results/`.
+    """
+    if smoke:
+        # Los datos sintéticos nunca van a `results/`, donde pasarían por el estudio (#271).
+        if output_dir is None or _is_results_dir(Path(output_dir)):
+            raise ValueError(
+                "--smoke genera datos sintéticos y no escribe en results/: indica con "
+                "--output-dir otra carpeta."
+            )
+    elif not db_url:
+        raise ValueError(
+            "Sin --db-url no hay sesiones del estudio que exportar. Para probar la exportación "
+            "con datos sintéticos, usa --smoke con un --output-dir fuera de results/."
+        )
     out_dir = Path(output_dir) if output_dir is not None else RESULTS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     session_rows: list[EffortSessionRow] = []
     measure_rows: list[MeasureInterventionRow] = []
 
-    synthetic = True
-    if smoke or not db_url:
+    synthetic = smoke
+    if smoke:
         session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
     else:
+        assert db_url is not None
         engine = create_engine_for_url(db_url)
         create_schema(engine)
         factory = create_session_factory(engine)
         with factory() as db:
             session_rows, measure_rows = extract_study_data_from_db(db)
-        if session_rows:
-            synthetic = False
-        else:
-            # La base no tiene sesiones de estudio: se generan datos sintéticos y la
-            # salida queda marcada como tal, nunca como resultado real.
-            session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
+        if not session_rows:
+            # Sin sesiones del estudio no se inventan: un resultado es una medición (#96, #271).
+            raise ValueError(
+                "La base de datos no tiene sesiones del estudio (las cuentas del registro "
+                "público no cuentan): no hay nada que exportar."
+            )
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Exportar esfuerzo a nivel de sesión CSV
     sessions_csv_path = out_dir / "effort_study_sessions.csv"
@@ -414,26 +442,32 @@ def run_effort_study_export(
     summary["data_source"] = "synthetic" if synthetic else "database"
     summary["simulated"] = synthetic
     if synthetic:
-        summary["simulation_warning"] = (
-            "Datos sintéticos: no hay sesiones de un estudio real. "
-            "No citar como resultado del estudio con participantes (#96)."
-        )
+        summary["simulation_warning"] = SYNTHETIC_WARNING
     summary_json_path = out_dir / "effort_study_summary.json"
     with summary_json_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
 
-    # 4. Registrar información de ejecución
-    run_info = write_run_info(
-        "exp_10_effort_study",
-        seed=seed,
-        output_filename="exp_10_run_info.json",
+    # 4. Registrar información de ejecución, junto a lo exportado y con su procedencia
+    run_info = get_run_info("exp_10_effort_study", seed=seed)
+    run_info["data_source"] = summary["data_source"]
+    run_info["simulated"] = synthetic
+    if synthetic:
+        run_info["simulation_warning"] = SYNTHETIC_WARNING
+    (out_dir / "exp_10_run_info.json").write_text(
+        json.dumps(run_info, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    if out_dir != RESULTS_DIR:
-        (out_dir / "exp_10_run_info.json").write_text(
-            json.dumps(run_info, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
 
     return summary
+
+
+def _is_results_dir(path: Path) -> bool:
+    """Si `path` es `results/` del repositorio (o la carpeta de resultados en uso) o está dentro."""
+    target = path.resolve()
+    for candidate in (RESULTS_DIR, REPO_ROOT / "results"):
+        resolved = candidate.resolve()
+        if target == resolved or resolved in target.parents:
+            return True
+    return False
 
 
 def main() -> int:
@@ -447,13 +481,16 @@ def main() -> int:
     )
     parser.add_argument(
         "--output-dir",
-        default=str(RESULTS_DIR),
-        help="Directorio de destino de los reportes CSV y JSON",
+        default=None,
+        help="Directorio de destino de los reportes CSV y JSON (por defecto, results/)",
     )
     parser.add_argument(
         "--smoke",
         action="store_true",
-        help="Ejecución rápida y determinista con dataset sintético",
+        help=(
+            "Prueba la exportación con datos sintéticos, marcados como simulados; "
+            "exige un --output-dir fuera de results/"
+        ),
     )
     parser.add_argument(
         "--seed",
@@ -463,12 +500,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    summary = run_effort_study_export(
-        db_url=args.db_url,
-        output_dir=args.output_dir,
-        smoke=args.smoke,
-        seed=args.seed,
-    )
+    try:
+        summary = run_effort_study_export(
+            db_url=args.db_url,
+            output_dir=args.output_dir,
+            smoke=args.smoke,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
 
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
