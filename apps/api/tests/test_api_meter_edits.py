@@ -139,7 +139,7 @@ def _measures(client: TestClient, headers: dict[str, str], sid: str) -> list[dic
 def _musicxml(client: TestClient, headers: dict[str, str], sid: str) -> str:
     res = client.get(f"/sessions/{sid}/export?format=musicxml", headers=headers)
     assert res.status_code == 200, res.text
-    return res.text
+    return str(res.text)
 
 
 def test_the_symbol_is_in_the_score_and_in_the_export(tmp_path: Path) -> None:
