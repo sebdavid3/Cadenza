@@ -50,6 +50,109 @@
   font-size: var(--text-small);
 }
 
+/* Antes de transcribir (#240): las imágenes elegidas y sus datos, a lo ancho bajo la entrada. */
+.prepare {
+  grid-column: 1 / -1;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 64rem;
+  margin-top: var(--space-3);
+  padding: var(--space-5);
+  border: var(--rule);
+}
+
+.prepare__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+}
+
+.prepare__head .panel__title:focus-visible {
+  outline-offset: 2px;
+}
+
+.prepare__count,
+.prepare__lead,
+.prepare__meta {
+  color: var(--color-ink-muted);
+}
+
+.prepare__lead {
+  max-width: 62ch;
+  font-size: var(--text-small);
+}
+
+.prepare__common,
+.prepare__own {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.prepare__legend {
+  margin-bottom: var(--space-3);
+  padding: 0;
+  font-weight: 700;
+}
+
+.prepare__list {
+  width: 100%;
+  padding: 0;
+  border-top: var(--rule);
+  list-style: none;
+}
+
+.prepare__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-ink);
+}
+
+.prepare__file {
+  display: grid;
+  min-width: 0;
+}
+
+.prepare__name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.prepare__will {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  overflow-wrap: anywhere;
+}
+
+.prepare__item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: var(--space-1) var(--space-4);
+}
+
+/* Los datos propios de una imagen, sangrados bajo ella con un filete a la izquierda. */
+.prepare__own {
+  grid-column: 1 / -1;
+  margin-block: var(--space-2);
+  padding-left: var(--space-4);
+  border-left: var(--rule);
+}
+
+.prepare__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
 /* La tabla de sesiones pide más ancho que la cola (unos 670 px, 790 con el propietario). */
 .transcription__panels {
   display: grid;
@@ -229,6 +332,14 @@
   color: var(--color-ink-muted);
 }
 
+/* Con nombre propio, el archivo de la imagen va debajo, en pequeño (#240). */
+.queue__source {
+  overflow: hidden;
+  font-size: var(--text-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .queue__state {
   display: flex;
   align-items: center;
@@ -306,21 +417,34 @@
   white-space: nowrap;
 }
 
-/* El identificador es el enlace a la vista de la sesión. */
-.sessions__id {
+/* El nombre de la sesión es el enlace a su vista (#240): el título, el archivo o el comienzo del
+   identificador. Un nombre largo se parte en líneas en lugar de ensanchar la tabla. */
+.sessions__name {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   min-height: 44px;
+  max-width: 32ch;
   padding: 2px var(--space-2);
   border: var(--rule);
+  font-weight: 500;
+  line-height: 1.25;
   text-decoration: none;
+  overflow-wrap: anywhere;
   transition:
     background-color var(--duration-quick) var(--ease-out),
     color var(--duration-quick) var(--ease-out);
 }
 
-.sessions__id:hover {
+.sessions__name > span {
+  min-width: 0;
+}
+
+.sessions__name svg {
+  flex: none;
+}
+
+.sessions__name:hover {
   background: var(--color-ink);
   color: var(--color-paper);
 }
@@ -388,6 +512,18 @@
     overflow-wrap: anywhere;
     white-space: normal;
   }
+
+  .prepare {
+    padding: var(--space-4);
+  }
+
+  .prepare__item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .prepare__item-actions {
+    justify-content: start;
+  }
 }
 
 /* Sin ancho para la tabla, cada sesión es una ficha: miniatura a la izquierda y datos en tres
@@ -408,7 +544,7 @@
 
   .sessions__table tr {
     display: grid;
-    grid-template-columns: 96px auto minmax(0, 1fr);
+    grid-template-columns: 96px minmax(0, 1fr) auto;
     grid-template-areas:
       "thumb id date"
       "thumb status status"

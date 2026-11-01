@@ -487,6 +487,164 @@ describe("cola secuencial", () => {
   });
 });
 
+describe("preparar el lote antes de transcribir (#240)", () => {
+  const sent = (body: unknown) =>
+    [...(body as FormData).entries()].map(([key, value]) => [
+      key,
+      typeof value === "string" ? value : value.name,
+    ]);
+
+  it("lo elegido espera a «Transcribir» con los datos comunes o los de cada imagen", async () => {
+    const { calls } = mockApi({
+      "POST /transcribe": () => jsonResponse(transcribed(`s${String(calls.length)}`), 201),
+    });
+    const store = useQueueStore.getState();
+    store.prepare([png("a.png"), png("b.png"), png("c.png")]);
+
+    // Preparar no envía nada ni pone nada en la cola.
+    expect(useQueueStore.getState().items).toEqual([]);
+    const [a, b] = useQueueStore.getState().prepared;
+    if (!a || !b) throw new Error("faltan imágenes preparadas");
+    store.setCommon({
+      title: "",
+      composer: "Schumann",
+      parts: [
+        { instrument: "voice", name: "" },
+        { instrument: "piano", name: "" },
+      ],
+    });
+    store.setOwn(b.id, {
+      title: "Mondnacht",
+      composer: "",
+      parts: [
+        { instrument: "other", name: "Arpa" },
+        { instrument: "", name: "" },
+      ],
+    });
+    store.submitPrepared();
+
+    const state = useQueueStore.getState();
+    expect(state.prepared).toEqual([]);
+    // Tras enviar, el formulario vuelve a sus valores por defecto.
+    expect(state.common).toEqual({
+      title: "",
+      composer: "",
+      parts: [
+        { instrument: "", name: "" },
+        { instrument: "", name: "" },
+      ],
+    });
+    expect(statuses()).toEqual(["queued", "queued", "queued"]);
+    await store.run(api);
+
+    expect(calls.map((call) => sent(call.init?.body))).toEqual([
+      [
+        ["file", "a.png"],
+        ["composer", "Schumann"],
+        ["instruments", "voice"],
+        ["part_names", ""],
+        ["instruments", "piano"],
+        ["part_names", ""],
+      ],
+      [
+        ["file", "b.png"],
+        ["title", "Mondnacht"],
+        ["instruments", "other"],
+        ["part_names", "Arpa"],
+      ],
+      [
+        ["file", "c.png"],
+        ["composer", "Schumann"],
+        ["instruments", "voice"],
+        ["part_names", ""],
+        ["instruments", "piano"],
+        ["part_names", ""],
+      ],
+    ]);
+  });
+
+  it("lo rechazado en la comprobación previa va a la cola como rechazado, sin prepararse", () => {
+    const store = useQueueStore.getState();
+    store.prepare([new File(["x"], "notas.txt", { type: "text/plain" }), png("a.png")]);
+
+    expect(useQueueStore.getState().prepared.map((item) => item.file.name)).toEqual(["a.png"]);
+    expect(useQueueStore.getState().items).toMatchObject([
+      { status: "error", rejected: true, file: { name: "notas.txt" } },
+    ]);
+  });
+
+  it("quitar una imagen o descartar el lote no envía nada; volver a los datos comunes", () => {
+    const store = useQueueStore.getState();
+    store.prepare([png("a.png"), png("b.png")]);
+    const [a, b] = useQueueStore.getState().prepared;
+    if (!a || !b) throw new Error("faltan imágenes preparadas");
+    store.setOwn(b.id, { title: "Propio", composer: "", parts: [] });
+    store.setOwn(b.id, null);
+    expect(useQueueStore.getState().prepared[1]?.own).toBeNull();
+
+    store.unprepare(a.id);
+    expect(useQueueStore.getState().prepared.map((item) => item.file.name)).toEqual(["b.png"]);
+    store.setCommon({ title: "x", composer: "", parts: [] });
+    store.discardPrepared();
+    expect(useQueueStore.getState().prepared).toEqual([]);
+    expect(useQueueStore.getState().common.title).toBe("");
+    expect(useQueueStore.getState().items).toEqual([]);
+  });
+
+  it("si el lote queda en una imagen con datos propios, esos pasan a ser los que se ven", () => {
+    const store = useQueueStore.getState();
+    store.prepare([png("uno.png"), png("dos.png")]);
+    const [uno, dos] = useQueueStore.getState().prepared;
+    if (!uno || !dos) throw new Error("faltan imágenes preparadas");
+    store.setCommon({ title: "", composer: "Clara", parts: [] });
+    const own = {
+      title: "Romanze",
+      composer: "",
+      parts: [{ instrument: "violin" as const, name: "" }],
+    };
+    store.setOwn(dos.id, own);
+    store.unprepare(uno.id);
+
+    // Con una sola imagen el recuadro enseña los comunes: son los suyos, y no quedan ocultos.
+    expect(useQueueStore.getState().common).toEqual(own);
+    expect(useQueueStore.getState().prepared[0]?.own).toBeNull();
+  });
+
+  it("quitar la última imagen deja el formulario con sus valores por defecto", () => {
+    const store = useQueueStore.getState();
+    store.prepare([png("uno.png")]);
+    store.setCommon({ title: "Mondnacht", composer: "", parts: [] });
+    const [uno] = useQueueStore.getState().prepared;
+    if (!uno) throw new Error("falta la imagen preparada");
+    store.unprepare(uno.id);
+
+    expect(useQueueStore.getState().prepared).toEqual([]);
+    expect(useQueueStore.getState().common.title).toBe("");
+  });
+
+  it("enviar el lote quita la pausa", () => {
+    const store = useQueueStore.getState();
+    useQueueStore.setState({ paused: true });
+    store.prepare([png("a.png")]);
+    expect(useQueueStore.getState().paused).toBe(true);
+    store.submitPrepared();
+    expect(useQueueStore.getState().paused).toBe(false);
+  });
+
+  it("si entra otra persona, lo preparado y sus datos se olvidan", () => {
+    const store = useQueueStore.getState();
+    store.prepare([png("a.png")]);
+    store.setCommon({ title: "Mondnacht", composer: "", parts: [] });
+    useAuthStore.getState().signOut("expired");
+    signInAs(ANA);
+    expect(useQueueStore.getState().prepared).toHaveLength(1);
+
+    signInAs(BRUNO);
+    expect(useQueueStore.getState().prepared).toEqual([]);
+    expect(useQueueStore.getState().common.title).toBe("");
+  });
+});
+
 describe("datos de sesiones", () => {
   it("interpreta created_at sin zona horaria como UTC", () => {
     expect(parseUtc("2026-10-22T20:15:00").toISOString()).toBe("2026-10-22T20:15:00.000Z");

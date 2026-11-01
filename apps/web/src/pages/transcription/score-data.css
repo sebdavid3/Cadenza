@@ -1,0 +1,52 @@
+/* Datos de una partitura (#240): nombre y compositor a lo ancho, y un desplegable por parte. Los
+   mismos campos antes de transcribir y en la vista de la sesión. */
+.score-data {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: var(--space-4) var(--space-5);
+  width: 100%;
+}
+
+.score-data__field {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.score-data__field--wide {
+  grid-column: 1 / -1;
+}
+
+.score-data__input {
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  border-radius: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-text);
+  font-size: 1rem;
+}
+
+.score-data__input:focus-visible {
+  outline-offset: 0;
+}
+
+.score-data__input:read-only:not(select),
+.score-data__select:disabled {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+}
+
+.score-data__hint {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.score-data__other {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}

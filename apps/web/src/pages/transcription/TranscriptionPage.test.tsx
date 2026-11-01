@@ -63,6 +63,12 @@ function fileInput(): HTMLInputElement {
   return input;
 }
 
+/** Elige las imágenes y las envía sin indicar ningún dato (#240: antes se preparan). */
+async function chooseAndTranscribe(files: File[]) {
+  await userEvent.upload(fileInput(), files);
+  await userEvent.click(screen.getByRole("button", { name: /^transcribir/i }));
+}
+
 /** Deja la cola en un estado dado sin enviar nada (la cola «corriendo» no arranca otra). */
 function setQueue(items: QueueItem[]) {
   act(() => {
@@ -95,7 +101,7 @@ describe("vista de transcripción", () => {
     renderPage();
 
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
-    expect(screen.getByText(/las imágenes que elijas aparecerán aquí/i)).toBeVisible();
+    expect(screen.getByText(/las imágenes que transcribas aparecerán aquí/i)).toBeVisible();
   });
 
   it("lista las sesiones con fecha, estado, hallazgos, miniatura autenticada y enlace a su vista", async () => {
@@ -110,7 +116,7 @@ describe("vista de transcripción", () => {
 
     const table = await screen.findByRole("table");
     expect(within(table).getAllByRole("row")).toHaveLength(3);
-    expect(within(table).getByText("aaaaaaaa")).toBeVisible();
+    expect(within(table).getByText("Sesión aaaaaaaa")).toBeVisible();
     expect(table.querySelector("time")).toHaveAttribute("datetime", "2026-10-22T20:15:00.000Z");
     // 20:15 UTC es 15:15 en Bogotá (TZ de las pruebas).
     expect(within(table).getAllByText("15:15")).toHaveLength(2);
@@ -121,7 +127,7 @@ describe("vista de transcripción", () => {
       expect(createObjectURL).toHaveBeenCalledTimes(2);
     });
     // Cada sesión enlaza con su vista de solo lectura; no hay enlaces a una edición.
-    expect(within(table).getByRole("link", { name: "Ver la sesión aaaaaaaa" })).toHaveAttribute(
+    expect(within(table).getByRole("link", { name: "Sesión aaaaaaaa" })).toHaveAttribute(
       "href",
       "/sesiones/aaaaaaaa-1111",
     );
@@ -166,7 +172,7 @@ describe("vista de transcripción", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
-    expect(await screen.findByText("ultima-0")).toBeVisible();
+    expect(await screen.findByText("Sesión ultima-0")).toBeVisible();
     const pages = calls.filter((call) => call.key === "GET /sessions");
     expect(pages.map((call) => call.url.searchParams.get("offset"))).toEqual(["0", "20"]);
     expect(pages.map((call) => call.url.searchParams.get("limit"))).toEqual(["20", "20"]);
@@ -188,8 +194,8 @@ describe("vista de transcripción", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
-    expect(await within(table).findByText("ultima-0")).toBeVisible();
-    expect(within(table).getAllByText("s-0019")).toHaveLength(1);
+    expect(await within(table).findByText("Sesión ultima-0")).toBeVisible();
+    expect(within(table).getAllByText("Sesión s-0019")).toHaveLength(1);
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 21);
   });
 
@@ -277,7 +283,7 @@ describe("vista de transcripción", () => {
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
-    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+    await chooseAndTranscribe([png("uno.png"), png("dos.png")]);
 
     const queue = screen.getByRole("region", { name: "Cola" });
     await waitFor(() => {
@@ -287,7 +293,7 @@ describe("vista de transcripción", () => {
     await waitFor(() => {
       expect(within(table).getAllByRole("row")).toHaveLength(3);
     });
-    expect(within(table).getAllByText("nueva000")).toHaveLength(2);
+    expect(within(table).getAllByText("Sesión nueva000")).toHaveLength(2);
     expect(within(queue).getByText(/0 en cola · 2 transcritas · 0 con error/)).toBeVisible();
   });
 
@@ -310,7 +316,7 @@ describe("vista de transcripción", () => {
     const router = renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
-    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+    await chooseAndTranscribe([png("uno.png"), png("dos.png")]);
 
     expect(await screen.findByText(/tu sesión caducó/i)).toBeVisible();
     expect(router.state.location.pathname).toBe("/entrar");
@@ -327,7 +333,8 @@ describe("vista de transcripción", () => {
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/transcripcion");
     });
-    const queue = screen.getByRole("region", { name: "Cola" });
+    // La vista se carga bajo demanda: puede no estar dibujada aún al cambiar la ruta.
+    const queue = await screen.findByRole("region", { name: "Cola" });
     await waitFor(() => {
       expect(within(queue).getByText("1 hallazgo")).toBeVisible();
     });
@@ -615,9 +622,9 @@ describe("vista de transcripción", () => {
     nextPage.resolve(undefined);
 
     await waitFor(() => {
-      expect(within(table).getByText("nueva000")).toBeVisible();
+      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
     });
-    expect(within(table).getByText("ultima-0")).toBeVisible();
+    expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
     expect(within(table).getAllByRole("row")).toHaveLength(1 + 22);
     const offsets = calls
       .filter((call) => call.key === "GET /sessions")
@@ -664,7 +671,7 @@ describe("vista de transcripción", () => {
 
     refresh.resolve(undefined);
     await waitFor(() => {
-      expect(within(table).getByText("nueva000")).toBeVisible();
+      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
     });
     await waitFor(() => {
       expect(more).toHaveAttribute("aria-disabled", "false");
@@ -672,7 +679,7 @@ describe("vista de transcripción", () => {
     await userEvent.click(more);
 
     await waitFor(() => {
-      expect(within(table).getByText("ultima-0")).toBeVisible();
+      expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
     });
     expect(offsets()).toEqual(["0", "0", "20"]);
   });
@@ -692,7 +699,7 @@ describe("vista de transcripción", () => {
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
     await waitFor(() => {
-      expect(within(table).getByText("ultima-0").closest("tr")).toHaveFocus();
+      expect(within(table).getByText("Sesión ultima-0").closest("tr")).toHaveFocus();
     });
     expect(screen.queryByRole("button", { name: "Cargar más" })).not.toBeInTheDocument();
   });
@@ -735,7 +742,7 @@ describe("vista de transcripción", () => {
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
-    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+    await chooseAndTranscribe([png("uno.png"), png("dos.png")]);
 
     const queue = screen.getByRole("region", { name: "Cola" });
     expect(await within(queue).findByText(/la cola está en pausa/i)).toBeVisible();
@@ -764,6 +771,10 @@ describe("vista de transcripción", () => {
     if (!zone) throw new Error("falta la zona de subida");
 
     fireEvent.drop(zone, { dataTransfer: { files: [png("soltada.png")], types: ["Files"] } });
+    // Antes de enviar se piden los datos: el foco va al primero (#240). Con el selector no se
+    // comprueba aquí: user-event devuelve el foco al campo de archivo al cerrar el diálogo.
+    expect(screen.getByLabelText("Nombre de la partitura")).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: /^transcribir/i }));
 
     const queue = screen.getByRole("region", { name: "Cola" });
     expect(within(queue).getByText("soltada.png")).toBeVisible();
@@ -787,7 +798,7 @@ describe("vista de transcripción", () => {
       },
     });
     const router = renderPage();
-    expect(await screen.findByText("deana000")).toBeVisible();
+    expect(await screen.findByText("Sesión deana000")).toBeVisible();
 
     // Sale una y entra otra sin que React llegue a pintar la pestaña sin sesión.
     act(() => {
@@ -797,7 +808,7 @@ describe("vista de transcripción", () => {
     expect(router.state.location.pathname).toBe("/transcripcion");
 
     expect(await screen.findByText(/cargando sesiones/i)).toBeVisible();
-    expect(screen.queryByText("deana000")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sesión deana000")).not.toBeInTheDocument();
     brunoPage.resolve(jsonResponse([]));
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
   });
@@ -820,7 +831,7 @@ describe("vista de transcripción", () => {
     exit.focus();
     nextPage.resolve(jsonResponse([session("ultima-0000")]));
 
-    expect(await within(table).findByText("ultima-0")).toBeVisible();
+    expect(await within(table).findByText("Sesión ultima-0")).toBeVisible();
     expect(exit).toHaveFocus();
   });
 
@@ -866,9 +877,9 @@ describe("vista de transcripción", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
     await waitFor(() => {
-      expect(within(table).getByText("nueva000")).toBeVisible();
+      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
     });
-    expect(within(table).getByText("ultima-0")).toBeVisible();
+    expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -897,7 +908,7 @@ describe("vista de transcripción", () => {
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
-    await userEvent.upload(fileInput(), [png("uno.png")]);
+    await chooseAndTranscribe([png("uno.png")]);
 
     expect(await screen.findByText(/tu sesión caducó/i)).toBeVisible();
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -906,5 +917,193 @@ describe("vista de transcripción", () => {
         call.key === "GET /sessions" && !new Headers(call.init?.headers).has("Authorization"),
     );
     expect(anonymous).toHaveLength(0);
+  });
+});
+
+describe("datos de la partitura antes de transcribir (#240)", () => {
+  /** Escribe de una vez (pegando): letra a letra, bajo carga, la prueba pasaría del límite. */
+  async function fill(element: HTMLElement, text: string) {
+    await userEvent.click(element);
+    await userEvent.paste(text);
+  }
+
+  /** Los campos del formulario de `POST /transcribe`, sin el archivo. */
+  function sentData(call: { init: RequestInit | undefined } | undefined) {
+    const body = call?.init?.body;
+    if (!(body instanceof FormData)) throw new Error("no es un formulario");
+    return [...body.entries()]
+      .filter(([key]) => key !== "file")
+      .map(([key, value]) => [key, typeof value === "string" ? value : value.name]);
+  }
+
+  it("pide el nombre, el compositor y los instrumentos antes de enviar, y los envía con la imagen", async () => {
+    const { calls } = mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => jsonResponse(transcribed("nombrada-1"), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await userEvent.upload(fileInput(), [png("mondnacht.png")]);
+
+    // Nada sale hasta pulsar «Transcribir».
+    const form = screen.getByRole("form", { name: /antes de transcribir/i });
+    const title = within(form).getByLabelText("Nombre de la partitura");
+    expect(title).toHaveAttribute("maxlength", "200");
+    expect(within(form).getByText(/se llama como el archivo/i)).toBeVisible();
+    expect(within(form).getByText("mondnacht.png")).toBeVisible();
+    expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+    expect(useQueueStore.getState().items).toEqual([]);
+    // Valores por defecto: sin nombre, sin compositor y los instrumentos sin indicar.
+    const upper = within(form).getByLabelText("Parte de arriba");
+    const second = within(form).getByLabelText("Segunda parte");
+    expect(upper).toHaveValue("");
+    expect(second).toHaveValue("");
+
+    await fill(title, "  Mondnacht ");
+    await fill(within(form).getByLabelText("Compositor"), "Robert Schumann");
+    await userEvent.selectOptions(upper, "Voz");
+    await userEvent.selectOptions(second, "Piano");
+    await userEvent.click(within(form).getByRole("button", { name: "Transcribir la imagen" }));
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    await waitFor(() => {
+      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+    });
+    expect(sentData(calls.find((call) => call.key === "POST /transcribe"))).toEqual([
+      ["title", "Mondnacht"],
+      ["composer", "Robert Schumann"],
+      ["instruments", "voice"],
+      ["part_names", ""],
+      ["instruments", "piano"],
+      ["part_names", ""],
+    ]);
+    // La cola dice con qué nombre se crea la sesión, y el formulario desaparece.
+    expect(within(queue).getByText("Mondnacht")).toBeVisible();
+    expect(screen.queryByRole("form", { name: /antes de transcribir/i })).toBeNull();
+    expect(within(queue).getByRole("heading", { name: "Cola" })).toHaveFocus();
+  });
+
+  it("al volver a la vista con imágenes preparadas, el foco no salta al formulario", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    // Las imágenes ya esperaban (la cola es de quien entró): se sale y se vuelve a la vista.
+    signInAs(ANA);
+    act(() => {
+      useQueueStore.getState().prepare([png("uno.png")]);
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    expect(screen.getByRole("form", { name: /antes de transcribir/i })).toBeVisible();
+    expect(screen.getByLabelText("Nombre de la partitura")).not.toHaveFocus();
+  });
+
+  it("en un lote, los datos valen para todas las imágenes o se cambian en cada una", async () => {
+    const { calls } = mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => jsonResponse(transcribed(`lote0000-${String(calls.length)}`), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+
+    const form = screen.getByRole("form", { name: /antes de transcribir/i });
+    const common = within(form).getByRole("group", { name: "Datos para todas las imágenes" });
+    await fill(within(common).getByLabelText("Compositor"), "Clara Schumann");
+    await userEvent.selectOptions(within(common).getByLabelText("Parte de arriba"), "Violín");
+
+    await userEvent.click(
+      within(form).getByRole("button", { name: "Cambiar los datos de dos.png" }),
+    );
+    const own = within(form).getByRole("group", { name: "Datos de dos.png" });
+    // Empiezan siendo los comunes.
+    expect(within(own).getByLabelText("Compositor")).toHaveValue("Clara Schumann");
+    await fill(within(own).getByLabelText("Nombre de la partitura"), "Romanze");
+    await userEvent.selectOptions(within(own).getByLabelText("Parte de arriba"), "Otro");
+    const other = within(own).getByLabelText("Nombre del instrumento");
+    expect(other).toHaveAttribute("maxlength", "100");
+    await fill(other, "Viola");
+    await userEvent.click(within(form).getByRole("button", { name: "Transcribir 2 imágenes" }));
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    await waitFor(() => {
+      expect(within(queue).getAllByText("1 hallazgo")).toHaveLength(2);
+    });
+    const posts = calls.filter((call) => call.key === "POST /transcribe");
+    expect(posts.map(sentData)).toEqual([
+      [
+        ["composer", "Clara Schumann"],
+        ["instruments", "violin"],
+        ["part_names", ""],
+      ],
+      [
+        ["title", "Romanze"],
+        ["composer", "Clara Schumann"],
+        ["instruments", "other"],
+        ["part_names", "Viola"],
+      ],
+    ]);
+  });
+
+  it("sin datos envía solo la imagen; quitar y descartar no envían nada", async () => {
+    const { calls } = mockApi({
+      "GET /sessions": () => jsonResponse([]),
+      "POST /transcribe": () => jsonResponse(transcribed("sindatos-1"), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await userEvent.upload(fileInput(), [png("uno.png"), png("dos.png")]);
+    const form = screen.getByRole("form", { name: /antes de transcribir/i });
+    await userEvent.click(within(form).getByRole("button", { name: "Quitar uno.png" }));
+    expect(within(form).queryByText("uno.png")).toBeNull();
+    // El recuento se anuncia al cambiar.
+    expect(within(form).getByText("1 imagen")).toHaveAttribute("aria-live", "polite");
+    await userEvent.click(within(form).getByRole("button", { name: "Descartar" }));
+
+    expect(screen.queryByRole("form", { name: /antes de transcribir/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Elegir imágenes" })).toHaveFocus();
+    expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+
+    await chooseAndTranscribe([png("tres.png")]);
+    await waitFor(() => {
+      expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(1);
+    });
+    expect(sentData(calls.find((call) => call.key === "POST /transcribe"))).toEqual([]);
+  });
+
+  it("nombra cada sesión del listado por su título, su archivo o su identificador", async () => {
+    mockApi({
+      "GET /sessions": () =>
+        jsonResponse([
+          session("aaaaaaaa-1111", {
+            title: "Mondnacht",
+            composer: "Robert Schumann",
+            source_filename: "mondnacht.png",
+            condition: "unassisted",
+            test_score_id: "TS-03",
+          }),
+          session("bbbbbbbb-2222", { title: null, source_filename: "pagina-2.png" }),
+          session("cccccccc-3333"),
+        ]),
+      "GET /sessions/aaaaaaaa-1111/image": image,
+      "GET /sessions/bbbbbbbb-2222/image": image,
+      "GET /sessions/cccccccc-3333/image": image,
+    });
+    renderPage();
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByRole("link", { name: "Mondnacht" })).toHaveAttribute(
+      "href",
+      "/sesiones/aaaaaaaa-1111",
+    );
+    expect(within(table).getByRole("link", { name: "pagina-2.png" })).toHaveAttribute(
+      "href",
+      "/sesiones/bbbbbbbb-2222",
+    );
+    expect(within(table).getByRole("link", { name: "Sesión cccccccc" })).toBeVisible();
+    // Nada de los datos del estudio.
+    expect(screen.queryByText(/unassisted|TS-03/i)).toBeNull();
   });
 });

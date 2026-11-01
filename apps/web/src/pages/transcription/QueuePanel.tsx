@@ -1,9 +1,11 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { formatSize } from "./format";
 import { useQueueStore, type QueueItem } from "./queue";
+import { nonBlank } from "./scoreData";
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${String(Math.max(1, Math.round(bytes / 1024)))} KB`;
-  return `${(bytes / (1024 * 1024)).toLocaleString("es", { maximumFractionDigits: 1 })} MB`;
+/** El nombre que se dio a la partitura de una imagen, o null si no se dio ninguno. */
+function titleOf(item: QueueItem): string | null {
+  return nonBlank(item.data?.title);
 }
 
 function findingsLabel(count: number): string {
@@ -149,7 +151,7 @@ export function QueuePanel() {
       )}
       {items.length === 0 ? (
         <p className="panel__empty">
-          Las imágenes que elijas aparecerán aquí y se transcribirán de una en una.
+          Las imágenes que transcribas aparecerán aquí y se enviarán de una en una.
         </p>
       ) : (
         <>
@@ -167,7 +169,11 @@ export function QueuePanel() {
                 data-status={item.status}
               >
                 <div className="queue__file">
-                  <span className="queue__name">{item.file.name}</span>
+                  {/* Con nombre, la sesión se llamará así; sin él, como el archivo (#240). */}
+                  <span className="queue__name">{titleOf(item) ?? item.file.name}</span>
+                  {titleOf(item) !== null && (
+                    <span className="queue__source">{item.file.name}</span>
+                  )}
                   <span className="label queue__size">{formatSize(item.file.size)}</span>
                 </div>
                 <div className="queue__state">
