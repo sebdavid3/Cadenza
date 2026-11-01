@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 
-from cadenza.domain import Measure
+from cadenza.domain import (
+    EditOp,
+    Measure,
+    TimeSignature,
+    snapshot_before,
+    validate_after,
+)
 from cadenza.validation import MeasureBalanceRule, TimeSignatureRule, ValidationEngine
 
 from packages.validation.tests.rule_builders import NEGRA, document, m, n
@@ -146,3 +153,52 @@ def test_the_capacity_applies_to_every_staff_of_the_part_and_fires_once() -> Non
     assert [(f.rule_id, f.anchor.staff, f.anchor.measure) for f in findings] == [
         ("time.signature", 0, 1)
     ]
+
+
+# --- Con #236: el símbolo leído y el candidato de cambiar el compás (ADR-0040, enmienda 10) ---
+
+
+def _four_in_three() -> list[Measure]:
+    return [_quarters(1, 1), *(_quarters(k, 4) for k in range(2, 6)), _quarters(6, 3)]
+
+
+def test_the_finding_proposes_changing_the_meter_from_its_measure() -> None:
+    doc = document(_four_in_three())
+    (finding,) = ValidationEngine([TimeSignatureRule()]).validate(doc)
+    (candidate,) = finding.candidates
+    assert candidate.op is EditOp.SET_TIME
+    assert candidate.anchor == finding.anchor
+    assert candidate.after == {"time_signature": {"beats": 4, "beat_type": 4}}
+    # Es una edición que el servidor admite: cambia el compás de todo el tramo.
+    validate_after(doc.score, candidate.anchor, candidate.op, candidate.after)
+    assert snapshot_before(doc.score, candidate.anchor, candidate.op, candidate.after) == {
+        "time_signature": {"beats": 3, "beat_type": 4},
+        "measures": 6,
+    }
+
+
+def test_a_read_symbol_is_named_as_it_is_written() -> None:
+    measures = [
+        _quarters(1, 1, time=(4, 4)),
+        *(_quarters(k, 3, time=(4, 4)) for k in range(2, 6)),
+        _quarters(6, 4, time=(4, 4)),
+    ]
+    common = TimeSignature(4, 4, "common")
+    measures = [replace(meas, time_signature=common) for meas in measures]
+    ((_, message, fix),) = _rule(measures)
+    assert message == "Los compases 2 a 5 suman tres negras y la indicación de compás es C."
+    assert fix is not None and fix.startswith(
+        "Revisa la indicación de compás del compás 1: puede que sea 3/4."
+    )
+
+
+def test_the_candidate_is_described_in_musical_language() -> None:
+    from cadenza.validation.learned import describe_edit
+
+    after = {"time_signature": {"beats": 4, "beat_type": 4, "symbol": "common"}}
+    assert describe_edit(EditOp.SET_TIME, after, None) == (
+        "Cambiar la indicación de compás a C desde este compás."
+    )
+    assert describe_edit(EditOp.SET_TIME, {"time_signature": None}, None) == (
+        "Quitar el cambio de compás de este compás."
+    )

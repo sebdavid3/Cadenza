@@ -309,8 +309,13 @@ def is_compound(signature: TimeSignature | None) -> bool:
     return signature is not None and signature.beats > 3 and signature.beats % 3 == 0
 
 
+_SYMBOL_NAMES: Final[dict[str, str]] = {"common": "C", "cut": "¢"}
+
+
 def meter_name(signature: TimeSignature) -> str:
-    """La métrica como se escribe: «3/4»."""
+    """La métrica como se escribe: «3/4», y «C» o «¢» si lleva su símbolo (#236)."""
+    if signature.symbol is not None:
+        return _SYMBOL_NAMES[signature.symbol]
     return str(signature)
 
 

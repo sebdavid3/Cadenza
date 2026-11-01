@@ -12,9 +12,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from cadenza.domain import EditOp, EventKind
+from cadenza.domain import EditOp, EventKind, TimeSignature
 
-from ..language import accidental_word, figure_name, note_name
+from ..language import accidental_word, figure_name, meter_name, note_name
 from .features import EventView, split_pitch
 
 if TYPE_CHECKING:
@@ -55,6 +55,14 @@ def describe_edit(op: EditOp, after: Mapping[str, Any] | None, view: EventView |
         return "Cambiar la clave del compás."
     if op is EditOp.SET_KEY:
         return "Cambiar la armadura del compás."
+    if op is EditOp.SET_TIME:
+        raw = data.get("time_signature")
+        if not isinstance(raw, Mapping):
+            return "Quitar el cambio de compás de este compás."
+        meter = meter_name(TimeSignature.from_primitive(raw))
+        return f"Cambiar la indicación de compás a {meter} desde este compás."
+    if op is EditOp.SET_TUPLET:
+        return "Poner o quitar el tresillo de estas figuras."
     return "Corregir este evento."
 
 
