@@ -8,6 +8,7 @@ import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { FindingRead } from "../../types";
+import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
 import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
@@ -27,10 +28,12 @@ import { historyKey, isTextField } from "./history";
 import { HistoryPanel } from "./HistoryPanel";
 import { useLifecycle } from "./lifecycle";
 import { LifecyclePanel } from "./LifecyclePanel";
+import { useSessionMetadata } from "./metadata";
 import { buildPlayback, measureSlots } from "./playback";
 import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
+import { ScoreDataPanel } from "./ScoreDataPanel";
 import { ScoreView, type ScoreSnapshot } from "./ScoreView";
 import { useSelectionStore } from "./selection";
 import {
@@ -82,11 +85,25 @@ export function SessionPage() {
 
 function SessionView({ sessionId }: { sessionId: string }) {
   const shortId = sessionId.slice(0, 8);
-  useDocumentTitle(`Sesión ${shortId}`);
   const user = useAuthStore((state) => state.user);
   const isResearcher = user?.role === "investigador";
 
   const detail = useQuery(sessionDetailQuery(api, sessionId));
+  // El nombre, el compositor y los instrumentos (#240, ADR-0045): lo último que se guardó desde
+  // aquí o, si no, lo que trae el detalle.
+  const metadataEditor = useSessionMetadata(api, sessionId);
+  const metadata = metadataEditor.saved ?? detail.data;
+  const name = sessionName({
+    session_id: sessionId,
+    title: metadata?.title,
+    source_filename: metadata?.source_filename,
+  });
+  const fallbackName = sessionName({
+    session_id: sessionId,
+    source_filename: metadata?.source_filename,
+  });
+  const instruments = instrumentsSummary(metadata?.instruments);
+  useDocumentTitle(name);
   const seq = detail.data?.current_seq ?? 0;
   const ready = detail.isSuccess;
   // En la condición no asistida no corren ni las reglas ni la capa, y quien corrige no ve nada
@@ -197,7 +214,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
     api,
     sessionId,
     detail.data,
-    findingActions.revalidating || lifecycle.finalizing,
+    // Mientras se guardan los datos de la partitura, también: la respuesta de una corrección
+    // traería el MusicXML con los datos de antes (ADR-0045 §3).
+    findingActions.revalidating || lifecycle.finalizing || metadataEditor.saving,
   );
   const editKeysId = useId();
   // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y
@@ -279,7 +298,13 @@ function SessionView({ sessionId }: { sessionId: string }) {
       <header className="session__head">
         <BackLink />
         <h1 className="session__title">
-          Sesión <span className="session__id">{shortId}</span>
+          {(nonBlank(metadata?.title) ?? nonBlank(metadata?.source_filename)) ? (
+            name
+          ) : (
+            <>
+              Sesión <span className="session__id">{shortId}</span>
+            </>
+          )}
         </h1>
         {detail.data && (
           <dl className="session__meta">
@@ -291,6 +316,24 @@ function SessionView({ sessionId }: { sessionId: string }) {
               <dt className="label">Ediciones</dt>
               <dd>{edits}</dd>
             </div>
+            {metadata?.composer && (
+              <div>
+                <dt className="label">Compositor</dt>
+                <dd>{metadata.composer}</dd>
+              </div>
+            )}
+            {instruments && (
+              <div>
+                <dt className="label">Instrumentos</dt>
+                <dd>{instruments}</dd>
+              </div>
+            )}
+            {nonBlank(metadata?.title) && metadata?.source_filename && (
+              <div>
+                <dt className="label">Archivo</dt>
+                <dd>{metadata.source_filename}</dd>
+              </div>
+            )}
             {foreign && (
               <div>
                 <dt className="label">Propietario</dt>
@@ -298,6 +341,24 @@ function SessionView({ sessionId }: { sessionId: string }) {
               </div>
             )}
           </dl>
+        )}
+        {owned && detail.data && metadata && (
+          <ScoreDataPanel
+            metadata={metadata}
+            staves={(score?.parts ?? []).map((part) => part.staves.length)}
+            fallbackName={fallbackName}
+            saving={metadataEditor.saving}
+            waiting={
+              editor.status.kind === "saving" ||
+              editor.status.kind === "reloading" ||
+              editor.queued ||
+              findingActions.busy ||
+              lifecycle.busy
+            }
+            message={metadataEditor.message}
+            onSave={metadataEditor.save}
+            onDismissMessage={metadataEditor.clearMessage}
+          />
         )}
         <p className="session__lead">
           {editable

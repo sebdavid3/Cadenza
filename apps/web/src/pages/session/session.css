@@ -28,6 +28,8 @@
   font-weight: 700;
   line-height: 0.9;
   text-transform: uppercase;
+  /* El nombre de la sesión puede ser un archivo largo sin espacios (#240). */
+  overflow-wrap: anywhere;
 }
 
 .session__meta {
@@ -48,6 +50,7 @@
 
 .session__meta dd {
   font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .session__lead {
