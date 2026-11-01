@@ -222,8 +222,15 @@ export interface EditEventRead {
  * 13. `SET_TUPLET` ("SetTuplet"):
  *     - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
  *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, sus figuras.
+ * 
+ * Figura de un acorde (ADR-0049). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 14. `SET_CHORD_DURATION` ("SetChordDuration"):
+ *     - Fija la figura de todas las notas de un acorde, anclada en su primera nota.
+ *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, una por nota del acorde
+ *       (en el ``after`` del cliente, todas iguales y con duración).
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).
