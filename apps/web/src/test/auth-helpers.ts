@@ -61,7 +61,8 @@ export function hangUntilAborted(init: RequestInit | undefined): Promise<Respons
   });
 }
 
-type Route = (init: RequestInit | undefined) => Response | Promise<Response>;
+/** Respuesta de una ruta; recibe también la URL, con su consulta (p. ej. `?format=midi`). */
+export type Route = (init: RequestInit | undefined, url: URL) => Response | Promise<Response>;
 
 /** Sustituye `fetch` por un enrutador de respuestas por «MÉTODO /ruta» (sin el prefijo /api). */
 export function mockApi(routes: Record<string, Route>) {
@@ -74,7 +75,7 @@ export function mockApi(routes: Record<string, Route>) {
     calls.push({ key, url, init });
     const route = routes[key];
     if (!route) return Promise.resolve(jsonResponse({ detail: `sin ruta: ${key}` }, 404));
-    return Promise.resolve(route(init));
+    return Promise.resolve(route(init, url));
   });
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, calls };
