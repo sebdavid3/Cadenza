@@ -1003,6 +1003,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0041](adr/ADR-0041-titulo-compositor-e-instrumentos-de-la-sesion.md) | Título, compositor e instrumento de cada parte: en la sesión, con una lista cerrada de instrumentos, asignación por posición y `PATCH /sessions/{id}` |
 | [ADR-0042](adr/ADR-0042-login-con-el-mismo-trabajo-de-hash.md) | El login hace el mismo trabajo de hash en los tres casos del 401: hash de relleno con los parámetros reales (`PasswordHasher.dummy_hash`) |
 | [ADR-0043](adr/ADR-0043-finalizar-y-reabrir-desde-la-vista.md) | Finalizar y reabrir desde la vista: finalizar valida como una revalidación (conserva los descartes) y no valida una sesión no asistida; la vista queda en solo lectura hasta reabrir |
+| [ADR-0045](adr/ADR-0045-nombre-e-instrumentos-de-la-sesion-en-la-web.md) | Nombre e instrumentos de la sesión en la web: preparar las imágenes antes de enviarlas, el nombre de la sesión y cambiar sus datos desde la vista |
 | [ADR-0046](adr/ADR-0046-sonido-de-cada-instrumento-en-la-vista.md) | Sonido de cada instrumento en la vista: síntesis con Tone.js por instrumento, sin muestras; lo desconocido suena como el piano |
 | [ADR-0047](adr/ADR-0047-ver-aplicar-y-rechazar-sugerencias-desde-la-vista.md) | Ver, aplicar y rechazar las sugerencias desde la vista: en el panel y en la barra, aplicar sin encolar, la sugerencia antigua sin reintento y nada en la condición no asistida |
 

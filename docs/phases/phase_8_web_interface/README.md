@@ -57,7 +57,7 @@ El alcance final y el calendario los fija el plan de cierre
 | | ~~[#275](https://github.com/sebdavid3/Cadenza/issues/275)~~ | **Hecho:** una edición en un solo viaje: la respuesta trae el estado nuevo, con caché del estado materializado y `Server-Timing` (ADR-0037) | — | D66 |
 | | ~~[#276](https://github.com/sebdavid3/Cadenza/issues/276)~~ | **Hecho:** redibujar en una sola instancia de OSMD sin perder la nota elegida, una orden en espera mientras se guarda y la reproducción que sigue (ADR-0038) | #275 | D67 |
 | **Datos de la partitura** | ~~[#235](https://github.com/sebdavid3/Cadenza/issues/235)~~ | **Hecho:** título, compositor e instrumento de cada parte en la API, el MusicXML y el MIDI (ADR-0041) | — | — |
-| | [#240](https://github.com/sebdavid3/Cadenza/issues/240) | Nombre e instrumento antes de transcribir; el nombre es el de la sesión | #235 | — |
+| | ~~[#240](https://github.com/sebdavid3/Cadenza/issues/240)~~ | **Hecho:** nombre e instrumentos antes de transcribir; el nombre es el de la sesión y se cambia desde la vista (ADR-0045) | #235 | — |
 | **Portada** | [#277](https://github.com/sebdavid3/Cadenza/issues/277) | Subir una imagen y ver su transcripción desde la portada; para editar, se entra a la sesión | #240 | — |
 | | [#278](https://github.com/sebdavid3/Cadenza/issues/278) | Transcribir sin cuenta desde la portada y entrar para editar; se despliega después del estudio | #277, #248 | — |
 | **Reproducción** | ~~[#242](https://github.com/sebdavid3/Cadenza/issues/242)~~ | **Hecho:** cada parte suena con su instrumento, sintetizado con Tone.js (ADR-0046) | #235 | — |
