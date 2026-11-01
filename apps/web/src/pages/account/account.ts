@@ -98,5 +98,5 @@ const TIME_FORMAT = new Intl.DateTimeFormat("es", { hour: "2-digit", minute: "2-
 export function afterChangeNotice(expiresAt: number | null): string {
   const until =
     expiresAt === null ? "hasta que caduque" : `hasta las ${TIME_FORMAT.format(expiresAt)}`;
-  return `Sigues dentro: esta sesión dura ${until}, y las que tengas abiertas en otros navegadores, hasta que caduquen. La próxima vez que entres, usa la contraseña nueva; la anterior ya no vale.`;
+  return `Sigues dentro: esta sesión dura ${until}, y las que tengas abiertas en otras pestañas o navegadores, hasta que caduquen. La próxima vez que entres, usa la contraseña nueva; la anterior ya no vale.`;
 }

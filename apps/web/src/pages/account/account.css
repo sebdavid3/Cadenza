@@ -48,7 +48,7 @@
   gap: var(--space-5);
 }
 
-/* El foco llega aquí por programa, para anunciar el resultado: sin anillo. */
-.account__done:focus {
-  outline: none;
+/* El foco llega aquí por programa, para anunciar el resultado; el anillo, como en el acceso. */
+.account__done:focus-visible {
+  outline-offset: 2px;
 }

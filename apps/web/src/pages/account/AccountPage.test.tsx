@@ -150,7 +150,10 @@ describe("cambiar la contraseña (#190)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "La contraseña actual no es correcta.",
     );
-    expect(within(form()).getByLabelText("Contraseña actual")).toHaveFocus();
+    const field = within(form()).getByLabelText<HTMLInputElement>("Contraseña actual");
+    expect(field).toHaveFocus();
+    // Queda elegida: lo que se escriba la sustituye.
+    expect([field.selectionStart, field.selectionEnd]).toEqual([0, CURRENT.length]);
     expect(useAuthStore.getState().status).toBe("authenticated");
     expect(router.state.location.pathname).toBe("/cuenta");
     // Lo escrito en la nueva se conserva: solo hay que corregir la actual.
@@ -194,6 +197,38 @@ describe("cambiar la contraseña (#190)", () => {
     expect(within(form()).getByLabelText("Contraseña nueva")).toHaveFocus();
   });
 
+  it("si tras el 401 no se puede comprobar la sesión, lo dice igual y no la cierra", async () => {
+    mockApi({
+      "POST /auth/password": () => jsonResponse({ detail: "incorrecta" }, 401),
+      "GET /auth/me": () => Promise.reject(new TypeError("Failed to fetch")),
+    });
+    renderAt();
+
+    await fill(CURRENT, NEXT);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La contraseña actual no es correcta.",
+    );
+    expect(useAuthStore.getState().status).toBe("authenticated");
+  });
+
+  it("un 422 de la actual lo dice en su campo, sin preguntar por la sesión", async () => {
+    const { calls } = mockApi({
+      "POST /auth/password": () =>
+        jsonResponse(
+          { detail: [{ type: "string_too_short", loc: ["body", "current_password"], msg: "x" }] },
+          422,
+        ),
+    });
+    renderAt();
+
+    await fill(CURRENT, NEXT);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Escribe tu contraseña actual.");
+    expect(within(form()).getByLabelText("Contraseña actual")).toHaveFocus();
+    expect(calls.some((call) => call.key === "GET /auth/me")).toBe(false);
+  });
+
   it("un 429 tiene su propio mensaje, con el plazo si se sabe", async () => {
     mockApi({
       "POST /auth/password": () =>
@@ -221,6 +256,8 @@ describe("cambiar la contraseña (#190)", () => {
 
     const button = await within(form()).findByRole("button", { name: "Cambiando la contraseña…" });
     expect(button).toBeDisabled();
+    // Intro en un campo tampoco lo envía otra vez.
+    await userEvent.type(within(form()).getByLabelText("Contraseña nueva"), "{Enter}");
     expect(posts(calls)).toHaveLength(1);
 
     pending.resolve(jsonResponse(OK));

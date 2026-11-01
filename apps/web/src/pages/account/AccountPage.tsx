@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { ApiError } from "../../api/errors";
 import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
@@ -69,7 +70,10 @@ function PasswordForm({ username }: { username: string }) {
   useEffect(() => {
     if (!error) return;
     const fields = { current: currentRef, next: nextRef, confirmation: confirmationRef };
-    (error.field ? fields[error.field] : errorRef).current?.focus();
+    const target = (error.field ? fields[error.field] : errorRef).current;
+    target?.focus();
+    // La contraseña equivocada queda elegida: lo que se escriba la sustituye.
+    if (target instanceof HTMLInputElement) target.select();
   }, [error]);
 
   useEffect(() => {
@@ -100,7 +104,11 @@ function PasswordForm({ username }: { username: string }) {
       const failure = passwordErrorMessage(caught);
       // Un 401 es la actual equivocada solo si la sesión sigue valiendo; si no, la comprobación
       // la cierra y la ruta privada lleva a entrar.
-      if (failure.field === "current" && !(await sessionStillValid(api))) {
+      if (
+        caught instanceof ApiError &&
+        caught.kind === "unauthorized" &&
+        !(await sessionStillValid(api))
+      ) {
         setSubmitting(false);
         return;
       }

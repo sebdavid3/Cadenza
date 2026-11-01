@@ -38,18 +38,15 @@
   text-underline-offset: 0.45em;
 }
 
+/* Lleva a «Tu cuenta»: el nombre se subraya como un enlace, y con trazo grueso en su página. */
 .app-header__user {
   display: grid;
   justify-items: end;
   min-width: 0;
   margin-left: auto;
+  padding-block: var(--space-1);
   line-height: 1.2;
   text-align: right;
-}
-
-/* Lleva a «Tu cuenta»: el nombre se subraya como un enlace, y con trazo grueso en su página. */
-.app-header__user {
-  padding-block: var(--space-1);
   text-decoration: none;
 }
 
