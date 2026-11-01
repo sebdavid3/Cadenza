@@ -2,11 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ApiClient } from "../../api/client";
 import { ApiError, errorMessage } from "../../api/errors";
-import type { FindingRead } from "../../types";
+import type { FindingRead, SessionViewRead, SuggestionRead } from "../../types";
 import { withFinding } from "./findings";
 import {
   dismissFinding,
   fetchSessionFindings,
+  rejectSuggestion,
   restoreFinding,
   revalidateSession,
   sessionDetailQuery,
@@ -14,9 +15,10 @@ import {
   sessionFindingsQuery,
   validatedSeqQuery,
 } from "./session";
+import { withSuggestion } from "./suggestions";
 
 /** Qué se puede hacer con los posibles errores (ADR-0035). */
-export type FindingAction = "dismiss" | "restore" | "revalidate";
+export type FindingAction = "dismiss" | "restore" | "revalidate" | "reject";
 
 /**
  * Qué pasó con la última orden sobre los posibles errores. Mientras una está en curso no se envía
@@ -42,6 +44,7 @@ const VERBS: Record<FindingAction, { done: string }> = {
   dismiss: { done: "descartó" },
   restore: { done: "restauró" },
   revalidate: { done: "revalidó" },
+  reject: { done: "rechazó" },
 };
 
 /** Qué decir de un error que no es un 409 ni un 404, y si hay que decirlo. */
@@ -285,6 +288,80 @@ export function useFindingActions(
     );
   }
 
+  /**
+   * Rechaza una sugerencia (#258, ADR-0036 §5): guarda la respuesta, con la versión de la capa que
+   * la propuso, y deja el posible error como estaba; descartarlo sigue siendo otra orden. Nada se
+   * da por rechazado sin la respuesta del servidor.
+   */
+  async function reject(finding: FindingRead, suggestion: SuggestionRead): Promise<FindingOutcome> {
+    const signal = begin("reject", null);
+    if (!signal) return "ignored";
+    const cancelled = () => signal.aborted;
+    const label = optionsRef.current.labelOf(finding);
+    try {
+      let updated: SuggestionRead;
+      try {
+        updated = await rejectSuggestion(api, sessionId, suggestion.id, signal);
+      } catch (error) {
+        if (cancelled()) {
+          forgetFindings();
+          return "ignored";
+        }
+        const kind = error instanceof ApiError ? error.kind : "unexpected";
+        // Revalidar el mismo estado cambia los id de las sugerencias: la lista se vuelve a pedir.
+        if (kind === "not-found") {
+          await refetchFindings();
+          if (cancelled()) return "ignored";
+          const state = queryClient.getQueryState(
+            sessionFindingsQuery(api, sessionId, optionsRef.current.seq).queryKey,
+          );
+          if (state?.error instanceof ApiError && state.error.kind === "not-found") {
+            void queryClient.invalidateQueries({
+              queryKey: sessionDetailQuery(api, sessionId).queryKey,
+            });
+          }
+          say(
+            state?.status === "success"
+              ? "No se rechazó: esa sugerencia ya no está en la última validación. Ya ves la lista actual."
+              : "No se rechazó: esa sugerencia ya no está en la última validación, y no se pudo cargar la lista actual.",
+          );
+          return "gone";
+        }
+        // 409: la sesión está finalizada o la sugerencia ya se aplicó (en otra pestaña).
+        if (kind === "conflict") {
+          await refetchFindings();
+          await optionsRef.current.reload();
+          if (cancelled()) return "ignored";
+          const shown = queryClient.getQueryData<SessionViewRead>(
+            sessionDetailQuery(api, sessionId).queryKey,
+          );
+          if (shown?.status === "finalized") {
+            say("No se rechazó: la sesión está finalizada y ya no admite cambios.", null);
+            return "closed";
+          }
+          say("No se rechazó: esa sugerencia ya se aplicó. Ya ves la lista actual.");
+          return "gone";
+        }
+        const text = failureText("reject", error);
+        if (text) say(text);
+        else setStatus({ kind: "idle" });
+        return "failed";
+      }
+      // La respuesta sustituye a la sugerencia en la lista de todos los estados que la tengan.
+      queryClient.setQueriesData<FindingRead[]>(
+        { queryKey: sessionFindingsKey(sessionId) },
+        (list) => (list ? withSuggestion(list, updated) : list),
+      );
+      if (cancelled()) return "ignored";
+      say(
+        `Sugerencia rechazada: ${label}. El posible error sigue señalado; si no es un error, descártalo.`,
+      );
+      return "done";
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
   /** El estado validado se recuerda después de pedir su lista: antes, la lista sería la vieja. */
   function remember(validated: number) {
     queryClient.setQueryData(validatedSeqQuery(sessionId).queryKey, (known) =>
@@ -388,9 +465,12 @@ export function useFindingActions(
       ? // Un espacio duro alterno: el mismo mensaje dos veces seguidas se vuelve a anunciar.
         `${status.message}${status.nonce % 2 === 1 ? HARD_SPACE : ""}`
       : status.kind === "busy"
-        ? { dismiss: "Descartando…", restore: "Restaurando…", revalidate: "Revalidando…" }[
-            status.action
-          ]
+        ? {
+            dismiss: "Descartando…",
+            restore: "Restaurando…",
+            revalidate: "Revalidando…",
+            reject: "Rechazando la sugerencia…",
+          }[status.action]
         : null;
 
   return {
@@ -402,6 +482,7 @@ export function useFindingActions(
     dismiss,
     restore,
     revalidate,
+    reject,
   };
 }
 

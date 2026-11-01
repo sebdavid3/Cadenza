@@ -8,6 +8,7 @@ import type {
   FindingRead,
   RevalidateResponse,
   SessionViewRead,
+  SuggestionRead,
   TimingMapRead,
   UndoRequest,
   UndoResponse,
@@ -155,6 +156,22 @@ export function restoreFinding(
     method: "POST",
     signal,
   });
+}
+
+/**
+ * `POST /sessions/{id}/suggestions/{suggestion_id}/reject`: guarda que la persona rechaza una
+ * sugerencia de la capa (ADR-0036 §5). No descarta su posible error ni cambia la partitura.
+ */
+export function rejectSuggestion(
+  api: ApiClient,
+  sessionId: string,
+  suggestionId: number,
+  signal?: AbortSignal,
+): Promise<SuggestionRead> {
+  return api.request<SuggestionRead>(
+    `${sessionPath(sessionId)}/suggestions/${String(suggestionId)}/reject`,
+    { method: "POST", signal },
+  );
 }
 
 /**
