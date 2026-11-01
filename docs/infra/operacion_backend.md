@@ -259,11 +259,11 @@ Quedan fuera, a decisión del responsable:
 
 ### 2.3 Ejecución del plano offline con GPU (perfil batch)
 
-Para correr jobs de active learning, reentrenamientos con PyTorch o experimentos con aceleración NVIDIA CUDA:
+Para correr jobs de aprendizaje (la capa de sugerencias, `ml suggestions`) o experimentos con aceleración NVIDIA CUDA:
 
 ```bash
 docker compose --profile batch run --rm ml-batch --help
-docker compose --profile batch run --rm ml-batch run --config configs/learning/default.json
+docker compose --profile batch run --rm ml-batch suggestions --help
 ```
 
 > [!WARNING]

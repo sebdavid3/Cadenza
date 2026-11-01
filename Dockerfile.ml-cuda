@@ -1,5 +1,5 @@
 # Dockerfile con aceleración NVIDIA CUDA para el plano offline de Cadenza (#40, D44, ARCHITECTURE §4)
-# Permite ejecutar entrenamientos por lotes (PyTorchTrainer), inferencia OMR acelerada (HOMREngine)
+# Permite ejecutar los jobs de aprendizaje (ml suggestions), inferencia OMR acelerada (HOMREngine)
 # y la suite de evaluación y active learning (ml/cli.py) en entornos con GPU NVIDIA.
 
 FROM nvidia/cuda:12.8.0-runtime-ubuntu22.04 AS base

@@ -794,58 +794,13 @@ def test_corpus_build_manifest_smb_and_muscima(tmp_path: Path) -> None:
     assert entries_muscima[0]["id"] == "CVC_01"
 
 
-def test_exp_09_multicorpus_smoke() -> None:
-    from ml.experiments import exp_09_multicorpus_evaluation
+def test_exp_09_is_retired() -> None:
+    """`exp_09` no evaluaba ningún corpus real y SMB y MUSCIMA++ son trabajo futuro (#102, #271)."""
+    import importlib.util
 
-    res = exp_09_multicorpus_evaluation.run_multicorpus_experiment(smoke=True, write_results=False)
-    assert res["experiment"] == "exp_09_multicorpus_evaluation"
-    assert res["mode"] == "smoke"
-    assert "smb" in res["corpora_evaluated"]
-    assert "muscima_pp" in res["corpora_evaluated"]
-
-    smb_data = res["corpora_evaluated"]["smb"]
-    assert smb_data["omr_quality"]["total_evaluated"] == 3
-    assert smb_data["omr_quality"]["failures_count"] == 1
-    assert smb_data["omr_quality"]["failure_rate"] > 0
-    assert smb_data["effort_reduction"]["effort_reduction_percent"] > 0
-    assert "validation_metrics" in smb_data
-
-    muscima_data = res["corpora_evaluated"]["muscima_pp"]
-    assert muscima_data["analysis"]["has_sequential_symbolic_ground_truth"] is False
-    assert muscima_data["analysis"]["optical_generalization_evaluation"]["evaluated"] is False
-    assert res["simulated"] is True
-
-
-def test_exp_09_has_no_primus_fallback_figures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Sin resumen de exp_03, exp_09 no rellena PrIMuS con cifras fijas (#139)."""
-    from ml.experiments import exp_09_multicorpus_evaluation
-
-    monkeypatch.setattr(
-        exp_09_multicorpus_evaluation, "PRIMUS_SUMMARY_FILE", tmp_path / "missing.json"
-    )
-    res = exp_09_multicorpus_evaluation.run_multicorpus_experiment(smoke=True, write_results=False)
-    assert res["simulated"] is True
-    assert res["corpora_evaluated"]["primus"]["summary"] is None
-    assert "91 de 100" not in res["comparative_analysis"]["homr_adaptation"]
-
-    other_corpus = tmp_path / "otro.json"
-    other_corpus.write_text(
-        json.dumps({"corpus": "smb", "successes_count": 1, "total_evaluated": 2}),
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(exp_09_multicorpus_evaluation, "PRIMUS_SUMMARY_FILE", other_corpus)
-    other = exp_09_multicorpus_evaluation.run_multicorpus_experiment(
-        smoke=True, write_results=False
-    )
-    assert other["corpora_evaluated"]["primus"]["summary"] is None
-    assert "1 de 2" not in other["comparative_analysis"]["homr_adaptation"]
-
-    smb = res["corpora_evaluated"]["smb"]["omr_quality"]
-    justification = res["sample_size_justification"]
-    assert justification["smb_pairs_evaluated"] == smb["total_evaluated"]
-    assert justification["smb_failures"] == smb["failures_count"]
+    assert importlib.util.find_spec("ml.experiments.exp_09_multicorpus_evaluation") is None
+    experiments = REPO_ROOT / "ml" / "experiments"
+    assert not list(experiments.glob("exp_09*.py"))
 
 
 def test_exp_01_effort_smb_custom_manifest(tmp_path: Path) -> None:
@@ -1059,27 +1014,64 @@ def test_exp_10_effort_study_smoke(tmp_path: Path) -> None:
     assert (tmp_path / "effort_study_sessions.csv").is_file()
     assert (tmp_path / "effort_study_by_measure.csv").is_file()
     assert (tmp_path / "effort_study_summary.json").is_file()
-    assert (tmp_path / "exp_10_run_info.json").is_file()
-
-    # Reducciones mayores a 0
-    assert summary["effort_reduction"]["time_per_measure_reduction_percent"] > 0
-    assert summary["effort_reduction"]["cognitive_workload_reduction_percent"] > 0
-    assert summary["simulated"] is True
-    assert summary["data_source"] == "synthetic"
-
-
-def test_exp_10_empty_database_is_marked_as_synthetic(tmp_path: Path) -> None:
-    """Una base sin sesiones de estudio no puede producir un resultado «real» (#96)."""
-    from ml.experiments import exp_10_effort_study
-
-    summary = exp_10_effort_study.run_effort_study_export(
-        db_url=f"sqlite+pysqlite:///{(tmp_path / 'empty.db').as_posix()}",
-        output_dir=tmp_path / "out",
-    )
-
     assert summary["simulated"] is True
     assert summary["data_source"] == "synthetic"
     assert "simulation_warning" in summary
+
+    # El run_info de una exportación sintética también lo dice, y solo va a su carpeta.
+    run_info = json.loads((tmp_path / "exp_10_run_info.json").read_text(encoding="utf-8"))
+    assert run_info["simulated"] is True
+    assert run_info["data_source"] == "synthetic"
+    assert not (common.RESULTS_DIR / "exp_10_run_info.json").exists()
+
+
+def test_exp_10_smoke_never_writes_into_results(tmp_path: Path) -> None:
+    """Los datos sintéticos no van a `results/`, donde pasarían por el estudio (#271)."""
+    from ml.experiments import exp_10_effort_study
+
+    with pytest.raises(ValueError, match="results"):
+        exp_10_effort_study.run_effort_study_export(smoke=True)
+    with pytest.raises(ValueError, match="results"):
+        exp_10_effort_study.run_effort_study_export(smoke=True, output_dir=common.RESULTS_DIR)
+    assert not list(common.RESULTS_DIR.glob("effort_study_*"))
+
+
+def test_exp_10_smoke_refuses_any_path_into_the_repository_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """También `results` relativo y sus subcarpetas: el del repositorio, no solo el en uso."""
+    from ml.experiments import exp_10_effort_study
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr(exp_10_effort_study, "REPO_ROOT", repo)
+    monkeypatch.chdir(repo)
+
+    for output_dir in ("results", "./results/sub", repo / "results" / "x"):
+        with pytest.raises(ValueError, match="results"):
+            exp_10_effort_study.run_effort_study_export(smoke=True, output_dir=output_dir)
+    assert not (repo / "results").exists()
+
+
+def test_exp_10_without_database_fails(tmp_path: Path) -> None:
+    """Sin `--db-url` ni `--smoke` no hay estudio que exportar ni datos de reserva (#271)."""
+    from ml.experiments import exp_10_effort_study
+
+    with pytest.raises(ValueError, match="--db-url"):
+        exp_10_effort_study.run_effort_study_export(output_dir=tmp_path / "out")
+    assert not (tmp_path / "out" / "effort_study_summary.json").exists()
+
+
+def test_exp_10_empty_database_fails_instead_of_inventing_sessions(tmp_path: Path) -> None:
+    """Una base sin sesiones de estudio no se rellena con datos sintéticos (#96, #271)."""
+    from ml.experiments import exp_10_effort_study
+
+    with pytest.raises(ValueError, match="sesiones"):
+        exp_10_effort_study.run_effort_study_export(
+            db_url=f"sqlite+pysqlite:///{(tmp_path / 'empty.db').as_posix()}",
+            output_dir=tmp_path / "out",
+        )
+    assert not (tmp_path / "out" / "effort_study_summary.json").exists()
 
 
 def test_exp_10_excludes_self_registered_accounts() -> None:
@@ -1131,6 +1123,14 @@ def test_ml_cli_export_effort(tmp_path: Path) -> None:
     assert code == 0
     assert (tmp_path / "effort_study_sessions.csv").is_file()
     assert (tmp_path / "effort_study_summary.json").is_file()
+
+
+def test_ml_cli_export_effort_smoke_refuses_results(capsys: pytest.CaptureFixture[str]) -> None:
+    """Con la carpeta por defecto (`results`), `--smoke` falla con un mensaje claro (#271)."""
+    from ml import cli
+
+    assert cli.main(["export-effort", "--smoke"]) == 1
+    assert "results" in capsys.readouterr().err
 
 
 def test_exp_02_coverage_counts_only_content_ops() -> None:

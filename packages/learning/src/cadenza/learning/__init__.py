@@ -64,12 +64,9 @@ from .registry import (
 )
 from .trainer import (
     FakeTrainer,
-    PyTorchTrainer,
     TrainedArtifact,
     Trainer,
     TrainingConfig,
-    create_trainer,
-    is_torch_available,
 )
 from .validation_metrics import (
     BinaryMetrics,
@@ -105,7 +102,6 @@ __all__ = [
     "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
-    "PyTorchTrainer",
     "RandomAcquisition",
     "RepositoryDatasetReader",
     "SemanticMismatch",
@@ -126,7 +122,6 @@ __all__ = [
     "compute_config_hash",
     "compute_correction_magnitude",
     "count_edits_by_op",
-    "create_trainer",
     "dataset_hash",
     "derive_edit_events",
     "deserialize_dataset",
@@ -138,7 +133,6 @@ __all__ = [
     "format_key_signature_symbol",
     "format_time_signature_symbol",
     "is_structurally_equal",
-    "is_torch_available",
     "key_accidental",
     "load_job_config",
     "load_training_config",

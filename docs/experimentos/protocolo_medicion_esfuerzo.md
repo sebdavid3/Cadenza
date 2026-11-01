@@ -155,11 +155,14 @@ Cadenza provee un módulo de exportación y CLI automatizado para extraer la tel
 uv run python ml/cli.py export-effort --db-url sqlite:///cadenza.db --output-dir results/
 
 # O mediante ejecución del módulo de experimento:
-uv run python -m ml.experiments.exp_10_effort_study --output-dir results/
+uv run python -m ml.experiments.exp_10_effort_study --db-url sqlite:///cadenza.db --output-dir results/
 ```
-Para auditoría en integración continua (CI) y validación de reproducibilidad sin requerir base de datos interactiva:
+Sin `--db-url`, o con una base sin sesiones del estudio, la exportación falla: no rellena con
+datos sintéticos ([#271](https://github.com/sebdavid3/Cadenza/issues/271)). Para probar la
+exportación sin base de datos, `--smoke` genera datos sintéticos, marcados con
+`"simulated": true` en el resumen y en el `run_info`, y exige una carpeta fuera de `results/`:
 ```bash
-uv run python ml/cli.py export-effort --smoke --output-dir results/
+uv run python ml/cli.py export-effort --smoke --output-dir <carpeta temporal>
 ```
 
 ### 6.2 Archivos de Datos Generados

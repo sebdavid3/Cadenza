@@ -82,8 +82,11 @@ flowchart LR
 | Evaluación en SMB y MUSCIMA++ ([#102](https://github.com/sebdavid3/Cadenza/issues/102)) y ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) | Fuera de la entrega de noviembre de 2026 (trabajo futuro) |
 | Estudio de esfuerzo con participantes | Protocolo listo; el estudio está previsto del 9 al 15 de noviembre de 2026 ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) |
 
-El entrenamiento del plano offline usa hoy un entrenador de prueba (`FakeTrainer`); el
-ajuste fino real del modelo OMR es [#103](https://github.com/sebdavid3/Cadenza/issues/103).
+El aprendizaje de las correcciones lo hace la capa de sugerencias (`ml suggestions`,
+[ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)). `ml train` solo guarda los
+pesos de un entrenador de prueba (`FakeTrainer`) con las métricas que se le dan, siempre
+marcadas como simuladas; el ajuste fino real del modelo OMR es
+[#103](https://github.com/sebdavid3/Cadenza/issues/103).
 
 Las cifras medidas (calidad OMR, precisión del validador, latencia), la deuda técnica y la
 bitácora están en [`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md), con el experimento que
@@ -439,8 +442,7 @@ Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments). Escr
 | `exp_05_edit_derivation.py` | Derivación de ediciones a partir de errores reales del OMR |
 | `exp_06_validation_metrics.py` | Precisión y *recall* del validador |
 | `exp_07_preprocessing_impact.py` | Efecto del preprocesado de imagen sobre HOMR |
-| `exp_09_multicorpus_evaluation.py` | Evaluación en SMB y MUSCIMA++ (alcance por decidir, [#102](https://github.com/sebdavid3/Cadenza/issues/102)) |
-| `exp_10_effort_study.py` | Exportación del estudio de esfuerzo (hoy con datos sintéticos) |
+| `exp_10_effort_study.py` | Exportación del estudio de esfuerzo desde la base de datos; sin sesiones del estudio falla, y `--smoke` (datos sintéticos, marcados) no escribe en `results/` |
 | `exp_11_latency_benchmark.py` | Latencia de transcripción con HOMR en CPU y GPU |
 
 ```bash

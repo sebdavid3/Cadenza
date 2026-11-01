@@ -386,9 +386,9 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
     promoted_path = tmp_path / "promoted.json"
     artifacts_dir = tmp_path / "artifacts"
 
-    # 1. build-dataset & train
+    # 1. build-dataset & train (sin métricas de reserva: train las recibe, como simuladas)
     main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
-    main(
+    rc_tr = main(
         [
             "train",
             "--input",
@@ -399,8 +399,13 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
             str(artifacts_dir),
             "--db-url",
             populated_db_url,
+            "--ser",
+            "0.5",
+            "--omr-ned",
+            "0.5",
         ]
     )
+    assert rc_tr == 0
 
     # 2. evaluate con SER y OMR-NED reales (ej. del baseline HOMR sobre PrIMuS)
     rc_ev = main(
@@ -448,54 +453,83 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
         assert active.metrics.omr_ned == 0.0850
 
 
-def test_cli_train_with_trainer_options(tmp_path: Path, populated_db_url: str) -> None:
-    dataset_path = tmp_path / "dataset.json"
-    trained_fake = tmp_path / "trained_fake.json"
-    trained_auto = tmp_path / "trained_auto.json"
-    artifacts_dir = tmp_path / "artifacts"
+def _train_args(tmp_path: Path, db_url: str, dataset: Path, output: Path) -> list[str]:
+    return [
+        "train",
+        "--input",
+        str(dataset),
+        "--output",
+        str(output),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db-url",
+        db_url,
+    ]
 
-    # Construir dataset
-    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
 
-    # 1. train explícito con --trainer fake
-    rc_fake = main(
+def test_cli_train_without_metrics_fails_with_a_clear_message(
+    tmp_path: Path, populated_db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sin --ser/--omr-ned no hay métricas de reserva: `train` falla y lo explica (#271)."""
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+    capsys.readouterr()
+
+    assert main(_train_args(tmp_path, populated_db_url, dataset, trained)) == 1
+
+    assert not trained.exists()
+    error = capsys.readouterr().err
+    assert "--ser" in error
+    assert "--omr-ned" in error
+    assert "ml suggestions" in error
+
+
+def test_cli_train_uses_the_fake_trainer_with_the_given_metrics(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+
+    args = [*_train_args(tmp_path, populated_db_url, dataset, trained), "--ser", "0.05"]
+    assert main([*args, "--omr-ned", "0.04"]) == 0
+
+    data = json.loads(trained.read_text(encoding="utf-8"))
+    assert data["trainer"] == "FakeTrainer"
+    assert data["metrics"] == {"ser": 0.05, "omr_ned": 0.04}
+    assert data["metrics_source"] == "arguments"
+    assert data["simulated"] is True
+    assert "simulation_warning" in data
+
+
+def test_cli_train_no_longer_offers_a_trainer_backend(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    """`--trainer` elegía `PyTorchTrainer`, retirado en #271."""
+    dataset = tmp_path / "dataset.json"
+    args = _train_args(tmp_path, populated_db_url, dataset, tmp_path / "trained.json")
+    with pytest.raises(SystemExit) as excinfo:
+        main([*args, "--ser", "0.05", "--omr-ned", "0.04", "--trainer", "torch"])
+    assert excinfo.value.code == 2
+
+
+def test_cli_run_without_metrics_stops_at_train(tmp_path: Path, populated_db_url: str) -> None:
+    work_dir = tmp_path / "pipeline_run"
+    rc = main(
         [
-            "train",
-            "--input",
-            str(dataset_path),
-            "--output",
-            str(trained_fake),
-            "--artifacts-dir",
-            str(artifacts_dir),
+            "run",
+            "--work-dir",
+            str(work_dir),
             "--db-url",
             populated_db_url,
-            "--trainer",
-            "fake",
-        ]
-    )
-    assert rc_fake == 0
-    fake_data = json.loads(trained_fake.read_text(encoding="utf-8"))
-    assert fake_data["trainer"] == "FakeTrainer"
-
-    # 2. train con --trainer auto (fallback a FakeTrainer cuando torch no está)
-    rc_auto = main(
-        [
-            "train",
-            "--input",
-            str(dataset_path),
-            "--output",
-            str(trained_auto),
             "--artifacts-dir",
-            str(artifacts_dir),
-            "--db-url",
-            populated_db_url,
-            "--trainer",
-            "auto",
+            str(tmp_path / "artifacts"),
         ]
     )
-    assert rc_auto == 0
-    auto_data = json.loads(trained_auto.read_text(encoding="utf-8"))
-    assert auto_data["trainer"] in ("FakeTrainer", "PyTorchTrainer")
+    assert rc == 1
+    # Falla antes de construir el dataset: nada a medias en --work-dir.
+    assert not work_dir.exists()
 
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "learning" / "default.json"
@@ -668,58 +702,6 @@ def test_cli_evaluate_prefers_arguments_then_manifest_over_artifact(tmp_path: Pa
     assert data["simulated"] is False
 
 
-def test_cli_trainer_default_metrics_are_marked_simulated_downstream(
-    tmp_path: Path, populated_db_url: str
-) -> None:
-    """Las métricas fijas del entrenador salen marcadas en train, evaluate y promote (#139, D14)."""
-    dataset = tmp_path / "dataset.json"
-    trained = tmp_path / "trained.json"
-    report = tmp_path / "eval.json"
-    promoted = tmp_path / "promoted.json"
-    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
-    rc = main(
-        [
-            "train",
-            "--input",
-            str(dataset),
-            "--output",
-            str(trained),
-            "--artifacts-dir",
-            str(tmp_path / "artifacts"),
-            "--db-url",
-            populated_db_url,
-            "--trainer",
-            "fake",
-        ]
-    )
-    assert rc == 0
-    trained_data = json.loads(trained.read_text(encoding="utf-8"))
-    assert trained_data["simulated"] is True
-    assert trained_data["metrics_source"] == "trainer_default"
-    assert "simulation_warning" in trained_data
-
-    assert main(["evaluate", "--input", str(trained), "--output", str(report)]) == 0
-    report_data = json.loads(report.read_text(encoding="utf-8"))
-    assert report_data["simulated"] is True
-    assert report_data["metrics_source"] == {"ser": "artifact", "omr_ned": "artifact"}
-
-    main(
-        [
-            "promote",
-            "--input",
-            str(trained),
-            "--version",
-            "v-simulada",
-            "--db-url",
-            populated_db_url,
-            "--output",
-            str(promoted),
-            "--allow-rejected",
-        ]
-    )
-    assert json.loads(promoted.read_text(encoding="utf-8"))["simulated"] is True
-
-
 def test_cli_train_metrics_are_never_measurements(tmp_path: Path, populated_db_url: str) -> None:
     """Con --ser/--omr-ned las métricas del artefacto siguen sin medirse (D14, #139)."""
     dataset = tmp_path / "dataset.json"
@@ -735,8 +717,6 @@ def test_cli_train_metrics_are_never_measurements(tmp_path: Path, populated_db_u
         str(tmp_path / "artifacts"),
         "--db-url",
         populated_db_url,
-        "--trainer",
-        "fake",
     ]
     assert main([*common_args, "--ser", "0.05"]) == 1
     assert not trained.exists()
