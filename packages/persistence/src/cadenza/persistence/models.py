@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     event,
     false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -207,9 +209,22 @@ class ArtifactRecord(Base):
 
 
 class EffortMetricsRecord(Base):
-    """Métricas de esfuerzo humano en la corrección de una sesión (ADR-0004, #13)."""
+    """Métricas de esfuerzo humano en la corrección de una sesión (ADR-0004, #13).
+
+    `accumulated` marca el único registro que acumula la web por sesión (#188, ADR-0050): lo
+    garantiza un índice único parcial. Los demás son registros sueltos de `POST /effort`.
+    """
 
     __tablename__ = "effort_metrics"
+    __table_args__ = (
+        Index(
+            "uq_effort_metrics_accumulated_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("accumulated = 1"),
+            postgresql_where=text("accumulated"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(
@@ -224,6 +239,29 @@ class EffortMetricsRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Lo que acumula la web (#188, ADR-0050, migración 0015).
+    accumulated: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    segments: Mapped[list[dict[str, Any]]] = mapped_column(
+        JsonDocument, default=list, server_default=text("'[]'"), nullable=False
+    )
+    interventions_by_class: Mapped[dict[str, Any]] = mapped_column(
+        JsonDocument, default=dict, server_default=text("'{}'"), nullable=False
+    )
+    findings_dismissed: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    findings_restored: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    suggestions_applied: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    suggestions_rejected: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped[Session] = relationship(back_populates="effort_metrics")
 

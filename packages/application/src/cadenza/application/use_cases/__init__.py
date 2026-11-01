@@ -15,6 +15,11 @@ from .list_findings import list_findings
 from .list_sessions import list_sessions
 from .list_users import list_users
 from .record_effort import record_effort
+from .record_effort_segment import (
+    MAX_EFFORT_SEGMENTS,
+    record_effort_segment,
+    refresh_accumulated_effort,
+)
 from .register_user import register_user
 from .reject_suggestion import reject_suggestion
 from .reopen_session import ReopenResult, reopen_session
@@ -26,6 +31,7 @@ from .update_session_metadata import UNCHANGED, Unchanged, update_session_metada
 from .update_user import update_user
 
 __all__ = [
+    "MAX_EFFORT_SEGMENTS",
     "UNCHANGED",
     "AppliedEdit",
     "FinalizeResult",
@@ -53,6 +59,8 @@ __all__ = [
     "list_users",
     "normalize_condition",
     "record_effort",
+    "record_effort_segment",
+    "refresh_accumulated_effort",
     "register_user",
     "reject_suggestion",
     "reopen_session",

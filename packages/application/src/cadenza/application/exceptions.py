@@ -183,3 +183,15 @@ class SuggestionConflict(ApplicationError):
         super().__init__(message)
         self.suggestion_id = suggestion_id
         self.message = message
+
+
+class InvalidEffortSegment(ApplicationError):
+    """Un tramo de la medición del esfuerzo que no puede ser (#188, ADR-0050 §2).
+
+    Un identificador vacío, largo o con caracteres raros, un tiempo negativo, una primera edición
+    posterior al tiempo del tramo, o un total que no cabe en el registro.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from ..exceptions import Forbidden, SessionClosed, SessionNotFound
+from ..ports.effort_repository import EffortRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
 from ..session_status import SessionStatus
 from ..user import Role, User
@@ -14,6 +17,7 @@ def dismiss_finding(
     *,
     session_repository: SessionRepository,
     current_user: User,
+    effort_repository: EffortRepository | None = None,
     reason: str | None = None,
 ) -> PersistedFinding:
     """Descarta un hallazgo de validación marcándolo como falso positivo.
@@ -38,9 +42,21 @@ def dismiss_finding(
     if session_data.status == SessionStatus.FINALIZED:
         raise SessionClosed(session_id)
 
-    return session_repository.dismiss_finding(
+    # Con `effort_repository`, la orden cuenta en el registro de esfuerzo si cambia el estado del
+    # posible error (#188, ADR-0050 §4): repetirla sobre uno que ya lo estaba no es otra acción.
+    changes = effort_repository is not None and any(
+        finding.id == finding_id and finding.status == "active"
+        for finding in session_repository.list_findings(
+            session_id, latest_only=False, include_dismissed=True
+        )
+    )
+
+    dismissed = session_repository.dismiss_finding(
         session_id,
         finding_id,
         user=current_user.username,
         reason=reason,
     )
+    if changes and effort_repository is not None:
+        effort_repository.add_finding_action(session_id, "dismissed", now=datetime.now(UTC))
+    return dismissed
