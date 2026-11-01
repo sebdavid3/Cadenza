@@ -160,6 +160,15 @@ def test_client_before_must_match_the_server_snapshot() -> None:
         {"durations": ["1/3"] * 3},
         before={"durations": ["0.5", "1/2", "2/4"]},
     )
+    # Un número que no cabe en un entero (1e999 en JSON) es un 422, no un 500.
+    with pytest.raises(InvalidEdit, match="no válido"):
+        _append(
+            repos,
+            EditOp.SET_TIME,
+            _anchor(),
+            {"time_signature": {"beats": 2, "beat_type": 4}},
+            before={"time_signature": {"beats": float("inf"), "beat_type": 4}},
+        )
 
 
 @pytest.mark.parametrize(
@@ -178,3 +187,15 @@ def test_invalid_meter_edits_are_rejected_without_persisting(
     with pytest.raises(InvalidEdit):
         _append(repos, op, _anchor(), after)
     assert not repos[1].list_events("s1")
+
+
+def test_a_suggestion_of_set_time_or_set_tuplet_matches_its_equivalent_edit() -> None:
+    """Aplicar una sugerencia compara su `after` normalizado (ADR-0036 §5)."""
+    from cadenza.application.suggestions import same_after
+
+    proposed = {"time_signature": {"beats": 4, "beat_type": 4}}
+    sent = {"time_signature": {"beats": 4, "beat_type": 4, "symbol": None}}
+    assert same_after(EditOp.SET_TIME, proposed, sent)
+    common = {"time_signature": {"beats": 4, "beat_type": 4, "symbol": "common"}}
+    assert not same_after(EditOp.SET_TIME, proposed, common)
+    assert same_after(EditOp.SET_TUPLET, {"durations": ["1/3", None]}, {"durations": ["2/6", None]})

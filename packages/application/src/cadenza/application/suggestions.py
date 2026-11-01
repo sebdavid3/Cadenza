@@ -99,6 +99,15 @@ def normalize_after(op: EditOp, after: Mapping[str, Any] | None) -> Any:
             data["duration_beats"] = str(Fraction(str(raw)))
     if op is EditOp.SET_ACCIDENTAL:
         data["accidental"] = normalize_accidental(data.get("accidental"))
+    if op is EditOp.SET_TIME:
+        # Un compás sin símbolo es igual con `symbol: None` o sin él (ADR-0044).
+        signature = data.get("time_signature")
+        if isinstance(signature, Mapping):
+            data["time_signature"] = {k: v for k, v in signature.items() if v is not None}
+    if op is EditOp.SET_TUPLET:
+        data["durations"] = [
+            None if d is None else str(Fraction(str(d))) for d in data.get("durations") or ()
+        ]
     if op is EditOp.INSERT_EVENT:
         # Sin los valores que equivalen a no darlos (None, False, una lista vacía); un 0 sí
         # cuenta (`voice: 0`).

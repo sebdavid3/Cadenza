@@ -268,7 +268,7 @@ def _check_snapshot_before(
         server_before = {**server_before, "measures": None}
     try:
         same = _mark_state(op, before) == _mark_state(op, server_before)
-    except (KeyError, TypeError, ValueError, ZeroDivisionError) as exc:
+    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError) as exc:
         raise InvalidEdit(f"Estado previo 'before' no válido para {op.value}: {exc!r}") from exc
     if not same:
         raise InvalidEdit(
