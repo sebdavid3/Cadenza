@@ -30,6 +30,8 @@ Hechos comprobados en el código el 2026-10-31:
 - **Importación**: se guarda si music21 lo trae y escribe su métrica (otro `symbol`, como `single-number`, o un C sobre 3/4, se queda en los números). **Exportación**: se escribe donde cambia la métrica o su grafía, también de C a 4/4 con números.
 - **Huella de `data/`** (antes y después, en solo lectura, sobre 4 436 archivos: las verdades MEI de los dos manifiestos, las predicciones de HOMR de `data/primus/predictions*` y las tres verdades de referencia): cambian 1 155, todas verdades (72 de las 100 del manifiesto principal, 1 081 del de `exp_12` y dos `.mxl` de referencia), por 3 397 compases con C y 1 346 con ¢; ninguna predicción. Quitando el símbolo, las 1 155 dan exactamente la huella de antes.
 - **Las cifras de `results/` no cambian**: los experimentos comparan métricas con `==` (`time_misread` de `exp_12`, `is_structurally_equal`), que no ve el símbolo; la SER y el corpus usan `str()` o `beats`/`beat_type`; los rasgos de la capa de sugerencias usan `str(time)`, así que `FEATURE_VERSION` no cambia.
+- **El OMR-NED se mide sin el símbolo.** `exp_14` exporta el `ScoreIR` de la verdad y de cada variante para compararlos con musicdiff, que sí cuenta el símbolo: con la exportación de usuario, el OMR-NED medio de HOMR en `exp_14` subía de 0,165 a 0,1775 (de 0,1641 a 0,1766 con las sugerencias de confianza alta; ejecución del responsable en el scratchpad, no en `results/`), porque la verdad lleva C o ¢ y HOMR nunca los escribe. Para que siga siendo comparable con todo el OMR-NED medido y citado (`exp_01`, `exp_03`, `exp_05`, `exp_12`, `exp_14`…) y coherente con que el símbolo es grafía, **las mediciones exportan sin él** (`without_time_symbols`, en `cadenza.learning.evaluation`): dos partituras que solo difieren en el símbolo dan OMR-NED 0, y una con C da el OMR-NED que daba antes de #236. La exportación de usuario (`/export`, la descarga) sí lo lleva. Los experimentos que comparan con musicdiff los archivos de origen (la verdad MEI y el MusicXML de HOMR, sin pasar por el `ScoreIR`) no cambian: leen los mismos archivos que antes.
+- **El acierto del símbolo, aparte**: `time_symbol_agreement(predicted, truth)` cuenta los compases con el símbolo bien o mal leído (los que lo llevan en la lectura o en la verdad). Ningún experimento lo usa todavía: medirlo es de [#237](https://github.com/sebdavid3/Cadenza/issues/237), que reconoce C y ¢.
 - **Contrato**: `TimeSignaturePayload.symbol`, opcional y `null` por defecto.
 
 ### 2. `SetTime`: cambiar el compás desde un compás
@@ -81,11 +83,11 @@ Ampliación compatible del contrato v1: `EditOp` gana `SetTime` y `SetTuplet`, y
 ### Positivas
 - Se corrige el compás (números, C o ¢) desde un compás y para toda la parte con una edición, y doce corcheas pasan a cuatro tresillos con una edición; las dos se deshacen de un paso y exactamente.
 - Las verdades con C y ¢ se exportan con su símbolo.
-- Las cifras de `results/` no cambian (§1 y §4), y la caché del estado (ADR-0037) no necesita nada: las dos operaciones pasan por `apply_edit` y un cambio de solo grafía no cambia el mapa de tiempos.
+- Las cifras de `results/` no cambian (§1 y §4; el OMR-NED, porque se mide sin el símbolo), y la caché del estado (ADR-0037) no necesita nada: las dos operaciones pasan por `apply_edit` y un cambio de solo grafía no cambia el mapa de tiempos.
 - `time.signature` trae ya su candidato aplicable, por si #244 decide mostrarlo.
 
 ### Negativas / Riesgos
-- La igualdad de `TimeSignature` no ve el símbolo: código nuevo que quiera distinguir C de 4/4 debe usar `same_notation`. Las pruebas lo cubren en el exportador, `SetTime` y el `before` del cliente.
+- La igualdad de `TimeSignature` no ve el símbolo: código nuevo que quiera distinguir C de 4/4 debe usar `same_notation`, y una medición nueva que exporte el `ScoreIR` para compararlo debe pasar por `without_time_symbols`. Las pruebas lo cubren en el exportador, `SetTime` y el `before` del cliente.
 - `SetTime` no admite `null` de un cliente, a diferencia de `SetClef` y `SetKey`: para quitar un cambio hay que poner el compás anterior.
 - Una partitura cuyos pentagramas lleven compases distintos en un mismo compás (no ocurre con HOMR) no se puede cambiar con `SetTime` (422).
 - `SetTime` no toca las notas: cambiar 3/4 por 4/4 deja los compases con las mismas figuras, y el validador los señala si no cuadran.
