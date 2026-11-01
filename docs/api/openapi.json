@@ -2220,6 +2220,118 @@
           }
         }
       }
+    },
+    "/sessions/{session_id}/effort/segments/{segment_id}": {
+      "put": {
+        "tags": [
+          "Effort"
+        ],
+        "summary": "Sumar un tramo al registro de esfuerzo de la sesión",
+        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
+        "operationId": "record_effort_segment_endpoint_sessions__session_id__effort_segments__segment_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "segment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "Identificador del tramo: uno por pestaña, que dura sus recargas",
+              "title": "Segment Id"
+            },
+            "description": "Identificador del tramo: uno por pestaña, que dura sus recargas"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EffortSegmentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffortMetricsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2948,6 +3060,68 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "accumulated": {
+            "type": "boolean",
+            "title": "Accumulated",
+            "description": "Si es el registro que acumula la web (ADR-0050)",
+            "default": false
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/EffortSegmentRead"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "Tramos de tiempo de cada pestaña, en orden de llegada"
+          },
+          "interventions_by_class": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Interventions By Class",
+            "description": "Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla"
+          },
+          "findings_dismissed": {
+            "type": "integer",
+            "title": "Findings Dismissed",
+            "description": "Posibles errores descartados (cambiaron de activo a descartado)",
+            "default": 0
+          },
+          "findings_restored": {
+            "type": "integer",
+            "title": "Findings Restored",
+            "description": "Posibles errores restaurados (de descartado a activo)",
+            "default": 0
+          },
+          "suggestions_applied": {
+            "type": "integer",
+            "title": "Suggestions Applied",
+            "description": "Sugerencias aplicadas",
+            "default": 0
+          },
+          "suggestions_rejected": {
+            "type": "integer",
+            "title": "Suggestions Rejected",
+            "description": "Sugerencias rechazadas (sin contar los rechazos heredados)",
+            "default": 0
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Último cambio del registro acumulado"
           }
         },
         "type": "object",
@@ -2960,7 +3134,92 @@
           "created_at"
         ],
         "title": "EffortMetricsRead",
-        "description": "Métricas de esfuerzo persistidas para una sesión (#13)."
+        "description": "Métricas de esfuerzo persistidas para una sesión (#13, #188).\n\nEl registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás\nson registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero."
+      },
+      "EffortSegmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "active_ms": {
+            "type": "integer",
+            "title": "Active Ms"
+          },
+          "first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Edit Ms"
+          },
+          "idle_threshold_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Threshold Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "active_ms",
+          "first_edit_ms"
+        ],
+        "title": "EffortSegmentRead",
+        "description": "Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2)."
+      },
+      "EffortSegmentUpdate": {
+        "properties": {
+          "active_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active Ms",
+            "description": "Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas más allá del umbral (protocolo §3.4)"
+          },
+          "first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Edit Ms",
+            "description": "Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en este tramo; una vez conocido, el servidor lo conserva"
+          },
+          "idle_threshold_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Threshold Ms",
+            "description": "Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active_ms"
+        ],
+        "title": "EffortSegmentUpdate",
+        "description": "Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).\n\nSolo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta\ndos veces."
       },
       "ErrorDetail": {
         "properties": {

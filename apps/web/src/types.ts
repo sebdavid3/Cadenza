@@ -245,7 +245,10 @@ export interface EffortMetricsCreate {
 }
 
 /**
- * Métricas de esfuerzo persistidas para una sesión (#13).
+ * Métricas de esfuerzo persistidas para una sesión (#13, #188).
+ * 
+ * El registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás
+ * son registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero.
  */
 export interface EffortMetricsRead {
   id: string;
@@ -254,6 +257,47 @@ export interface EffortMetricsRead {
   time_to_first_edit_ms: number | null;
   interventions: Record<string, number>;
   created_at: string;
+  /** Si es el registro que acumula la web (ADR-0050) */
+  accumulated?: boolean;
+  /** Tramos de tiempo de cada pestaña, en orden de llegada */
+  segments?: EffortSegmentRead[];
+  /** Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla */
+  interventions_by_class?: Record<string, Record<string, number>>;
+  /** Posibles errores descartados (cambiaron de activo a descartado) */
+  findings_dismissed?: number;
+  /** Posibles errores restaurados (de descartado a activo) */
+  findings_restored?: number;
+  /** Sugerencias aplicadas */
+  suggestions_applied?: number;
+  /** Sugerencias rechazadas (sin contar los rechazos heredados) */
+  suggestions_rejected?: number;
+  /** Último cambio del registro acumulado */
+  updated_at?: string | null;
+}
+
+/**
+ * Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2).
+ */
+export interface EffortSegmentRead {
+  id: string;
+  active_ms: number;
+  first_edit_ms: number | null;
+  idle_threshold_ms?: number | null;
+}
+
+/**
+ * Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).
+ * 
+ * Solo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta
+ * dos veces.
+ */
+export interface EffortSegmentUpdate {
+  /** Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas más allá del umbral (protocolo §3.4) */
+  active_ms: number;
+  /** Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en este tramo; una vez conocido, el servidor lo conserva */
+  first_edit_ms?: number | null;
+  /** Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4) */
+  idle_threshold_ms?: number | null;
 }
 
 /**
