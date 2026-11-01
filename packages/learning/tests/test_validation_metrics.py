@@ -103,6 +103,8 @@ def test_categorize_edit_op() -> None:
     assert categorize_edit_op(EditOp.SET_SLUR) == "marks"
     assert categorize_edit_op(EditOp.SET_TIME) == "meter"
     assert categorize_edit_op(EditOp.SET_TUPLET) == "meter"
+    # La figura de un acorde (ADR-0049), en la misma clase que los tresillos.
+    assert categorize_edit_op(EditOp.SET_CHORD_DURATION) == "meter"
     assert categorize_edit_op("custom") == "other"
 
 

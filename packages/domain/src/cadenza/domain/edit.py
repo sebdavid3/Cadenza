@@ -92,6 +92,13 @@ class EditOp(StrEnum):
     13. `SET_TUPLET` ("SetTuplet"):
         - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
         - ``before``/``after``: ``{"durations": [str | None, ...]}``, sus figuras.
+
+    Figura de un acorde (ADR-0049). También de tipo «fijar», y tampoco mueve ningún evento.
+
+    14. `SET_CHORD_DURATION` ("SetChordDuration"):
+        - Fija la figura de todas las notas de un acorde, anclada en su primera nota.
+        - ``before``/``after``: ``{"durations": [str | None, ...]}``, una por nota del acorde
+          (en el ``after`` del cliente, todas iguales y con duración).
     """
 
     SET_PITCH = "SetPitch"
@@ -107,6 +114,7 @@ class EditOp(StrEnum):
     SET_SLUR = "SetSlur"
     SET_TIME = "SetTime"
     SET_TUPLET = "SetTuplet"
+    SET_CHORD_DURATION = "SetChordDuration"
 
 
 MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
@@ -115,10 +123,13 @@ MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
 """Operaciones sobre las marcas de notación (ADR-0039). No entran en el dataset ni en las
 métricas de los experimentos, como las marcas mismas (ADR-0031 §6)."""
 
-METER_EDIT_OPS: frozenset[EditOp] = frozenset({EditOp.SET_TIME, EditOp.SET_TUPLET})
-"""Operaciones sobre el compás y los tresillos (ADR-0044). `derive_edit_events` no las produce
-(no alinea las indicaciones de compás, y un tresillo sale como un `SetDuration` por figura), así
-que no entran en la cobertura de `exp_02` ni son muestras del dataset."""
+METER_EDIT_OPS: frozenset[EditOp] = frozenset(
+    {EditOp.SET_TIME, EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION}
+)
+"""Operaciones sobre el compás y las figuras de varios eventos a la vez: los tresillos
+(ADR-0044) y la figura de un acorde (ADR-0049). `derive_edit_events` no las produce (no alinea
+las indicaciones de compás, y un tresillo o la figura de un acorde salen como un `SetDuration`
+por nota), así que no entran en la cobertura de `exp_02` ni son muestras del dataset."""
 
 CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(
     {
@@ -241,8 +252,9 @@ def create_inverse_edit(
 
     Invierte semánticamente cualquier operación de `EditOp`:
     - SetPitch / SetDuration / SetAccidental / SetClef / SetKey, las de marcas (SetNoteMarks,
-      SetDynamic, SetWedge, SetSlur, ADR-0039) y las de compás y tresillos (SetTime,
-      SetTuplet, ADR-0044): intercambia `before` y `after`.
+      SetDynamic, SetWedge, SetSlur, ADR-0039), las de compás y tresillos (SetTime,
+      SetTuplet, ADR-0044) y la figura de un acorde (SetChordDuration, ADR-0049): intercambia
+      `before` y `after`.
     - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
       `before = edit.after` y `after = None`.
     - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con

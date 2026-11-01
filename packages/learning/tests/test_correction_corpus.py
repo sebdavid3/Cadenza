@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import itertools
+from datetime import UTC, datetime
 from fractions import Fraction
 from typing import Any
 
 import pytest
 from cadenza.domain import (
+    Anchor,
     Clef,
+    EditEvent,
     EditOp,
     Event,
     EventKind,
@@ -32,6 +35,7 @@ from cadenza.learning import (
     semantic_note_pitches,
     with_sounding_pitches,
 )
+from cadenza.validation.learned.features import ScoreFeatures
 
 
 def _note(pitch: str, beats: str = "1", voice: int = 0) -> Event:
@@ -384,3 +388,54 @@ def test_records_of_a_measure_without_truth_are_marked_unaligned() -> None:
     assert extra[0]["aligned"] is False
     assert extra[0]["correction"] is None
     assert all(r["aligned"] for r in records if r["anchor"]["measure"] == 1)
+
+
+# --- La figura de un acorde (ADR-0049) ---------------------------------------------------
+
+
+def test_a_chord_figure_edit_gives_the_corpus_and_features_of_one_set_duration_per_note() -> None:
+    """`SetChordDuration` deja el estado que dejarían las `SetDuration` de cada nota: el corpus
+    de una sesión (estado 0 frente al final) y los rasgos de la capa no ven la operación, y
+    `derive_edit_events` la reproduce con una `SetDuration` por nota (ADR-0049, ADR-0039 §3)."""
+    chord = (
+        Event(kind=EventKind.NOTE, pitch="C4", duration_beats=Fraction(1)),
+        Event(kind=EventKind.NOTE, pitch="E4", duration_beats=Fraction(1), is_chord=True),
+        Event(kind=EventKind.NOTE, pitch="G4", duration_beats=Fraction(1), is_chord=True),
+    )
+    raw = _score(_measure(1, *chord, _note("D4", "3"), time=TimeSignature(4, 4)))
+
+    def edit(seq: int, index: int, op: EditOp, after: dict[str, Any]) -> EditEvent:
+        anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=index, staff_id="p-s0")
+        now = datetime(2026, 11, 1, tzinfo=UTC)
+        return EditEvent(
+            id=f"e{seq}",
+            document_id="d",
+            seq=seq,
+            anchor=anchor,
+            op=op,
+            author="ana",
+            created_at=now,
+            after=after,
+        )
+
+    one = materialize(raw, [edit(1, 0, EditOp.SET_CHORD_DURATION, {"durations": ["2"] * 3})])
+    per_note = materialize(
+        raw, [edit(i + 1, i, EditOp.SET_DURATION, {"duration_beats": "2"}) for i in range(3)]
+    )
+    assert one.to_primitive() == per_note.to_primitive()
+
+    derived = derive_edit_events(raw, one, document_id="d")
+    assert [e.op for e in derived] == [EditOp.SET_DURATION] * 3
+    assert is_structurally_equal(materialize(raw, derived), one)
+
+    records = build_correction_records(raw, one, incipit_id="s", split="train", verified=True)
+    assert records == build_correction_records(
+        raw, per_note, incipit_id="s", split="train", verified=True
+    )
+    corrections = [r["correction"] for r in records if r["record"] == "event"]
+    assert [c and c["ops"] for c in corrections] == [["SetDuration"]] * 3 + [None]
+
+    def features(score: ScoreIR) -> dict[Any, Any]:
+        return {p: dict(v.features) for p, v in ScoreFeatures.of(score).events.items()}
+
+    assert features(one) == features(per_note)

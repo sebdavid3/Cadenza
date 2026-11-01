@@ -1,6 +1,7 @@
-"""Ediciones del compás y de los tresillos: validación, estado previo y proyección (ADR-0044, #236).
+"""Ediciones del compás, los tresillos y la figura de un acorde: validación, estado previo y
+proyección (ADR-0044, #236; ADR-0049, #243).
 
-Dos operaciones de tipo «fijar», como las de marcas (ADR-0039): el servidor guarda en `before`
+Tres operaciones de tipo «fijar», como las de marcas (ADR-0039): el servidor guarda en `before`
 el estado que sustituyen, con la forma de su `after`, y la compensatoria intercambia los dos
 (`create_inverse_edit`), de modo que deshacer es exacto (ADR-0007, ADR-0017).
 
@@ -20,6 +21,11 @@ el estado que sustituyen, con la forma de su `after`, y la compensatoria interca
   Poner un tresillo de 3:2 multiplica cada figura por 2/3 y quitarlo, por 3/2: el servidor
   exige una de las dos cosas para todo el tramo. Una sola edición convierte un compás de doce
   corcheas en cuatro tresillos, y se deshace de un paso.
+- `SetChordDuration`, anclada a la primera nota de un acorde: ``{"durations": [d, ..., d]}``,
+  la figura de cada una de sus notas, todas la misma. El exportador dibuja el acorde con la
+  figura de su primera nota y el mapa de tiempos da a cada nota la suya: el acorde cambia
+  entero, en una edición que se deshace de un paso (D61). La instantánea guarda la figura de
+  cada nota, así que deshacer es exacto aunque no fueran iguales.
 
 Ninguna mueve un evento: el `event_index` de las anclas no cambia (ADR-0002, ADR-0011).
 """
@@ -31,7 +37,7 @@ from dataclasses import replace
 from fractions import Fraction
 from typing import Any, Final
 
-from .anchor import Anchor
+from .anchor import Anchor, EventKind
 from .duration_rules import check_duration
 from .edit import EditEvent, EditOp
 from .edit_errors import InvalidEditPayload
@@ -280,11 +286,11 @@ def _tuplet_range(score: ScoreIR, anchor: Anchor, count: int) -> list[Event]:
     return events[anchor.event_index : end]
 
 
-def _parse_durations(after: object) -> list[object]:
+def _parse_durations(after: object, op: EditOp = EditOp.SET_TUPLET) -> list[object]:
     if not isinstance(after, Mapping):
-        raise InvalidEditPayload("SetTuplet requiere un objeto 'after'")
+        raise InvalidEditPayload(f"{op.value} requiere un objeto 'after'")
     if set(after.keys()) != _TUPLET_KEYS:
-        raise InvalidEditPayload("SetTuplet requiere exactamente 'durations' en 'after'")
+        raise InvalidEditPayload(f"{op.value} requiere exactamente 'durations' en 'after'")
     durations = after["durations"]
     if not isinstance(durations, list | tuple) or not durations:
         raise InvalidEditPayload(f"'durations' debe ser una lista no vacía: {durations!r}")
@@ -329,8 +335,7 @@ def _check_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> None:
         )
 
 
-def _snapshot_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> dict[str, Any]:
-    events = _tuplet_range(score, anchor, len(_parse_durations(after)))
+def _durations_of(events: Sequence[Event]) -> dict[str, Any]:
     return {
         "durations": [
             None if event.duration_beats is None else str(event.duration_beats) for event in events
@@ -338,7 +343,15 @@ def _snapshot_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> dict[str,
     }
 
 
-def _apply_tuplet(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> ScoreIR:
+def _snapshot_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> dict[str, Any]:
+    return _durations_of(_tuplet_range(score, anchor, len(_parse_durations(after))))
+
+
+def _apply_durations(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> ScoreIR:
+    """Fija las figuras de los eventos seguidos de la voz del ancla, desde el ancla: las de un
+    tresillo o las de las notas de un acorde (también las de la compensatoria, que no se
+    valida)."""
+
     durations = list(after["durations"])
     part = _part(score, anchor)
     staff = part.staves[anchor.staff]
@@ -366,13 +379,71 @@ def _apply_tuplet(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> S
     return replace(score, parts=tuple(parts))
 
 
+# --- SetChordDuration --------------------------------------------------------------------
+
+
+def _chord(score: ScoreIR, anchor: Anchor) -> list[Event]:
+    """Las notas del acorde que empieza en el ancla, agrupadas como el exportador: una nota y las
+    que la siguen en su voz marcadas `is_chord`."""
+
+    events = _voice_events(_anchor_measure(score, anchor), anchor.voice)
+    index = anchor.event_index
+    if index >= len(events):
+        raise IndexError(
+            f"anchor {anchor.sort_key()} apunta a un evento inexistente del compás {anchor.measure}"
+        )
+    head = events[index]
+    if head.kind is not EventKind.NOTE:
+        raise InvalidEditPayload(
+            "el ancla no es la primera nota de un acorde: la figura de un silencio o de una nota "
+            "sola se cambia con SetDuration"
+        )
+    if head.is_chord and index > 0 and events[index - 1].kind is EventKind.NOTE:
+        raise InvalidEditPayload(
+            "el ancla es una nota de un acorde que no es la primera: ánclalo en su primera nota"
+        )
+    end = index + 1
+    while end < len(events) and events[end].is_chord and events[end].kind is EventKind.NOTE:
+        end += 1
+    if end - index < 2:
+        raise InvalidEditPayload(
+            "el ancla no es la primera nota de un acorde: la figura de una nota sola se cambia "
+            "con SetDuration"
+        )
+    return events[index:end]
+
+
+def _check_chord_duration(score: ScoreIR, anchor: Anchor, after: object) -> None:
+    durations = _parse_durations(after, EditOp.SET_CHORD_DURATION)
+    notes = _chord(score, anchor)
+    if len(durations) != len(notes):
+        raise InvalidEditPayload(
+            f"el acorde tiene {len(notes)} notas y 'durations' {len(durations)} figuras: una "
+            "por nota"
+        )
+    if any(raw is None for raw in durations):
+        raise InvalidEditPayload(
+            "la figura de un acorde tiene duración: null solo lo escribe la compensatoria"
+        )
+    figures = {check_duration(raw) for raw in durations}
+    if len(figures) != 1:
+        raise InvalidEditPayload(
+            "las notas de un acorde tienen una sola figura: todas las duraciones deben ser iguales"
+        )
+
+
+def _snapshot_chord_duration(score: ScoreIR, anchor: Anchor) -> dict[str, Any]:
+    return _durations_of(_chord(score, anchor))
+
+
 # --- Entrada -----------------------------------------------------------------------------
 
 
 def validate_meter_after(
     score: ScoreIR, anchor: Anchor, op: EditOp, after: Mapping[str, Any] | None
 ) -> None:
-    """Comprueba el `after` de `SetTime` o `SetTuplet` sobre el estado `score` (ADR-0044).
+    """Comprueba el `after` de `SetTime`, `SetTuplet` (ADR-0044) o `SetChordDuration`
+    (ADR-0049) sobre el estado `score`.
 
     `InvalidEditPayload` si no es válido; `IndexError` si el ancla no apunta a su compás o
     a su evento."""
@@ -381,6 +452,8 @@ def validate_meter_after(
         _check_time(score, anchor, after)
     elif op is EditOp.SET_TUPLET:
         _check_tuplet(score, anchor, after)
+    elif op is EditOp.SET_CHORD_DURATION:
+        _check_chord_duration(score, anchor, after)
     else:
         raise ValueError(f"operación que no es de compás ni de tresillos: {op.value}")
 
@@ -395,6 +468,8 @@ def snapshot_meter_before(
         return _snapshot_time(score, anchor, after)
     if op is EditOp.SET_TUPLET:
         return _snapshot_tuplet(score, anchor, after)
+    if op is EditOp.SET_CHORD_DURATION:
+        return _snapshot_chord_duration(score, anchor)
     raise ValueError(f"operación que no es de compás ni de tresillos: {op.value}")
 
 
@@ -407,8 +482,8 @@ def has_complete_meter_before(op: EditOp, before: Mapping[str, Any]) -> bool:
 
 
 def apply_meter_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
-    """Aplica `SetTime` o `SetTuplet`; no muta `score`. `ValueError` si su `after` no se
-    entiende, `IndexError` si no encuentra lo que fija."""
+    """Aplica `SetTime`, `SetTuplet` o `SetChordDuration`; no muta `score`. `ValueError` si su
+    `after` no se entiende, `IndexError` si no encuentra lo que fija."""
 
     after = edit.after
     if after is None:
@@ -416,8 +491,8 @@ def apply_meter_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
     try:
         if edit.op is EditOp.SET_TIME:
             return _apply_time(score, edit.anchor, after)
-        if edit.op is EditOp.SET_TUPLET:
-            return _apply_tuplet(score, edit.anchor, after)
+        if edit.op in (EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION):
+            return _apply_durations(score, edit.anchor, after)
     except (KeyError, TypeError, InvalidEditPayload) as exc:
         raise ValueError(f"'after' de {edit.op.value} no válido: {exc!r}") from exc
     raise ValueError(f"operación que no es de compás ni de tresillos: {edit.op.value}")
