@@ -108,7 +108,9 @@ describe("DownloadButton", () => {
     const root = createRoot(host);
     try {
       const midi = deferred<Blob>();
-      root.render(<MidiDownloadButton sessionId={ID} ready fetchMidi={() => midi.promise} />);
+      root.render(
+        <MidiDownloadButton sessionId={ID} seq={0} ready fetchMidi={() => midi.promise} />,
+      );
       await until(() => host.querySelector("button") !== null, "el botón");
 
       host.querySelector("button")?.click();
@@ -126,6 +128,30 @@ describe("DownloadButton", () => {
 
       expect(host.querySelector("button")).toBeNull();
       expect(names).toEqual([]);
+    } finally {
+      root.unmount();
+      host.remove();
+    }
+  });
+
+  it("el aviso del MIDI no pasa a otro estado de la partitura: tras una edición desaparece", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const fail = () => Promise.reject(new Error("fallo"));
+    try {
+      root.render(<MidiDownloadButton sessionId={ID} seq={0} ready fetchMidi={fail} />);
+      await until(() => host.querySelector("button") !== null, "el botón");
+      host.querySelector("button")?.click();
+      await until(
+        () => host.textContent.includes("No se pudo preparar el MIDI"),
+        "el aviso del fallo",
+      );
+
+      root.render(<MidiDownloadButton sessionId={ID} seq={1} ready fetchMidi={fail} />);
+      await until(() => !host.textContent.includes("No se pudo"), "el botón sin aviso");
+
+      expect(host.querySelector("button")?.hasAttribute("aria-describedby")).toBe(false);
     } finally {
       root.unmount();
       host.remove();

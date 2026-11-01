@@ -90,6 +90,8 @@ export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButt
 
 interface MidiDownloadButtonProps {
   sessionId: string;
+  /** Estado que se ve: el aviso de un estado anterior no pasa a este. */
+  seq: number;
   /** Si ya se sabe qué estado se ve: hasta entonces, el botón no pide nada. */
   ready: boolean;
   /** Pide el MIDI del estado que se ve, o lo da de la caché si ya se pidió. */
@@ -112,11 +114,18 @@ const MIDI_HINTS: Record<MidiStatus, string | null> = {
  * está no se descarga solo: el botón queda listo para pulsarlo. El fallo y el aviso de listo se
  * anuncian, porque nada más en la vista los dice.
  */
-export function MidiDownloadButton({ sessionId, ready, fetchMidi }: MidiDownloadButtonProps) {
+export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDownloadButtonProps) {
   const hintId = useId();
   const mounted = useMounted();
   const busy = useRef(false);
   const [status, setStatus] = useState<MidiStatus>("idle");
+  // Con otro estado, «listo» o «no se pudo» ya no hablan de lo que se ve: el botón vuelve a
+  // estar sin aviso. Lo que se está preparando sigue y se descarga al llegar.
+  const [statusSeq, setStatusSeq] = useState(seq);
+  if (statusSeq !== seq) {
+    setStatusSeq(seq);
+    if (status !== "loading") setStatus("idle");
+  }
 
   async function download() {
     if (busy.current || !ready) return;

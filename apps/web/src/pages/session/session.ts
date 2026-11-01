@@ -209,14 +209,21 @@ export const sessionMusicXmlQuery = (api: ApiClient, sessionId: string, seq: num
 const MIDI_HEADER = "MThd";
 
 /**
+ * Prefijo de los MIDI de una sesión en caché. El MIDI lleva el programa del instrumento de cada
+ * parte (#235): al guardar los datos de la partitura se descartan todos, de cualquier estado.
+ */
+export const sessionMidiKey = (sessionId: string) => ["session", sessionId, "midi"] as const;
+
+/**
  * MIDI del estado materializado, para descargarlo (#189). Solo se pide al pulsar «Descargar
- * MIDI» y queda en caché por estado: pulsar otra vez sin editar no lo vuelve a pedir. Una
- * respuesta que no empieza por `MThd` (p. ej. una página HTML de un proxy) no es un MIDI y se
- * trata como respuesta inesperada, para no guardar un archivo roto.
+ * MIDI» y queda en caché por estado, mientras no cambien los datos de la partitura: pulsar otra
+ * vez sin editar no lo vuelve a pedir. Una respuesta que no empieza por `MThd` (p. ej. una página
+ * HTML de un proxy) no es un MIDI y se trata como respuesta inesperada, para no guardar un
+ * archivo roto.
  */
 export const sessionMidiQuery = (api: ApiClient, sessionId: string, seq: number) =>
   queryOptions({
-    queryKey: ["session", sessionId, "midi", seq],
+    queryKey: [...sessionMidiKey(sessionId), seq],
     queryFn: async ({ signal }) => {
       const blob = await api.request<Blob>(`${sessionPath(sessionId)}/export`, {
         query: { format: "midi" },

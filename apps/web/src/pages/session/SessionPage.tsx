@@ -425,6 +425,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               />
               <MidiDownloadButton
                 sessionId={sessionId}
+                seq={seq}
                 ready={ready}
                 fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
               />
