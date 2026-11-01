@@ -19,6 +19,7 @@ import {
   planCommand,
   replan,
   selectAfterDelete,
+  usesOrigin,
   type DecidedEdit,
   type EditCommand,
   type EditPlan,
@@ -521,9 +522,9 @@ export function useEditor(
       ).catch(() => null);
       if (cancelled()) return;
       if (!fresh) pendingPlacement.current = { request: done, seq: saved };
-      // Creada la ligadura o el regulador, su inicio ya no está pendiente.
-      // Si mientras se guardaba se marcó otro inicio, ese se queda.
-      if (done.kind === "edit" && "span" in done) {
+      // Creada la ligadura, el regulador o el tresillo desde el inicio, este ya no está
+      // pendiente. Si mientras se guardaba se marcó otro inicio, ese se queda.
+      if (done.kind === "edit" && usesOrigin(done)) {
         const used = originUsed.current;
         setOrigin((current) => (current === used ? null : current));
       }
@@ -685,7 +686,7 @@ export function useEditor(
       return;
     }
     if (!target) return;
-    if ("span" in plan) originUsed.current = origin;
+    if (usesOrigin(plan)) originUsed.current = origin;
     void send(requestOf(plan, target.anchor, seq));
   }
 

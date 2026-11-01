@@ -2003,6 +2003,36 @@ describe("corregir la nota elegida", () => {
         }
       }
     }
+    // El compás desde el del ancla hasta el siguiente cambio, y los tresillos (ADR-0044).
+    if (body.op === "SetTime") {
+      const from = measures.indexOf(measure);
+      const vigente = JSON.stringify(measure.time_signature ?? null);
+      let run = 0;
+      for (const candidate of measures.slice(from)) {
+        const own = candidate.time_signature ?? null;
+        if (run > 0 && own !== null && JSON.stringify(own) !== vigente) break;
+        run += 1;
+      }
+      const limit = typeof after.measures === "number" ? after.measures : run;
+      before = { time_signature: measure.time_signature ?? null, measures: limit };
+      for (const candidate of measures.slice(from, from + limit)) {
+        if (candidate === measure || candidate.time_signature) {
+          candidate.time_signature = after.time_signature as typeof measure.time_signature;
+        }
+      }
+    }
+    if (event && body.op === "SetTuplet") {
+      const durations = after.durations as (string | null)[];
+      const changed = positions.slice(
+        body.anchor.event_index,
+        body.anchor.event_index + durations.length,
+      );
+      before = { durations: changed.map((index) => measure.events[index]?.duration_beats ?? null) };
+      changed.forEach((index, order) => {
+        const item = measure.events[index];
+        if (item) item.duration_beats = durations[order] ?? null;
+      });
+    }
     const saved: EditEventRead = {
       id: `edit-${String(seq)}`,
       session_id: ID,
@@ -2140,7 +2170,13 @@ describe("corregir la nota elegida", () => {
     const extrasOf = (next: SessionDetailRead, op: string) => ({
       status: next.status ?? "correcting",
       musicxml: exportStatus ? null : xmlOf(next),
-      timing: ["SetDuration", "SetChordDuration", "InsertEvent", "DeleteEvent"].includes(op)
+      timing: [
+        "SetDuration",
+        "SetChordDuration",
+        "SetTuplet",
+        "InsertEvent",
+        "DeleteEvent",
+      ].includes(op)
         ? timingMap()
         : null,
     });
@@ -6478,6 +6514,260 @@ describe("corregir la nota elegida", () => {
         within(editor()).queryByRole("group", { name: "Sugerencias para esta nota" }),
       ).toBeNull();
       expect(screen.queryByText(EXPLANATION)).toBeNull();
+    });
+  });
+
+  describe("cambiar el compás y poner tresillos (#241)", () => {
+    const eighth = (pitch: string, duration = "1/2") =>
+      ({
+        kind: "note",
+        voice: 0,
+        pitch,
+        duration_beats: duration,
+        tie: null,
+        is_chord: false,
+        bbox: null,
+        confidence: null,
+        ir_handle: null,
+      }) satisfies ScoreEventPayload;
+    /** Detalle con seis corcheas en el compás 2 (o las figuras dadas). */
+    function withEighths(duration = "1/2") {
+      const start = detail();
+      const second = start.current_score?.parts[0]?.staves[0]?.measures[1];
+      if (!second) throw new Error("sin compás 2");
+      second.events = ["C4", "E4", "G4", "C4", "E4", "G4"].map((pitch) => eighth(pitch, duration));
+      return start;
+    }
+    const durations = (server: { current: () => SessionDetailRead }) =>
+      server
+        .current()
+        .current_score?.parts[0]?.staves[0]?.measures[1]?.events.map((item) => item.duration_beats);
+
+    it("pone el tresillo a todo el compás con un botón, y deshacer lo quita de un paso", async () => {
+      const server = editableApi(withEighths());
+      renderPage();
+      await chooseMeasure(2);
+      expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-pressed", "false");
+      expect(button("Corchea")).toHaveAttribute("aria-pressed", "true");
+
+      fireEvent.click(button("Tresillo en todo el compás"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: tresillo en 6 figuras del compás 2.");
+      });
+      expect(server.bodies).toEqual([
+        {
+          base_seq: 0,
+          op: "SetTuplet",
+          anchor: anchorOf(2),
+          before: null,
+          after: { durations: Array<string>(6).fill("1/3") },
+        },
+      ]);
+      // La nota de tresillo sigue elegida y muestra su figura.
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
+      expect(screen.getByText("Do4 · corchea de tresillo")).toBeVisible();
+      expect(button("Corchea")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Tresillo en tres figuras desde la elegida")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(button("Puntillo")).toHaveAttribute("aria-disabled", "true");
+
+      fireEvent.click(within(editor()).getByRole("button", { name: "Deshacer" }));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Deshecho: tresillo en 6 figuras (compás 2, voz 1).",
+        );
+      });
+      expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
+      expect(durations(server)).toEqual(Array<string>(6).fill("1/2"));
+      expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("R pone el tresillo a tres figuras desde la elegida y Mayús+R, a todo el compás", async () => {
+      const server = editableApi(withEighths());
+      renderPage();
+      const region = await chooseMeasure(2);
+
+      fireEvent.keyDown(region, { key: "r" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: tresillo en 3 figuras del compás 2.");
+      });
+      expect(durations(server)).toEqual(["1/3", "1/3", "1/3", "1/2", "1/2", "1/2"]);
+
+      // El resto del compás, con Mayús: completa el que estaba a medias.
+      fireEvent.keyDown(region, { key: "R", shiftKey: true });
+      // El mismo aviso que el anterior: se espera a que el compás entero lleve el tresillo.
+      await waitFor(() => {
+        expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-pressed", "true");
+      });
+      expect(editStatus()).toHaveTextContent("Guardado: tresillo en 3 figuras del compás 2.");
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTuplet",
+        anchor: { ...anchorOf(2), event_index: 3 },
+        after: { durations: ["1/3", "1/3", "1/3"] },
+      });
+      expect(durations(server)).toEqual(Array<string>(6).fill("1/3"));
+
+      // Sobre una nota de tresillo, R lo quita a su grupo de tres.
+      fireEvent.keyDown(region, { key: "r" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: quitar el tresillo de 3 figuras del compás 2.",
+        );
+      });
+      expect(durations(server)).toEqual(["1/2", "1/2", "1/2", "1/3", "1/3", "1/3"]);
+    });
+
+    it("dice por qué no pone el tresillo a una figura con puntillo, sin enviar nada", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+      // El compás 2 tiene una blanca con puntillo. Los botones no se apagan: dicen por qué.
+      expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-disabled", "false");
+      fireEvent.keyDown(region, { key: "R", shiftKey: true });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Una figura con puntillo no pasa a tresillo: quítale antes el puntillo.",
+        );
+      });
+      fireEvent.click(button("Tramo: tresillo desde el inicio hasta la elegida"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Marca antes el inicio/);
+      });
+      expect(server.bodies).toHaveLength(0);
+    });
+
+    it("«Tramo» va del inicio marcado a la elegida y, guardado, el inicio se olvida", async () => {
+      const server = editableApi(withEighths());
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(button("Inicio de la ligadura o el regulador"));
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+
+      // «Tres» no usa el inicio: se queda marcado.
+      fireEvent.click(button("Tresillo en tres figuras desde la elegida"));
+      await waitFor(() => {
+        expect(durations(server)).toEqual(["1/2", "1/2", "1/2", "1/3", "1/3", "1/3"]);
+      });
+      expect(button("Inicio de la ligadura o el regulador")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(within(editor()).getByRole("button", { name: "Olvidar el inicio" })).toBeVisible();
+      expect(button("Tramo: tresillo desde el inicio hasta la elegida")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+
+      // Del inicio (la primera) a la tercera, que no lo llevan.
+      fireEvent.keyDown(region, { key: "ArrowLeft" });
+      await waitFor(() => {
+        expect(screen.getByText("Sol4 · corchea")).toBeVisible();
+      });
+      fireEvent.click(button("Tramo: tresillo desde el inicio hasta la elegida"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: tresillo en 3 figuras del compás 2.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTuplet",
+        anchor: anchorOf(2),
+        after: { durations: ["1/3", "1/3", "1/3"] },
+      });
+      expect(within(editor()).queryByRole("button", { name: "Olvidar el inicio" })).toBeNull();
+    });
+
+    it("un 422 del tresillo no guarda nada", async () => {
+      const server = editableApi(withEighths());
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() => jsonResponse({ detail: "un tresillo multiplica cada figura…" }, 422));
+
+      fireEvent.click(button("Tresillo en todo el compás"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "El servidor no aceptó el cambio (tresillo en 6 figuras del compás 2, compás 2, voz 1): no se guardó nada.",
+        );
+      });
+      expect(durations(server)).toEqual(Array<string>(6).fill("1/2"));
+      expect(screen.queryByText(/multiplica/)).toBeNull();
+    });
+
+    it("cambia el compás a ¢ con el desplegable y «Cambiar compás», hasta el siguiente cambio", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      const picker = () =>
+        within(editor()).getByRole("combobox", { name: "Compás · compases 2 a 3" });
+      expect(picker()).toHaveValue("3/4");
+      expect(button("Cambiar compás")).toHaveAttribute("aria-disabled", "true");
+
+      fireEvent.change(picker(), { target: { value: "2/2:cut" } });
+      button("Cambiar compás").focus();
+      fireEvent.click(button("Cambiar compás"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: compás ¢ en los compases 2 a 3. Las figuras no cambian: revalida para ver los compases que no cuadran.",
+        );
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "SetTime",
+        anchor: anchorOf(2),
+        after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } },
+      });
+      expect(server.bodies[0]?.after).not.toHaveProperty("measures");
+      expect(picker()).toHaveValue("2/2:cut");
+      expect(button("Cambiar compás")).toHaveAttribute("aria-disabled", "true");
+      expect(document.activeElement).toBe(button("Cambiar compás"));
+      // El compás no mueve la selección.
+      expect(useSelectionStore.getState().selection).toMatchObject({ seq: 1, anchor: anchorOf(2) });
+    });
+
+    it("tras un 409, «Volver a aplicar» pide el mismo compás sobre el estado recargado", async () => {
+      const server = editableApi();
+      renderPage();
+      await chooseMeasure(2);
+      server.respond(() => {
+        // Otra pestaña cambió una altura del compás 1 mientras tanto.
+        server.replace(
+          apply(server.current(), {
+            base_seq: 0,
+            op: "SetPitch",
+            anchor: anchorOf(1),
+            before: null,
+            after: { pitch: "E4" },
+          }).next,
+        );
+        return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
+      });
+      fireEvent.change(within(editor()).getByRole("combobox", { name: /^Compás · / }), {
+        target: { value: "4/4:common" },
+      });
+      fireEvent.click(button("Cambiar compás"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "No se guardó: compás C en los compases 2 a 3 (compás 2).",
+        );
+      });
+      fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: compás C en los compases 2 a 3.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTime",
+        anchor: anchorOf(2),
+        after: { time_signature: { beats: 4, beat_type: 4, symbol: "common" } },
+      });
     });
   });
 });

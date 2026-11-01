@@ -180,20 +180,27 @@ describe("figuras y puntillo", () => {
   });
 
   it.each([
-    ["1", 4, false],
-    ["3/2", 4, true],
-    ["2/4", 3, false],
-    ["6", 6, true],
-    ["1/16", 0, false],
-    ["3/32", 0, true],
-    // Ni tresillo, ni duración partida, ni nota de adorno son una figura simple.
-    ["2/3", null, false],
-    ["5/4", null, false],
-    ["0", null, false],
-    [null, null, false],
-  ] as const)("%s es la figura %s con puntillo %s", (duration, figure, dotted) => {
-    expect(figureOf(duration)).toEqual({ figure, dotted });
-  });
+    ["1", 4, false, false],
+    ["3/2", 4, true, false],
+    ["2/4", 3, false, false],
+    ["6", 6, true, false],
+    ["1/16", 0, false, false],
+    ["3/32", 0, true, false],
+    // Una figura de tresillo es su figura (#241): la corchea de tresillo, una corchea.
+    ["1/3", 3, false, true],
+    ["2/3", 4, false, true],
+    ["1/24", 0, false, true],
+    // Ni una duración partida ni una nota de adorno son una figura.
+    ["5/4", null, false, false],
+    ["2/9", null, false, false],
+    ["0", null, false, false],
+    [null, null, false, false],
+  ] as const)(
+    "%s es la figura %s con puntillo %s y tresillo %s",
+    (duration, figure, dotted, triplet) => {
+      expect(figureOf(duration)).toEqual({ figure, dotted, triplet });
+    },
+  );
 
   it("calcula la duración de una figura, con puntillo o sin él", () => {
     expect(figureDuration(4, false)).toBe("1");
@@ -297,13 +304,30 @@ describe("qué edición pide cada orden", () => {
     });
   });
 
-  it("una figura sobre una duración que no lo es (tresillo, adorno) la deja sin puntillo", () => {
-    expect(planEdit({ kind: "figure", figure: 4 }, target(note("C4", "2/3")), 0)).toMatchObject({
+  it("una figura sobre una duración que no lo es (adorno, partida) la deja sin puntillo", () => {
+    expect(planEdit({ kind: "figure", figure: 4 }, target(note("C4", "5/4")), 0)).toMatchObject({
       after: { duration_beats: "1" },
     });
     expect(planEdit({ kind: "figure", figure: 4 }, target(note("C4", "0")), 0)).toMatchObject({
       after: { duration_beats: "1" },
     });
+  });
+
+  it("la figura de una nota de tresillo conserva el tresillo, que no lleva puntillo (#241)", () => {
+    expect(planEdit({ kind: "figure", figure: 4 }, target(note("C4", "1/3")), 0)).toMatchObject({
+      after: { duration_beats: "2/3" },
+      change: "figura negra de tresillo",
+    });
+    expect(planEdit({ kind: "figure", figure: 3 }, target(note("C4", "1/3")), 0)).toMatchObject({
+      kind: "refused",
+      reason: "same",
+    });
+    expect(planEdit({ kind: "dot" }, target(note("C4", "1/3")), 0)).toEqual({
+      kind: "refused",
+      reason: "triplet-dot",
+      message: "Una figura de tresillo no lleva puntillo: quita antes el tresillo.",
+    });
+    expect(figureDuration(3, false, true)).toBe("1/3");
   });
 
   it.each<[string, ValueCommand, EditTarget | null, string]>([
@@ -325,7 +349,8 @@ describe("qué edición pide cada orden", () => {
       target(note("C4"), true),
       "no-target",
     ],
-    ["el puntillo sin figura simple", { kind: "dot" }, target(note("C4", "2/3")), "not-figure"],
+    ["el puntillo sin figura simple", { kind: "dot" }, target(note("C4", "5/4")), "not-figure"],
+    ["el puntillo de un tresillo", { kind: "dot" }, target(note("C4", "2/3")), "triplet-dot"],
     ["el mismo valor", { kind: "figure", figure: 4 }, target(note("C4")), "same"],
     ["la misma alteración", { kind: "accidental", accidental: "" }, target(note("C4")), "same"],
   ])("rechaza %s", (_name, command, edited, reason) => {
@@ -375,6 +400,10 @@ describe("teclas de edición sobre la partitura", () => {
     [key("S", { shiftKey: true }), { kind: "insert", rest: true }],
     [key("Delete"), { kind: "delete" }],
     [key("Backspace"), { kind: "delete" }],
+    // R pone o quita el tresillo de tres figuras y, con Mayús, el del compás (#241).
+    [key("r"), { kind: "tuplet", scope: "group" }],
+    [key("R"), { kind: "tuplet", scope: "group" }],
+    [key("R", { shiftKey: true }), { kind: "tuplet", scope: "measure" }],
   ])("%o es %o", (event, command) => {
     expect(editCommand(event)).toEqual(command);
   });
@@ -395,6 +424,8 @@ describe("teclas de edición sobre la partitura", () => {
     key("s", { metaKey: true }),
     key("Backspace", { altKey: true }),
     key("Delete", { ctrlKey: true }),
+    key("r", { ctrlKey: true }),
+    key("R", { metaKey: true, shiftKey: true }),
   ])("%o no edita", (event) => {
     expect(editCommand(event)).toBeNull();
   });
@@ -433,6 +464,11 @@ describe("llevar un ancla a un estado posterior", () => {
 
   it("la conserva tras cambiar la figura de un acorde, que no mueve ningún evento", () => {
     const later = detail(1, [edit(1, "SetChordDuration", anchor(1, 0))]);
+    expect(carryAnchor(anchor(1, 1), 0, later)).toEqual(anchor(1, 1));
+  });
+
+  it("el compás y los tresillos no mueven ningún evento (ADR-0044)", () => {
+    const later = detail(2, [edit(1, "SetTime"), edit(2, "SetTuplet")]);
     expect(carryAnchor(anchor(1, 1), 0, later)).toEqual(anchor(1, 1));
   });
 
@@ -918,6 +954,20 @@ describe("cada orden pide su edición", () => {
     expect(planCommand({ kind: "delete" }, target, state)).toMatchObject({ op: "DeleteEvent" });
     expect(planCommand({ kind: "clef", clef: 1 }, target, state)).toMatchObject({ op: "SetClef" });
     expect(planCommand({ kind: "key", fifths: 1 }, target, state)).toMatchObject({ op: "SetKey" });
+  });
+
+  it("las del compás y los tresillos (#241)", () => {
+    const state = staffScore([
+      { events: [note("E4", "1/2"), note("F4", "1/2"), note("G4", "1/2")] },
+    ]);
+    const target = chosen(state, anchor(1, 1));
+    expect(
+      planCommand({ kind: "time", time: { beats: 2, beat_type: 2, symbol: "cut" } }, target, state),
+    ).toMatchObject({ op: "SetTime", anchor: anchor(1) });
+    expect(planCommand({ kind: "tuplet", scope: "measure" }, target, state)).toMatchObject({
+      op: "SetTuplet",
+      after: { durations: ["1/3", "1/3", "1/3"] },
+    });
   });
 });
 
