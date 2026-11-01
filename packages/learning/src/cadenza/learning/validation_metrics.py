@@ -9,11 +9,13 @@ de compás tanto globalmente como por regla, y analiza la cobertura por tipo de 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from cadenza.domain import (
+    CONTENT_EDIT_OPS,
     MARK_EDIT_OPS,
+    METER_EDIT_OPS,
     EditEvent,
     EditOp,
     Finding,
@@ -177,7 +179,30 @@ def categorize_edit_op(op: EditOp | str) -> str:
     # Las marcas de notación (ADR-0039) no se derivan del diff con la verdad.
     if val in {op.value for op in MARK_EDIT_OPS}:
         return "marks"
+    # Ni el compás ni los tresillos como edición (ADR-0044).
+    if val in {op.value for op in METER_EDIT_OPS}:
+        return "meter"
     return "other"
+
+
+def with_content_candidates(findings: Sequence[Finding]) -> tuple[Finding, ...]:
+    """Los hallazgos con solo los candidatos de contenido (`CONTENT_EDIT_OPS`).
+
+    La verdad de las mediciones es `derive_edit_events`, que solo produce operaciones de
+    contenido: un candidato de otra clase (cambiar el compás, ADR-0044) no se puede juzgar, así
+    que las mediciones de las sugerencias no lo cuentan (ADR-0039 §3, ADR-0044)."""
+
+    return tuple(
+        (
+            finding
+            if all(c.op in CONTENT_EDIT_OPS for c in finding.candidates)
+            else replace(
+                finding,
+                candidates=tuple(c for c in finding.candidates if c.op in CONTENT_EDIT_OPS),
+            )
+        )
+        for finding in findings
+    )
 
 
 @dataclass(frozen=True, slots=True)

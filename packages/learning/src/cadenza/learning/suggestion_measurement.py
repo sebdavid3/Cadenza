@@ -57,6 +57,7 @@ from .validation_metrics import (
     MeasureEvaluationRecord,
     aggregate_validation_metrics,
     evaluate_measures,
+    with_content_candidates,
 )
 
 Position = tuple[int, int, int, int, int]
@@ -424,7 +425,8 @@ def measure_incipit(
         anchors=build_anchor_index(case.score),
         provenance=Provenance(omr_engine="homr"),
     )
-    findings = validator.validate(document)
+    # Solo los candidatos que la verdad puede juzgar (ADR-0044).
+    findings = with_content_candidates(validator.validate(document))
     suggested = _suggest_strictly(document, findings, model)
     baseline = _suggest_strictly(document, findings, RuleOrderModel())
     features = ScoreFeatures.of(case.score)

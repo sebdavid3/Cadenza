@@ -79,6 +79,7 @@ from .validation_metrics import (
     compute_binary_metrics,
     evaluate_pair,
     evaluate_score_measures,
+    with_content_candidates,
 )
 
 __all__ = [
@@ -153,5 +154,6 @@ __all__ = [
     "serialize_dataset",
     "split_pitch",
     "symbol_error_rate",
+    "with_content_candidates",
     "with_sounding_pitches",
 ]

@@ -3,7 +3,8 @@
 Traduce `(ScoreDocument, EditEvents, Findings)` o sesiones de repositorio a
 `TrainingSample` alineadas por ancla y cubriendo las operaciones de contenido de `EditOp`. Las
 de las marcas de notación (`MARK_EDIT_OPS`) no son muestras, como las marcas no entran en las
-métricas (ADR-0031 §6, ADR-0039).
+métricas (ADR-0031 §6, ADR-0039), ni las del compás y los tresillos (`METER_EDIT_OPS`,
+ADR-0044).
 Es lógica pura: no toca GPU ni el pipeline de HOMR, ni accede directamente al ORM.
 """
 
@@ -19,6 +20,7 @@ from typing import Any, Final
 from cadenza.application.ports import EditEventRepository, SessionRepository, UserRepository
 from cadenza.domain import (
     MARK_EDIT_OPS,
+    METER_EDIT_OPS,
     Anchor,
     EditEvent,
     EditOp,
@@ -318,8 +320,9 @@ class DatasetBuilder:
                 continue
             if edit.is_reversion or edit.id in reverted_ids:
                 continue
-            # Las marcas de notación no son muestras del dataset (ADR-0039).
-            if edit.op in MARK_EDIT_OPS:
+            # Las marcas de notación (ADR-0039), el compás y los tresillos (ADR-0044) no son
+            # muestras del dataset.
+            if edit.op in MARK_EDIT_OPS or edit.op in METER_EDIT_OPS:
                 continue
 
             before_pitch, after_pitch = _extract_pitches(edit.op, edit.before, edit.after)
