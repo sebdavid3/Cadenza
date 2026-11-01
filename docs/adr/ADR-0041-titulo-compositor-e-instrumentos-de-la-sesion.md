@@ -1,6 +1,6 @@
 # ADR-0041: Título, compositor e instrumento de cada parte, datos de la sesión fuera del `ScoreIR`
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0046](ADR-0046-sonido-de-cada-instrumento-en-la-vista.md): en la web no hay muestras y cada instrumento suena con su sonido sintetizado; solo «otro» y las partes sin instrumento suenan como el piano)
 - **Fecha:** 2026-10-31
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0002, ADR-0007, ADR-0009, ADR-0010, ADR-0012, ADR-0014, ADR-0026, ADR-0037 y ADR-0039, CLAUDE.md §9 y §10)
 - **Relacionado:** [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md), [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md), [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md), [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), [ADR-0039](ADR-0039-anadir-y-quitar-marcas-de-notacion.md), D66, [#235](https://github.com/sebdavid3/Cadenza/issues/235), [#240](https://github.com/sebdavid3/Cadenza/issues/240), [#242](https://github.com/sebdavid3/Cadenza/issues/242), [#189](https://github.com/sebdavid3/Cadenza/issues/189), [#263](https://github.com/sebdavid3/Cadenza/issues/263)

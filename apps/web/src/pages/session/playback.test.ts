@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   EventTimingRead,
+  PartInstrumentRead,
   ScoreEventPayload,
   ScoreIRPayload,
   TimingMapRead,
@@ -12,6 +13,7 @@ import {
   midiToFrequency,
   parseBeats,
   pitchToMidi,
+  type PlayedNote,
 } from "./playback";
 
 function event(changes: Partial<ScoreEventPayload>): ScoreEventPayload {
@@ -127,9 +129,9 @@ describe("reproducción a partir del mapa de tiempos", () => {
     const playback = buildPlayback(ir, map);
 
     expect(playback.notes).toEqual([
-      { start: 1, duration: 1, midi: 64, measure: 1 },
-      { start: 2, duration: 0.5, midi: 67, measure: 2 },
-      { start: 2.5, duration: 1.5, midi: 69, measure: 2 },
+      { start: 1, duration: 1, midi: 64, measure: 1, sound: "piano" },
+      { start: 2, duration: 0.5, midi: 67, measure: 2, sound: "piano" },
+      { start: 2.5, duration: 1.5, midi: 69, measure: 2, sound: "piano" },
     ]);
     expect(playback.measures).toEqual([
       { number: 1, start: 0, end: 2 },
@@ -151,8 +153,8 @@ describe("reproducción a partir del mapa de tiempos", () => {
     );
 
     expect(buildPlayback(ir, map).notes).toEqual([
-      { start: 0, duration: 4, midi: 62, measure: 1 },
-      { start: 4, duration: 1, midi: 62, measure: 3 },
+      { start: 0, duration: 4, midi: 62, measure: 1, sound: "piano" },
+      { start: 4, duration: 1, midi: 62, measure: 3, sound: "piano" },
     ]);
   });
 
@@ -217,7 +219,70 @@ describe("reproducción a partir del mapa de tiempos", () => {
       "4",
     );
 
-    expect(buildPlayback(ir, map).notes).toEqual([{ start: 2, duration: 1, midi: 60, measure: 1 }]);
+    expect(buildPlayback(ir, map).notes).toEqual([
+      { start: 2, duration: 1, midi: 60, measure: 1, sound: "piano" },
+    ]);
+  });
+
+  it("cada nota suena con el instrumento de su parte; sin él, como el piano (#242)", () => {
+    const ir: ScoreIRPayload = {
+      parts: [0, 1, 2].map((part) => ({
+        id: `part-${String(part)}`,
+        staves: [
+          {
+            id: `part-${String(part)}-staff-0`,
+            measures: [{ number: 1, events: [event({ pitch: "C4" })] }],
+          },
+        ],
+      })),
+    };
+    const inPart = (part: number): EventTimingRead => {
+      const base = timed(1, 0, "0", "1");
+      return {
+        ...base,
+        anchor: { ...base.anchor, part, staff_id: `part-${String(part)}-staff-0` },
+      };
+    };
+    const map = timing([inPart(0), inPart(1), inPart(2)], { "1": "0" }, "1");
+    const sounds = (instruments?: PartInstrumentRead[]) =>
+      buildPlayback(ir, map, instruments).notes.map((note) => note.sound);
+
+    // Las notas de las tres partes suenan a la vez, cada una con lo suyo; «otro», como el piano.
+    expect(
+      sounds([
+        { instrument: "voice", name: null },
+        { instrument: "other", name: "Arpa" },
+        { instrument: "cello", name: null },
+      ]),
+    ).toEqual(["voice", "piano", "cello"]);
+    // Una parte sin entrada, o con la entrada sin instrumento, suena como el piano.
+    expect(
+      sounds([
+        { instrument: "violin", name: null },
+        { instrument: null, name: "Bajo" },
+      ]),
+    ).toEqual(["violin", "piano", "piano"]);
+    expect(sounds()).toEqual(["piano", "piano", "piano"]);
+    // Los instrumentos no cambian el mapa de tiempos: ni los compases ni dónde cae cada nota.
+    const plain = buildPlayback(ir, map);
+    const dressed = buildPlayback(ir, map, [{ instrument: "flute", name: null }]);
+    const timeOnly = (notes: PlayedNote[]) =>
+      notes.map(({ start, duration, midi, measure }) => ({ start, duration, midi, measure }));
+    expect(dressed.measures).toEqual(plain.measures);
+    expect(dressed.totalBeats).toBe(plain.totalBeats);
+    expect(timeOnly(dressed.notes)).toEqual(timeOnly(plain.notes));
+  });
+
+  it("una nota ligada sigue con el sonido de su parte", () => {
+    const ir = score([
+      [event({ pitch: "D4", duration_beats: "2", tie: "start" })],
+      [event({ pitch: "D4", duration_beats: "1", tie: "stop" })],
+    ]);
+    const map = timing([timed(1, 0, "0", "2"), timed(2, 0, "2", "1")], { "1": "0", "2": "2" }, "3");
+
+    expect(buildPlayback(ir, map, [{ instrument: "guitar", name: null }]).notes).toEqual([
+      { start: 0, duration: 3, midi: 62, measure: 1, sound: "guitar" },
+    ]);
   });
 
   it("sitúa un compás en cada pentagrama donde aparece, en el orden global de OSMD", () => {

@@ -1,6 +1,6 @@
 # ADR-0026: Reproducción de la partitura en el navegador
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0046](ADR-0046-sonido-de-cada-instrumento-en-la-vista.md): el sintetizador de §3 es el sonido del piano, de «otro» y de las partes sin instrumento; las demás partes suenan con el de su instrumento)
 - **Fecha:** 2026-10-23
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006 y con la tabla de stack de `ARCHITECTURE.md`, CLAUDE.md §9)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0019](ADR-0019-base-del-cliente-web.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0023](ADR-0023-despliegue-publico-con-tailscale-funnel.md), D11, D12, [#42](https://github.com/sebdavid3/Cadenza/issues/42), [#177](https://github.com/sebdavid3/Cadenza/issues/177)

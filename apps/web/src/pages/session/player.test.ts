@@ -5,7 +5,7 @@ import { engineLoader, usePlayer, type EngineHandlers, type PlaybackEngine } fro
 
 function playback(totalBeats: number): Playback {
   return {
-    notes: [{ start: 0, duration: 1, midi: 60, measure: 1 }],
+    notes: [{ start: 0, duration: 1, midi: 60, measure: 1, sound: "piano" }],
     measures: [{ number: 1, start: 0, end: totalBeats }],
     totalBeats,
   };

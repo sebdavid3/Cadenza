@@ -1,5 +1,11 @@
-import type { ScoreEventPayload, ScoreIRPayload, TimingMapRead } from "../../types";
+import type {
+  PartInstrumentRead,
+  ScoreEventPayload,
+  ScoreIRPayload,
+  TimingMapRead,
+} from "../../types";
 import type { MeasureSlot } from "./findings";
+import { soundOf, type Sound } from "./sounds";
 
 /** Nota que suena, en negras desde el principio: la unidad del mapa de tiempos. */
 export interface PlayedNote {
@@ -8,6 +14,8 @@ export interface PlayedNote {
   /** Altura como número MIDI (60 es el do central). */
   midi: number;
   measure: number;
+  /** Con qué suena: el instrumento de su parte (ADR-0046). */
+  sound: Sound;
 }
 
 /** Dónde empieza y dónde acaba un compás, en negras. */
@@ -80,9 +88,14 @@ const EPSILON = 1e-9;
  * Notas y compases a partir del mapa de tiempos (`GET /sessions/{id}/timing`) y de las alturas
  * del `ScoreIR` del mismo estado. El `event_index` del ancla cuenta los eventos de su voz dentro
  * del compás. Las notas ligadas suenan como una sola; los silencios no suenan, y una nota sin
- * altura que se entienda tampoco.
+ * altura que se entienda tampoco. Cada nota suena con el instrumento de su parte: la entrada `i`
+ * de `instruments` es la parte `i` (ADR-0041); sin entrada, como el piano (ADR-0046).
  */
-export function buildPlayback(score: ScoreIRPayload, timing: TimingMapRead): Playback {
+export function buildPlayback(
+  score: ScoreIRPayload,
+  timing: TimingMapRead,
+  instruments: readonly PartInstrumentRead[] = [],
+): Playback {
   const voices = new Map<string, ScoreEventPayload[]>();
   score.parts.forEach((part, partIndex) => {
     part.staves.forEach((staff, staffIndex) => {
@@ -124,7 +137,13 @@ export function buildPlayback(score: ScoreIRPayload, timing: TimingMapRead): Pla
       previous.duration += duration;
       note = previous;
     } else {
-      note = { start, duration, midi, measure: timed.measure_number };
+      note = {
+        start,
+        duration,
+        midi,
+        measure: timed.measure_number,
+        sound: soundOf(instruments[anchor.part]),
+      };
       notes.push(note);
     }
     if (tie === "start" || tie === "continue") open.set(tieKey, note);
