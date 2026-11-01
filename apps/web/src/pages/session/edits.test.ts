@@ -318,7 +318,13 @@ describe("qué edición pide cada orden", () => {
       "range",
     ],
     ["una altura que no se entiende", step(1), target(note("H4")), "unknown-pitch"],
-    ["la duración de un acorde", { kind: "figure", figure: 4 }, target(note("C4"), true), "chord"],
+    // Sin la partitura no se sabe qué notas tiene el acorde (ADR-0049).
+    [
+      "la figura de un acorde sin partitura",
+      { kind: "figure", figure: 4 },
+      target(note("C4"), true),
+      "no-target",
+    ],
     ["el puntillo sin figura simple", { kind: "dot" }, target(note("C4", "2/3")), "not-figure"],
     ["el mismo valor", { kind: "figure", figure: 4 }, target(note("C4")), "same"],
     ["la misma alteración", { kind: "accidental", accidental: "" }, target(note("C4")), "same"],
@@ -425,6 +431,11 @@ describe("llevar un ancla a un estado posterior", () => {
     expect(carryAnchor(anchor(1, 1), 1, later)).toEqual(anchor(1, 1));
   });
 
+  it("la conserva tras cambiar la figura de un acorde, que no mueve ningún evento", () => {
+    const later = detail(1, [edit(1, "SetChordDuration", anchor(1, 0))]);
+    expect(carryAnchor(anchor(1, 1), 0, later)).toEqual(anchor(1, 1));
+  });
+
   it("la desplaza como ADR-0011: insertar en su posición o antes la retrasa", () => {
     expect(carryAnchor(anchor(1, 1), 0, detail(1, [edit(1, "InsertEvent", anchor(1, 1))]))).toEqual(
       anchor(1, 2),
@@ -503,10 +514,10 @@ describe("volver a pedir una edición en otro estado", () => {
       "rest",
     ],
     [
-      "si ahora es de un acorde",
+      "si ahora es de un acorde y no se sabe de qué notas",
       { op: "SetDuration", after: { duration_beats: "1/2" } },
       target(note("C4"), true),
-      "chord",
+      "no-target",
     ],
     ["si ya no hay evento", { op: "SetPitch", after: { pitch: "D4" } }, null, "no-target"],
   ])("no la pide %s", (_name, edit, edited, reason) => {
@@ -1005,5 +1016,180 @@ describe("volver a pedir una edición de estructura tras un 409", () => {
     expect(
       replan(request, reloaded(state, [edit(1, "SetDuration", anchor(1))])).plan,
     ).toMatchObject({ kind: "edit", op: "SetPitch", after: { pitch: "D4" } });
+  });
+});
+
+describe("la figura de un acorde entero (ADR-0049)", () => {
+  // Compás 1: un acorde de Do mayor en negras (Do, Mi, Sol) y un Re blanca.
+  const triad = () =>
+    staffScore([
+      {
+        events: [
+          note("C4", "1", { bbox: [1, 2, 3, 4], confidence: 0.9 }),
+          note("E4", "1", { is_chord: true }),
+          note("G4", "1", { is_chord: true }),
+          note("D4", "2"),
+        ],
+      },
+    ]);
+
+  it("una figura sobre cualquier nota del acorde cambia todas sus notas en una edición", () => {
+    const state = triad();
+    const plan = planCommand({ kind: "figure", figure: 3 }, chosen(state, anchor(1, 1)), state);
+    expect(plan).toEqual({
+      kind: "edit",
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2", "1/2"] },
+      // Anclada en la primera nota, con su caja: la elegida sigue elegida.
+      anchor: { ...anchor(1, 0), bbox: [1, 2, 3, 4], confidence: 0.9 },
+      change: "figura corchea en el acorde",
+    });
+  });
+
+  it("el puntillo parte de la figura del acorde, la de su primera nota", () => {
+    const state = staffScore([
+      { events: [note("C4", "2"), note("E4", "1", { is_chord: true }), note("D4", "2")] },
+    ]);
+    expect(planCommand({ kind: "dot" }, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      op: "SetChordDuration",
+      after: { durations: ["3", "3"] },
+    });
+  });
+
+  it("la figura que ya tienen todas las notas no se envía", () => {
+    const state = triad();
+    expect(planCommand({ kind: "figure", figure: 4 }, chosen(state, anchor(1, 2)), state)).toEqual({
+      kind: "refused",
+      reason: "same",
+      message: "El acorde ya tiene esa figura.",
+    });
+  });
+
+  it("si una nota tiene otra figura, sí se envía, para todas", () => {
+    const state = staffScore([
+      { events: [note("C4", "1"), note("E4", "1/2", { is_chord: true }), note("D4", "3")] },
+    ]);
+    expect(
+      planCommand({ kind: "figure", figure: 4 }, chosen(state, anchor(1)), state),
+    ).toMatchObject({ op: "SetChordDuration", after: { durations: ["1", "1"] } });
+  });
+
+  it("una nota sola sigue siendo SetDuration", () => {
+    const state = triad();
+    expect(planCommand({ kind: "figure", figure: 3 }, chosen(state, anchor(1, 3)), state)).toEqual({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "1/2" },
+      anchor: anchor(1, 3),
+      change: "figura corchea",
+    });
+  });
+
+  it("tras un 409 pide la misma figura sobre lo que sea ahora el evento", () => {
+    const request: DecidedEdit = { op: "SetChordDuration", after: { durations: ["2", "2", "2"] } };
+    // La otra pestaña añadió una nota al acorde: la figura va a las cuatro.
+    const grown = staffScore([
+      {
+        events: [
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+          note("G4", "1", { is_chord: true }),
+          note("C5", "1", { is_chord: true }),
+        ],
+      },
+    ]);
+    expect(planAgain(request, chosen(grown, anchor(1)), grown)).toMatchObject({
+      op: "SetChordDuration",
+      after: { durations: ["2", "2", "2", "2"] },
+    });
+    // Ya no es un acorde: la misma figura, a la nota sola.
+    const single = staffScore([{ events: [note("C4"), note("D4")] }]);
+    expect(planAgain(request, chosen(single, anchor(1)), single)).toMatchObject({
+      op: "SetDuration",
+      after: { duration_beats: "2" },
+    });
+    // Y una figura de una nota que ahora es de un acorde, al acorde entero.
+    const duration: DecidedEdit = { op: "SetDuration", after: { duration_beats: "1/2" } };
+    expect(planAgain(duration, chosen(grown, anchor(1, 2)), grown)).toMatchObject({
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2", "1/2", "1/2"] },
+      anchor: { event_index: 0 },
+    });
+    // Si ya la tiene, no hay nada que volver a aplicar.
+    const done = staffScore([{ events: [note("C4", "2"), note("E4", "2", { is_chord: true })] }]);
+    expect(planAgain(request, chosen(done, anchor(1, 1)), done)).toMatchObject({
+      kind: "refused",
+      reason: "same",
+    });
+  });
+
+  it("tras un 409, replan lleva el ancla del acorde al estado recargado", () => {
+    const request: EditRequestLike = {
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2"] },
+      anchor: anchor(1, 1),
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó una nota delante: el acorde pasa a la posición 2.
+    const state = staffScore([
+      { events: [note("A3"), note("B3"), note("C4"), note("E4", "1", { is_chord: true })] },
+    ]);
+    const inserted: EditEventRead = {
+      id: "e1",
+      session_id: "s",
+      seq: 1,
+      op: "InsertEvent",
+      author: "ana",
+      anchor: anchor(1, 0),
+      before: null,
+      after: null,
+      created_at: "2026-11-01T00:00:00Z",
+    };
+    const reloaded = {
+      current_seq: 1,
+      edits: [inserted],
+      current_score: state,
+    } as SessionDetailRead;
+    expect(replan(request, reloaded).plan).toMatchObject({
+      kind: "edit",
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2"] },
+      anchor: { event_index: 2 },
+    });
+  });
+
+  it("si su primera nota ya no es de un acorde, la figura va a esa nota y no a la elegida", () => {
+    const request: EditRequestLike = {
+      op: "SetChordDuration",
+      after: { durations: ["1/2", "1/2"] },
+      anchor: anchor(1, 0),
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó una nota entre las dos: la elegida (Mi4) es ahora de otro acorde.
+    const state = staffScore([
+      { events: [note("C4"), note("D4"), note("E4", "1", { is_chord: true })] },
+    ]);
+    const inserted: EditEventRead = {
+      id: "e1",
+      session_id: "s",
+      seq: 1,
+      op: "InsertEvent",
+      author: "ana",
+      anchor: anchor(1, 1),
+      before: null,
+      after: null,
+      created_at: "2026-11-01T00:00:00Z",
+    };
+    const reloaded = {
+      current_seq: 1,
+      edits: [inserted],
+      current_score: state,
+    } as SessionDetailRead;
+    expect(replan(request, reloaded).plan).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "1/2" },
+      anchor: { event_index: 0 },
+    });
   });
 });

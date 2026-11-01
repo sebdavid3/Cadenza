@@ -1007,6 +1007,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0045](adr/ADR-0045-nombre-e-instrumentos-de-la-sesion-en-la-web.md) | Nombre e instrumentos de la sesión en la web: preparar las imágenes antes de enviarlas, el nombre de la sesión y cambiar sus datos desde la vista |
 | [ADR-0046](adr/ADR-0046-sonido-de-cada-instrumento-en-la-vista.md) | Sonido de cada instrumento en la vista: síntesis con Tone.js por instrumento, sin muestras; lo desconocido suena como el piano |
 | [ADR-0047](adr/ADR-0047-ver-aplicar-y-rechazar-sugerencias-desde-la-vista.md) | Ver, aplicar y rechazar las sugerencias desde la vista: en el panel y en la barra, aplicar sin encolar, la sugerencia antigua sin reintento y nada en la condición no asistida |
+| [ADR-0049](adr/ADR-0049-figura-de-un-acorde.md) | La figura de un acorde entero: `SetChordDuration`, una sola edición de tipo «fijar» en la primera nota del acorde |
 
 
 ---

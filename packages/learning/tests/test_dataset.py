@@ -245,9 +245,13 @@ def test_meter_edits_are_not_samples() -> None:
     tuplet = make_edit(2, make_anchor(0), None, None, op=EditOp.SET_TUPLET)
     object.__setattr__(tuplet, "before", {"durations": ["1/2"]})
     object.__setattr__(tuplet, "after", {"durations": ["1/3"]})
+    # Ni la figura de un acorde (ADR-0049).
+    chord = make_edit(4, make_anchor(0), None, None, op=EditOp.SET_CHORD_DURATION)
+    object.__setattr__(chord, "before", {"durations": ["1", "1"]})
+    object.__setattr__(chord, "after", {"durations": ["2", "2"]})
     pitch = make_edit(3, make_anchor(1), "D4", "E4")
 
-    samples = DatasetBuilder().build(document, [time, tuplet, pitch])
+    samples = DatasetBuilder().build(document, [time, tuplet, chord, pitch])
 
     assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
     assert samples == DatasetBuilder().build(document, [pitch])

@@ -5,6 +5,7 @@ import {
   hasCompleteBefore,
   historyKey,
   historyPlacement,
+  inverseOf,
   isTextField,
   placeOf,
   readLog,
@@ -256,6 +257,24 @@ describe("compás y tresillos (ADR-0044)", () => {
     );
     const score = { parts: [] } as unknown as Parameters<typeof historyPlacement>[1];
     expect(historyPlacement(edit(1, "SetTime", { time_signature: null }), score)).toBeUndefined();
+  });
+
+  it("la figura de un acorde se dice con su figura, en su voz, y se deshace con su instantánea", () => {
+    const chord = edit(
+      1,
+      "SetChordDuration",
+      { durations: ["1/2", "1/2", "1/2"] },
+      { before: { durations: ["1", "1", "1"] } },
+    );
+    expect(describeEdit(chord)).toBe("figura corchea en el acorde");
+    expect(placeOf({ op: "SetChordDuration", anchor: anchor(3) }, false)).toBe("compás 3, voz 1");
+    expect(hasCompleteBefore(chord)).toBe(true);
+    expect(hasCompleteBefore(edit(1, "SetChordDuration", null, { before: {} }))).toBe(false);
+    // Deshacerla devuelve a cada nota su figura: la compensatoria lleva la instantánea.
+    expect(inverseOf(chord)).toMatchObject({
+      op: "SetChordDuration",
+      after: { durations: ["1", "1", "1"] },
+    });
   });
 });
 

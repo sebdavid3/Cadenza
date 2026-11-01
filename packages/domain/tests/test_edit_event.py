@@ -101,4 +101,6 @@ def test_edit_op_members() -> None:
         # Compás y tresillos (ADR-0044): fuera del dataset y de las métricas (`METER_EDIT_OPS`).
         EditOp.SET_TIME,
         EditOp.SET_TUPLET,
+        # La figura de un acorde (ADR-0049): también en `METER_EDIT_OPS`.
+        EditOp.SET_CHORD_DURATION,
     }

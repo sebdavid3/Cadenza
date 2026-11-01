@@ -104,7 +104,7 @@ def normalize_after(op: EditOp, after: Mapping[str, Any] | None) -> Any:
         signature = data.get("time_signature")
         if isinstance(signature, Mapping):
             data["time_signature"] = {k: v for k, v in signature.items() if v is not None}
-    if op is EditOp.SET_TUPLET:
+    if op is EditOp.SET_TUPLET or op is EditOp.SET_CHORD_DURATION:
         data["durations"] = [
             None if d is None else str(Fraction(str(d))) for d in data.get("durations") or ()
         ]

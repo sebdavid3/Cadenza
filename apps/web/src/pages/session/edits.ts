@@ -22,11 +22,11 @@ import {
 import { durationName, pitchName } from "./noteNames";
 
 /**
- * Correcciones de la nota elegida: su altura, su duración y su alteración (#183, ADR-0030),
- * insertar y borrar eventos y cambiar la clave y la armadura de su compás (#184, ADR-0033), y sus
- * marcas de notación (#214, ADR-0039, en `markEdits`). Qué edición pide cada control o tecla
- * sobre el evento elegido, en el vocabulario del contrato (ADR-0017). Nada de esto se da por
- * guardado: lo decide el servidor.
+ * Correcciones de la nota elegida: su altura, su duración y su alteración (#183, ADR-0030; la
+ * figura de un acorde entero, #243, ADR-0049), insertar y borrar eventos y cambiar la clave y la
+ * armadura de su compás (#184, ADR-0033), y sus marcas de notación (#214, ADR-0039, en
+ * `markEdits`). Qué edición pide cada control o tecla sobre el evento elegido, en el vocabulario
+ * del contrato (ADR-0017). Nada de esto se da por guardado: lo decide el servidor.
  */
 
 const STEPS = ["C", "D", "E", "F", "G", "A", "B"] as const;
@@ -252,7 +252,14 @@ const sameClef = (a: ClefPayload, b: ClefPayload) =>
 
 /** Operaciones que no mueven la posición de ningún evento (ADR-0011 §2); las marcas tampoco. */
 const IN_PLACE: readonly string[] = [
-  ...(["SetPitch", "SetDuration", "SetAccidental", "SetClef", "SetKey"] satisfies EditOp[]),
+  ...([
+    "SetPitch",
+    "SetDuration",
+    "SetChordDuration",
+    "SetAccidental",
+    "SetClef",
+    "SetKey",
+  ] satisfies EditOp[]),
   ...MARK_OPS,
 ];
 
@@ -402,7 +409,6 @@ export type RefusalReason =
   | "rest"
   | "range"
   | "unknown-pitch"
-  | "chord"
   | "chord-head"
   | "not-figure"
   | "same"
@@ -416,7 +422,6 @@ const REFUSALS: Record<Exclude<RefusalReason, "no-origin" | "span">, string> = {
   rest: "Un silencio no tiene altura ni alteración: solo se puede cambiar su figura.",
   range: "La nota saldría del registro que admite la partitura (octavas de 0 a 9).",
   "unknown-pitch": "No se reconoce la altura de esta nota.",
-  chord: "En un acorde la figura se cambia en todas sus notas a la vez: desde aquí todavía no.",
   "chord-head":
     "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
   "not-figure": "Esta duración no es una figura simple: elige antes una figura.",
@@ -428,6 +433,8 @@ export type DecidedEdit =
   | { op: "SetPitch" | "SetDuration" | "SetAccidental"; after: Record<string, string> }
   | { op: "InsertEvent"; after: Record<string, string> }
   | { op: "DeleteEvent"; after: null }
+  /** La figura de un acorde entero (ADR-0049): la misma para cada una de sus notas. */
+  | { op: "SetChordDuration"; after: { durations: string[] } }
   /** La clave elegida (índice de `CLEFS`): su `after` depende del estado (ADR-0033). */
   | { op: "SetClef"; after: Record<string, unknown>; clef: number }
   /** La armadura elegida, en quintas. */
@@ -469,22 +476,93 @@ export type ValueCommand = Extract<
   { kind: "step" | "octave" | "accidental" | "figure" | "dot" }
 >;
 
+/** Las notas de un acorde y el ancla de la primera, que lo empieza (ADR-0049). */
+export interface ChordNotes {
+  anchor: AnchorPayload;
+  notes: ScoreEventPayload[];
+}
+
+/**
+ * El acorde del evento elegido en `score`, agrupado como el exportador (una nota y las que la
+ * siguen marcadas como acorde), o null si el evento no es de un acorde de dos o más notas.
+ */
+export function chordOf(score: ScoreIRPayload, anchor: AnchorPayload): ChordNotes | null {
+  const events = voiceEvents(score, anchor);
+  if (!events?.[anchor.event_index]) return null;
+  const start = chordStart(events, anchor.event_index);
+  const head = events[start];
+  if (head?.kind !== "note") return null;
+  let end = start + 1;
+  while (events[end]?.kind === "note" && events[end]?.is_chord === true) end += 1;
+  if (end - start < 2) return null;
+  return {
+    anchor: { ...anchor, event_index: start, bbox: head.bbox, confidence: head.confidence },
+    notes: events.slice(start, end),
+  };
+}
+
+/** La figura que se dibuja del evento elegido: en un acorde, la de su primera nota. */
+export function drawnDuration(target: EditTarget, score: ScoreIRPayload | null): string | null {
+  const chord = target.chord && score ? chordOf(score, target.anchor) : null;
+  return (chord?.notes[0] ?? target.event).duration_beats ?? null;
+}
+
+const sameBeats = (a: string | null | undefined, b: string | null) => {
+  const left = parseBeats(a ?? null);
+  const right = parseBeats(b);
+  return left !== null && right !== null && sameFraction(left, right);
+};
+
+/**
+ * La edición que pone la figura `duration` al evento elegido: `SetDuration` en una nota o un
+ * silencio y, en un acorde, `SetChordDuration` en todas sus notas a la vez, anclada en la primera
+ * (ADR-0049). Sin `score` no se sabe qué notas tiene el acorde.
+ */
+function planFigure(duration: string, target: EditTarget, score: ScoreIRPayload | null): EditPlan {
+  if (target.chord) {
+    if (!score) return refuse("no-target");
+    const chord = chordOf(score, target.anchor);
+    if (chord) {
+      if (chord.notes.every((note) => sameBeats(note.duration_beats, duration))) {
+        return refuse("same", "El acorde ya tiene esa figura.");
+      }
+      return {
+        kind: "edit",
+        op: "SetChordDuration",
+        after: { durations: chord.notes.map(() => duration) },
+        anchor: chord.anchor,
+        change: `figura ${durationName(duration)} en el acorde`,
+      };
+    }
+  }
+  if (sameBeats(target.event.duration_beats, duration)) return refuse("same");
+  return {
+    kind: "edit",
+    op: "SetDuration",
+    after: { duration_beats: duration },
+    // El ancla es la del evento para el que se calculó: tras un 409 de una figura de acorde, la
+    // primera nota del acorde, que puede no ser la elegida.
+    anchor: target.anchor,
+    change: `figura ${durationName(duration)}`,
+  };
+}
+
 /**
  * Edición que pide una orden de altura, alteración o figura sobre el evento elegido, con
  * `fifths` la armadura de su compás, o por qué no se puede. Cada orden es una decisión
- * completa: una sola edición en el log.
+ * completa: una sola edición en el log; la figura de un acorde, también (ADR-0049).
  */
 export function planEdit(
   command: ValueCommand,
   target: EditTarget | null,
   fifths: number,
+  score: ScoreIRPayload | null = null,
 ): EditPlan {
   if (!target) return refuse("no-target");
   const { event } = target;
 
   if (command.kind === "figure" || command.kind === "dot") {
-    if (target.chord) return refuse("chord");
-    const current = figureOf(event.duration_beats);
+    const current = figureOf(drawnDuration(target, score));
     let duration: string;
     if (command.kind === "dot") {
       if (current.figure === null) return refuse("not-figure");
@@ -492,15 +570,7 @@ export function planEdit(
     } else {
       duration = figureDuration(command.figure, current.figure !== null && current.dotted);
     }
-    const before = parseBeats(event.duration_beats);
-    const after = parseBeats(duration);
-    if (before && after && sameFraction(before, after)) return refuse("same");
-    return {
-      kind: "edit",
-      op: "SetDuration",
-      after: { duration_beats: duration },
-      change: `figura ${durationName(duration)}`,
-    };
+    return planFigure(duration, target, score);
   }
 
   if (event.kind !== "note") return refuse("rest");
@@ -569,18 +639,11 @@ export function planAgain(
         : refuse("no-target");
   }
   const { event } = target;
-  if (edit.op === "SetDuration") {
-    if (target.chord) return refuse("chord");
-    const duration = edit.after.duration_beats ?? null;
-    const before = parseBeats(event.duration_beats);
-    const after = parseBeats(duration);
-    if (before && after && sameFraction(before, after)) return refuse("same");
-    return {
-      kind: "edit",
-      op: "SetDuration",
-      after: edit.after,
-      change: `figura ${durationName(duration)}`,
-    };
+  if (edit.op === "SetDuration" || edit.op === "SetChordDuration") {
+    // La misma figura sobre lo que el evento sea ahora: una nota sola o un acorde entero.
+    const duration =
+      edit.op === "SetDuration" ? edit.after.duration_beats : edit.after.durations[0];
+    return duration ? planFigure(duration, target, score) : refuse("no-target");
   }
   if (event.kind !== "note") return refuse("rest");
   const spelling = parsePitch(event.pitch);
@@ -957,7 +1020,7 @@ export function planCommand(
     case "key":
       return planKey(command.fifths, target?.anchor ?? null, score);
     default:
-      return planEdit(command, target, target ? activeFifths(score, target.anchor) : 0);
+      return planEdit(command, target, target ? activeFifths(score, target.anchor) : 0, score);
   }
 }
 
