@@ -107,6 +107,28 @@ describe("ScoreView", () => {
     expect(rendered.queryByRole("button", { name: "Siguiente" })).toBeNull();
   });
 
+  it("sin selección de notas es una imagen con nombre y no tiene barra de selección (#277)", async () => {
+    const rendered = render(
+      <ScoreView
+        snapshot={FIRST}
+        sessionId="sesion"
+        marks={[]}
+        expectedMeasures={[1]}
+        selectedKey={null}
+        notesSelectable={false}
+      />,
+    );
+    expect(rendered.queryByText(/selección de notas/i)).toBeNull();
+    await act(async () => {
+      calls.pending[0]?.resolve(fakeRenderer().renderer);
+      await Promise.resolve();
+    });
+
+    expect(rendered.getByRole("img", { name: "Partitura transcrita." })).toBeInTheDocument();
+    expect(rendered.queryByRole("application")).toBeNull();
+    expect(rendered.queryByText(/elige una nota|no tiene notas/i)).toBeNull();
+  });
+
   it("dibuja cada estado nuevo en la misma instancia de OSMD, sin crear otra (#276)", async () => {
     const rendered = render(view());
     const { renderer, drawn } = fakeRenderer();
