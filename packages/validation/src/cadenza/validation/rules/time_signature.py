@@ -82,7 +82,12 @@ class TimeSignatureRule(ValidationRule):
                 start, anchor = found
                 message, fix = _texts(span, start)
                 proposed = span.proposed
-                assert proposed is not None  # `meter_spans` solo da sumas que son métrica
+                if proposed is None:  # `meter_spans` solo da sumas que son métrica
+                    continue
+                after: dict[str, object] = {"time_signature": proposed.to_primitive()}
+                if not span.whole:
+                    # Desde un compás: S rige solo en la racha; después, la métrica leída.
+                    after["measures"] = sum(1 for number in span.numbers if number >= start)
                 findings.append(
                     Finding(
                         anchor=anchor,
@@ -94,7 +99,7 @@ class TimeSignatureRule(ValidationRule):
                             SuggestedEdit(
                                 op=EditOp.SET_TIME,
                                 anchor=anchor,
-                                after={"time_signature": proposed.to_primitive()},
+                                after=after,
                             ),
                         ),
                     )

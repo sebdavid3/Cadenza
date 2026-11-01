@@ -202,3 +202,17 @@ def test_the_candidate_is_described_in_musical_language() -> None:
     assert describe_edit(EditOp.SET_TIME, {"time_signature": None}, None) == (
         "Quitar el cambio de compás de este compás."
     )
+
+
+def test_a_run_proposes_the_meter_only_for_its_measures() -> None:
+    measures = [
+        _quarters(1, 1),
+        *(_quarters(k, 3) for k in range(2, 5)),
+        *(_quarters(k, 2) for k in range(5, 8)),
+        *(_quarters(k, 3) for k in range(8, 10)),
+    ]
+    doc = document(measures)
+    (finding,) = ValidationEngine([TimeSignatureRule()]).validate(doc)
+    (candidate,) = finding.candidates
+    assert candidate.after == {"time_signature": {"beats": 2, "beat_type": 4}, "measures": 3}
+    validate_after(doc.score, candidate.anchor, candidate.op, candidate.after)
