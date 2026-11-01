@@ -19,14 +19,24 @@ import {
   type MarkCommand,
   type MarkDecision,
 } from "./markEdits";
+import {
+  METER_OPS,
+  planTime,
+  planTuplet,
+  replanMeter,
+  type MeterDecision,
+  type TimeChoice,
+  type TupletCommand,
+} from "./meterEdits";
 import { durationName, pitchName } from "./noteNames";
 
 /**
  * Correcciones de la nota elegida: su altura, su duración y su alteración (#183, ADR-0030; la
  * figura de un acorde entero, #243, ADR-0049), insertar y borrar eventos y cambiar la clave y la
- * armadura de su compás (#184, ADR-0033), y sus marcas de notación (#214, ADR-0039, en
- * `markEdits`). Qué edición pide cada control o tecla sobre el evento elegido, en el vocabulario
- * del contrato (ADR-0017). Nada de esto se da por guardado: lo decide el servidor.
+ * armadura de su compás (#184, ADR-0033), sus marcas de notación (#214, ADR-0039, en
+ * `markEdits`) y el compás y los tresillos (#241, ADR-0048, en `meterEdits`). Qué edición pide
+ * cada control o tecla sobre el evento elegido, en el vocabulario del contrato (ADR-0017). Nada de
+ * esto se da por guardado: lo decide el servidor.
  */
 
 const STEPS = ["C", "D", "E", "F", "G", "A", "B"] as const;
@@ -146,26 +156,43 @@ export const FIGURES = [
 const dot = ([numerator, denominator]: Fraction): Fraction =>
   reduce([numerator * 3, denominator * 2]);
 
+/** Una figura de tresillo de 3:2: dura 2/3 de la figura (#241). */
+const triplet = ([numerator, denominator]: Fraction): Fraction =>
+  reduce([numerator * 2, denominator * 3]);
+
 /**
- * Figura (índice de `FIGURES`) y puntillo de una duración en negras. Una duración que no es una
- * figura ni una figura con puntillo (un tresillo, una duración partida, una nota de adorno) no
- * tiene figura.
+ * Figura (índice de `FIGURES`), puntillo y tresillo de una duración en negras: una corchea de
+ * tresillo es la corchea con `triplet` (#241). Una duración que no es una figura, con puntillo o
+ * de tresillo (una duración partida, una nota de adorno) no tiene figura.
  */
-export function figureOf(beats: string | null): { figure: number | null; dotted: boolean } {
+export function figureOf(beats: string | null): {
+  figure: number | null;
+  dotted: boolean;
+  triplet: boolean;
+} {
   const value = parseBeats(beats);
   if (value && value[0] > 0) {
     for (const [index, figure] of FIGURES.entries()) {
-      if (sameFraction(value, figure.beats)) return { figure: index, dotted: false };
-      if (sameFraction(value, dot(figure.beats))) return { figure: index, dotted: true };
+      if (sameFraction(value, figure.beats))
+        return { figure: index, dotted: false, triplet: false };
+      if (sameFraction(value, dot(figure.beats))) {
+        return { figure: index, dotted: true, triplet: false };
+      }
+      if (sameFraction(value, triplet(figure.beats))) {
+        return { figure: index, dotted: false, triplet: true };
+      }
     }
   }
-  return { figure: null, dotted: false };
+  return { figure: null, dotted: false, triplet: false };
 }
 
-/** Duración en negras de una figura, con puntillo o sin él, como la escribe el contrato. */
-export function figureDuration(figure: number, dotted: boolean): string {
+/**
+ * Duración en negras de una figura, con puntillo o sin él, o de tresillo, como la escribe el
+ * contrato.
+ */
+export function figureDuration(figure: number, dotted: boolean, inTriplet = false): string {
   const beats = FIGURES[figure]?.beats ?? [1, 1];
-  const [numerator, denominator] = dotted ? dot(beats) : beats;
+  const [numerator, denominator] = dotted ? dot(beats) : inTriplet ? triplet(beats) : beats;
   return denominator === 1 ? String(numerator) : `${String(numerator)}/${String(denominator)}`;
 }
 
@@ -261,6 +288,8 @@ const IN_PLACE: readonly string[] = [
     "SetKey",
   ] satisfies EditOp[]),
   ...MARK_OPS,
+  // El compás y los tresillos tampoco (ADR-0044).
+  ...METER_OPS,
 ];
 
 const sameVoice = (a: AnchorPayload, b: AnchorPayload) =>
@@ -315,6 +344,10 @@ export type EditCommand =
   | { kind: "key"; fifths: number }
   /** Marcas de notación del evento elegido (ADR-0039). */
   | MarkCommand
+  /** Poner o quitar el tresillo (ADR-0044, #241). */
+  | TupletCommand
+  /** Indicación de compás desde el compás elegido (ADR-0044, #241). */
+  | { kind: "time"; time: TimeChoice }
   /**
    * Marcar el evento elegido como inicio de la ligadura o el regulador que se cree después: no
    * es una edición.
@@ -339,8 +372,9 @@ interface KeyLike {
  * del evento elegido, y Supr o Retroceso lo borran (en un Mac, la tecla de borrar es Retroceso).
  * Las marcas (ADR-0039): P, A, M y T ponen o quitan el picado, el acento, el marcato y el tenuto,
  * y C el calderón; I marca el inicio, y L, < y > crean desde él una ligadura de expresión, un
- * crescendo o un diminuendo hasta el evento elegido. Con Ctrl, ⌘ o Alt nada es de la vista: son
- * atajos del navegador o del sistema (zoom, atrás).
+ * crescendo o un diminuendo hasta el evento elegido. R pone o quita el tresillo de tres figuras
+ * desde el evento elegido y Mayús+R, el de todo su compás (#241). Con Ctrl, ⌘ o Alt nada es de la
+ * vista: son atajos del navegador o del sistema (zoom, atrás).
  */
 export function editCommand(event: KeyLike): EditCommand | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;
@@ -354,6 +388,9 @@ export function editCommand(event: KeyLike): EditCommand | null {
       return { kind: "origin" };
     case "L":
       return { kind: "span", span: "slur" };
+    case "R":
+      // Con Mayús (no con Bloq Mayús), en todo el compás.
+      return { kind: "tuplet", scope: event.shiftKey ? "measure" : "group" };
   }
   switch (event.key) {
     case "<":
@@ -411,13 +448,20 @@ export type RefusalReason =
   | "unknown-pitch"
   | "chord-head"
   | "not-figure"
+  /** El puntillo de una figura de tresillo (#241). */
+  | "triplet-dot"
   | "same"
   /** Crear una ligadura o un regulador sin un inicio marcado que siga en la partitura. */
   | "no-origin"
   /** Un inicio y un final que no forman una ligadura o un regulador. */
-  | "span";
+  | "span"
+  /** Un compás o un tresillo que no se puede poner ahí (#241). */
+  | "meter";
 
-const REFUSALS: Record<Exclude<RefusalReason, "no-origin" | "span">, string> = {
+/** Rechazos que dicen su motivo con un mensaje propio. */
+type OwnMessage = "no-origin" | "span" | "meter";
+
+const REFUSALS: Record<Exclude<RefusalReason, OwnMessage>, string> = {
   "no-target": "Elige primero una nota o un silencio.",
   rest: "Un silencio no tiene altura ni alteración: solo se puede cambiar su figura.",
   range: "La nota saldría del registro que admite la partitura (octavas de 0 a 9).",
@@ -425,6 +469,7 @@ const REFUSALS: Record<Exclude<RefusalReason, "no-origin" | "span">, string> = {
   "chord-head":
     "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
   "not-figure": "Esta duración no es una figura simple: elige antes una figura.",
+  "triplet-dot": "Una figura de tresillo no lleva puntillo: quita antes el tresillo.",
   same: "La nota ya tiene ese valor.",
 };
 
@@ -440,7 +485,9 @@ export type DecidedEdit =
   /** La armadura elegida, en quintas. */
   | { op: "SetKey"; after: Record<string, unknown>; fifths: number }
   /** Una marca de notación (ADR-0039). */
-  | MarkDecision;
+  | MarkDecision
+  /** El compás o un tresillo (ADR-0044, #241). */
+  | MeterDecision;
 
 export type EditPlan =
   | (DecidedEdit & {
@@ -460,7 +507,7 @@ export type EditPlan =
   | { kind: "refused"; reason: RefusalReason; message: string };
 
 const refuse = (
-  reason: Exclude<RefusalReason, "no-origin" | "span">,
+  reason: Exclude<RefusalReason, OwnMessage>,
   message = REFUSALS[reason],
 ): EditPlan => ({
   kind: "refused",
@@ -566,9 +613,12 @@ export function planEdit(
     let duration: string;
     if (command.kind === "dot") {
       if (current.figure === null) return refuse("not-figure");
+      // Con puntillo, una figura de tresillo dura lo que otra sin él (#241).
+      if (current.triplet) return refuse("triplet-dot");
       duration = figureDuration(current.figure, !current.dotted);
     } else {
-      duration = figureDuration(command.figure, current.figure !== null && current.dotted);
+      // La figura conserva el puntillo y el tresillo.
+      duration = figureDuration(command.figure, current.dotted, current.triplet);
     }
     return planFigure(duration, target, score);
   }
@@ -636,6 +686,11 @@ export function planAgain(
     case "SetWedge":
       return score
         ? replanMark(edit, target.anchor, score, (anchor) => anchor).plan
+        : refuse("no-target");
+    case "SetTime":
+    case "SetTuplet":
+      return score
+        ? replanMeter(edit, target.anchor, score, (anchor) => anchor).plan
         : refuse("no-target");
   }
   const { event } = target;
@@ -1019,6 +1074,10 @@ export function planCommand(
       return planClef(command.clef, target?.anchor ?? null, score);
     case "key":
       return planKey(command.fifths, target?.anchor ?? null, score);
+    case "time":
+      return planTime(command.time, target?.anchor ?? null, score);
+    case "tuplet":
+      return planTuplet(command.scope, target, score, origin);
     default:
       return planEdit(command, target, target ? activeFifths(score, target.anchor) : 0, score);
   }
@@ -1048,6 +1107,11 @@ export function replan(
       carryAnchor(anchor, request.baseSeq, detail),
     );
   }
+  if (score && (request.op === "SetTime" || request.op === "SetTuplet")) {
+    return replanMeter(request, request.anchor, score, (anchor) =>
+      carryAnchor(anchor, request.baseSeq, detail),
+    );
+  }
   if (score && (request.op === "SetClef" || request.op === "SetKey")) {
     const plan =
       request.op === "SetClef"
@@ -1058,4 +1122,12 @@ export function replan(
   const anchor = carryAnchor(request.anchor, request.baseSeq, detail);
   const found = anchor && score ? eventAt(score, anchor) : null;
   return { plan: planAgain(request, anchor && found ? { anchor, ...found } : null, score), anchor };
+}
+
+/**
+ * Si la edición sale del inicio marcado (una ligadura, un regulador o un tresillo desde él): al
+ * guardarla, el inicio se olvida (ADR-0039, ADR-0048).
+ */
+export function usesOrigin(edit: DecidedEdit): boolean {
+  return "span" in edit || ("tuplet" in edit && edit.tuplet.from !== null);
 }

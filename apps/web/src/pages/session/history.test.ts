@@ -243,6 +243,8 @@ describe("compás y tresillos (ADR-0044)", () => {
 
   it("el compás es del compás, sin voz, no mueve la selección y se deshace con su instantánea", () => {
     expect(placeOf({ op: "SetTime", anchor: anchor(3) }, false)).toBe("compás 3");
+    // En un piano, el compás cambia en los dos pentagramas: no se dice el del ancla (#241).
+    expect(placeOf({ op: "SetTime", anchor: { ...anchor(3), staff: 1 } }, true)).toBe("compás 3");
     expect(placeOf({ op: "SetTuplet", anchor: anchor(3) }, false)).toBe("compás 3, voz 1");
     expect(
       hasCompleteBefore(

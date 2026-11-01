@@ -246,7 +246,7 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
 
 /**
  * Dónde está lo que cambia una edición, para decirlo: «compás 2, voz 1»; la clave, la armadura, la
- * dinámica y el regulador son del compás, sin voz. El pentagrama se cuenta en toda la partitura, sumando los de las partes
+ * dinámica y el regulador son del compás, sin voz, y el compás, de toda la parte, sin pentagrama. El pentagrama se cuenta en toda la partitura, sumando los de las partes
  * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
@@ -258,7 +258,8 @@ export function placeOf(
   const place = measureOnly
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
-  if (!multiStaff) return place;
+  // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla.
+  if (!multiStaff || op === "SetTime") return place;
   const previous = (score?.parts ?? [])
     .slice(0, anchor.part)
     .reduce((total, part) => total + part.staves.length, 0);

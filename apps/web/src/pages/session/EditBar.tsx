@@ -30,9 +30,11 @@ import {
   type DynamicValue,
   type SpanKind,
 } from "./markEdits";
+import { timeRange, tupletPressed, type TupletScope } from "./meterEdits";
 import { KeyCap } from "./SelectionBar";
 import { SuggestionList, type SuggestionActions } from "./SuggestionList";
 import type { SuggestionItem } from "./suggestions";
+import { TimePicker } from "./TimePicker";
 import type { EditEventRead, FindingRead } from "../../types";
 
 interface EditBarProps {
@@ -163,6 +165,17 @@ const SPANS: { span: SpanKind; label: string; text: string; icon: PixelIconName 
     text: "Dim.",
     icon: "mark-diminuendo",
   },
+];
+
+/**
+ * Tresillos (#241, ADR-0048): a tres figuras desde la elegida (o el de su grupo), a todo su compás
+ * o al tramo desde el inicio marcado. Pulsado si ya lo llevan: pulsarlo lo quita. Textos breves,
+ * para que el grupo quepa en una fila a 390 px; el nombre accesible y el `title` lo dicen entero.
+ */
+const TUPLETS: { scope: TupletScope; label: string; text: string }[] = [
+  { scope: "group", label: "Tresillo en tres figuras desde la elegida", text: "Tres" },
+  { scope: "measure", label: "Tresillo en todo el compás", text: "Compás" },
+  { scope: "range", label: "Tresillo desde el inicio hasta la elegida", text: "Tramo" },
 ];
 
 /** Armaduras que se ofrecen, de siete bemoles a siete sostenidos. */
@@ -684,7 +697,8 @@ function HistoryControls({ editor, multiStaff, score }: HistoryControlsProps) {
 
 /**
  * Barra de corrección de la nota elegida (ADR-0030, ADR-0033): altura, alteración y figura;
- * insertar antes y borrar; la clave y la armadura de su compás; y deshacer y rehacer (ADR-0034).
+ * el tresillo (ADR-0048); insertar antes y borrar; la clave, la armadura y el compás de su compás;
+ * y deshacer y rehacer (ADR-0034).
  * Cada botón es una edición completa, que se envía con el `base_seq` del estado que se ve y no se
  * da por guardada hasta el 201. Lo que pasa se anuncia en una región `aria-live`.
  */
@@ -737,6 +751,8 @@ export function EditBar({
     const found = target && score ? attributeRange(score, target.anchor, attribute) : null;
     return found ? ` · ${rangeName(found)}` : "";
   };
+  // Y el compás, en toda la parte hasta el siguiente cambio (ADR-0044).
+  const meterRange = target && score ? timeRange(score, target.anchor) : null;
   // Si desaparece el control que tenía el foco («Volver a aplicar» al enviarse, los botones al
   // finalizarse la sesión), el foco no se queda en el documento: pasa a la partitura o, si no lo
   // puede tomar, a lo que dice la barra.
@@ -857,6 +873,24 @@ export function EditBar({
                   />
                 </div>
               </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-tuplet`}>
+                <p className="label editor__label" id={`${groupId}-tuplet`}>
+                  Tresillo
+                </p>
+                <div className="editor__buttons">
+                  {TUPLETS.map(({ scope, label, text }) => (
+                    <CommandButton
+                      key={scope}
+                      command={{ kind: "tuplet", scope }}
+                      label={label}
+                      text={text}
+                      pressed={tupletPressed(scope, target, score, editor.origin)}
+                      origin={editor.origin}
+                      {...shared}
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
                 <p className="label editor__label" id={`${groupId}-structure`}>
                   Insertar antes o borrar
@@ -893,6 +927,12 @@ export function EditBar({
                   {`Armadura${range("key_signature")}`}
                 </p>
                 <KeyPicker labelId={`${groupId}-key`} {...shared} />
+              </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-time`}>
+                <p className="label editor__label" id={`${groupId}-time`}>
+                  {`Compás${meterRange ? ` · ${rangeName(meterRange)}` : ""}`}
+                </p>
+                <TimePicker labelId={`${groupId}-time`} {...shared} />
               </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-marks`}>
                 <p className="label editor__label" id={`${groupId}-marks`}>
@@ -993,6 +1033,10 @@ export function EditBar({
           </span>
           <span>
             <KeyCap>.</KeyCap> puntillo
+          </span>
+          <span>
+            <KeyCap>R</KeyCap> tresillo de tres figuras; <KeyCap>Mayús</KeyCap>
+            <KeyCap>R</KeyCap> en todo el compás
           </span>
           <span>
             <KeyCap>N</KeyCap> nota antes
