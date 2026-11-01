@@ -422,3 +422,26 @@ describe("X-Request-ID (#275)", () => {
     expect(sentId(fetchMock)).toBe("web-orden-7");
   });
 });
+
+describe("keepalive (#188)", () => {
+  it("pide keepalive solo cuando se le dice", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({})));
+    const client = createApiClient({ fetch: fetchMock, getToken: () => "abc" });
+
+    await client.request("/sessions/s/effort/segments/t", {
+      method: "PUT",
+      json: { active_ms: 1 },
+      keepalive: true,
+    });
+    await client.request("/sessions");
+
+    const inits = (fetchMock.mock.calls as unknown as [unknown, RequestInit][]).map(
+      ([, init]) => init,
+    );
+    expect(inits[0]?.keepalive).toBe(true);
+    expect(inits[0]?.headers instanceof Headers && inits[0].headers.get("Authorization")).toBe(
+      "Bearer abc",
+    );
+    expect(inits[1]?.keepalive).toBeUndefined();
+  });
+});

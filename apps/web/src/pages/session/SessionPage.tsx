@@ -13,6 +13,7 @@ import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
 import { useEditor, type Editor } from "./editor";
+import { useEffortMeter } from "./effort";
 import { carryAnchor, type EditTarget } from "./edits";
 import { useFindingActions } from "./findingActions";
 import {
@@ -203,10 +204,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
     labelOf: (finding) => findingLabel(score, finding, multiStaff),
     reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
   });
+  // El esfuerzo de la corrección (#188, ADR-0050): se mide a quien la transcribió mientras la
+  // sesión está abierta, y no se muestra.
+  const effort = useEffortMeter(api, sessionId, ready && editable);
   const lifecycle = useLifecycle(api, sessionId, {
     seq,
     assisted,
     reload: () => editorRef.current?.reload() ?? Promise.resolve(null),
+    effort,
   });
   // Mientras se revalida o se finaliza, las correcciones esperan: cambiarían el estado validado
   // (ADR-0035, ADR-0043).
@@ -217,6 +222,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
     // Mientras se guardan los datos de la partitura, también: la respuesta de una corrección
     // traería el MusicXML con los datos de antes (ADR-0045 §3).
     findingActions.revalidating || lifecycle.finalizing || metadataEditor.saving,
+    (saved) => {
+      effort.saved(saved);
+    },
   );
   const editKeysId = useId();
   // Ctrl+Z y los suyos valen en toda la vista mientras se pueda editar y se vean deshacer y

@@ -12,3 +12,11 @@ export const PRIVATE_HOME = "/transcripcion";
 export function registrationEnabled(): boolean {
   return import.meta.env.VITE_REGISTRATION_ENABLED === "true";
 }
+
+/**
+ * Umbral de las pausas en la medición del esfuerzo (#188, protocolo §3.4, ADR-0050): de cada
+ * pausa sin teclado, ratón ni toque más larga que esto solo cuenta esto. Dos minutos,
+ * confirmado por el responsable el 2026-11-01 (#244). Este es el único sitio donde se fija, y
+ * cada tramo enviado lo lleva consigo.
+ */
+export const EFFORT_IDLE_THRESHOLD_MS = 2 * 60_000;

@@ -4,6 +4,7 @@ import type { ApiClient } from "../../api/client";
 import { ApiError, errorMessage } from "../../api/errors";
 import type { FinalizeResponse, FindingRead, ReopenResponse, SessionViewRead } from "../../types";
 import { refreshSessions } from "../transcription/sessions";
+import type { EffortMeter } from "./effort";
 import { summary } from "./findingActions";
 import {
   sessionDetailQuery,
@@ -109,6 +110,11 @@ interface LifecycleOptions {
    * `seq` que cargó, o null si no lo cargó.
    */
   reload: () => Promise<number | null>;
+  /**
+   * La medición del esfuerzo (#188, ADR-0050): antes de finalizar se para y envía lo medido; si
+   * no se finaliza, sigue.
+   */
+  effort?: Pick<EffortMeter, "finish" | "resume">;
 }
 
 /**
@@ -206,90 +212,111 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
     return ` Validación final: ${lowerFirst(summary(findings))}`;
   }
 
+  /**
+   * Finalizar con la medición del esfuerzo (#188): el reloj se para y lo medido se envía antes
+   * de finalizar, porque una sesión finalizada ya no admite más tiempo. Si no llega la
+   * confirmación de ese envío, no se finaliza: lo medido se perdería. Si la sesión no queda
+   * finalizada, se sigue midiendo.
+   */
   async function finalize(): Promise<LifecycleOutcome> {
     const signal = begin("finalize");
     if (!signal) return "ignored";
-    const cancelled = () => signal.aborted;
+    const { effort } = optionsRef.current;
+    let outcome: LifecycleOutcome = "failed";
     try {
-      let result: FinalizeResponse;
-      try {
-        result = await finalizeSession(api, sessionId, signal);
-      } catch (error) {
-        if (cancelled()) return "ignored";
-        const kind = error instanceof ApiError ? error.kind : "unexpected";
-        // El único 409 de esta ruta: ya estaba finalizada (en otra pestaña, o una petición
-        // anterior sin respuesta). Se carga su estado, que es de solo lectura.
-        if (kind === "conflict") {
-          // La lista que se ve puede ser de antes de esa finalización: se carga con el estado.
-          forgetFindings();
-          const loaded = await optionsRef.current.reload();
-          if (loaded !== null && listed(loaded)) remember(loaded);
-          if (cancelled()) return "ignored";
-          say(
-            loaded === null
-              ? "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo, pero no se pudo cargar su estado: recarga la página para verlo."
-              : "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo. Ya ves su estado.",
-            null,
-          );
-          return "closed";
-        }
-        if (kind === "not-found") {
-          say("No se finalizó: la sesión ya no existe o no tienes acceso a ella.");
-          void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
-          return "failed";
-        }
-        const text = failureText("finalize", error);
-        if (!text) {
-          setStatus({ kind: "idle" });
-          return "failed";
-        }
-        // Sin respuesta pudo finalizarse: se vuelve a pedir el detalle y, si lo está, se dice y
-        // se pide la lista de la validación final.
-        if (UNKNOWN.has(kind) && (await settledAs(true))) {
-          say(
-            "No llegó la confirmación, pero la sesión está finalizada: ya ves su estado y la lista de su validación final.",
-            null,
-          );
-          return "closed";
-        }
-        if (cancelled()) return "ignored";
-        say(text);
-        return "failed";
+      const measured = effort ? await effort.finish() : "saved";
+      if (signal.aborted) return (outcome = "ignored");
+      if (measured === "failed") {
+        say(
+          "No se finalizó: no llegó la confirmación del servidor. Comprueba la conexión y vuelve a intentarlo.",
+        );
+        return (outcome = "failed");
       }
-      refreshSessions(queryClient);
-      // #188: aquí se enviarán las métricas de esfuerzo de la corrección (`POST /effort`), con la
-      // sesión ya finalizada en `result.final_seq`.
-      const shown = optionsRef.current.seq;
-      const edits = plural(result.final_seq, "edición", "ediciones");
-      if (result.final_seq !== shown) {
-        // El servidor iba por otro estado (se editó en otra pestaña): se finalizó ese, y se carga.
+      // Un rechazo (ya finalizada, sin acceso) lo explica la respuesta de finalizar.
+      return (outcome = await finalizeSigned(signal));
+    } finally {
+      if (outcome === "failed" || outcome === "ignored") effort?.resume();
+      inFlight.current = false;
+    }
+  }
+
+  /** Finalizar en el servidor y mostrar lo que resultó (ADR-0043). */
+  async function finalizeSigned(signal: AbortSignal): Promise<LifecycleOutcome> {
+    const cancelled = () => signal.aborted;
+    let result: FinalizeResponse;
+    try {
+      result = await finalizeSession(api, sessionId, signal);
+    } catch (error) {
+      if (cancelled()) return "ignored";
+      const kind = error instanceof ApiError ? error.kind : "unexpected";
+      // El único 409 de esta ruta: ya estaba finalizada (en otra pestaña, o una petición
+      // anterior sin respuesta). Se carga su estado, que es de solo lectura.
+      if (kind === "conflict") {
+        // La lista que se ve puede ser de antes de esa finalización: se carga con el estado.
         forgetFindings();
         const loaded = await optionsRef.current.reload();
-        if (loaded !== null && listed(result.final_seq)) remember(result.final_seq);
+        if (loaded !== null && listed(loaded)) remember(loaded);
         if (cancelled()) return "ignored";
-        if (loaded === null) {
-          say(
-            `Se finalizó la sesión tal como estaba tras ${edits}, un estado distinto del que se ve, pero no se pudo cargar: recarga la página para verlo.`,
-            shown,
-          );
-          return "done";
-        }
         say(
-          `La sesión iba por un estado posterior al que se veía (tras ${edits}): se finalizó ese estado, que ya ves.${finalText(result)}`,
-          result.final_seq,
+          loaded === null
+            ? "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo, pero no se pudo cargar su estado: recarga la página para verlo."
+            : "No se volvió a finalizar: la sesión ya estaba finalizada, quizá desde otra pestaña o dispositivo. Ya ves su estado.",
+          null,
+        );
+        return "closed";
+      }
+      if (kind === "not-found") {
+        say("No se finalizó: la sesión ya no existe o no tienes acceso a ella.");
+        void queryClient.invalidateQueries({ queryKey: detailKey, exact: true });
+        return "failed";
+      }
+      const text = failureText("finalize", error);
+      if (!text) {
+        setStatus({ kind: "idle" });
+        return "failed";
+      }
+      // Sin respuesta pudo finalizarse: se vuelve a pedir el detalle y, si lo está, se dice y
+      // se pide la lista de la validación final.
+      if (UNKNOWN.has(kind) && (await settledAs(true))) {
+        say(
+          "No llegó la confirmación, pero la sesión está finalizada: ya ves su estado y la lista de su validación final.",
+          null,
+        );
+        return "closed";
+      }
+      if (cancelled()) return "ignored";
+      say(text);
+      return "failed";
+    }
+    refreshSessions(queryClient);
+    const shown = optionsRef.current.seq;
+    const edits = plural(result.final_seq, "edición", "ediciones");
+    if (result.final_seq !== shown) {
+      // El servidor iba por otro estado (se editó en otra pestaña): se finalizó ese, y se carga.
+      forgetFindings();
+      const loaded = await optionsRef.current.reload();
+      if (loaded !== null && listed(result.final_seq)) remember(result.final_seq);
+      if (cancelled()) return "ignored";
+      if (loaded === null) {
+        say(
+          `Se finalizó la sesión tal como estaba tras ${edits}, un estado distinto del que se ve, pero no se pudo cargar: recarga la página para verlo.`,
+          shown,
         );
         return "done";
       }
-      setSessionStatus(shown, result.status);
-      // La respuesta no trae los descartados que se conservan: se vuelve a pedir la lista.
-      await queryClient.invalidateQueries({ queryKey: sessionFindingsKey(sessionId) });
-      if (listed(result.final_seq)) remember(result.final_seq);
-      if (cancelled()) return "ignored";
-      say(`Sesión finalizada.${finalText(result)} Si se te pasó algo, puedes reabrirla.`);
+      say(
+        `La sesión iba por un estado posterior al que se veía (tras ${edits}): se finalizó ese estado, que ya ves.${finalText(result)}`,
+        result.final_seq,
+      );
       return "done";
-    } finally {
-      inFlight.current = false;
     }
+    setSessionStatus(shown, result.status);
+    // La respuesta no trae los descartados que se conservan: se vuelve a pedir la lista.
+    await queryClient.invalidateQueries({ queryKey: sessionFindingsKey(sessionId) });
+    if (listed(result.final_seq)) remember(result.final_seq);
+    if (cancelled()) return "ignored";
+    say(`Sesión finalizada.${finalText(result)} Si se te pasó algo, puedes reabrirla.`);
+    return "done";
   }
 
   async function reopen(): Promise<LifecycleOutcome> {
