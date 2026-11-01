@@ -233,7 +233,7 @@ describe("poner y quitar tresillos (SetTuplet)", () => {
       message: expect.stringContaining("No quedan tres figuras") as string,
     });
 
-    // En un compás de doce corcheas de tresillo, la elegida quita el de su grupo de tres.
+    // Tras una negra, nueve corcheas de tresillo: la elegida quita el de su grupo de tres.
     const tripled = score([{ events: [note("C4", "1"), ...eighths(9, "1/3")] }]);
     expect(planTuplet("group", target(tripled, anchor(1, 5)), tripled, null)).toMatchObject({
       after: { durations: ["1/2", "1/2", "1/2"] },
@@ -242,6 +242,34 @@ describe("poner y quitar tresillos (SetTuplet)", () => {
     });
     expect(tupletPressed("group", target(tripled, anchor(1, 9)), tripled, null)).toBe(true);
     expect(tupletPressed("group", target(tripled, anchor(1, 0)), tripled, null)).toBe(false);
+  });
+
+  it("un hueco de la voz (silencio invisible) no es una figura ni entra en el tresillo", () => {
+    const gap = note(null, "2", { hidden: true });
+    // Una segunda voz que entra a mitad del compás con seis corcheas de tresillo.
+    const entering = score([{ events: [gap, ...eighths(6, "1/3")] }]);
+    expect(planTuplet("measure", target(entering, anchor(1, 1)), entering, null)).toMatchObject({
+      after: { durations: Array<string>(6).fill("1/2") },
+      tuplet: { put: false },
+      anchor: { event_index: 1 },
+    });
+    expect(tupletPressed("measure", target(entering, anchor(1, 1)), entering, null)).toBe(true);
+    const plain = score([{ events: [gap, ...eighths(6)] }]);
+    expect(planTuplet("measure", target(plain, anchor(1, 3)), plain, null)).toMatchObject({
+      after: { durations: Array<string>(6).fill("1/3") },
+      anchor: { event_index: 1 },
+    });
+    // Un hueco en medio del tramo no se toca: se dice.
+    const inside = score([{ events: [...eighths(2), gap, ...eighths(1)] }]);
+    expect(planTuplet("group", target(inside, anchor(1)), inside, null)).toMatchObject({
+      kind: "refused",
+      reason: "meter",
+      message: expect.stringContaining("hueco de la voz") as string,
+    });
+    expect(planTuplet("measure", target(inside, anchor(1)), inside, null)).toMatchObject({
+      kind: "refused",
+      reason: "meter",
+    });
   });
 
   it("un acorde cuenta como una figura y sus notas cambian con él; el adorno no cambia", () => {

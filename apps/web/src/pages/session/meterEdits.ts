@@ -315,6 +315,12 @@ function chordEnd(events: readonly ScoreEventPayload[], head: number): number {
 /** Si el evento ocupa tiempo: una nota de adorno no (ADR-0028). */
 const timed = (event: ScoreEventPayload | undefined) => parseBeats(event?.duration_beats) !== null;
 
+/** Un silencio invisible: el hueco de una voz (ADR-0032), que no es una figura que se vea. */
+const isHidden = (event: ScoreEventPayload | undefined) => event?.hidden === true;
+
+/** Si es una figura que cuenta para el tresillo: ocupa tiempo y se ve. */
+const figure = (event: ScoreEventPayload | undefined) => timed(event) && !isHidden(event);
+
 /** Tramo `[start, end)` de la voz y si ya lleva el tresillo (todo), no (nada) o en parte. */
 interface Stretch {
   start: number;
@@ -322,7 +328,7 @@ interface Stretch {
 }
 
 function tripletState(events: readonly ScoreEventPayload[], { start, end }: Stretch) {
-  const values = events.slice(start, end).filter(timed);
+  const values = events.slice(start, end).filter(figure);
   const triplets = values.filter((event) => hasTriplet(event.duration_beats)).length;
   if (values.length === 0) return "empty" as const;
   return triplets === 0
@@ -336,7 +342,7 @@ function tripletState(events: readonly ScoreEventPayload[], { start, end }: Stre
 function threeFrom(events: readonly ScoreEventPayload[], from: number): Stretch | null {
   let counted = 0;
   for (const head of heads(events).filter((index) => index >= from)) {
-    if (timed(events[head])) counted += 1;
+    if (figure(events[head])) counted += 1;
     if (counted === 3) return { start: from, end: chordEnd(events, head) };
   }
   return null;
@@ -348,17 +354,19 @@ function threeFrom(events: readonly ScoreEventPayload[], from: number): Stretch 
  */
 function groupOf(events: readonly ScoreEventPayload[], head: number): Stretch {
   const all = heads(events);
-  // La racha: los ataques seguidos con tresillo; una nota de adorno no la corta.
+  // La racha: los ataques seguidos con tresillo; una nota de adorno no la corta, un hueco sí.
   const inRun = (index: number | undefined) => {
     const event = index === undefined ? undefined : events[index];
-    return event !== undefined && (!timed(event) || hasTriplet(event.duration_beats));
+    return (
+      event !== undefined && (!timed(event) || (figure(event) && hasTriplet(event.duration_beats)))
+    );
   };
   const position = all.indexOf(head);
   let first = position;
   while (first > 0 && inRun(all[first - 1])) first -= 1;
   let last = position;
   while (last < all.length - 1 && inRun(all[last + 1])) last += 1;
-  const figures = all.slice(first, last + 1).filter((index) => timed(events[index]));
+  const figures = all.slice(first, last + 1).filter((index) => figure(events[index]));
   const group = Math.floor(figures.indexOf(head) / 3) * 3;
   const members = figures.slice(group, group + 3);
   return {
@@ -374,7 +382,7 @@ function groupOf(events: readonly ScoreEventPayload[], head: number): Stretch {
  */
 function untripled(events: readonly ScoreEventPayload[]): Stretch | null {
   const plain = heads(events).filter(
-    (index) => timed(events[index]) && !hasTriplet(events[index]?.duration_beats),
+    (index) => figure(events[index]) && !hasTriplet(events[index]?.duration_beats),
   );
   const first = plain[0];
   const last = plain.at(-1);
@@ -413,7 +421,7 @@ export function planTuplet(
   let state: ReturnType<typeof tripletState>;
   if (scope === "group") {
     const own = events[chosen];
-    if (!timed(own)) return refuse("Una nota de adorno no ocupa tiempo: elige una figura.");
+    if (!figure(own)) return refuse("Una nota de adorno no ocupa tiempo: elige una figura.");
     if (hasTriplet(own?.duration_beats)) {
       stretch = groupOf(events, chosen);
     } else {
@@ -427,7 +435,9 @@ export function planTuplet(
     state = tripletState(events, stretch);
     if (state === "mixed") return refuse(MIXED);
   } else if (scope === "measure") {
-    stretch = { start: 0, end: events.length };
+    // De la primera figura a la última: un hueco al principio o al final (ADR-0032) se queda.
+    const all = heads(events).filter((index) => figure(events[index]));
+    stretch = { start: all[0] ?? 0, end: chordEnd(events, all.at(-1) ?? 0) };
     state = tripletState(events, stretch);
     if (state === "mixed") {
       stretch = untripled(events);
@@ -456,6 +466,11 @@ export function planTuplet(
     if (state === "mixed") return refuse(MIXED);
   }
   if (state === "empty") return refuse("Ahí solo hay notas de adorno: no ocupan tiempo.");
+  if (events.slice(stretch.start, stretch.end).some(isHidden)) {
+    return refuse(
+      "En ese tramo hay un hueco de la voz (un silencio invisible): desde la vista no se le pone el tresillo.",
+    );
+  }
   const put = state === "none";
   const factor: Fraction = put ? [2, 3] : [3, 2];
   const durations: (string | null)[] = [];

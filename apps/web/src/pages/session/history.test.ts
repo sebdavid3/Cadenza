@@ -245,6 +245,11 @@ describe("compás y tresillos (ADR-0044)", () => {
     expect(placeOf({ op: "SetTime", anchor: anchor(3) }, false)).toBe("compás 3");
     // En un piano, el compás cambia en los dos pentagramas: no se dice el del ancla (#241).
     expect(placeOf({ op: "SetTime", anchor: { ...anchor(3), staff: 1 } }, true)).toBe("compás 3");
+    // Con varias partes se dice cuál.
+    const parts = { parts: [{ staves: [] }, { staves: [] }] } as unknown as ScoreIRPayload;
+    expect(placeOf({ op: "SetTime", anchor: { ...anchor(3), part: 1 } }, true, parts)).toBe(
+      "parte 2, compás 3",
+    );
     expect(placeOf({ op: "SetTuplet", anchor: anchor(3) }, false)).toBe("compás 3, voz 1");
     expect(
       hasCompleteBefore(

@@ -175,7 +175,7 @@ const SPANS: { span: SpanKind; label: string; text: string; icon: PixelIconName 
 const TUPLETS: { scope: TupletScope; label: string; text: string }[] = [
   { scope: "group", label: "Tresillo en tres figuras desde la elegida", text: "Tres" },
   { scope: "measure", label: "Tresillo en todo el compás", text: "Compás" },
-  { scope: "range", label: "Tresillo desde el inicio hasta la elegida", text: "Tramo" },
+  { scope: "range", label: "Tramo: tresillo desde el inicio hasta la elegida", text: "Tramo" },
 ];
 
 /** Armaduras que se ofrecen, de siete bemoles a siete sostenidos. */
@@ -377,8 +377,10 @@ function CommandButton({
   onRun,
 }: CommandButtonProps) {
   const plan = planCommand(command, target, score, origin);
-  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice.
-  const disabled = blocked || (plan.kind === "refused" && plan.reason !== "same");
+  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo que no
+  // se puede ahí tampoco: pulsarlo dice por qué (falta el inicio, una figura con puntillo…).
+  const disabled =
+    blocked || (plan.kind === "refused" && plan.reason !== "same" && plan.reason !== "meter");
   return (
     <button
       type="button"

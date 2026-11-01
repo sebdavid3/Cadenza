@@ -6620,18 +6620,61 @@ describe("corregir la nota elegida", () => {
       const server = editableApi();
       renderPage();
       const region = await chooseMeasure(2);
-      // El compás 2 tiene una blanca con puntillo.
-      expect(button("Tresillo en tres figuras desde la elegida")).toHaveAttribute(
-        "aria-disabled",
-        "true",
-      );
+      // El compás 2 tiene una blanca con puntillo. Los botones no se apagan: dicen por qué.
+      expect(button("Tresillo en todo el compás")).toHaveAttribute("aria-disabled", "false");
       fireEvent.keyDown(region, { key: "R", shiftKey: true });
       await waitFor(() => {
         expect(editStatus()).toHaveTextContent(
           "Una figura con puntillo no pasa a tresillo: quítale antes el puntillo.",
         );
       });
+      fireEvent.click(button("Tramo: tresillo desde el inicio hasta la elegida"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Marca antes el inicio/);
+      });
       expect(server.bodies).toHaveLength(0);
+    });
+
+    it("«Tramo» va del inicio marcado a la elegida y, guardado, el inicio se olvida", async () => {
+      const server = editableApi(withEighths());
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(button("Inicio de la ligadura o el regulador"));
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+
+      // «Tres» no usa el inicio: se queda marcado.
+      fireEvent.click(button("Tresillo en tres figuras desde la elegida"));
+      await waitFor(() => {
+        expect(durations(server)).toEqual(["1/2", "1/2", "1/2", "1/3", "1/3", "1/3"]);
+      });
+      expect(button("Inicio de la ligadura o el regulador")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(within(editor()).getByRole("button", { name: "Olvidar el inicio" })).toBeVisible();
+      expect(button("Tramo: tresillo desde el inicio hasta la elegida")).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+
+      // Del inicio (la primera) a la tercera, que no lo llevan.
+      fireEvent.keyDown(region, { key: "ArrowLeft" });
+      await waitFor(() => {
+        expect(screen.getByText("Sol4 · corchea")).toBeVisible();
+      });
+      fireEvent.click(button("Tramo: tresillo desde el inicio hasta la elegida"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: tresillo en 3 figuras del compás 2.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTuplet",
+        anchor: anchorOf(2),
+        after: { durations: ["1/3", "1/3", "1/3"] },
+      });
+      expect(within(editor()).queryByRole("button", { name: "Olvidar el inicio" })).toBeNull();
     });
 
     it("un 422 del tresillo no guarda nada", async () => {

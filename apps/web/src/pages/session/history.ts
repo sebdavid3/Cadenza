@@ -258,8 +258,12 @@ export function placeOf(
   const place = measureOnly
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
-  // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla.
-  if (!multiStaff || op === "SetTime") return place;
+  // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla, sino la
+  // parte, si hay varias.
+  if (op === "SetTime") {
+    return (score?.parts.length ?? 0) > 1 ? `parte ${String(anchor.part + 1)}, ${place}` : place;
+  }
+  if (!multiStaff) return place;
   const previous = (score?.parts ?? [])
     .slice(0, anchor.part)
     .reduce((total, part) => total + part.staves.length, 0);

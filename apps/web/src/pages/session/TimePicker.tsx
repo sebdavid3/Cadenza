@@ -41,7 +41,8 @@ export function TimePicker({ labelId, target, score, blocked, onRun }: TimePicke
   const chosen = choices.find((choice) => timeKey(choice) === key) ?? current;
   const command: PlannedCommand = { kind: "time", time: chosen };
   const plan = planCommand(command, target, score);
-  const disabled = blocked || plan.kind === "refused";
+  // Si los pentagramas de la parte no llevan el mismo compás, pulsar «Cambiar» lo dice.
+  const disabled = blocked || (plan.kind === "refused" && plan.reason !== "meter");
   return (
     <div className="editor__buttons">
       <select
