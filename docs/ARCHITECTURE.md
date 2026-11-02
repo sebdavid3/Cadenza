@@ -1010,6 +1010,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0048](adr/ADR-0048-compas-y-tresillos-desde-la-barra.md) | El compás y los tresillos desde la barra: grupos «Tresillo» y «Compás», un solo `SetTuplet` o `SetTime` por acción y la figura de una nota de tresillo |
 | [ADR-0049](adr/ADR-0049-figura-de-un-acorde.md) | La figura de un acorde entero: `SetChordDuration`, una sola edición de tipo «fijar» en la primera nota del acorde |
 | [ADR-0050](adr/ADR-0050-metricas-de-esfuerzo-de-la-correccion.md) | Métricas de esfuerzo de la corrección: un registro acumulado por sesión, por tramos de tiempo visible y con actividad, con las intervenciones contadas en el servidor |
+| [ADR-0055](adr/ADR-0055-ligaduras-de-prolongacion-y-notas-de-un-acorde.md) | Ligaduras de prolongación (`SetTie`) y notas de un acorde (`InsertEvent` con `is_chord`, `DeleteEvent` con `keep_chord`) desde la barra |
 
 
 ---
