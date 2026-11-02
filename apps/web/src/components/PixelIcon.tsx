@@ -370,6 +370,17 @@ const GLYPHS = {
     "........",
     "........",
   ],
+  // Dos cabezas de nota unidas por debajo: la ligadura de prolongación (#312).
+  "mark-tie": [
+    "........",
+    "##....##",
+    "##....##",
+    "........",
+    "#......#",
+    ".######.",
+    "........",
+    "........",
+  ],
   "mark-crescendo": [
     "........",
     ".....###",

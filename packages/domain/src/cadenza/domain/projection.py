@@ -135,6 +135,56 @@ def _apply_accidental(pitch: str | None, payload: Mapping[str, Any] | None) -> s
     return f"{letter}{normalized_acc}{octave}"
 
 
+def _next_in_voice(events: list[Event], position: int, voice: int) -> int:
+    """La posición en `events` del primer evento de la voz desde `position`; `ValueError` si
+    no es una nota de un acorde (con `is_chord`)."""
+
+    following = next((i for i in range(position, len(events)) if events[i].voice == voice), None)
+    if (
+        following is None
+        or events[following].kind is not EventKind.NOTE
+        or not events[following].is_chord
+    ):
+        raise ValueError("la nota siguiente no es una nota del acorde")
+    return following
+
+
+def _promote_chord_note(events: list[Event], position: int, voice: int, head: Event) -> None:
+    """Borrada la primera nota de un acorde (`keep_chord`, ADR-0055), la siguiente pasa a ser
+    la primera: sin `is_chord` y con la figura y las marcas del acorde."""
+
+    index = _next_in_voice(events, position, voice)
+    events[index] = replace(
+        events[index],
+        is_chord=False,
+        duration_beats=head.duration_beats,
+        articulations=head.articulations,
+        fermata=head.fermata,
+        slurs=head.slurs,
+    )
+
+
+def _restore_chord_note(
+    events: list[Event], inserted: int, voice: int, restored: Mapping[str, Any]
+) -> None:
+    """La nota que sigue a la insertada vuelve a ser una nota del acorde, con su figura y sus
+    marcas de antes (`next_in_chord`, ADR-0055)."""
+
+    following = next(
+        (i for i in range(inserted + 1, len(events)) if events[i].voice == voice), None
+    )
+    if following is None or events[following].kind is not EventKind.NOTE:
+        raise ValueError("no hay una nota tras la insertada que vuelva al acorde")
+    events[following] = replace(
+        events[following],
+        is_chord=True,
+        duration_beats=_fraction(restored.get("duration_beats")),
+        articulations=tuple(Articulation(str(a)) for a in restored.get("articulations") or ()),
+        fermata=restored.get("fermata") is True,
+        slurs=tuple(Slur.from_primitive(s) for s in restored.get("slurs") or ()),
+    )
+
+
 def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Measure:
     if edit.op is EditOp.SET_CLEF:
         return replace(measure, clef=_extract_clef(edit.after))
@@ -190,6 +240,11 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
                 hidden=_value(edit.after, "hidden") is True,
             ),
         )
+        restored = _value(edit.after, "next_in_chord")
+        if restored is not None:
+            # La compensatoria de borrar la primera nota de un acorde (ADR-0055): la nota que
+            # pasó a ser la primera vuelve a ser una nota más del acorde, con lo que tenía.
+            _restore_chord_note(events, insert_pos, anchor.voice, restored)
         return replace(measure, events=tuple(events))
 
     if anchor.event_index >= len(voice_positions):
@@ -209,6 +264,8 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         )
     elif edit.op is EditOp.DELETE_EVENT:
         del events[position]
+        if _value(edit.after, "keep_chord") is True:
+            _promote_chord_note(events, position, anchor.voice, target)
     else:
         op_label = edit.op.value if hasattr(edit.op, "value") else str(edit.op)
         raise UnsupportedEditOpError(f"operación no proyectable: {op_label}")

@@ -249,9 +249,13 @@ def test_meter_edits_are_not_samples() -> None:
     chord = make_edit(4, make_anchor(0), None, None, op=EditOp.SET_CHORD_DURATION)
     object.__setattr__(chord, "before", {"durations": ["1", "1"]})
     object.__setattr__(chord, "after", {"durations": ["2", "2"]})
+    # Ni la ligadura de prolongación (ADR-0055).
+    tie = make_edit(5, make_anchor(0), None, None, op=EditOp.SET_TIE)
+    object.__setattr__(tie, "before", {"tie": None, "next": None})
+    object.__setattr__(tie, "after", {"tie": "start", "next": None})
     pitch = make_edit(3, make_anchor(1), "D4", "E4")
 
-    samples = DatasetBuilder().build(document, [time, tuplet, chord, pitch])
+    samples = DatasetBuilder().build(document, [time, tuplet, chord, tie, pitch])
 
     assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
     assert samples == DatasetBuilder().build(document, [pitch])

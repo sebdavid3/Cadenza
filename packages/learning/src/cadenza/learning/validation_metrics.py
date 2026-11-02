@@ -179,7 +179,8 @@ def categorize_edit_op(op: EditOp | str) -> str:
     # Las marcas de notación (ADR-0039) no se derivan del diff con la verdad.
     if val in {op.value for op in MARK_EDIT_OPS}:
         return "marks"
-    # Ni el compás ni los tresillos como edición (ADR-0044).
+    # Ni el compás, los tresillos, la figura de un acorde o la ligadura de prolongación como
+    # edición (ADR-0044, ADR-0049, ADR-0055).
     if val in {op.value for op in METER_EDIT_OPS}:
         return "meter"
     return "other"

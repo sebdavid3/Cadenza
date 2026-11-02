@@ -122,7 +122,13 @@ def _durations(score: ScoreIR, measure: int = 1) -> list[str | None]:
 
 def test_meter_ops_are_their_own_class_and_content_stays_at_seven() -> None:
     # Y la figura de un acorde (ADR-0049, `test_chord_duration_op.py`).
-    assert {EditOp.SET_TIME, EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION} == METER_EDIT_OPS
+    # Y la ligadura de prolongación (ADR-0055, `test_tie_and_chord_edits.py`).
+    assert {
+        EditOp.SET_TIME,
+        EditOp.SET_TUPLET,
+        EditOp.SET_CHORD_DURATION,
+        EditOp.SET_TIE,
+    } == METER_EDIT_OPS
     assert CONTENT_EDIT_OPS.isdisjoint(METER_EDIT_OPS)
     assert MARK_EDIT_OPS.isdisjoint(METER_EDIT_OPS)
     assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS

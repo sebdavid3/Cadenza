@@ -15,7 +15,7 @@ from .suggestions import ACCEPTED, REJECTED
 
 EFFORT_CLASSES: Final[tuple[str, ...]] = ("content", "mark", "meter")
 """Las clases de las intervenciones (ADR-0039, ADR-0044): el contenido, las marcas de notación y
-el compás con los tresillos y la figura de un acorde."""
+el compás con los tresillos, la figura de un acorde y la ligadura de prolongación (ADR-0055)."""
 
 
 def effort_class(op: EditOp) -> str:
