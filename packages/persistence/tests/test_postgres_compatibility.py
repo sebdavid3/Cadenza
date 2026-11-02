@@ -100,6 +100,8 @@ def test_alembic_migrations_offline_sql_generation_for_postgresql() -> None:
     assert "0013_suggestions" in generated_sql
     assert "0014_session_metadata" in generated_sql
     assert "0015_effort_accumulated" in generated_sql
+    assert "CREATE TABLE previews" in generated_sql
+    assert "0016_previews" in generated_sql
 
 
 def _get_live_postgres_url() -> str | None:
