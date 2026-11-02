@@ -60,6 +60,13 @@ services:
       CADENZA_REGISTRATION_ENABLED: ${CADENZA_REGISTRATION_ENABLED:-false}
       CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS:-5}
       CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS: ${CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS:-3600}
+      # Transcripción sin cuenta desde la portada (#278, ADR-0054): apagada salvo que se
+      # encienda, y apagada durante el estudio, como el registro.
+      CADENZA_ANONYMOUS_PREVIEW_ENABLED: ${CADENZA_ANONYMOUS_PREVIEW_ENABLED:-false}
+      CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS: ${CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS:-3600}
+      CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS:-5}
+      CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_WINDOW_SECONDS: ${CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_WINDOW_SECONDS:-3600}
+      CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE: ${CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE:-20}
       # Transcripciones en curso a la vez; sin hueco, 503 (ADR-0024).
       CADENZA_TRANSCRIBE_MAX_CONCURRENCY: ${CADENZA_TRANSCRIBE_MAX_CONCURRENCY:-2}
       # Uvicorn solo cree X-Forwarded-For si la petición viene del servicio web, el único cliente
@@ -93,6 +100,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         VITE_REGISTRATION_ENABLED: ${CADENZA_REGISTRATION_ENABLED:-false}
+        VITE_ANONYMOUS_PREVIEW_ENABLED: ${CADENZA_ANONYMOUS_PREVIEW_ENABLED:-false}
     image: cadenza-web:prod
     restart: unless-stopped
     # La interfaz se sirve aunque la API aún arranque o haya caído: /api responde 502 mientras
