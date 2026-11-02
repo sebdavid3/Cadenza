@@ -1481,6 +1481,23 @@ describe("notas de un acorde y ligaduras de prolongación (ADR-0055)", () => {
     );
   });
 
+  it("si lo siguiente es un silencio lo dice, y salta el hueco del final de la voz", () => {
+    const state = staffScore([
+      { events: [note("C4"), note(null, "2")] },
+      { events: [note("C4", "2"), hiddenRest("1")] },
+      { events: [note("C4", "3")] },
+    ]);
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "refused",
+      message:
+        "Lo siguiente no es un Do 4: una ligadura de prolongación une dos notas de la misma altura.",
+    });
+    // Tras el Do del compás 2 solo queda su hueco: la ligadura cruza al compás 3.
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(2, 0)), state)).toMatchObject({
+      after: { tie: "start", next: { measure: 3, voice: 0, event_index: 0, tie: "stop" } },
+    });
+  });
+
   it("la ligadura no mueve ningún ancla", () => {
     const state = staffScore([{ events: [note("C4"), note("C4")] }]);
     const detail = reloaded(state, [logged(1, "SetTie", anchor(1, 0))]);

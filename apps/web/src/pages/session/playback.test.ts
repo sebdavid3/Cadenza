@@ -54,6 +54,7 @@ function timed(
   duration: string,
   kind = "note",
   voice = 0,
+  measureOffset = "0",
 ): EventTimingRead {
   return {
     anchor: {
@@ -71,7 +72,7 @@ function timed(
     voice,
     offset_beats: offset,
     duration_beats: duration,
-    measure_offset_beats: "0",
+    measure_offset_beats: measureOffset,
   };
 }
 
@@ -206,6 +207,26 @@ describe("reproducción a partir del mapa de tiempos", () => {
       { start: 0, duration: 3, midi: 64, measure: 1, sound: "piano" },
       { start: 3, duration: 5, midi: 60, measure: 1, sound: "piano" },
     ]);
+  });
+
+  it("dentro del compás no une notas de voces distintas", () => {
+    const ir = score([
+      [
+        event({ pitch: "C4", tie: "start" }),
+        event({ kind: "rest", pitch: null, voice: 1 }),
+        event({ pitch: "C4", voice: 1, tie: "stop" }),
+      ],
+    ]);
+    const map = timing(
+      [
+        timed(1, 0, "0", "1"),
+        timed(1, 0, "0", "1", "rest", 1),
+        timed(1, 1, "1", "1", "note", 1, "1"),
+      ],
+      { "1": "0" },
+      "2",
+    );
+    expect(buildPlayback(ir, map).notes.map((note) => note.start)).toEqual([0, 1]);
   });
 
   it("hace sonar a la vez las notas de un acorde", () => {

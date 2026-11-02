@@ -66,7 +66,13 @@ function firstTimedGroup(events: readonly ScoreEventPayload[], from = 0): [numbe
   let index = from;
   while (index < events.length) {
     const [start, end] = groupOf(events, index);
-    if (events[start]?.duration_beats != null) return [start, end];
+    if (events[start]?.duration_beats != null) {
+      // Los silencios invisibles del final de la voz no cuentan: tras ellos no hay nada, y la
+      // ligadura cruza la barra (como en el servidor y en `tie.resolution`).
+      const rest = events.slice(start);
+      if (rest.every((event) => event.hidden === true || event.duration_beats == null)) return null;
+      return [start, end];
+    }
     index = end;
   }
   return null;
@@ -84,6 +90,13 @@ const inVoice = (events: readonly ScoreEventPayload[], voice: number) =>
  * grupo de cada voz del compás siguiente (su voz primero).
  */
 export function followingNotes(score: ScoreIRPayload, anchor: AnchorPayload): NotePlace[] {
+  return followingPlaces(score, anchor).filter(
+    (place) => isNote(place.event) && place.event.duration_beats != null,
+  );
+}
+
+/** Lo que sigue a la nota del ancla, notas o no: el grupo de `followingNotes` entero. */
+function followingPlaces(score: ScoreIRPayload, anchor: AnchorPayload): NotePlace[] {
   const measures = measuresOf(score, anchor);
   const position = measures.findIndex((measure) => measure.number === anchor.measure);
   const measure = measures[position];
@@ -99,8 +112,7 @@ export function followingNotes(score: ScoreIRPayload, anchor: AnchorPayload): No
   ) =>
     list
       .slice(start, stop)
-      .map((event, offset) => ({ measure: number, voice, event_index: start + offset, event }))
-      .filter((place) => isNote(place.event) && place.event.duration_beats != null);
+      .map((event, offset) => ({ measure: number, voice, event_index: start + offset, event }));
   const within = firstTimedGroup(events, end);
   if (within) return places(measure.number, anchor.voice, events, within);
   const later = measures[position + 1];
@@ -198,10 +210,8 @@ function planPut(target: EditTarget, score: ScoreIRPayload): EditPlan {
   if (event.duration_beats == null) return refuse("Una nota de adorno no se liga.");
   const next = followingNotes(score, anchor);
   const name = spoken(event.pitch);
-  if (next.length === 0) {
-    return refuse(
-      "No hay ninguna nota después de esta en su voz ni al empezar el compás siguiente.",
-    );
+  if (followingPlaces(score, anchor).length === 0) {
+    return refuse("No hay nada después de esta nota en su voz ni al empezar el compás siguiente.");
   }
   const other = next.find((place) => samePitch(place.event, event));
   if (!other) {

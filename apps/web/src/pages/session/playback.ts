@@ -132,16 +132,21 @@ export function buildPlayback(
     const tie = event?.tie ?? null;
     const reaches = (candidate: PlayedNote | undefined): candidate is PlayedNote =>
       candidate !== undefined && Math.abs(candidate.start + candidate.duration - start) < EPSILON;
-    // La de su voz o, si no, la de otra voz de su pentagrama con su altura que acaba donde empieza.
+    // La de su voz o, si la nota empieza su compás (la ligadura cruza la barra, y las voces se
+    // numeran en cada compás), la de otra voz de su pentagrama con su altura que acaba donde
+    // empieza.
     const own = open.get(tieKey);
+    const startsMeasure = parseBeats(timed.measure_offset_beats) === 0;
     const found: [string, PlayedNote] | undefined = reaches(own)
       ? [tieKey, own]
-      : [...open.entries()].find(
-          ([key, candidate]) =>
-            key.startsWith(`${staffKey}:`) &&
-            key.endsWith(`:${String(midi)}`) &&
-            reaches(candidate),
-        );
+      : !startsMeasure
+        ? undefined
+        : [...open.entries()].find(
+            ([key, candidate]) =>
+              key.startsWith(`${staffKey}:`) &&
+              key.endsWith(`:${String(midi)}`) &&
+              reaches(candidate),
+          );
     let note: PlayedNote;
     if ((tie === "stop" || tie === "continue") && found) {
       const [key, previous] = found;
