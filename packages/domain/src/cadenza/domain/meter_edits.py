@@ -1,5 +1,6 @@
 """Ediciones del compás, los tresillos y la figura de un acorde: validación, estado previo y
-proyección (ADR-0044, #236; ADR-0049, #243).
+proyección (ADR-0044, #236; ADR-0049, #243). La ligadura de prolongación (`SetTie`, ADR-0055) es
+de su clase y entra por aquí, pero sus reglas están en `tie_edits`.
 
 Tres operaciones de tipo «fijar», como las de marcas (ADR-0039): el servidor guarda en `before`
 el estado que sustituyen, con la forma de su `after`, y la compensatoria intercambia los dos
@@ -42,6 +43,7 @@ from .duration_rules import check_duration
 from .edit import EditEvent, EditOp
 from .edit_errors import InvalidEditPayload
 from .score import Event, Measure, Part, ScoreIR, Staff
+from .tie_edits import apply_tie, check_tie, has_complete_tie_before, snapshot_tie
 from .time_signature import SYMBOL_METERS, TimeSignature, same_time_notation
 
 _TIME_KEYS: Final[frozenset[str]] = frozenset({"time_signature", "measures"})
@@ -442,8 +444,8 @@ def _snapshot_chord_duration(score: ScoreIR, anchor: Anchor) -> dict[str, Any]:
 def validate_meter_after(
     score: ScoreIR, anchor: Anchor, op: EditOp, after: Mapping[str, Any] | None
 ) -> None:
-    """Comprueba el `after` de `SetTime`, `SetTuplet` (ADR-0044) o `SetChordDuration`
-    (ADR-0049) sobre el estado `score`.
+    """Comprueba el `after` de `SetTime`, `SetTuplet` (ADR-0044), `SetChordDuration`
+    (ADR-0049) o `SetTie` (ADR-0055) sobre el estado `score`.
 
     `InvalidEditPayload` si no es válido; `IndexError` si el ancla no apunta a su compás o
     a su evento."""
@@ -454,6 +456,8 @@ def validate_meter_after(
         _check_tuplet(score, anchor, after)
     elif op is EditOp.SET_CHORD_DURATION:
         _check_chord_duration(score, anchor, after)
+    elif op is EditOp.SET_TIE:
+        check_tie(score, anchor, after)
     else:
         raise ValueError(f"operación que no es de compás ni de tresillos: {op.value}")
 
@@ -470,6 +474,8 @@ def snapshot_meter_before(
         return _snapshot_tuplet(score, anchor, after)
     if op is EditOp.SET_CHORD_DURATION:
         return _snapshot_chord_duration(score, anchor)
+    if op is EditOp.SET_TIE:
+        return snapshot_tie(score, anchor, after)
     raise ValueError(f"operación que no es de compás ni de tresillos: {op.value}")
 
 
@@ -478,12 +484,14 @@ def has_complete_meter_before(op: EditOp, before: Mapping[str, Any]) -> bool:
 
     if op is EditOp.SET_TIME:
         return _TIME_KEYS.issubset(before.keys())
+    if op is EditOp.SET_TIE:
+        return has_complete_tie_before(before)
     return isinstance(before.get("durations"), list | tuple)
 
 
 def apply_meter_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
-    """Aplica `SetTime`, `SetTuplet` o `SetChordDuration`; no muta `score`. `ValueError` si su
-    `after` no se entiende, `IndexError` si no encuentra lo que fija."""
+    """Aplica `SetTime`, `SetTuplet`, `SetChordDuration` o `SetTie`; no muta `score`.
+    `ValueError` si su `after` no se entiende, `IndexError` si no encuentra lo que fija."""
 
     after = edit.after
     if after is None:
@@ -493,6 +501,8 @@ def apply_meter_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
             return _apply_time(score, edit.anchor, after)
         if edit.op in (EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION):
             return _apply_durations(score, edit.anchor, after)
+        if edit.op is EditOp.SET_TIE:
+            return apply_tie(score, edit.anchor, after)
     except (KeyError, TypeError, InvalidEditPayload) as exc:
         raise ValueError(f"'after' de {edit.op.value} no válido: {exc!r}") from exc
     raise ValueError(f"operación que no es de compás ni de tresillos: {edit.op.value}")

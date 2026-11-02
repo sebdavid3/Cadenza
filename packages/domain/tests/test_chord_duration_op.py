@@ -110,7 +110,8 @@ TRIAD = (
 def test_chord_duration_is_a_meter_op_and_content_stays_at_seven() -> None:
     assert OP.value == "SetChordDuration"
     assert OP in METER_EDIT_OPS
-    assert {EditOp.SET_TIME, EditOp.SET_TUPLET, OP} == METER_EDIT_OPS
+    # Con la ligadura de prolongación (ADR-0055, `test_tie_and_chord_edits.py`).
+    assert {EditOp.SET_TIME, EditOp.SET_TUPLET, OP, EditOp.SET_TIE} == METER_EDIT_OPS
     assert OP not in CONTENT_EDIT_OPS and OP not in MARK_EDIT_OPS
     assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS
     # La cobertura de exp_02 se calcula sobre las siete de contenido: no cambia (ADR-0039 §3).

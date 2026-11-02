@@ -41,11 +41,14 @@ class EditOp(StrEnum):
        - Inserta un nuevo evento musical antes de la posición anclada.
        - ``before``: ``None``.
        - ``after``: ``{"kind": str, "pitch": str | None, "duration_beats": Fraction | str, ...}``.
+         Con ``"is_chord": true``, una nota más del acorde de la nota anterior (ADR-0055). La
+         compensatoria de borrar la primera nota de un acorde lleva además ``"next_in_chord"``.
 
     5. `DELETE_EVENT` ("DeleteEvent"):
        - Elimina el evento musical anclado en la voz del compás.
        - ``before``: snapshot del evento previo.
-       - ``after``: ``None``.
+       - ``after``: ``None`` o, en la primera nota de un acorde, ``{"keep_chord": true}``: la
+         nota siguiente pasa a ser la primera, con la figura y las marcas del acorde (ADR-0055).
 
     6. `SET_CLEF` ("SetClef"):
        - Modifica la clave musical del compás al que apunta el ancla.
@@ -99,6 +102,16 @@ class EditOp(StrEnum):
         - Fija la figura de todas las notas de un acorde, anclada en su primera nota.
         - ``before``/``after``: ``{"durations": [str | None, ...]}``, una por nota del acorde
           (en el ``after`` del cliente, todas iguales y con duración).
+
+    Ligadura de prolongación (ADR-0055). También de tipo «fijar», y tampoco mueve ningún evento.
+
+    15. `SET_TIE` ("SetTie"):
+        - Pone o quita la ligadura de prolongación entre la nota anclada y la que la sigue (en su
+          voz o, al cruzar la barra, al empezar el compás siguiente), o quita la marca de la
+          nota anclada sola.
+        - ``before``/``after``: ``{"tie": str | None, "next": {"measure": int, "voice": int,
+          "event_index": int, "tie": str | None} | None}``, el valor de cada nota
+          (``"start"``, ``"continue"``, ``"stop"`` o ``None``).
     """
 
     SET_PITCH = "SetPitch"
@@ -115,6 +128,7 @@ class EditOp(StrEnum):
     SET_TIME = "SetTime"
     SET_TUPLET = "SetTuplet"
     SET_CHORD_DURATION = "SetChordDuration"
+    SET_TIE = "SetTie"
 
 
 MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
@@ -124,12 +138,14 @@ MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
 métricas de los experimentos, como las marcas mismas (ADR-0031 §6)."""
 
 METER_EDIT_OPS: frozenset[EditOp] = frozenset(
-    {EditOp.SET_TIME, EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION}
+    {EditOp.SET_TIME, EditOp.SET_TUPLET, EditOp.SET_CHORD_DURATION, EditOp.SET_TIE}
 )
-"""Operaciones sobre el compás y las figuras de varios eventos a la vez: los tresillos
-(ADR-0044) y la figura de un acorde (ADR-0049). `derive_edit_events` no las produce (no alinea
-las indicaciones de compás, y un tresillo o la figura de un acorde salen como un `SetDuration`
-por nota), así que no entran en la cobertura de `exp_02` ni son muestras del dataset."""
+"""Operaciones sobre el compás y la duración de varios eventos a la vez: los tresillos
+(ADR-0044), la figura de un acorde (ADR-0049) y la ligadura de prolongación, que suma las
+figuras de dos notas (ADR-0055). `derive_edit_events` no las produce (no alinea las indicaciones
+de compás, un tresillo o la figura de un acorde salen como un `SetDuration` por nota, y una
+ligadura como un borrado y una inserción de cada nota), así que no entran en la cobertura de
+`exp_02` ni son muestras del dataset."""
 
 CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(
     {
@@ -253,12 +269,13 @@ def create_inverse_edit(
     Invierte semánticamente cualquier operación de `EditOp`:
     - SetPitch / SetDuration / SetAccidental / SetClef / SetKey, las de marcas (SetNoteMarks,
       SetDynamic, SetWedge, SetSlur, ADR-0039), las de compás y tresillos (SetTime,
-      SetTuplet, ADR-0044) y la figura de un acorde (SetChordDuration, ADR-0049): intercambia
-      `before` y `after`.
+      SetTuplet, ADR-0044), la figura de un acorde (SetChordDuration, ADR-0049) y la ligadura
+      de prolongación (SetTie, ADR-0055): intercambia `before` y `after`.
     - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
       `before = edit.after` y `after = None`.
     - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con
-      `before = None` y `after = edit.before`.
+      `before = None` y `after = edit.before` (si borró la primera nota de un acorde, su
+      `before` lleva `next_in_chord` y el inverso devuelve también la nota siguiente, ADR-0055).
 
     El evento compensatorio referencia explícitamente la edición que revierte
     mediante `reverts_edit_id = edit.id`.
