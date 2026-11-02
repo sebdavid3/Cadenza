@@ -628,6 +628,184 @@
         }
       }
     },
+    "/previews": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Transcribir sin cuenta desde la portada",
+        "description": "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y mapa de tiempos), cuántos posibles errores señalan las reglas y un token para reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054).",
+        "operationId": "create_preview_previews_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_preview_previews_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El archivo excede el tamaño máximo permitido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Tipo de archivo no soportado (se requiere imagen PNG o JPEG)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After (ADR-0024)",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/previews/{preview_id}/claim": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Reclamar una transcripción sin cuenta",
+        "description": "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054).",
+        "operationId": "claim_preview_previews__preview_id__claim_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "preview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preview Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscribeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions": {
       "get": {
         "tags": [
@@ -2439,6 +2617,85 @@
         "title": "AnchorPayload",
         "description": "Ancla de evento en formato primitivo (contrato compartido del dominio).\n\nEl ancla es posicional y se interpreta respecto al estado `at_seq`\ncorrespondiente: estado 0 para el documento crudo, estado `seq - 1`\n(`base_seq`) para una edición, estado `at_seq` para un hallazgo (ADR-0011)."
       },
+      "Body_create_preview_previews_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título de la partitura (#240)."
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer",
+            "description": "Compositor (#235)."
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Instrument"
+                    },
+                    {
+                      "type": "string",
+                      "const": ""
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments",
+            "description": "Instrumento de cada parte, como en POST /transcribe (ADR-0041)."
+          },
+          "part_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Names",
+            "description": "Nombre de cada parte, alineado con `instruments` (ADR-0041)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_preview_previews_post"
+      },
       "Body_login_auth_login_post": {
         "properties": {
           "grant_type": {
@@ -3728,6 +3985,117 @@
         ],
         "title": "PartPayload",
         "description": "Parte instrumental o vocal que agrupa uno o varios pentagramas."
+      },
+      "PreviewClaimRequest": {
+        "properties": {
+          "claim_token": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Claim Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "claim_token"
+        ],
+        "title": "PreviewClaimRequest",
+        "description": "Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054)."
+      },
+      "PreviewResponse": {
+        "properties": {
+          "preview_id": {
+            "type": "string",
+            "title": "Preview Id"
+          },
+          "claim_token": {
+            "type": "string",
+            "title": "Claim Token",
+            "description": "Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. Solo se devuelve aquí: el servidor guarda su SHA-256."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "Cuándo caduca y se borra con su imagen"
+          },
+          "findings_count": {
+            "type": "integer",
+            "title": "Findings Count",
+            "description": "Posibles errores que señalan las reglas"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML de lo leído; null si no se pudo exportar"
+          },
+          "score": {
+            "$ref": "#/components/schemas/ScoreIRPayload"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingMapRead",
+            "description": "Mapa de tiempos para reproducirla; su session_id es el preview_id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preview_id",
+          "claim_token",
+          "expires_at",
+          "findings_count",
+          "score",
+          "timing"
+        ],
+        "title": "PreviewResponse",
+        "description": "Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y\nel token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."
       },
       "ProvenancePayload": {
         "properties": {

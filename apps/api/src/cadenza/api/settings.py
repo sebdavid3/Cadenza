@@ -131,6 +131,13 @@ class Settings(BaseSettings):
                 "CADENZA_REGISTRATION_ENABLED exige CADENZA_CORS_ORIGINS con el origen público "
                 "de la interfaz, no '*'"
             )
+        # Lo mismo con la transcripción sin cuenta (ADR-0054): cualquier web podría gastar los
+        # huecos de HOMR desde el navegador de sus visitantes.
+        if self.anonymous_preview_enabled and "*" in self.cors_origins:
+            raise ValueError(
+                "CADENZA_ANONYMOUS_PREVIEW_ENABLED exige CADENZA_CORS_ORIGINS con el origen "
+                "público de la interfaz, no '*'"
+            )
         return self
 
     login_rate_limit_max_attempts: int = Field(
@@ -160,6 +167,45 @@ class Settings(BaseSettings):
         default=3600,
         ge=1,
         description="Ventana en segundos del límite de intentos de registro por IP (ADR-0022).",
+    )
+    anonymous_preview_enabled: bool = Field(
+        default=False,
+        description=(
+            "Abre la transcripción sin cuenta de la portada: POST /previews y POST "
+            "/previews/{id}/claim (#278, ADR-0054). Apagado, las dos responden 404 como si no "
+            "existieran. Apagado también durante el estudio, como el registro (#248)."
+        ),
+    )
+    anonymous_preview_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description=(
+            "Cuánto se guarda una transcripción sin cuenta antes de caducar y borrarse con su "
+            "imagen, en segundos (ADR-0054)."
+        ),
+    )
+    anonymous_preview_rate_limit_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Transcripciones sin cuenta por IP (o red /64 en IPv6) en la ventana, también las que "
+            "fallan (ADR-0054)."
+        ),
+    )
+    anonymous_preview_rate_limit_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Ventana en segundos del límite de transcripciones sin cuenta por IP.",
+    )
+    anonymous_preview_max_active: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description=(
+            "Transcripciones sin cuenta guardadas a la vez, de todas las IP; con el tope, "
+            "POST /previews responde 503 hasta que caduque alguna (ADR-0054)."
+        ),
     )
     transcribe_max_concurrency: int = Field(
         default=2,
