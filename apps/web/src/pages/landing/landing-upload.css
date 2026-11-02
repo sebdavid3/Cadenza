@@ -236,3 +236,25 @@
 .landing-result__loading {
   padding: var(--space-5) var(--space-3);
 }
+
+/* Sin cuenta (#278): la nota de las acciones, a lo ancho bajo los botones. */
+.landing-result__note {
+  flex-basis: 100%;
+}
+
+.landing-upload__hint {
+  flex-basis: 100%;
+  max-width: 62ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Una transcripción sin cuenta que espera tras una recarga: solo su nombre y sus acciones. */
+.landing-upload__pending {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 64rem;
+  padding: var(--space-5);
+  border: var(--rule-width) solid var(--color-accent);
+}

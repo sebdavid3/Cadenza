@@ -5,7 +5,12 @@ import { errorMessage } from "../../api/errors";
 import { api } from "../../api/instance";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
-import type { PartInstrumentRead, ScoreIRPayload, TimingMapRead } from "../../types";
+import type {
+  PartInstrumentRead,
+  PreviewResponse,
+  ScoreIRPayload,
+  TimingMapRead,
+} from "../../types";
 import { measuresPerStaff } from "../session/findings";
 import { buildPlayback, measureSlots } from "../session/playback";
 import { PlaybackBar } from "../session/PlaybackBar";
@@ -13,7 +18,7 @@ import { usePlayer } from "../session/player";
 import { ScoreView, type ScoreSnapshot } from "../session/ScoreView";
 import { sessionDetailQuery, sessionMusicXmlQuery, sessionTimingQuery } from "../session/session";
 import "../session/session.css";
-import { sessionName } from "../transcription/scoreData";
+import { nonBlank, sessionName } from "../transcription/scoreData";
 import "../transcription/transcription.css";
 
 /** Lo que se enseña de una transcripción en la portada, venga de donde venga. */
@@ -28,9 +33,9 @@ export interface ResultData {
   seq: number;
   timing: TimingMapRead | null;
   instruments?: PartInstrumentRead[];
-  /** Fallo al traer lo que se enseña, y cómo reintentarlo. */
+  /** Fallo al traer lo que se enseña, y cómo reintentarlo (sin reintento si no hay nada que pedir). */
   failure: string | null;
-  onRetry: () => void;
+  onRetry?: () => void;
   /** Si el audio no se pudo preparar por falta del mapa de tiempos. */
   timingFailed: boolean;
 }
@@ -110,7 +115,7 @@ export function ResultView({ data, headingRef, actions }: ResultViewProps) {
             silent={playback !== null && playback.notes.length === 0}
             failure={data.timingFailed ? "timing" : player.loadFailed ? "load" : null}
             onRetry={() => {
-              if (data.timingFailed) data.onRetry();
+              if (data.timingFailed) data.onRetry?.();
               else player.retryLoad();
             }}
             onPlay={player.play}
@@ -134,9 +139,11 @@ export function ResultView({ data, headingRef, actions }: ResultViewProps) {
           <div className="notation__failed" role="alert">
             <p className="notation__failed-title">No se pudo cargar la partitura.</p>
             <p>{data.failure}</p>
-            <button type="button" className="link-button" onClick={data.onRetry}>
-              Reintentar
-            </button>
+            {data.onRetry && (
+              <button type="button" className="link-button" onClick={data.onRetry}>
+                Reintentar
+              </button>
+            )}
           </div>
         ) : (
           <p className="label landing-result__loading" role="status">
@@ -218,6 +225,51 @@ export function SessionResult({
           <button type="button" className="link-button" onClick={onAnother}>
             Transcribir otra imagen
           </button>
+        </>
+      }
+    />
+  );
+}
+
+interface PreviewResultProps {
+  preview: PreviewResponse;
+  /** Nombre que se le dio, o el del archivo. */
+  name: string;
+  headingRef?: Ref<HTMLHeadingElement>;
+  /** «Editar» y lo demás: entrar, crear la cuenta o abrirla, según haya sesión. */
+  actions: ReactNode;
+  /** Aviso junto a las acciones (que hay que entrar, que caducó la sesión…). */
+  note: ReactNode;
+}
+
+/**
+ * El resultado de una transcripción sin cuenta (#278, ADR-0054): lo que leyó HOMR viene en la
+ * respuesta de `POST /previews` (MusicXML, `ScoreIR` y tiempos), sin ninguna otra petición.
+ */
+export function PreviewResult({ preview, name, headingRef, actions, note }: PreviewResultProps) {
+  const data: ResultData = {
+    viewKey: `vista-previa-${preview.preview_id}`,
+    name: nonBlank(preview.title) ?? name,
+    findingsCount: preview.findings_count,
+    score: preview.score,
+    xml: preview.musicxml ?? null,
+    seq: 0,
+    timing: preview.timing,
+    instruments: preview.instruments,
+    failure:
+      preview.musicxml == null
+        ? "No se pudo preparar la partitura para verla; al editarla se vuelve a intentar."
+        : null,
+    timingFailed: false,
+  };
+  return (
+    <ResultView
+      data={data}
+      headingRef={headingRef}
+      actions={
+        <>
+          {actions}
+          <div className="landing-result__note">{note}</div>
         </>
       }
     />
