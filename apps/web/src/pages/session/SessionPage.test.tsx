@@ -1904,6 +1904,23 @@ describe("corregir la nota elegida", () => {
       before = { kind, pitch, duration_beats, tie, is_chord, bbox, confidence };
       for (const key of EVENT_EXTRAS) if (key in event) before[key] = event[key];
       measure.events.splice(position, 1);
+      // La primera nota de un acorde (ADR-0055): la siguiente pasa a ser la primera, con la
+      // figura y las marcas del acorde.
+      const following = positions[body.anchor.event_index + 1];
+      const promoted = following === undefined ? undefined : measure.events[following - 1];
+      if (after.keep_chord === true && promoted) {
+        before.next_in_chord = {
+          duration_beats: promoted.duration_beats,
+          articulations: promoted.articulations ?? [],
+          fermata: promoted.fermata === true,
+          slurs: promoted.slurs ?? [],
+        };
+        promoted.is_chord = false;
+        promoted.duration_beats = duration_beats;
+        for (const key of ["articulations", "fermata", "slurs"] as const) {
+          if (key in event) promoted[key] = event[key] as never;
+        }
+      }
     }
     if (event && body.op === "SetPitch") {
       before = { pitch: event.pitch };
@@ -1959,6 +1976,26 @@ describe("corregir la nota elegida", () => {
       ];
     }
     const measures = next.current_score?.parts[0]?.staves[0]?.measures ?? [];
+    // La ligadura de prolongación (ADR-0055): el valor de cada una de sus dos notas.
+    if (event && body.op === "SetTie") {
+      const other = after.next as {
+        measure: number;
+        voice: number;
+        event_index: number;
+        tie: string | null;
+      } | null;
+      const otherEvent = other
+        ? measures
+            .find((candidate) => candidate.number === other.measure)
+            ?.events.filter((candidate) => candidate.voice === other.voice)[other.event_index]
+        : undefined;
+      before = {
+        tie: event.tie ?? null,
+        next: other && otherEvent ? { ...other, tie: otherEvent.tie ?? null } : null,
+      };
+      event.tie = (after.tie as string | null) ?? null;
+      if (other && otherEvent) otherEvent.tie = other.tie;
+    }
     const number = Number(after.number);
     if (body.op === "SetSlur") {
       const ends: Record<string, unknown> = { number, start: null, stop: null };
@@ -3687,32 +3724,177 @@ describe("corregir la nota elegida", () => {
       });
     });
 
-    it("no borra la primera nota de un acorde y dice por qué", async () => {
+    it("borra cualquier nota de un acorde; la primera, conservando el acorde (D61)", async () => {
+      const server = editableApi(
+        withSecond([
+          note("C4", "3", { articulations: ["accent"] }),
+          note("E4", "3", { is_chord: true }),
+          note("G4", "3", { is_chord: true }),
+        ]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+      expect(button("Borrar")).toHaveAttribute("aria-disabled", "false");
+
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4 del acorde.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "DeleteEvent",
+        anchor: anchorOf(2),
+        before: null,
+        after: { keep_chord: true },
+      });
+      // Queda elegida la nota que ocupa su sitio, que lleva el acento del acorde.
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: anchorOf(2),
+      });
+      const promoted = server.current().current_score?.parts[0]?.staves[0]?.measures[1]?.events[0];
+      expect(promoted).toMatchObject({ pitch: "E4", is_chord: false, articulations: ["accent"] });
+
+      // Una nota del acorde que no es la primera se borra sola.
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+      fireEvent.click(button("Borrar"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Sol 4 del acorde.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        op: "DeleteEvent",
+        after: null,
+        anchor: { event_index: 1 },
+      });
+    });
+
+    it("añade una nota al acorde de la elegida con un botón o con E, y la elige", async () => {
       const server = editableApi(
         withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
       );
       renderPage();
       const region = await chooseMeasure(2);
-      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
 
-      expect(button("Borrar")).toHaveAttribute("aria-disabled", "true");
-      fireEvent.click(button("Borrar"));
-      fireEvent.keyDown(region, { key: "Delete" });
+      fireEvent.click(button("Añadir una nota al acorde"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Sol 4 en el acorde.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), event_index: 2, bbox: null, confidence: null },
+        before: null,
+        after: { kind: "note", pitch: "G4", duration_beats: "3", is_chord: true },
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: { measure: 2, event_index: 2 },
+      });
+      expect(screen.getByText("Sol4 · blanca con puntillo")).toBeVisible();
+
+      // Con E, otra tercera por encima de la más aguda.
+      fireEvent.keyDown(region, { key: "e" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Si 4 en el acorde.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "InsertEvent",
+        anchor: { event_index: 3 },
+        after: { pitch: "B4", is_chord: true },
+      });
+    });
+
+    it("liga con la nota siguiente con un botón o con U, y la quita al volver a pulsarlo", async () => {
+      const server = editableApi(withSecond([note("C4", "3"), note("C4", "3")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(button("Ligar con la siguiente")).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(button("Ligar con la siguiente"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: ligadura de prolongación de Do 4.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "SetTie",
+        anchor: anchorOf(2),
+        before: null,
+        after: { tie: "start", next: { measure: 2, voice: 0, event_index: 1, tie: "stop" } },
+      });
+      // La selección no se mueve, y el botón queda pulsado.
+      expect(useSelectionStore.getState().selection).toMatchObject({ anchor: anchorOf(2) });
+      await waitFor(() => {
+        expect(button("Ligar con la siguiente")).toHaveAttribute("aria-pressed", "true");
+      });
+
+      fireEvent.keyDown(region, { key: "u" });
       await waitFor(() => {
         expect(editStatus()).toHaveTextContent(
-          "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
+          "Guardado: quitar la ligadura de prolongación de Do 4.",
+        );
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTie",
+        after: { tie: null, next: { measure: 2, voice: 0, event_index: 1, tie: null } },
+      });
+    });
+
+    it("quita la ligadura que llega y liga a través de la barra", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3/2", { tie: "start" }), note("C4", "3/2", { tie: "stop" })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      // A la primera no le llega ninguna: no se ofrece quitarla.
+      expect(within(editor()).queryByText("Quitar la ligadura que llega")).toBeNull();
+
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.click(button("Quitar la ligadura que llega"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: quitar la ligadura de prolongación que llega a Do 4.",
+        );
+      });
+      // Anclada en su nota de origen, la primera.
+      expect(server.bodies[0]).toMatchObject({
+        op: "SetTie",
+        anchor: { measure: 2, event_index: 0 },
+        after: { tie: null, next: { measure: 2, voice: 0, event_index: 1, tie: null } },
+      });
+
+      // La segunda acaba el compás: se liga con el Do que empieza el compás 3.
+      fireEvent.keyDown(region, { key: "u" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: ligadura de prolongación de Do 4 hasta el compás 3.",
+        );
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTie",
+        anchor: { measure: 2, event_index: 1 },
+        after: { tie: "start", next: { measure: 3, voice: 0, event_index: 0, tie: "stop" } },
+      });
+    });
+
+    it("no liga con una nota distinta y dice por qué", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+
+      fireEvent.keyDown(region, { key: "u" });
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Lo siguiente no es un Do 4: una ligadura de prolongación une dos notas de la misma altura.",
         );
       });
       expect(server.bodies).toHaveLength(0);
-
-      // Mi4, la otra nota del acorde, sí se borra.
-      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
-      expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
-      fireEvent.click(button("Borrar"));
-      await waitFor(() => {
-        expect(editStatus()).toHaveTextContent("Guardado: borrado de Mi 4, blanca con puntillo.");
-      });
-      expect(server.bodies[0]).toMatchObject({ op: "DeleteEvent", anchor: { event_index: 1 } });
     });
 
     it("insertar ante una nota de un acorde inserta antes del acorde entero", async () => {

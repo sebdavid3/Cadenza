@@ -181,6 +181,33 @@ describe("reproducción a partir del mapa de tiempos", () => {
     expect(buildPlayback(ir, map).notes.map((note) => note.start)).toEqual([0, 2, 2]);
   });
 
+  it("une una ligadura que cruza la barra a una voz con otro número (ADR-0055)", () => {
+    // Las voces se numeran en cada compás (ADR-0032 §3): el Do de la voz 1 del compás 1 sigue en
+    // la voz 2 del compás 2, tras un silencio de la voz 1.
+    const ir = score([
+      [event({ pitch: "E4", duration_beats: "3" }), event({ pitch: "C4", tie: "start" })],
+      [
+        event({ kind: "rest", pitch: null, duration_beats: "4" }),
+        event({ pitch: "C4", voice: 1, duration_beats: "4", tie: "stop" }),
+      ],
+    ]);
+    const map = timing(
+      [
+        timed(1, 0, "0", "3"),
+        timed(1, 1, "3", "1"),
+        timed(2, 0, "4", "4", "rest"),
+        timed(2, 0, "4", "4", "note", 1),
+      ],
+      { "1": "0", "2": "4" },
+      "8",
+    );
+
+    expect(buildPlayback(ir, map).notes).toEqual([
+      { start: 0, duration: 3, midi: 64, measure: 1, sound: "piano" },
+      { start: 3, duration: 5, midi: 60, measure: 1, sound: "piano" },
+    ]);
+  });
+
   it("hace sonar a la vez las notas de un acorde", () => {
     const ir = score([
       [event({ pitch: "C4" }), event({ pitch: "E4", is_chord: true }), event({ pitch: "G4" })],

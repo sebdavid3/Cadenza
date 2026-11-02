@@ -2,6 +2,7 @@ import type { AnchorPayload, EditEventRead, ScoreIRPayload } from "../../types";
 import { CLEFS, eventAt, eventName, keyName, selectAfterDelete } from "./edits";
 import { describeMarkEdit, hasCompleteMarkBefore } from "./markEdits";
 import { durationName, pitchName } from "./noteNames";
+import { describeTieEdit, hasCompleteTieBefore } from "./tieEdits";
 
 /**
  * Deshacer y rehacer desde la vista de una sesión (#185, ADR-0034), sobre el log de ediciones de
@@ -213,10 +214,20 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       const name = ACCIDENTAL_NAMES[raw === null || raw === undefined ? "" : (text(raw) ?? "")];
       return name ? `alteración ${name}` : "alteración";
     }
-    case "InsertEvent":
-      return `inserción de ${eventOf(after)}`;
+    case "InsertEvent": {
+      // Una nota más de un acorde (ADR-0055): su figura es la del acorde.
+      const pitch = text(after.pitch);
+      return after.is_chord === true && pitch
+        ? `inserción de ${spoken(pitch)} en el acorde`
+        : `inserción de ${eventOf(after)}`;
+    }
     case "DeleteEvent": {
       const before = record(edit.before);
+      const pitch = text(before?.pitch);
+      // Una nota de un acorde, también la primera (`keep_chord`, ADR-0055).
+      if (pitch && (before?.is_chord === true || after.keep_chord === true)) {
+        return `borrado de ${spoken(pitch)} del acorde`;
+      }
       return before ? `borrado de ${eventOf(before)}` : "borrado de un evento";
     }
     case "SetClef":
@@ -228,6 +239,9 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return timeChange(after);
     case "SetTuplet":
       return tupletChange(edit.before, after);
+    // La ligadura de prolongación (ADR-0055).
+    case "SetTie":
+      return describeTieEdit(edit.after);
     // La figura de un acorde entero (ADR-0049).
     case "SetChordDuration": {
       const durations = Array.isArray(after.durations) ? after.durations : [];
@@ -298,6 +312,8 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
     case "SetTuplet":
     case "SetChordDuration":
       return Array.isArray(before.durations);
+    case "SetTie":
+      return hasCompleteTieBefore(before);
     case "SetNoteMarks":
     case "SetDynamic":
     case "SetSlur":
@@ -325,7 +341,7 @@ export function inverseOf(edit: EditEventRead): Pick<EditEventRead, "op" | "anch
  * Evento que queda elegido tras aplicar una edición sobre `score` (el estado en que se pide), con
  * su ancla en el estado siguiente (ADR-0011, ADR-0033): el evento cambiado, el insertado o el que
  * ocupa el sitio del borrado; undefined si la edición no mueve la selección (la clave, la
- * armadura, la dinámica, la ligadura y el regulador) o si sería un silencio invisible, que no se
+ * armadura, la dinámica, las ligaduras y el regulador) o si sería un silencio invisible, que no se
  * elige (ADR-0032); null si no queda ninguno.
  */
 export function historyPlacement(
@@ -339,6 +355,8 @@ export function historyPlacement(
     case "SetDynamic":
     case "SetSlur":
     case "SetWedge":
+    case "SetTie":
+      // Tampoco la ligadura de prolongación (ADR-0055).
       return undefined;
     case "InsertEvent":
       return record(edit.after)?.hidden === true ? undefined : edit.anchor;

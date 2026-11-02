@@ -745,19 +745,35 @@ describe("borrar el evento elegido", () => {
     expect(planDelete(chosen(state, anchor(1)), state)).toMatchObject({ select: null });
   });
 
-  it("una nota de un acorde se borra sola; la primera, que lleva su figura, no", () => {
+  it("una nota de un acorde se borra sola; la primera conserva el acorde (ADR-0055)", () => {
     const state = staffScore([
-      { events: [note("C4"), note("E4", "1", { is_chord: true }), note("G4")] },
+      {
+        events: [
+          note("C4", "1", { slurs: [{ type: "start", number: 1 }] }),
+          note("E4", "1", { is_chord: true }),
+          note("G4", "1", { slurs: [{ type: "stop", number: 1 }] }),
+        ],
+      },
     ]);
     expect(planDelete(chosen(state, anchor(1, 1)), state)).toMatchObject({
       kind: "edit",
+      op: "DeleteEvent",
+      after: null,
       select: anchor(1, 1),
+      change: "borrado de Mi 4 del acorde",
     });
-    const refused = planDelete(chosen(state, anchor(1, 0)), state);
-    expect(refused).toMatchObject({ kind: "refused", reason: "chord-head" });
-    expect(refused.kind === "refused" && refused.message).toBe(
-      "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
-    );
+    // La primera: con keep_chord, y queda elegida la siguiente, que ocupa su sitio. Su ligadura de
+    // expresión pasa a la siguiente: se sigue dibujando y no hay nada que avisar.
+    const head = planDelete(chosen(state, anchor(1, 0)), state);
+    expect(head).toMatchObject({
+      kind: "edit",
+      op: "DeleteEvent",
+      after: { keep_chord: true },
+      anchor: anchor(1, 0),
+      select: anchor(1, 0),
+      change: "borrado de Do 4 del acorde",
+    });
+    expect(head).not.toHaveProperty("notice");
   });
 
   it("dice si la nota lleva un extremo de una ligadura de expresión, que dejará de dibujarse", () => {
@@ -1241,5 +1257,233 @@ describe("la figura de un acorde entero (ADR-0049)", () => {
       after: { duration_beats: "1/2" },
       anchor: { event_index: 0 },
     });
+  });
+});
+
+describe("notas de un acorde y ligaduras de prolongación (ADR-0055)", () => {
+  function logged(seq: number, op: string, at: AnchorPayload): EditEventRead {
+    return {
+      id: `e${String(seq)}`,
+      session_id: "s",
+      seq,
+      op,
+      author: "ana",
+      anchor: at,
+      before: null,
+      after: null,
+      created_at: "2026-11-01T00:00:00Z",
+    };
+  }
+  const reloaded = (state: ScoreIRPayload, edits: EditEventRead[]) =>
+    ({ current_seq: edits.length, edits, current_score: state }) as SessionDetailRead;
+  const triad = () =>
+    staffScore([
+      {
+        events: [
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+          note("G4", "1", { is_chord: true }),
+          note("D4", "2"),
+        ],
+        fifths: 1,
+      },
+    ]);
+  const key = (value: string, shiftKey = false, ctrlKey = false) =>
+    editCommand({ key: value, shiftKey, ctrlKey, metaKey: false, altKey: false });
+
+  it("E y U son las teclas de añadir al acorde y de ligar", () => {
+    expect(key("e")).toEqual({ kind: "chord-add" });
+    expect(key("E", true)).toEqual({ kind: "chord-add" });
+    expect(key("u")).toEqual({ kind: "tie" });
+    expect(key("u", false, true)).toBeNull();
+  });
+
+  it("añade una tercera por encima de la nota más aguda, tras la última nota, y la elige", () => {
+    const state = triad();
+    // Desde cualquier nota del acorde; en Sol mayor, la tercera sobre el Sol es Si.
+    const plan = planCommand({ kind: "chord-add" }, chosen(state, anchor(1, 0)), state);
+    expect(plan).toEqual({
+      kind: "edit",
+      op: "InsertEvent",
+      after: { kind: "note", pitch: "B4", duration_beats: "1", is_chord: true },
+      anchor: { ...anchor(1, 3), bbox: null, confidence: null },
+      select: { ...anchor(1, 3), bbox: null, confidence: null },
+      change: "inserción de Si 4 en el acorde",
+    });
+    // Con una nota sola forma un acorde, con su figura: sobre el Re, Fa sostenido.
+    expect(planCommand({ kind: "chord-add" }, chosen(state, anchor(1, 3)), state)).toMatchObject({
+      after: { pitch: "F#4", duration_beats: "2", is_chord: true },
+      anchor: { event_index: 4 },
+    });
+  });
+
+  it("por debajo si arriba se sale del registro; en un silencio no", () => {
+    const high = staffScore([{ events: [note("C9"), note("A9", "1", { is_chord: true })] }]);
+    expect(planCommand({ kind: "chord-add" }, chosen(high, anchor(1, 0)), high)).toMatchObject({
+      after: { pitch: "A8" },
+    });
+    const rest = staffScore([{ events: [note(null), note("C4")] }]);
+    expect(planCommand({ kind: "chord-add" }, chosen(rest, anchor(1, 0)), rest)).toMatchObject({
+      kind: "refused",
+      reason: "chord",
+    });
+  });
+
+  it("tras un 409, añade la misma nota tras la última del acorde en su posición nueva", () => {
+    const request: EditRequestLike = {
+      op: "InsertEvent",
+      after: { kind: "note", pitch: "B4", duration_beats: "1", is_chord: true },
+      anchor: { ...anchor(1, 3), bbox: null, confidence: null },
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó un silencio al principio: el acorde pasa a las posiciones 1 a 3.
+    const state = staffScore([
+      {
+        events: [
+          note(null),
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+          note("G4", "1", { is_chord: true }),
+        ],
+      },
+    ]);
+    const { plan } = replan(request, reloaded(state, [logged(1, "InsertEvent", anchor(1, 0))]));
+    expect(plan).toMatchObject({
+      kind: "edit",
+      op: "InsertEvent",
+      after: request.after,
+      anchor: { event_index: 4 },
+      select: { event_index: 4 },
+      change: "inserción de Si 4 en el acorde",
+    });
+  });
+
+  it("liga con la nota de la misma altura que la sigue, también al cruzar la barra", () => {
+    const state = staffScore([
+      { events: [note("C4"), note("C4"), note("D4", "1", { voice: 1 }), note("G4", "2")] },
+      { events: [note(null, "2"), note("D4", "4", { voice: 1 }), note("G4", "2")] },
+    ]);
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 0)), state)).toEqual({
+      kind: "edit",
+      op: "SetTie",
+      after: { tie: "start", next: { measure: 1, voice: 0, event_index: 1, tie: "stop" } },
+      tie: { intent: "put", from: anchor(1, 0) },
+      anchor: anchor(1, 0),
+      change: "ligadura de prolongación de Do 4",
+    });
+    // El Sol acaba el compás: el siguiente de su altura empieza el compás 2 en su voz, tras un
+    // silencio no: la voz 1 del compás 2 empieza con un silencio, así que no hay Sol que ligar.
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 2)), state)).toMatchObject({
+      kind: "refused",
+      reason: "tie",
+    });
+    // La voz 2 (índice 1) liga su Re con el Re de su voz en el compás siguiente.
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 0, 1)), state)).toMatchObject({
+      after: { tie: "start", next: { measure: 2, voice: 1, event_index: 0, tie: "stop" } },
+      change: "ligadura de prolongación de Re 4 hasta el compás 2",
+    });
+  });
+
+  it("al cruzar la barra, liga con la misma nota en otra voz si la suya no la tiene", () => {
+    const state = staffScore([
+      { events: [note("E4", "3"), note("C4")] },
+      { events: [note(null, "4"), note("C4", "4", { voice: 1 })] },
+    ]);
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      after: { tie: "start", next: { measure: 2, voice: 1, event_index: 0, tie: "stop" } },
+      change: "ligadura de prolongación de Do 4 hasta el compás 2",
+    });
+  });
+
+  it("no liga con lo que no es la misma nota, ni un silencio, y dice por qué", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4"), note(null, "2")] }]);
+    const refused = planCommand({ kind: "tie" }, chosen(state, anchor(1, 0)), state);
+    expect(refused).toMatchObject({ kind: "refused", reason: "tie" });
+    expect(refused.kind === "refused" && refused.message).toBe(
+      "Lo siguiente no es un Do 4: una ligadura de prolongación une dos notas de la misma altura.",
+    );
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 2)), state)).toMatchObject({
+      kind: "refused",
+      message: "Un silencio no se liga: elige una nota.",
+    });
+  });
+
+  it("pulsado, quita la que sale con su otra nota o, si no llega a ninguna, solo la suya", () => {
+    const tied = staffScore([
+      {
+        events: [
+          note("C4", "1", { tie: "continue" }),
+          note("C4", "1", { tie: "stop" }),
+          note("E4"),
+        ],
+      },
+    ]);
+    expect(planCommand({ kind: "tie" }, chosen(tied, anchor(1, 0)), tied)).toMatchObject({
+      after: { tie: "stop", next: { measure: 1, voice: 0, event_index: 1, tie: null } },
+      tie: { intent: "remove" },
+      change: "quitar la ligadura de prolongación de Do 4",
+    });
+    const loose = staffScore([{ events: [note("C4", "1", { tie: "start" }), note("E4")] }]);
+    expect(planCommand({ kind: "tie" }, chosen(loose, anchor(1, 0)), loose)).toMatchObject({
+      after: { tie: null, next: null },
+    });
+  });
+
+  it("quita la que llega desde su nota de origen o, si no viene de ninguna, solo la marca", () => {
+    const tied = staffScore([
+      { events: [note("E4", "3"), note("C4", "1", { tie: "start" })] },
+      { events: [note("C4", "4", { tie: "stop", voice: 1 })] },
+    ]);
+    expect(planCommand({ kind: "untie-in" }, chosen(tied, anchor(2, 0, 1)), tied)).toMatchObject({
+      kind: "edit",
+      op: "SetTie",
+      // Anclada en la nota de origen, en el compás 1.
+      anchor: anchor(1, 1),
+      after: { tie: null, next: { measure: 2, voice: 1, event_index: 0, tie: null } },
+      tie: { intent: "remove-in", from: anchor(2, 0, 1) },
+      change: "quitar la ligadura de prolongación que llega a Do 4",
+    });
+    const loose = staffScore([{ events: [note("D4"), note("C4", "1", { tie: "stop" })] }]);
+    expect(planCommand({ kind: "untie-in" }, chosen(loose, anchor(1, 1)), loose)).toMatchObject({
+      anchor: anchor(1, 1),
+      after: { tie: null, next: null },
+    });
+    expect(planCommand({ kind: "untie-in" }, chosen(loose, anchor(1, 0)), loose)).toMatchObject({
+      kind: "refused",
+      reason: "tie",
+    });
+  });
+
+  it("tras un 409, pone la misma ligadura desde la nota llevada, o dice que ya está", () => {
+    const request: EditRequestLike = {
+      op: "SetTie",
+      after: { tie: "start", next: { measure: 1, voice: 0, event_index: 1, tie: "stop" } },
+      tie: { intent: "put", from: anchor(1, 0) },
+      anchor: anchor(1, 0),
+      baseSeq: 0,
+    };
+    // Otra pestaña insertó una nota al principio: los dos Do pasan a las posiciones 1 y 2.
+    const state = staffScore([{ events: [note("B3"), note("C4"), note("C4")] }]);
+    const detail = reloaded(state, [logged(1, "InsertEvent", anchor(1, 0))]);
+    expect(replan(request, detail)).toMatchObject({
+      anchor: { event_index: 1 },
+      plan: {
+        kind: "edit",
+        anchor: { event_index: 1 },
+        after: { tie: "start", next: { event_index: 2, tie: "stop" } },
+      },
+    });
+    const tied = staffScore([
+      { events: [note("C4", "1", { tie: "start" }), note("C4", "1", { tie: "stop" })] },
+    ]);
+    expect(replan(request, reloaded(tied, [logged(1, "SetTie", anchor(1, 0))])).plan).toMatchObject(
+      { kind: "refused", reason: "same" },
+    );
+  });
+
+  it("la ligadura no mueve ningún ancla", () => {
+    const state = staffScore([{ events: [note("C4"), note("C4")] }]);
+    const detail = reloaded(state, [logged(1, "SetTie", anchor(1, 0))]);
+    expect(carryAnchor(anchor(1, 1), 0, detail)).toEqual(anchor(1, 1));
   });
 });

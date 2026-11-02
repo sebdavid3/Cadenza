@@ -31,6 +31,7 @@ import {
   type SpanKind,
 } from "./markEdits";
 import { timeRange, tupletPressed, type TupletScope } from "./meterEdits";
+import { tieArrives, tieLeaves } from "./tieEdits";
 import { KeyCap } from "./SelectionBar";
 import { SuggestionList, type SuggestionActions } from "./SuggestionList";
 import type { SuggestionItem } from "./suggestions";
@@ -339,7 +340,7 @@ function hint(target: EditTarget | null, available: boolean): string | null {
   if (!target) return available ? "Elige una nota o un silencio para corregirlo." : null;
   if (target.event.kind !== "note") return "Un silencio no tiene altura ni alteración.";
   if (target.chord) {
-    return "En un acorde, la altura y la alteración son de cada nota y la figura, de todas a la vez; su primera nota se borra después de las demás.";
+    return "En un acorde, la altura y la alteración son de cada nota y la figura, de todas a la vez; al borrar su primera nota, la siguiente lleva la figura y las marcas.";
   }
   return null;
 }
@@ -377,10 +378,15 @@ function CommandButton({
   onRun,
 }: CommandButtonProps) {
   const plan = planCommand(command, target, score, origin);
-  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo que no
-  // se puede ahí tampoco: pulsarlo dice por qué (falta el inicio, una figura con puntillo…).
+  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo o una
+  // ligadura de prolongación que no se pueden ahí tampoco: pulsarlo dice por qué (falta el
+  // inicio, una figura con puntillo, lo siguiente no es la misma nota…).
   const disabled =
-    blocked || (plan.kind === "refused" && plan.reason !== "same" && plan.reason !== "meter");
+    blocked ||
+    (plan.kind === "refused" &&
+      plan.reason !== "same" &&
+      plan.reason !== "meter" &&
+      plan.reason !== "tie");
   return (
     <button
       type="button"
@@ -699,8 +705,9 @@ function HistoryControls({ editor, multiStaff, score }: HistoryControlsProps) {
 
 /**
  * Barra de corrección de la nota elegida (ADR-0030, ADR-0033): altura, alteración y figura;
- * el tresillo (ADR-0048); insertar antes y borrar; la clave, la armadura y el compás de su compás;
- * y deshacer y rehacer (ADR-0034).
+ * el tresillo (ADR-0048); insertar antes y borrar; añadir una nota al acorde y la ligadura de
+ * prolongación (ADR-0055); la clave, la armadura y el compás de su compás; y deshacer y rehacer
+ * (ADR-0034).
  * Cada botón es una edición completa, que se envía con el `base_seq` del estado que se ve y no se
  * da por guardada hasta el 201. Lo que pasa se anuncia en una región `aria-live`.
  */
@@ -740,6 +747,8 @@ export function EditBar({
   // Las marcas de nota del evento elegido: en un acorde, las de su primera nota (ADR-0031).
   const holder = target && score ? marksHolder(score, target.anchor) : null;
   const marks = holder ? noteMarksOf(holder.event) : null;
+  // La ligadura de prolongación de la nota elegida: si sale de ella y si le llega (ADR-0055).
+  const tie = target?.event.kind === "note" ? (target.event.tie ?? null) : null;
   const shared = {
     target,
     score,
@@ -903,6 +912,41 @@ export function EditBar({
                   ))}
                 </div>
               </div>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-chord`}>
+                <p className="label editor__label" id={`${groupId}-chord`}>
+                  Acorde y prolongación
+                </p>
+                <div className="editor__buttons">
+                  <CommandButton
+                    command={{ kind: "chord-add" }}
+                    label="Añadir una nota al acorde"
+                    icon="plus"
+                    text="Acorde"
+                    {...shared}
+                  />
+                  <CommandButton
+                    command={{ kind: "tie" }}
+                    label="Ligar con la siguiente"
+                    icon="mark-tie"
+                    text="Ligar"
+                    pressed={tieLeaves(tie)}
+                    {...shared}
+                  />
+                </div>
+                {tieArrives(tie) && (
+                  <ul className="editor__spans" aria-labelledby={`${groupId}-chord`}>
+                    <li>
+                      <CommandButton
+                        command={{ kind: "untie-in" }}
+                        label="Quitar la ligadura que llega"
+                        icon="cross"
+                        text="Quitar la ligadura que llega"
+                        {...shared}
+                      />
+                    </li>
+                  </ul>
+                )}
+              </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
                 <p className="label editor__label" id={`${groupId}-clef`}>
                   {`Clave${range("clef")}`}
@@ -1048,6 +1092,12 @@ export function EditBar({
           </span>
           <span>
             <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar
+          </span>
+          <span>
+            <KeyCap>E</KeyCap> nota en el acorde
+          </span>
+          <span>
+            <KeyCap>U</KeyCap> ligar con la siguiente
           </span>
           <span>
             <KeyCap>P</KeyCap>

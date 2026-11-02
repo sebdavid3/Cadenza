@@ -285,6 +285,58 @@ describe("compás y tresillos (ADR-0044)", () => {
   });
 });
 
+describe("notas de un acorde y ligaduras de prolongación (ADR-0055)", () => {
+  it("una nota añadida al acorde o borrada de él se dice con su altura y su acorde", () => {
+    expect(
+      describeEdit(
+        edit(1, "InsertEvent", { kind: "note", pitch: "B4", duration_beats: "1", is_chord: true }),
+      ),
+    ).toBe("inserción de Si 4 en el acorde");
+    const head = edit(
+      1,
+      "DeleteEvent",
+      { keep_chord: true },
+      {
+        before: {
+          kind: "note",
+          pitch: "C4",
+          duration_beats: "1",
+          is_chord: false,
+          next_in_chord: { duration_beats: "1", articulations: [], fermata: false, slurs: [] },
+        },
+      },
+    );
+    expect(describeEdit(head)).toBe("borrado de Do 4 del acorde");
+    const other = edit(2, "DeleteEvent", null, {
+      before: { kind: "note", pitch: "E4", duration_beats: "1", is_chord: true },
+    });
+    expect(describeEdit(other)).toBe("borrado de Mi 4 del acorde");
+    // Deshacer el borrado de la primera vuelve a insertarla con la instantánea, que devuelve la
+    // siguiente al acorde.
+    expect(inverseOf(head)).toMatchObject({
+      op: "InsertEvent",
+      after: { pitch: "C4", next_in_chord: { duration_beats: "1" } },
+    });
+  });
+
+  it("la ligadura se dice, se deshace con su instantánea y no mueve la selección", () => {
+    const tie = edit(
+      1,
+      "SetTie",
+      { tie: "start", next: { measure: 2, voice: 0, event_index: 0, tie: "stop" } },
+      { before: { tie: null, next: { measure: 2, voice: 0, event_index: 0, tie: null } } },
+    );
+    expect(describeEdit(tie)).toBe("ligadura de prolongación");
+    expect(describeEdit(edit(2, "SetTie", { tie: null, next: null }))).toBe(
+      "quitar la ligadura de prolongación",
+    );
+    expect(hasCompleteBefore(tie)).toBe(true);
+    expect(hasCompleteBefore(edit(1, "SetTie", null, { before: { tie: null } }))).toBe(false);
+    expect(inverseOf(tie)).toMatchObject({ op: "SetTie", after: { tie: null } });
+    expect(historyPlacement(inverseOf(tie), { parts: [] })).toBeUndefined();
+  });
+});
+
 describe("placeOf", () => {
   it("dice el compás y la voz, y el compás solo en la clave y la armadura", () => {
     expect(placeOf({ op: "SetPitch", anchor: anchor(2, 1, 1) }, false)).toBe("compás 2, voz 2");
