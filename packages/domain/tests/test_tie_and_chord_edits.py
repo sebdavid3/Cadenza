@@ -462,3 +462,33 @@ def test_a_keep_chord_delete_needs_the_next_note_in_its_before() -> None:
         after=KEEP,
     )
     assert not has_complete_before(incomplete)
+
+
+# --- Lo que señaló la revisión -----------------------------------------------------------
+
+
+def test_a_lone_mark_with_a_partner_is_removed_with_it() -> None:
+    # Sin `next` solo se quita una marca suelta: si la ligadura tiene pareja, se quita con ella.
+    score = _score((_note("C4", tie=Tie.START), _note("C4", tie=Tie.STOP), _note("E4", 2)))
+    _rejected(score, _anchor(0), TIE, {"tie": None, "next": None}, "llega a otra")
+    _rejected(score, _anchor(1), TIE, {"tie": None, "next": None}, "sale de otra")
+
+
+def test_trailing_hidden_rests_do_not_stop_a_tie_crossing_the_barline() -> None:
+    # Como en `tie.resolution`: tras el hueco del final de la voz no hay nada.
+    score = _score(
+        (_note("C4", 2), _rest(2, hidden=True)),
+        (_note("C4", 4),),
+    )
+    after = {"tie": "start", "next": _next(0, "stop", measure=2)}
+    tied = apply_edit(score, _edit(score, _anchor(0), TIE, after))
+    assert _ties(tied, 2) == ["stop"]
+
+
+def test_a_chord_note_is_not_added_to_a_grace_note_nor_carries_marks() -> None:
+    grace = _score((_note("C4", None), _note("D4", 4)))
+    _rejected(grace, _anchor(1), EditOp.INSERT_EVENT, _chord_note("E4"), "adorno")
+    score = _score(TRIAD)
+    for marks in ({"articulations": ["accent"]}, {"fermata": True}):
+        after = {**_chord_note("B4"), **marks}
+        _rejected(score, _anchor(3), EditOp.INSERT_EVENT, after, "primera nota")

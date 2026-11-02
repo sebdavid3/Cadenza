@@ -158,12 +158,16 @@ def _event_at(staff: Staff, place: Place) -> Event | None:
 
 
 def _first_timed_group(events: Sequence[Event], start: int = 0) -> tuple[int, int] | None:
-    """El primer grupo de la voz desde `start` que ocupa tiempo (sin las notas de adorno)."""
+    """El primer grupo de la voz desde `start` que ocupa tiempo (sin las notas de adorno). Los
+    silencios invisibles del final de la voz no cuentan: tras ellos no hay nada, como en
+    `tie.resolution` (ADR-0040 §10), y la ligadura cruza la barra."""
 
     index = start
     while index < len(events):
         group_start, group_end = chord_bounds(events, index)
         if events[group_start].duration_beats is not None:
+            if all(event.hidden or event.duration_beats is None for event in events[group_start:]):
+                return None
             return group_start, group_end
         index = group_end
     return None
@@ -191,6 +195,49 @@ def following(staff: Staff, position: int, voice: int, index: int) -> list[Place
     return found
 
 
+def _preceding(staff: Staff, position: int, place: Place) -> list[Place]:
+    """Las notas a las que sigue la de `place` (lo que sigue a cada una la incluye): de donde
+    puede venir la ligadura que le llega. Están en su compás o en el anterior."""
+
+    found: list[Place] = []
+    for index in range(max(position - 1, 0), position + 1):
+        measure = staff.measures[index]
+        for voice in sorted({event.voice for event in measure.events}):
+            for k, event in enumerate(_voice_events(measure, voice)):
+                if event.kind is EventKind.NOTE and place in following(staff, index, voice, k):
+                    found.append((measure.number, voice, k))
+    return found
+
+
+def _check_loose(staff: Staff, position: int, anchor: Anchor, note: Event, tie: Tie | None) -> None:
+    """Sin `next` solo se quita una marca suelta: una ligadura que sale sin llegar a ninguna nota
+    o que llega sin salir de ninguna. Si tiene pareja, se quita con ella (ADR-0055 §1)."""
+
+    if (_arrives(tie) and not _arrives(note.tie)) or (_leaves(tie) and not _leaves(note.tie)):
+        raise InvalidEditPayload(
+            "sin 'next', SetTie solo quita la ligadura de la nota del ancla: para poner una, "
+            "'next' es la otra nota"
+        )
+    if tie == note.tie:
+        raise InvalidEditPayload("SetTie no cambia nada: la nota ya tiene esa ligadura")
+    place: Place = (anchor.measure, anchor.voice, anchor.event_index)
+    if _leaves(note.tie) and not _leaves(tie):
+        for other in following(staff, position, anchor.voice, anchor.event_index):
+            event = _event_at(staff, other)
+            if event is not None and _arrives(event.tie):
+                raise InvalidEditPayload(
+                    "la ligadura que sale de la nota llega a otra: quítala con 'next', la otra nota"
+                )
+    if _arrives(note.tie) and not _arrives(tie):
+        for source in _preceding(staff, position, place):
+            event = _event_at(staff, source)
+            if event is not None and _leaves(event.tie):
+                raise InvalidEditPayload(
+                    "la ligadura que llega a la nota sale de otra: quítala anclada en esa nota, "
+                    "con 'next' esta"
+                )
+
+
 # --- Validar, la instantánea y la proyección ------------------------------------------------
 
 
@@ -203,13 +250,7 @@ def check_tie(score: ScoreIR, anchor: Anchor, after: object) -> None:
     if note.kind is not EventKind.NOTE:
         raise InvalidEditPayload(f"SetTie se aplica a notas, no a '{note.kind.value}'")
     if nxt is None:
-        if (_arrives(tie) and not _arrives(note.tie)) or (_leaves(tie) and not _leaves(note.tie)):
-            raise InvalidEditPayload(
-                "sin 'next', SetTie solo quita la ligadura de la nota del ancla: para poner una, "
-                "'next' es la otra nota"
-            )
-        if tie == note.tie:
-            raise InvalidEditPayload("SetTie no cambia nada: la nota ya tiene esa ligadura")
+        _check_loose(staff, position, anchor, note, tie)
         return
     place, next_tie = nxt
     if note.duration_beats is None:

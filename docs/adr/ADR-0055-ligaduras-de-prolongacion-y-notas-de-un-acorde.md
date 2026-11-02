@@ -27,10 +27,10 @@ Una ligadura son dos valores en dos notas que pueden estar en compases distintos
 - **Ancla:** la nota donde empieza la ligadura (cualquier nota, también una de un acorde: la ligadura es de cada nota).
 - **`after`:** `{"tie": t, "next": {"measure": m, "voice": v, "event_index": i, "tie": t2} | null}`, los valores finales de las dos notas: `t` el de la nota del ancla y `next` la otra nota, en el pentagrama del ancla, con su valor `t2`. Las claves son exactas y los valores, `"start"`, `"continue"`, `"stop"` o `null`.
 - **Con `next`, pone o quita la ligadura entre las dos.** Cada valor se lee como dos marcas, «llega una ligadura» (`stop`, `continue`) y «sale una ligadura» (`start`, `continue`). El servidor exige que:
-  - la otra nota sea **lo que sigue** a la nota del ancla: una nota del grupo siguiente de su voz (la nota o el acorde que empieza cuando acaba el suyo, sin contar las notas de adorno) o, si el suyo es el último de su voz en el compás, una nota del primer grupo de cualquier voz del compás siguiente de su pentagrama (que empieza con el compás); las dos son notas con duración;
+  - la otra nota sea **lo que sigue** a la nota del ancla: una nota del grupo siguiente de su voz (la nota o el acorde que empieza cuando acaba el suyo, sin contar las notas de adorno) o, si el suyo es el último de su voz en el compás, una nota del primer grupo de cualquier voz del compás siguiente de su pentagrama (que empieza con el compás); los silencios invisibles del final de su voz no cuentan, como en `tie.resolution`; las dos son notas con duración;
   - solo cambien «sale» en la nota del ancla y «llega» en la otra, las dos al mismo valor, y que algo cambie (no se guarda una ligadura que ya está, ni se quita una que no está);
   - al **poner** la ligadura, las dos tengan la **misma altura** (letra, alteración y octava); quitarla no lo exige, para poder quitar una ligadura cuya segunda nota ya se corrigió.
-- **Sin `next` (`null`), solo quita marcas de la nota del ancla**: una ligadura que no llega a ninguna nota, o que llega sin salir de ninguna (lo que señala `tie.resolution`). Poner con una sola nota se rechaza.
+- **Sin `next` (`null`), solo quita marcas de la nota del ancla**: una ligadura que no llega a ninguna nota, o que llega sin salir de ninguna (lo que señala `tie.resolution`). Poner con una sola nota se rechaza, y quitar así una marca que tiene pareja (una nota con «llega» en lo que sigue, o con «sale» en lo que precede), también: se quita con ella.
 - **Deshacer es exacto:** el servidor guarda en `before` los valores de las dos notas, con la misma forma, y la compensatoria intercambia los dos (`create_inverse_edit` no cambia). Rehacer reenvía el `after`. No mueve ningún evento: no desplaza anclas (`translate_anchor`, `carryAnchor`).
 - Se implementa en `tie_edits` del dominio y entra por las funciones de `meter_edits`, como su clase (§4).
 
@@ -41,6 +41,7 @@ Añadir una nota a un acorde, o a una nota sola para formar uno, es **insertar u
 La validación de `InsertEvent` gana dos reglas que impiden un acorde que el exportador y el mapa de tiempos leerían distinto:
 
 - una nota con `is_chord: true` va **justo tras otra nota** de su voz (en la posición 0 o tras un silencio se rechaza);
+- una nota con `is_chord` no se añade a una nota de adorno (el acorde se dibujaría entero como adorno) ni lleva marcas (`articulations`, `fermata`, `slurs`): las del acorde van en su primera nota (ADR-0031);
 - un evento **sin `is_chord` no se inserta entre las notas de un acorde** (antes de una nota con `is_chord` que sigue a otra nota): partiría el acorde. Antes del acorde entero, como inserta la vista (ADR-0033 §3), sí.
 
 Ninguna sugerencia de las reglas ni de la capa propone una inserción así (`measure.balance` inserta al final de la voz), así que lo que la capa propone y mide (`exp_14`) no cambia. La figura de la nota nueva no se comprueba frente a la del acorde, como antes (ADR-0049, Negativas): la vista envía la del acorde.
@@ -78,7 +79,7 @@ Mismo flujo que ADR-0030, ADR-0037 y ADR-0038: una edición por orden, con el va
 - **Tras un 409**, «Volver a aplicar» pide lo mismo sobre el estado recargado: la nota añadida tras el mismo acorde, poner o quitar la misma ligadura desde la nota elegida llevada a él (si ya está como se pedía, lo dice), y borrar la misma nota (con `keep_chord` si ahora es la primera de un acorde).
 - **La historia** las dice: «inserción de Mi 4 en el acorde», «borrado de Do 4 del acorde», «ligadura de prolongación hasta el compás 4», «quitar la ligadura de prolongación». Deshacer y rehacer eligen como cualquier inserción, borrado o cambio de valor (ADR-0034 §7); la ligadura no mueve la selección.
 - **La indicación** bajo los controles en un acorde dice que al borrar su primera nota la siguiente lleva la figura y las marcas.
-- **La reproducción** une también dos notas ligadas a través de la barra en voces con distinto número (misma parte, pentagrama y altura, y la segunda empieza cuando acaba la primera).
+- **La reproducción** une también dos notas ligadas a través de la barra en voces con distinto número (misma parte, pentagrama y altura, la segunda empieza su compás cuando acaba la primera); dentro de un compás, solo las de la misma voz.
 
 ### 6. Contrato y migración
 

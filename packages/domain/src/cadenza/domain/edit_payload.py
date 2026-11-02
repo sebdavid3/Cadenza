@@ -351,6 +351,14 @@ def _check_insert_place(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]
                 "una nota con 'is_chord' va justo tras otra nota de su voz: es una nota más de "
                 "su acorde"
             )
+        if events[index - 1].duration_beats is None:
+            # El exportador dibujaría el acorde entero como adorno con la duración de la nueva.
+            raise InvalidEditPayload("una nota con duración no se añade a una nota de adorno")
+        if any(after.get(key) for key in _EVENT_MARK_KEYS):
+            raise InvalidEditPayload(
+                "las marcas de un acorde van en su primera nota: una nota con 'is_chord' no "
+                "lleva 'articulations', 'fermata' ni 'slurs'"
+            )
     elif index < len(events) and joins_previous(events, index):
         raise InvalidEditPayload(
             "un evento sin 'is_chord' entre dos notas de un acorde partiría el acorde: "
