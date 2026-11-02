@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from cadenza.domain import (
+    CONTENT_EDIT_OPS,
     Anchor,
     Clef,
     EditEvent,
@@ -22,6 +23,8 @@ from cadenza.domain import (
     Staff,
     TimeSignature,
     materialize,
+    snapshot_before,
+    validate_after,
 )
 from cadenza.learning import (
     SemanticMismatch,
@@ -439,3 +442,52 @@ def test_a_chord_figure_edit_gives_the_corpus_and_features_of_one_set_duration_p
         return {p: dict(v.features) for p, v in ScoreFeatures.of(score).events.items()}
 
     assert features(one) == features(per_note)
+
+
+# --- Ligaduras de prolongación y notas de un acorde (ADR-0055) ---------------------------
+
+
+def test_tie_and_chord_edits_keep_a_session_verified() -> None:
+    """Una sesión corregida con `SetTie`, una nota añadida a un acorde y la primera nota de un
+    acorde quitada (`keep_chord`) se reproduce al derivar sus correcciones: `derive_edit_events`
+    no cambia y da solo operaciones de contenido (la ligadura y la nota añadida salen como
+    inserciones con su `tie` y su `is_chord`), así que su corpus sigue verificado (ADR-0055 §4)."""
+    chord = (
+        Event(kind=EventKind.NOTE, pitch="C4", duration_beats=Fraction(1)),
+        Event(kind=EventKind.NOTE, pitch="E4", duration_beats=Fraction(1), is_chord=True),
+        Event(kind=EventKind.NOTE, pitch="G4", duration_beats=Fraction(1), is_chord=True),
+    )
+    raw = _score(
+        _measure(1, *chord, _note("D4"), _note("F4"), _note("F4"), time=TimeSignature(4, 4)),
+        _measure(2, _note("F4", "4")),
+    )
+
+    def anchor(measure: int, index: int) -> Anchor:
+        return Anchor(part=0, staff=0, measure=measure, voice=0, event_index=index, staff_id="p-s0")
+
+    def edit(seq: int, where: Anchor, op: EditOp, after: dict[str, Any] | None) -> EditEvent:
+        state = materialize(raw, edits)
+        validate_after(state, where, op, after)
+        return EditEvent(
+            id=f"e{seq}",
+            document_id="d",
+            seq=seq,
+            anchor=where,
+            op=op,
+            author="ana",
+            created_at=datetime(2026, 11, 1, tzinfo=UTC),
+            before=snapshot_before(state, where, op, after),
+            after=after,
+        )
+
+    edits: list[EditEvent] = []
+    tie = {"tie": "start", "next": {"measure": 2, "voice": 0, "event_index": 0, "tie": "stop"}}
+    edits.append(edit(1, anchor(1, 5), EditOp.SET_TIE, tie))
+    added = {"kind": "note", "pitch": "A4", "duration_beats": "1", "is_chord": True}
+    edits.append(edit(2, anchor(1, 4), EditOp.INSERT_EVENT, added))
+    edits.append(edit(3, anchor(1, 0), EditOp.DELETE_EVENT, {"keep_chord": True}))
+    final = materialize(raw, edits)
+
+    derived = derive_edit_events(raw, final, document_id="d")
+    assert {e.op for e in derived} <= CONTENT_EDIT_OPS
+    assert is_structurally_equal(materialize(raw, derived), final)
