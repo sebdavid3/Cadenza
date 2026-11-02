@@ -14,6 +14,13 @@ from .get_timing import get_timing
 from .list_findings import list_findings
 from .list_sessions import list_sessions
 from .list_users import list_users
+from .previews import (
+    PreviewResult,
+    claim_preview,
+    create_preview,
+    ensure_preview_capacity,
+    hash_claim_token,
+)
 from .record_effort import record_effort
 from .record_effort_segment import (
     MAX_EFFORT_SEGMENTS,
@@ -25,7 +32,12 @@ from .reject_suggestion import reject_suggestion
 from .reopen_session import ReopenResult, reopen_session
 from .restore_finding import restore_finding
 from .revalidate import RevalidateResult, revalidate
-from .transcribe_score import TranscribeResult, normalize_condition, transcribe_score
+from .transcribe_score import (
+    TranscribeResult,
+    create_session_from_document,
+    normalize_condition,
+    transcribe_score,
+)
 from .undo_edit import UndoResult, undo_edit
 from .update_session_metadata import UNCHANGED, Unchanged, update_session_metadata
 from .update_user import update_user
@@ -35,6 +47,7 @@ __all__ = [
     "UNCHANGED",
     "AppliedEdit",
     "FinalizeResult",
+    "PreviewResult",
     "ReopenResult",
     "RevalidateResult",
     "SessionDetail",
@@ -46,14 +59,19 @@ __all__ = [
     "append_edit_with_state",
     "authenticate",
     "change_password",
+    "claim_preview",
+    "create_preview",
+    "create_session_from_document",
     "create_user",
     "dismiss_finding",
+    "ensure_preview_capacity",
     "export_score",
     "finalize_session",
     "get_effort",
     "get_session",
     "get_session_image",
     "get_timing",
+    "hash_claim_token",
     "list_findings",
     "list_sessions",
     "list_users",

@@ -23,6 +23,7 @@ from .model_registry import (
     PromotionRejected,
     PromotionThreshold,
 )
+from .preview_repository import InMemoryPreviewRepository, PreviewData, PreviewRepository
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .score_state_cache import (
     CachedScoreState,
@@ -68,6 +69,7 @@ __all__ = [
     "InMemoryEffortRepository",
     "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
+    "InMemoryPreviewRepository",
     "InMemoryScoreExporter",
     "InMemoryScoreStateCache",
     "InMemorySessionRepository",
@@ -80,6 +82,8 @@ __all__ = [
     "PasswordHasher",
     "PersistedFinding",
     "PersistedSuggestion",
+    "PreviewData",
+    "PreviewRepository",
     "PromotionRejected",
     "PromotionThreshold",
     "ScoreExporter",
