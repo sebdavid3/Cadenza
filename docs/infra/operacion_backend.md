@@ -225,6 +225,29 @@ Después de cerrarlo:
 
 Comprobado en local el 2026-10-31 con la API en `127.0.0.1` y SQLite en disco, y la web de desarrollo de Vite con la variable del build a `true` y a `false` ([#248](https://github.com/sebdavid3/Cadenza/issues/248)): con los dos abiertos, la landing enlaza el registro y una cuenta se crea y entra; con la API cerrada y la web todavía abierta, `POST /auth/register` da 404 con cualquier cuerpo y el formulario dice «El registro de cuentas no está abierto en este servidor»; con los dos cerrados, ni la landing ni `/entrar` enlazan el registro y `/registro` dice «Registro cerrado», sin formulario, a 1440 y 390 px y sin desplazamiento horizontal. La cuenta creada desde el registro siguió entrando hasta que un investigador la desactivó en `/cuentas`; después, su acceso dio 401.
 
+#### Transcribir sin cuenta desde la portada ([#278](https://github.com/sebdavid3/Cadenza/issues/278), [ADR-0054](../adr/ADR-0054-transcribir-sin-cuenta-desde-la-portada.md))
+
+Comparte el interruptor del estudio con el registro: **apagado por defecto y durante el estudio** ([#253](https://github.com/sebdavid3/Cadenza/issues/253)), porque gasta los huecos de HOMR que usan los participantes. Se enciende, si se quiere, al acabar el estudio, igual que se reabre el registro: una línea del `.env`, `CADENZA_ANONYMOUS_PREVIEW_ENABLED`, que la API lee al arrancar (apagada, `POST /previews` y `POST /previews/{id}/claim` responden 404) y la web recibe en el build (`VITE_ANONYMOUS_PREVIEW_ENABLED`). **Cambiarla exige reconstruir `web`**; con la web encendida y la API apagada, el recuadro de la portada vuelve a pedir que se entre. Encendida exige CORS cerrado al origen público, como el registro.
+
+```bash
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+
+# Encender (al acabar el estudio): la variable a true, la web reconstruida y las dos recreadas
+sed -i 's/^CADENZA_ANONYMOUS_PREVIEW_ENABLED=.*/CADENZA_ANONYMOUS_PREVIEW_ENABLED=true/' .env
+grep '^CADENZA_ANONYMOUS_PREVIEW_ENABLED=' .env    # una sola línea; si no sale nada, añadirla
+$DC build web
+$DC up -d api web
+
+# Comprobar: apagada da 404; encendida, 422 (sin archivo no transcribe ni cuenta en el límite)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/previews
+
+# Apagar: lo mismo con false
+```
+
+- **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade seis por hora por visitante, con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
+- **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al arrancar la API, al llegar la siguiente o al reclamar una: tras apagar el interruptor, reiniciar la API (el `up -d api web` de arriba) las borra. Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
+- **Al reclamarla** pasa a ser una sesión de la cuenta que entra, como cualquier otra: si es una cuenta del registro, queda fuera del dataset como las demás autorregistradas.
+
 #### Espacio en disco de Docker ([#205](https://github.com/sebdavid3/Cadenza/issues/205))
 
 **Qué pasaba.** Antes de #205, cada construcción de la API con código nuevo dejaba unos 2,5 GB en la caché de construcción. El `Dockerfile` copiaba el código antes de instalar las dependencias, así que cada cambio de código:
