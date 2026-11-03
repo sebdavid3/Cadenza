@@ -151,6 +151,77 @@ def test_import_homr_raises_if_detect_title_missing(monkeypatch: pytest.MonkeyPa
         _import_homr()
 
 
+class _FakeHomrMain:
+    """`homr.main` de mentira: cada pasada escribe `<imagen>.musicxml` con el modo de la lectura
+    y, si `piano`, anota un piano en el sistema como haría la elección de pares."""
+
+    def __init__(self, piano: bool) -> None:
+        self.piano = piano
+        self.passes: list[str] = []
+
+    def ProcessingConfig(self, **kwargs: Any) -> dict[str, Any]:
+        return kwargs
+
+    def download_weights(self, **kwargs: Any) -> None:
+        pass
+
+    def process_image(self, image: str, config: Any, args: Any) -> None:
+        from cadenza.omr.adapters import homr_grand_staff
+
+        record = homr_grand_staff._current
+        assert record is not None
+        self.passes.append(record.mode.value)
+        if self.piano:
+            record.piano_pairs.append([1, 2])
+        Path(image).with_suffix(".musicxml").write_text(f"<{record.mode.value}/>", encoding="utf-8")
+
+
+def _fake_xml_generator(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+
+    module: Any = types.ModuleType("homr.music_xml_generator")
+    module.XmlGeneratorArguments = lambda *args: args
+    monkeypatch.setitem(sys.modules, "homr.music_xml_generator", module)
+
+
+def test_a_page_without_voice_and_piano_is_read_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cadenza.omr.adapters.homr import _run_homr
+
+    _fake_xml_generator(monkeypatch)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    main = _FakeHomrMain(piano=False)
+
+    assert _run_homr(main, image, use_gpu=False) == "<paired/>"
+    assert main.passes == ["paired"]
+
+
+def test_a_voice_and_piano_page_is_read_both_ways_and_combined(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cadenza.omr.adapters import homr_piano
+    from cadenza.omr.adapters.homr import _run_homr
+
+    _fake_xml_generator(monkeypatch)
+    combined: list[tuple[str, str]] = []
+
+    def combine(paired: str, alone: str) -> str:
+        combined.append((paired, alone))
+        return "<combined/>"
+
+    monkeypatch.setattr(homr_piano, "combine_musicxml", combine)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    main = _FakeHomrMain(piano=True)
+
+    assert _run_homr(main, image, use_gpu=False) == "<combined/>"
+    assert main.passes == ["paired", "alone"]
+    assert combined == [("<paired/>", "<alone/>")]
+
+
 @pytest.mark.skipif(not HOMR_INSTALLED, reason="requiere el extra opcional 'homr'")
 def test_homr_real_transcription_does_not_initialize_ocr_reader() -> None:
     import json

@@ -1,4 +1,5 @@
-"""El piano de un sistema de voz y piano son los dos pentagramas de abajo (#239, ADR-0060).
+"""El piano de un sistema de voz y piano son los dos pentagramas de abajo (#239, ADR-0060), y se
+lee emparejado o con cada pentagrama solo (#325).
 
 Las medidas de los sistemas son las que HOMR da en las páginas del banco del estudio (TS-02 y
 TS-04): el alto de cada pentagrama y el centro y el tamaño de los elementos altos de la izquierda
@@ -14,8 +15,11 @@ from typing import Any
 import pytest
 from cadenza.omr.adapters import homr_grand_staff
 from cadenza.omr.adapters.homr_grand_staff import (
+    PianoReading,
+    ReadingRecord,
     covers_every_staff,
     install,
+    reading,
     select_grandstaffs_voice_above_piano,
 )
 
@@ -154,6 +158,61 @@ def test_systems_of_two_or_four_staves_are_left_to_homr() -> None:
     assert _chosen(four, long_line) == expected
 
 
+def _read(
+    mode: PianoReading, staffs: Sequence[tuple[float, float]], *symbols: _Symbol
+) -> tuple[list[list[int]], ReadingRecord]:
+    record = ReadingRecord(mode)
+    chosen = select_grandstaffs_voice_above_piano(
+        _original, _MultiStaff(staffs), [*symbols], record
+    )
+    return [pair.get_index() for pair in chosen], record
+
+
+def test_read_alone_no_staff_of_a_voice_and_piano_system_is_paired() -> None:
+    chosen, record = _read(PianoReading.ALONE, TS02, _symbol(TS02_SYSTEM_LINE))
+
+    assert chosen == []
+    assert record.piano_pairs == [[1, 2]]
+
+
+def test_read_paired_the_piano_is_paired_and_noted() -> None:
+    chosen, record = _read(
+        PianoReading.PAIRED, TS04, _symbol(TS04_SYSTEM_LINE), _symbol(TS04_BRACE)
+    )
+
+    assert chosen == [[1, 2]]
+    assert record.piano_pairs == [[1, 2]]
+
+
+def test_systems_without_a_piano_are_neither_noted_nor_changed() -> None:
+    for mode in PianoReading:
+        assert _read(mode, TS02) == ([], ReadingRecord(mode))
+        piano = [(202, 261), (335, 402)]
+        line = _Symbol(center=(152, 300), size=(15, 220))
+        assert _read(mode, piano, line) == ([[0, 1]], ReadingRecord(mode))
+
+
+def test_reading_sets_the_mode_while_it_lasts() -> None:
+    class Patched(_MultiStaff):
+        pass
+
+    install(Patched)
+    line = _symbol(TS02_SYSTEM_LINE)
+
+    def chosen() -> list[list[int]]:
+        return [p.get_index() for p in Patched(TS02)._select_grandstaffs([line])]
+
+    with reading(PianoReading.ALONE) as alone:
+        assert chosen() == []
+        with reading(PianoReading.PAIRED) as paired:
+            assert chosen() == [[1, 2]]
+        assert chosen() == []
+    # Fuera de `reading`, como en #239: el piano emparejado.
+    assert chosen() == [[1, 2]]
+    assert alone.piano_pairs == [[1, 2], [1, 2]]
+    assert paired.piano_pairs == [[1, 2]]
+
+
 def test_covers_every_staff_needs_half_of_each_staff() -> None:
     staffs = [_Staff(*bounds) for bounds in TS02]
     assert covers_every_staff(_symbol(TS02_SYSTEM_LINE), staffs)
@@ -224,3 +283,8 @@ def test_real_homr_multistaff_takes_the_two_lower_staves() -> None:
     assert [s.is_grandstaff for s in merged.staffs] == [False, True]
     assert merged.staffs[0].min_y == pytest.approx(35)
     assert len(system.staffs) == homr_grand_staff.SYSTEM_STAFFS
+
+    with reading(PianoReading.ALONE) as record:
+        apart = system.create_grandstaffs([line])
+    assert [s.is_grandstaff for s in apart.staffs] == [False, False, False]
+    assert record.piano_pairs == [[1, 2]]
