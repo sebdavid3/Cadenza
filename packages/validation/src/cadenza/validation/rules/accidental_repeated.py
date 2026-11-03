@@ -7,13 +7,29 @@ armadura vigente, cuando la última nota anterior de su voz y compás con su mis
 octava lleva esa misma alteración. Cuentan como anteriores las notas de adorno y las de un
 acorde, en el orden de la voz, como en el contexto del corpus (`previous_accidental_same_step`).
 
+No dispara (#318, enmienda 11 de ADR-0040) cuando la nota y la anterior de su altura son de
+un acorde, ni cuando otra voz u otro pentagrama del mismo compás lleva la misma letra con la
+misma alteración, en cualquier octava, sonando cuando empieza la nota o después: en una página
+de la práctica común la alteración se escribe una vez y vale hasta la barra.
+
 El candidato es la alteración de la armadura; la capa lo ordena y solo lo muestra si lo
 puntúa alto (ADR-0036, enmiendas 6 y 19).
 """
 
 from __future__ import annotations
 
-from cadenza.domain import EditOp, EventKind, Finding, ScoreDocument, Severity, SuggestedEdit
+from collections.abc import Sequence
+from fractions import Fraction
+
+from cadenza.domain import (
+    EditOp,
+    Event,
+    EventKind,
+    Finding,
+    ScoreDocument,
+    Severity,
+    SuggestedEdit,
+)
 
 from ..language import (
     accidental_word,
@@ -30,6 +46,43 @@ from .support import active_keys, anchor_map, onsets, voices_of
 RULE_ID = "accidental.repeated"
 _ALTERED = frozenset({"#", "##", "b", "bb"})
 
+_Owner = tuple[int, int, int]
+"""(parte, pentagrama, voz)."""
+
+_Sounding = tuple[_Owner, Fraction, Fraction]
+"""(dueño, inicio, final) de una nota en su compás, en negras."""
+
+
+def _altered_in_measures(
+    document: ScoreDocument,
+) -> dict[tuple[int, str, str], list[_Sounding]]:
+    """Las notas con sostenido o bemol (también doble) de cada compás, por su letra y alteración."""
+    found: dict[tuple[int, str, str], list[_Sounding]] = {}
+    for part_index, part in enumerate(document.score.parts):
+        for staff_index, staff in enumerate(part.staves):
+            for measure in staff.measures:
+                for voice, events in voices_of(measure).items():
+                    for event, start in zip(events, onsets(events), strict=True):
+                        letter, accidental, _ = split_pitch(event.pitch)
+                        if event.kind is not EventKind.NOTE or accidental not in _ALTERED:
+                            continue
+                        end = start + max(event.duration_beats or Fraction(0), Fraction(0))
+                        owner = (part_index, staff_index, voice)
+                        key = (measure.number, letter, accidental)
+                        found.setdefault(key, []).append((owner, start, end))
+    return found
+
+
+def _confirmed(sounding: Sequence[_Sounding], owner: _Owner, start: Fraction) -> bool:
+    """Otra voz u otro pentagrama lleva la alteración sonando cuando empieza la nota o después."""
+    return any(other != owner and (end > start or begin >= start) for other, begin, end in sounding)
+
+
+def _in_chord(events: Sequence[Event], index: int) -> bool:
+    """La nota es de un acorde: lleva `is_chord` o la siguiente de su voz lo lleva."""
+    following = events[index + 1] if index + 1 < len(events) else None
+    return events[index].is_chord or (following is not None and following.is_chord)
+
 
 class AccidentalRepeatedRule(ValidationRule):
     """Una alteración contra la armadura que repite la de la nota anterior de su altura."""
@@ -40,6 +93,7 @@ class AccidentalRepeatedRule(ValidationRule):
 
     def evaluate(self, document: ScoreDocument) -> list[Finding]:
         anchors = anchor_map(document.anchors)
+        altered = _altered_in_measures(document)
         findings: list[Finding] = []
         for part_index, part in enumerate(document.score.parts):
             for staff_index, staff in enumerate(part.staves):
@@ -65,6 +119,12 @@ class AccidentalRepeatedRule(ValidationRule):
                                 or accidental not in _ALTERED
                                 or accidental == expected
                                 or split_pitch(events[previous].pitch)[1] != accidental
+                                or (_in_chord(events, index) and _in_chord(events, previous))
+                                or _confirmed(
+                                    altered.get((measure.number, letter, accidental), ()),
+                                    (part_index, staff_index, voice),
+                                    starts[index],
+                                )
                             ):
                                 continue
                             anchor = anchors.get(
