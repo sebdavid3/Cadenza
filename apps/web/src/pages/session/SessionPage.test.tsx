@@ -7292,7 +7292,8 @@ describe("corregir la nota elegida", () => {
       expect(server.bodies[0]).toMatchObject({
         op: "SetTime",
         anchor: anchorOf(2),
-        after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } },
+        // En todas las partes, con una edición (#326).
+        after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" }, all_parts: true },
       });
       expect(server.bodies[0]?.after).not.toHaveProperty("measures");
       expect(picker()).toHaveValue("2/2:cut");

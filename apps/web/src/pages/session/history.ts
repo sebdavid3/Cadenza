@@ -167,6 +167,26 @@ function timeChange(after: Record<string, unknown>): string {
   return `compás ${String(beats)}/${String(beatType)}`;
 }
 
+/**
+ * Si un `SetTime` cambió el compás en varias partes (`all_parts`, #326): su instantánea, y la
+ * compensatoria que la lleva como `after`, guardan lo de cada parte en `parts`.
+ */
+function inAllParts(before: unknown, after: Record<string, unknown>): boolean {
+  return [record(before), after].some(
+    (state) => state?.all_parts === true && Array.isArray(state.parts) && state.parts.length > 1,
+  );
+}
+
+/** Si el `after` de una compensatoria lleva compases distintos por parte (#326). */
+function mixedParts(after: Record<string, unknown>): boolean {
+  if (!Array.isArray(after.parts)) return false;
+  const signatures = (after.parts as unknown[])
+    .map(record)
+    .filter((part) => part !== null)
+    .map((part) => JSON.stringify(record(part.time_signature) ?? null));
+  return new Set(signatures).size > 1;
+}
+
 /** Si `SetTuplet` pone o quita el tresillo: lo quita si sus figuras de antes eran de tresillo. */
 function tupletChange(before: unknown, after: Record<string, unknown>): string {
   const durations = Array.isArray(after.durations) ? after.durations : [];
@@ -243,7 +263,10 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return keyChange(after);
     // El compás y los tresillos (ADR-0044).
     case "SetTime":
-      return timeChange(after);
+      // La compensatoria de un compás puesto en partes que llevaban compases distintos devuelve a
+      // cada una el suyo: no hay un solo compás que decir.
+      if (mixedParts(after)) return "devolver el compás de cada parte";
+      return timeChange(after) + (inAllParts(edit.before, after) ? " en todas las partes" : "");
     case "SetTuplet":
       return tupletChange(edit.before, after);
     // La ligadura de prolongación (ADR-0055).
@@ -274,7 +297,12 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
  * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
-  { op, anchor }: { op: string; anchor: AnchorPayload },
+  {
+    op,
+    anchor,
+    after,
+    edit,
+  }: { op: string; anchor: AnchorPayload; after?: unknown; edit?: { after?: unknown } },
   multiStaff: boolean,
   score: ScoreIRPayload | null = null,
 ): string {
@@ -283,9 +311,13 @@ export function placeOf(
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
   // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla, sino la
-  // parte, si hay varias.
+  // parte, si hay varias; y en todas las partes (`all_parts`, #326), ninguna.
   if (op === "SetTime") {
-    return (score?.parts.length ?? 0) > 1 ? `parte ${String(anchor.part + 1)}, ${place}` : place;
+    // Deshacer y rehacer lo dicen por la edición del log que deshacen o reenvían.
+    const everywhere = record(after ?? edit?.after)?.all_parts === true;
+    return !everywhere && (score?.parts.length ?? 0) > 1
+      ? `parte ${String(anchor.part + 1)}, ${place}`
+      : place;
   }
   if (!multiStaff) return place;
   const previous = (score?.parts ?? [])
@@ -318,7 +350,12 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
     case "SetKey":
       return has("key_signature", "key", "fifths");
     case "SetTime":
-      return "time_signature" in before && "measures" in before;
+      // En todas las partes (#326), también lo de cada una.
+      return (
+        "time_signature" in before &&
+        "measures" in before &&
+        (before.all_parts !== true || Array.isArray(before.parts))
+      );
     case "SetTuplet":
     case "SetChordDuration":
       return Array.isArray(before.durations);

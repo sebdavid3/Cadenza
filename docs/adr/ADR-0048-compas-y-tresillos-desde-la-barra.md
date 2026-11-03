@@ -5,6 +5,7 @@
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0011, ADR-0030, ADR-0033, ADR-0034, ADR-0037, ADR-0038, ADR-0039 y ADR-0044, CLAUDE.md §9)
 - **Completa:** [ADR-0044](ADR-0044-compas-con-su-simbolo-y-tresillos-como-edicion.md) §6 («La barra para cambiar el compás y los tresillos es #241»)
 - **Enmienda:** [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md) §1 (una duración de tresillo ya no es «sin figura», §3 de este ADR)
+- **Enmendado por:** su enmienda de [#326](https://github.com/sebdavid3/Cadenza/issues/326) (al final): «Cambiar» pone el compás en todas las partes y el desplegable propone el de otra parte si la elegida no lleva ninguno (§4)
 - **Relacionado:** [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md), [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md), [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), [ADR-0038](ADR-0038-redibujar-tras-una-edicion-y-ordenes-en-espera.md), [ADR-0039](ADR-0039-anadir-y-quitar-marcas-de-notacion.md), [#236](https://github.com/sebdavid3/Cadenza/issues/236), [#241](https://github.com/sebdavid3/Cadenza/issues/241)
 
 ---
@@ -94,3 +95,15 @@ Sin cambios: la barra usa `SetTime` y `SetTuplet` tal como los dejó #236. No ha
 5. **`SetTime` solo en el compás elegido** (`measures: 1`). Descartada: corregir una pieza leída con otro compás serían tantas ediciones como compases; el tramo lo dice el rótulo.
 6. **Una tecla para el compás.** Descartada como la de la clave y la armadura (ADR-0033 §2).
 7. **Que la figura sobre una nota de tresillo lo quite** (ADR-0030 tal cual). Descartada: corregir la figura de una nota de un tresillo es lo corriente, y perderlo descuadraría el compás.
+
+## Enmienda de #326 (2026-11-02): el compás en todas las partes
+
+Con varias partes (voz y piano: TS-02 y TS-04 del banco), §4 cambiaba el compás solo en la parte de la nota elegida, y el desplegable de una parte sin compás proponía «4/4» aunque la partitura dibujara el de la otra. Con la enmienda de #326 de [ADR-0044](ADR-0044-compas-con-su-simbolo-y-tresillos-como-edicion.md):
+
+1. **«Cambiar» envía un `SetTime` con `"all_parts": true`**: una pulsación pone el compás en todas las partes desde el compás elegido, y se deshace de un paso. Con una sola parte es lo mismo que antes. El mensaje lo dice con varias partes («Guardado: compás 3/4 en los compases 1 a 8, en todas las partes.»), y la historia de ediciones también («compás 3/4 en todas las partes»), sin decir la parte del ancla, que ya no importa.
+2. **El desplegable propone el compás que rige el compás elegido en su parte y, si esa parte no lleva ninguno, el de otra parte** (la primera que lo lleva): es el que dibuja la partitura y, con dos partes, el que usa el mapa de tiempos (`compute_timing_map`, que toma el del último pentagrama que lo declara). Así, al elegir una nota del piano en una sesión con el compás puesto solo en la voz, propone el de la voz.
+3. **«Cambiar» se inactiva solo si todas las partes ya llevan esa indicación** con esa grafía en ese compás; si alguna no la lleva, ponerla es una edición.
+4. **Si las partes llevaban compases distintos, se dice al guardar** («Las partes no llevaban el mismo compás: ahora todas llevan 3/4.»), antes de lo de siempre (las figuras no cambian). Si los pentagramas de alguna parte no llevan el mismo compás en ese compás, «Cambiar» lo dice sin enviar nada, como antes en la parte elegida.
+5. **El rótulo** («Compás · compases a a b») sigue diciendo el tramo de la parte elegida: las demás cambian hasta su propio siguiente cambio, que en una partitura leída por HOMR es el mismo.
+
+El 409, las órdenes en espera y deshacer y rehacer, como en §5: «Volver a aplicar» vuelve a calcular el plan sobre el estado recargado, también en todas las partes.

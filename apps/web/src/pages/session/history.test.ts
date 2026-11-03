@@ -282,6 +282,71 @@ describe("compás y tresillos (ADR-0044)", () => {
     expect(historyPlacement(edit(1, "SetTime", { time_signature: null }), score)).toBeUndefined();
   });
 
+  it("el compás en todas las partes lo dice, y su deshacer también (#326)", () => {
+    const three = { beats: 3, beat_type: 4 };
+    const before = {
+      time_signature: null,
+      measures: 2,
+      all_parts: true,
+      parts: [
+        { time_signature: null, measures: 2 },
+        { time_signature: null, measures: 2 },
+      ],
+    };
+    const done = edit(1, "SetTime", { time_signature: three, all_parts: true }, { before });
+    expect(describeEdit(done)).toBe("compás 3/4 en todas las partes");
+    expect(hasCompleteBefore(done)).toBe(true);
+    // La compensatoria lleva la instantánea como `after`.
+    const undone = edit(2, "SetTime", before, {
+      before: { time_signature: three, all_parts: true },
+    });
+    expect(describeEdit(undone)).toBe("quitar el cambio de compás en todas las partes");
+    // Si las partes llevaban compases distintos, deshacer devuelve a cada una el suyo.
+    const mixed = {
+      ...before,
+      parts: [
+        { time_signature: three, measures: 2 },
+        { time_signature: null, measures: 2 },
+      ],
+    };
+    expect(describeEdit(edit(2, "SetTime", mixed, { before: done.after }))).toBe(
+      "devolver el compás de cada parte",
+    );
+    // Sin lo de cada parte, el servidor no la puede deshacer.
+    expect(
+      hasCompleteBefore(
+        edit(1, "SetTime", null, {
+          before: { time_signature: null, measures: 2, all_parts: true },
+        }),
+      ),
+    ).toBe(false);
+    // Con una sola parte no hay «todas las partes».
+    const single = edit(
+      1,
+      "SetTime",
+      { time_signature: three, all_parts: true },
+      { before: { ...before, parts: [{ time_signature: null, measures: 2 }] } },
+    );
+    expect(describeEdit(single)).toBe("compás 3/4");
+    // Es de todas las partes: no se dice cuál.
+    const parts = { parts: [{ staves: [] }, { staves: [] }] } as unknown as ScoreIRPayload;
+    expect(
+      placeOf(
+        {
+          op: "SetTime",
+          anchor: { ...anchor(3), part: 1 },
+          after: { time_signature: three, all_parts: true },
+        },
+        true,
+        parts,
+      ),
+    ).toBe("compás 3");
+    // Deshacerlo o rehacerlo lo dice por la edición del log.
+    expect(
+      placeOf({ op: "SetTime", anchor: { ...anchor(3), part: 1 }, edit: done }, true, parts),
+    ).toBe("compás 3");
+  });
+
   it("la figura de un acorde se dice con su figura, en su voz, y se deshace con su instantánea", () => {
     const chord = edit(
       1,
