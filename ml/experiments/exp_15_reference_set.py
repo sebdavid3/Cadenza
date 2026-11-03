@@ -1249,6 +1249,9 @@ def quality_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
         if row["omr_ned_before"] is not None and row["omr_ned_after"] is not None
     ]
     delta = sum(float(row["omr_ned_after"]) - float(row["omr_ned_before"]) for row in ned)
+    errors = {row["id"]: row["omr_ned_error"] for row in measured if row.get("omr_ned_error")}
+    # Un par que musicdiff no pudo comparar no cuenta como «sin cambio»: sale del denominador.
+    comparable = len(measured) - len(errors)
     return {
         "incipits": len(measured),
         "stage_changed": sum(1 for row in measured if row["stage_changed"]),
@@ -1261,10 +1264,9 @@ def quality_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
             [float(row["omr_ned_before"]) for row in ned],
             [float(row["omr_ned_after"]) for row in ned],
         ),
-        "omr_ned_mean_delta_over_all": round(delta / len(measured), 4),
-        "omr_ned_errors": {
-            row["id"]: row["omr_ned_error"] for row in measured if row.get("omr_ned_error")
-        },
+        "omr_ned_mean_delta_over_all": round(delta / comparable, 4) if comparable else None,
+        "omr_ned_comparable": comparable,
+        "omr_ned_errors": errors,
     }
 
 
@@ -1803,6 +1805,13 @@ def run(
     return summary_out
 
 
+def _meter_features_argument(text: str) -> frozenset[MeterFeature]:
+    try:
+        return parse_meter_features(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         description="exp_15: HOMR sobre el conjunto de referencia (#234, ADR-0056)"
@@ -1831,7 +1840,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     run_parser.add_argument(
         "--meter-features",
-        default="none",
+        type=_meter_features_argument,
+        default=frozenset(),
         help=(
             "rasgos de la etapa del compás tras HOMR (ADR-0059), separados por comas: "
             "numerator, symbol, implicit_tuplets, 'all' o 'none' (por defecto, HOMR solo)"
@@ -1866,7 +1876,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 workers=args.workers,
                 reuse_predictions=args.reuse_predictions,
                 pdftoppm=args.pdftoppm,
-                meter_features=parse_meter_features(args.meter_features),
+                meter_features=args.meter_features,
             )
     except ReferenceSetError as exc:
         raise SystemExit(f"[exp_15] {exc}") from None

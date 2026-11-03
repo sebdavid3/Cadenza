@@ -1091,6 +1091,36 @@ def test_quality_summary_counts_better_and_worse_incipits() -> None:
     ]
 
     quality = exp_15.quality_summary(rows)
+    # Un par que musicdiff no compara no cuenta como «sin cambio» en el delta medio.
+    with_error = exp_15.quality_summary(
+        [
+            *rows,
+            {
+                "id": "e",
+                "status": "measured",
+                "ser_before": 0.2,
+                "ser_after": 0.1,
+                "stage_changed": True,
+                "omr_ned_before": None,
+                "omr_ned_after": None,
+                "omr_ned_error": "ValueError: x",
+            },
+            {
+                "id": "f",
+                "status": "measured",
+                "ser_before": 0.3,
+                "ser_after": 0.3,
+                "stage_changed": True,
+                "omr_ned_before": 0.5,
+                "omr_ned_after": 0.2,
+                "omr_ned_error": "",
+            },
+        ]
+    )
+    assert with_error is not None
+    assert with_error["omr_ned_comparable"] == 4
+    assert with_error["omr_ned_mean_delta_over_all"] == -0.075
+    assert with_error["omr_ned_errors"] == {"e": "ValueError: x"}
 
     assert quality is not None
     assert quality["incipits"] == 3 and quality["stage_changed"] == 2
@@ -1105,3 +1135,9 @@ def test_quality_summary_counts_better_and_worse_incipits() -> None:
     assert quality["omr_ned_changed"]["better"] == 1 and quality["omr_ned_changed"]["worse"] == 1
     assert quality["omr_ned_mean_delta_over_all"] == 0.0
     assert exp_15.quality_summary([{"id": "e", "status": "measured"}]) is None
+
+
+def test_an_unknown_meter_feature_is_an_argument_error() -> None:
+    with pytest.raises(SystemExit) as stopped:
+        exp_15.main(["run", "--meter-features", "numerador"])
+    assert stopped.value.code == 2
