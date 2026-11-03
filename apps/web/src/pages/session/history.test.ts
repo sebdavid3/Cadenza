@@ -173,14 +173,30 @@ describe("describeEdit", () => {
     expect(describeEdit(edit(1, "DeleteEvent", null))).toBe("borrado de un evento");
   });
 
-  it("un silencio invisible se dice, porque no se ve en la partitura (ADR-0032)", () => {
+  it("un silencio invisible se dice como el hueco de la voz que es (ADR-0032, ADR-0058)", () => {
     const hidden = { kind: "rest", pitch: null, duration_beats: "1/2", hidden: true };
-    expect(describeEdit(edit(1, "InsertEvent", hidden))).toBe(
-      "inserción de un silencio invisible de corchea",
-    );
+    expect(describeEdit(edit(1, "InsertEvent", hidden))).toBe("inserción de un hueco de corchea");
     expect(describeEdit(edit(1, "DeleteEvent", null, { before: hidden }))).toBe(
-      "borrado de un silencio invisible de corchea",
+      "borrado de un hueco de corchea",
     );
+  });
+
+  it("escribir en un hueco, hacerlo visible y deshacerlo (ADR-0058)", () => {
+    const gap = { kind: "rest", pitch: null, hidden: true };
+    const note = { kind: "note", pitch: "F#4", hidden: false };
+    expect(describeEdit(edit(1, "SetEventKind", note, { before: gap }))).toBe(
+      "Fa sostenido 4 en el hueco",
+    );
+    expect(
+      describeEdit(edit(1, "SetEventKind", { kind: "rest", pitch: null, hidden: false })),
+    ).toBe("silencio en el hueco");
+    expect(describeEdit(edit(2, "SetEventKind", gap, { before: note }))).toBe("vuelta al hueco");
+    expect(hasCompleteBefore({ op: "SetEventKind", before: gap })).toBe(true);
+    expect(hasCompleteBefore({ op: "SetEventKind", before: { kind: "rest" } })).toBe(false);
+    expect(inverseOf(edit(1, "SetEventKind", note, { before: gap }))).toMatchObject({
+      op: "SetEventKind",
+      after: gap,
+    });
   });
 
   it("la clave y la armadura, también cuando se quita el cambio del compás", () => {
@@ -497,7 +513,7 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
     ).toBeUndefined();
   });
 
-  it("una inserción deja elegido el evento nuevo, salvo un silencio invisible (ADR-0032)", () => {
+  it("una inserción deja elegido el evento nuevo, también un hueco (ADR-0058)", () => {
     const current = score([event("C4")]);
     expect(
       historyPlacement(
@@ -510,14 +526,14 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
         { op: "InsertEvent", anchor: anchor(2), after: { kind: "rest", hidden: true } },
         current,
       ),
-    ).toBeUndefined();
+    ).toEqual(anchor(2));
   });
 
-  it("un borrado deja elegido el que ocupa su sitio, sin elegir un silencio invisible", () => {
+  it("un borrado deja elegido el que ocupa su sitio, también un hueco (ADR-0058)", () => {
     const current = score([event("C4"), event(null, true), event("E4")]);
     expect(
       historyPlacement({ op: "DeleteEvent", anchor: anchor(2), after: null }, current),
-    ).toEqual(anchor(2, 1));
+    ).toEqual(anchor(2, 0));
     const last = score([event("C4")]);
     // Sin nada más en el compás, el último del anterior.
     expect(historyPlacement({ op: "DeleteEvent", anchor: anchor(2), after: null }, last)).toEqual(
@@ -525,10 +541,13 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
     );
   });
 
-  it("un cambio de valor sobre un silencio invisible no lo elige", () => {
+  it("un cambio sobre un hueco lo elige, como cualquier cambio de valor (ADR-0058)", () => {
     const current = score([event(null, true), event("D4")]);
     expect(
       historyPlacement({ op: "SetDuration", anchor: anchor(2), after: null }, current),
-    ).toBeUndefined();
+    ).toEqual(anchor(2));
+    expect(
+      historyPlacement({ op: "SetEventKind", anchor: anchor(2), after: null }, current),
+    ).toEqual(anchor(2));
   });
 });

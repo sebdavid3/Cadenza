@@ -9,6 +9,7 @@ import {
   drawnDuration,
   figureOf,
   FIGURES,
+  isGap,
   keyLabel,
   eventName,
   planCommand,
@@ -334,10 +335,34 @@ function feedback(
   }
 }
 
+/**
+ * En un hueco de una voz (ADR-0058), los mismos tres botones escriben una nota en él, lo hacen un
+ * silencio que se ve y lo borran: un hueco no tiene figura dibujada, así que antes de él y en él
+ * son el mismo sitio.
+ */
+const GAP_STRUCTURE: typeof STRUCTURE = [
+  {
+    command: { kind: "insert", rest: false },
+    label: "Escribir una nota en el hueco",
+    text: "Nota",
+    icon: "plus",
+  },
+  {
+    command: { kind: "insert", rest: true },
+    label: "Hacer el hueco un silencio que se ve",
+    text: "Silencio",
+    icon: "plus",
+  },
+  { command: { kind: "delete" }, label: "Borrar el hueco", word: "Borrar", icon: "cross" },
+];
+
 /** Qué indicar bajo los controles según lo elegido. */
 function hint(target: EditTarget | null, available: boolean): string | null {
   // Si no se puede elegir nota, ya lo dice la barra de la selección.
   if (!target) return available ? "Elige una nota o un silencio para corregirlo." : null;
+  if (isGap(target.event)) {
+    return "Un hueco de la voz no se dibuja: escribe una nota en él, hazlo un silencio o bórralo para que lo que sigue se adelante.";
+  }
   if (target.event.kind !== "note") return "Un silencio no tiene altura ni alteración.";
   if (target.chord) {
     return "En un acorde, la altura y la alteración son de cada nota y la figura, de todas a la vez; al borrar su primera nota, la siguiente lleva la figura y las marcas.";
@@ -749,6 +774,8 @@ export function EditBar({
   const marks = holder ? noteMarksOf(holder.event) : null;
   // La ligadura de prolongación de la nota elegida: si sale de ella y si le llega (ADR-0055).
   const tie = target?.event.kind === "note" ? (target.event.tie ?? null) : null;
+  // Un hueco de la voz: sus botones escriben en él (ADR-0058).
+  const gap = target !== null && isGap(target.event);
   const shared = {
     target,
     score,
@@ -904,11 +931,13 @@ export function EditBar({
               </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
                 <p className="label editor__label" id={`${groupId}-structure`}>
-                  Insertar antes o borrar
+                  {gap ? "Hueco" : "Insertar antes o borrar"}
                 </p>
                 <div className="editor__buttons">
-                  {STRUCTURE.map((button) => (
-                    <CommandButton key={button.label} {...button} {...shared} />
+                  {/* Los mismos tres botones en un hueco: la misma clave, para que el foco siga
+                      en el que se pulsó cuando el hueco pasa a ser una nota (ADR-0058). */}
+                  {(gap ? GAP_STRUCTURE : STRUCTURE).map((button, index) => (
+                    <CommandButton key={index} {...button} {...shared} />
                   ))}
                 </div>
               </div>
@@ -1085,10 +1114,10 @@ export function EditBar({
             <KeyCap>R</KeyCap> en todo el compás
           </span>
           <span>
-            <KeyCap>N</KeyCap> nota antes
+            <KeyCap>N</KeyCap> nota antes (en un hueco, en él)
           </span>
           <span>
-            <KeyCap>S</KeyCap> silencio antes
+            <KeyCap>S</KeyCap> silencio antes (en un hueco, en él)
           </span>
           <span>
             <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar

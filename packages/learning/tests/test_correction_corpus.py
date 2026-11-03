@@ -491,3 +491,61 @@ def test_tie_and_chord_edits_keep_a_session_verified() -> None:
     derived = derive_edit_events(raw, final, document_id="d")
     assert {e.op for e in derived} <= CONTENT_EDIT_OPS
     assert is_structurally_equal(materialize(raw, derived), final)
+
+
+# --- Los huecos de una voz (ADR-0058) ----------------------------------------------------
+
+
+def test_gap_edits_keep_a_session_verified() -> None:
+    """Una sesión corregida escribiendo una nota en un hueco, haciendo visible otro y borrando un
+    tercero se reproduce al derivar sus correcciones: `derive_edit_events` no cambia y da solo
+    operaciones de contenido (el hueco convertido sale como su borrado y una inserción), así que
+    su corpus sigue verificado (ADR-0058)."""
+
+    def gap(beats: str) -> Event:
+        return Event(kind=EventKind.REST, duration_beats=Fraction(beats), hidden=True)
+
+    raw = _score(
+        _measure(
+            1,
+            _note("G#4", "3/4"),
+            gap("1/4"),
+            _note("F#4", "1/2"),
+            _note("D5", "3/4"),
+            gap("1/4"),
+            _note("G#4", "1/4"),
+            _note("G#4", "1/2"),
+            time=TimeSignature(6, 8),
+        ),
+        _measure(2, _note("A4"), gap("1/2"), _note("B4", "2"), time=TimeSignature(6, 8)),
+    )
+
+    def anchor(measure: int, index: int) -> Anchor:
+        return Anchor(part=0, staff=0, measure=measure, voice=0, event_index=index, staff_id="p-s0")
+
+    def edit(seq: int, where: Anchor, op: EditOp, after: dict[str, Any] | None) -> EditEvent:
+        state = materialize(raw, edits)
+        validate_after(state, where, op, after)
+        return EditEvent(
+            id=f"e{seq}",
+            document_id="d",
+            seq=seq,
+            anchor=where,
+            op=op,
+            author="ana",
+            created_at=datetime(2026, 11, 2, tzinfo=UTC),
+            before=snapshot_before(state, where, op, after),
+            after=after,
+        )
+
+    edits: list[EditEvent] = []
+    note = {"kind": "note", "pitch": "F#4", "hidden": False}
+    edits.append(edit(1, anchor(1, 1), EditOp.SET_EVENT_KIND, note))
+    edits.append(edit(2, anchor(1, 4), EditOp.DELETE_EVENT, None))
+    shown = {"kind": "rest", "pitch": None, "hidden": False}
+    edits.append(edit(3, anchor(2, 1), EditOp.SET_EVENT_KIND, shown))
+    final = materialize(raw, edits)
+
+    derived = derive_edit_events(raw, final, document_id="d")
+    assert {e.op for e in derived} <= CONTENT_EDIT_OPS
+    assert is_structurally_equal(materialize(raw, derived), final)

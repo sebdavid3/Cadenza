@@ -3,7 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-23
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006, ADR-0011 y ADR-0021, CLAUDE.md §9)
-- **Enmendado por:** [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), que dibuja como notas de adorno las notas sin duración (§1 y §3)
+- **Enmendado por:** [ADR-0028](ADR-0028-notas-sin-duracion-como-notas-de-adorno.md), que dibuja como notas de adorno las notas sin duración (§1 y §3); [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que empareja y ofrece también los huecos de una voz (§1 y §2)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md), [INV-0001](../investigaciones/INV-0001-salidas-internas-homr-bbox-y-confianza.md), D11, [#152](https://github.com/sebdavid3/Cadenza/issues/152), [#182](https://github.com/sebdavid3/Cadenza/issues/182)
 
 ---

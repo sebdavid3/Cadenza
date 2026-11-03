@@ -253,9 +253,13 @@ def test_meter_edits_are_not_samples() -> None:
     tie = make_edit(5, make_anchor(0), None, None, op=EditOp.SET_TIE)
     object.__setattr__(tie, "before", {"tie": None, "next": None})
     object.__setattr__(tie, "after", {"tie": "start", "next": None})
+    # Ni escribir en un hueco de una voz (ADR-0058).
+    gap = make_edit(6, make_anchor(0), None, None, op=EditOp.SET_EVENT_KIND)
+    object.__setattr__(gap, "before", {"kind": "rest", "pitch": None, "hidden": True})
+    object.__setattr__(gap, "after", {"kind": "note", "pitch": "E4", "hidden": False})
     pitch = make_edit(3, make_anchor(1), "D4", "E4")
 
-    samples = DatasetBuilder().build(document, [time, tuplet, chord, tie, pitch])
+    samples = DatasetBuilder().build(document, [time, tuplet, chord, tie, gap, pitch])
 
     assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
     assert samples == DatasetBuilder().build(document, [pitch])

@@ -18,6 +18,7 @@ from typing import Any
 import pytest
 from cadenza.domain import (
     CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     Anchor,
@@ -123,7 +124,8 @@ def test_set_tie_is_a_meter_op_and_content_stays_at_seven() -> None:
     assert TIE.value == "SetTie"
     assert TIE in METER_EDIT_OPS
     assert TIE not in CONTENT_EDIT_OPS and TIE not in MARK_EDIT_OPS
-    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS
+    # Y los huecos de una voz, la suya (ADR-0058, `test_gap_edits.py`).
+    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS | GAP_EDIT_OPS
     # Añadir y quitar notas de un acorde son InsertEvent y DeleteEvent: la cobertura de exp_02
     # sigue siendo sobre siete operaciones (ADR-0039 §3, ADR-0055 §4).
     assert len(CONTENT_EDIT_OPS) == 7
