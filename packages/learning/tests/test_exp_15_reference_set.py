@@ -380,6 +380,72 @@ def test_layout_compares_parts_and_staves_per_part() -> None:
     assert result["layout_correct"] is False
 
 
+def _notes(*pitches: str) -> tuple[Event, ...]:
+    return tuple(
+        Event(kind=EventKind.NOTE, pitch=pitch, duration_beats=Fraction(1)) for pitch in pitches
+    )
+
+
+def _voice_and_hands(
+    voice: Sequence[Measure], right: Sequence[Measure], left: Sequence[Measure]
+) -> ScoreIR:
+    return ScoreIR(
+        parts=(
+            Part(id="v", staves=(Staff(id="v0", measures=tuple(voice)),)),
+            Part(
+                id="p",
+                staves=(
+                    Staff(id="p0", measures=tuple(right)),
+                    Staff(id="p1", measures=tuple(left)),
+                ),
+            ),
+        )
+    )
+
+
+def test_staff_content_counts_measures_read_in_their_own_staff() -> None:
+    # Voz, mano derecha y mano izquierda, dos compases (#239).
+    voice = [_measure(1, FOUR, events=_notes("A4", "B4", "C5", "D5")), _measure(2, None)]
+    right = [
+        _measure(1, FOUR, events=_notes("E5", "G5", "E5", "G5")),
+        _measure(2, None, events=_notes("F5", "A5", "F5", "A5")),
+    ]
+    left = [
+        _measure(1, FOUR, events=_notes("C3", "G3", "C3", "G3")),
+        _measure(2, None, events=_notes("D3", "A3", "D3", "A3")),
+    ]
+    truth = _voice_and_hands(voice, right, left)
+
+    assert exp_15.compare_page(truth, truth, 1, 2, {}, 1)["staves"] == {
+        "units": 6,
+        "in_place": 6,
+        "elsewhere": 0,
+        "missing": 0,
+    }
+
+    # HOMR junta la voz y la mano derecha en el primer compás: lo de la mano derecha sale en el
+    # pentagrama de la voz y la mano izquierda, en el de la mano derecha.
+    merged = [
+        _measure(1, FOUR, events=_notes("A4", "B4", "C5", "D5", "E5", "G5")),
+        voice[1],
+    ]
+    read = _voice_and_hands(merged, [left[0], right[1]], [_measure(1, FOUR, events=()), left[1]])
+    staves = exp_15.compare_page(truth, read, 1, 2, {}, 1)["staves"]
+
+    # La voz del c. 1 sigue en su pentagrama (comparte más con ella que con la mano derecha);
+    # la mano derecha está en otro, la izquierda no se leyó en el suyo.
+    assert staves == {"units": 6, "in_place": 4, "elsewhere": 1, "missing": 1}
+
+
+def test_staff_content_ignores_measures_without_notes_in_the_truth() -> None:
+    rest = (Event(kind=EventKind.REST, pitch=None, duration_beats=Fraction(4)),)
+    staff = [_measure(1, FOUR, events=rest)]
+    truth = _score(staff)
+
+    assert exp_15.compare_page(truth, truth, 1, 1, {}, 1)["staves"]["units"] == 0
+    assert exp_15.compare_page(truth, ScoreIR(parts=()), 1, 1, {}, 1)["staves"]["units"] == 0
+
+
 def test_page_features_come_from_the_truth_of_the_page() -> None:
     staff = [
         _measure(1, THREE, -5),
@@ -602,6 +668,9 @@ def test_run_measures_the_reference_set_and_writes_its_outputs(tmp_path: Path) -
     with (out / exp_15.PAGES_CSV_NAME).open(encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert [row["case"] for row in rows] == ["song-p1"]
+    staves = page["comparison"]["staves"]
+    assert head["pages"]["staves_in_place"]["n"] == staves["units"] > 0
+    assert rows[0]["staves_in_place"] == str(staves["in_place"])
     with (out / exp_15.PRIMUS_CSV_NAME).open(encoding="utf-8") as handle:
         assert [row["id"] for row in csv.DictReader(handle)] == ["a"]
 
