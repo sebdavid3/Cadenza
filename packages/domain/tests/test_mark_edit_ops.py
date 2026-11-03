@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from cadenza.domain import (
     CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     Anchor,
@@ -139,7 +140,8 @@ def test_mark_ops_are_a_separate_class_of_edit_op() -> None:
     } == MARK_EDIT_OPS
     assert CONTENT_EDIT_OPS.isdisjoint(MARK_EDIT_OPS)
     # Y las de compás y tresillos, su propia clase (ADR-0044, `test_meter_edit_ops.py`).
-    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS
+    # Y los huecos de una voz, la suya (ADR-0058, `test_gap_edits.py`).
+    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS | GAP_EDIT_OPS
     # Las siete de contenido son las que derivan los experimentos (`len` de la cobertura de exp_02).
     assert len(CONTENT_EDIT_OPS) == 7
 

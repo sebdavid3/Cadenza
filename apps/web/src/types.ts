@@ -242,8 +242,16 @@ export interface EditEventRead {
  *     - ``before``/``after``: ``{"tie": str | None, "next": {"measure": int, "voice": int,
  *       "event_index": int, "tie": str | None} | None}``, el valor de cada nota
  *       (``"start"``, ``"continue"``, ``"stop"`` o ``None``).
+ * 
+ * Los huecos de una voz (ADR-0058). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 16. `SET_EVENT_KIND` ("SetEventKind"):
+ *     - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una
+ *       nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.
+ *     - ``before``/``after``: ``{"kind": "note" | "rest", "pitch": str | None,
+ *       "hidden": bool}``.
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration" | "SetTie";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration" | "SetTie" | "SetEventKind";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).

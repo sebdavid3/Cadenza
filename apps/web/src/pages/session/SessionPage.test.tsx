@@ -1666,7 +1666,7 @@ describe("elegir una nota sobre la partitura", () => {
     expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
   });
 
-  it("no cuenta como figura el silencio invisible que OSMD guarda ni lo ofrece para elegir (ADR-0032)", async () => {
+  it("elige el hueco de una voz en el silencio transparente que OSMD guarda y lo señala (ADR-0058)", async () => {
     osmd.figures = [
       [
         { pitch: "E5", whole: [3, 4], voice: 1 },
@@ -1688,12 +1688,57 @@ describe("elegir una nota sobre la partitura", () => {
 
     fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(screen.getByText("Mi5 · blanca con puntillo")).toBeVisible();
+    // El hueco empieza con la voz: es lo más cercano al bajar.
     fireEvent.keyDown(region, { key: "ArrowDown" });
     expect(screen.getByText("Compás 1 · Voz 2")).toBeVisible();
+    expect(screen.getByText("Hueco de negra")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(screen.getByText("Do4 · blanca")).toBeVisible();
-    // El silencio invisible no se elige: al principio de la voz está Do4.
     fireEvent.keyDown(region, { key: "Home" });
-    expect(screen.getByText("Do4 · blanca")).toBeVisible();
+    expect(screen.getByText("Hueco de negra")).toBeVisible();
+    // Se señala con una trama, sin dibujarlo en la partitura: no es una figura.
+    expect(document.querySelectorAll(".notation__gap")).toHaveLength(1);
+  });
+
+  it("no corrige un hueco que la vista no ofrece aunque quede elegido (ADR-0058)", async () => {
+    // OSMD no guarda su silencio transparente: el hueco no tiene marca ni se elige.
+    osmd.figures = [
+      [
+        { pitch: "E5", whole: [3, 4], voice: 1 },
+        { pitch: "C4", whole: [2, 4], voice: 2 },
+      ],
+    ];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "E5", duration_beats: "3" },
+          { kind: "rest", pitch: null, duration_beats: "1", voice: 1, hidden: true },
+          { pitch: "C4", duration_beats: "2", voice: 1 },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    await findScore();
+    expect(document.querySelectorAll(".notation__gap")).toHaveLength(0);
+
+    // Un borrado o deshacer pueden dejarlo elegido: la barra no lo ofrece para corregir.
+    act(() => {
+      useSelectionStore.getState().select({
+        sessionId: ID,
+        seq: 0,
+        anchor: {
+          part: 0,
+          staff: 0,
+          measure: 1,
+          voice: 1,
+          event_index: 0,
+          staff_id: "part-0-staff-0",
+          bbox: null,
+          confidence: null,
+        },
+      });
+    });
+    expect(screen.queryByText("Hueco de negra")).toBeNull();
   });
 
   it("elige por separado la nota de adorno y la nota a la que adorna (D60)", async () => {
@@ -1929,6 +1974,14 @@ describe("corregir la nota elegida", () => {
     if (event && body.op === "SetDuration") {
       before = { duration_beats: event.duration_beats };
       event.duration_beats = String(after.duration_beats);
+    }
+    // Un hueco de una voz (ADR-0058): pasa a ser una nota o un silencio que se ve, y vuelve.
+    if (event && body.op === "SetEventKind") {
+      before = { kind: event.kind, pitch: event.pitch, hidden: event.hidden === true };
+      event.kind = after.kind === "note" ? "note" : "rest";
+      event.pitch = typeof after.pitch === "string" ? after.pitch : null;
+      if (after.hidden === true) event.hidden = true;
+      else delete event.hidden;
     }
     // La figura de un acorde (ADR-0049): una por nota, desde la primera.
     if (event && position !== undefined && body.op === "SetChordDuration") {
@@ -3947,6 +4000,9 @@ describe("corregir la nota elegida", () => {
       const region = await chooseMeasure(2);
       fireEvent.keyDown(region, { key: "ArrowDown" });
       expect(screen.getByText("Compás 2 · Voz 2")).toBeVisible();
+      // Bajar lleva al hueco, que empieza con la voz; la nota es la siguiente (ADR-0058).
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      expect(screen.getByText("Do4 · blanca")).toBeVisible();
 
       fireEvent.keyDown(region, { key: "n" });
 
@@ -3960,6 +4016,159 @@ describe("corregir la nota elegida", () => {
       });
       expect(useSelectionStore.getState().selection).toMatchObject({
         anchor: { measure: 2, voice: 1, event_index: 1 },
+      });
+    });
+
+    describe("los huecos de una voz (ADR-0058, #317)", () => {
+      const gapped = () =>
+        withSecond([
+          note("E5", "3"),
+          note(null, "1", { voice: 1, hidden: true }),
+          note("C4", "2", { voice: 1 }),
+        ]);
+      /** Elige el hueco de la voz 2 del compás 2. */
+      async function chooseGap() {
+        const region = await chooseMeasure(2);
+        fireEvent.keyDown(region, { key: "ArrowDown" });
+        expect(screen.getByText("Hueco de negra")).toBeVisible();
+        return region;
+      }
+
+      it("N escribe una nota en el hueco con la altura de la siguiente y lo deja elegido", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        expect(within(editor()).getByText("Hueco")).toBeVisible();
+
+        fireEvent.keyDown(region, { key: "n" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: Do 4 en el hueco de negra.");
+        });
+        expect(server.bodies[0]).toEqual({
+          base_seq: 0,
+          op: "SetEventKind",
+          anchor: { ...anchorOf(2), voice: 1 },
+          before: null,
+          after: { kind: "note", pitch: "C4", hidden: false },
+        });
+        expect(useSelectionStore.getState().selection).toMatchObject({
+          seq: 1,
+          anchor: { measure: 2, voice: 1, event_index: 0 },
+        });
+        expect(screen.getByText("Do4 · negra")).toBeVisible();
+        expect(document.querySelectorAll(".notation__gap")).toHaveLength(0);
+      });
+
+      it("con el ratón lo hace un silencio que se ve o lo borra, y deshacer lo devuelve", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        await chooseGap();
+
+        const silence = button("Hacer el hueco un silencio que se ve");
+        silence.focus();
+        fireEvent.click(silence);
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: silencio de negra en el hueco.");
+        });
+        // El foco sigue en el mismo botón, que ahora inserta un silencio antes.
+        expect(document.activeElement).toBe(button("Insertar un silencio antes"));
+        expect(server.bodies[0]).toMatchObject({
+          op: "SetEventKind",
+          after: { kind: "rest", pitch: null, hidden: false },
+        });
+        expect(screen.getByText("Silencio de negra")).toBeVisible();
+
+        fireEvent.click(button("Deshacer"));
+        await waitFor(() => {
+          expect(screen.getByText("Hueco de negra")).toBeVisible();
+        });
+
+        fireEvent.click(button("Borrar el hueco"));
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: borrado del hueco de negra.");
+        });
+        expect(server.bodies.at(-1)).toMatchObject({
+          base_seq: 2,
+          op: "DeleteEvent",
+          anchor: { measure: 2, voice: 1, event_index: 0 },
+          after: null,
+        });
+        // Lo que sigue al hueco ocupa su sitio y queda elegido.
+        expect(screen.getByText("Do4 · blanca")).toBeVisible();
+      });
+
+      it("un hueco no tiene altura ni marcas: lo dice sin enviar nada", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+
+        fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+        fireEvent.keyDown(region, { key: "a" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "Un hueco no tiene altura ni marcas: escribe antes una nota en él (N) o hazlo un silencio (S).",
+          );
+        });
+        expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+        expect(server.bodies).toHaveLength(0);
+      });
+
+      it("tras un 409, vuelve a escribir en el hueco desplazado", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        server.respond(() => {
+          // Otra pestaña insertó una nota delante del hueco, en su voz (ADR-0011 §2).
+          server.replace(
+            apply(server.current(), {
+              base_seq: 0,
+              op: "InsertEvent",
+              anchor: { ...anchorOf(2), voice: 1 },
+              before: null,
+              after: { kind: "note", pitch: "E4", duration_beats: "1" },
+            }).next,
+          );
+          return jsonResponse({ detail: "conflicto" }, 409);
+        });
+
+        fireEvent.keyDown(region, { key: "s" });
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "No se guardó: silencio de negra en el hueco (compás 2, voz 2). La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.",
+          );
+        });
+        fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: silencio de negra en el hueco.");
+        });
+        expect(server.bodies[1]).toMatchObject({
+          base_seq: 1,
+          op: "SetEventKind",
+          anchor: { measure: 2, voice: 1, event_index: 1 },
+          after: { kind: "rest", pitch: null, hidden: false },
+        });
+      });
+
+      it("un 422 no guarda nada y lo dice sin el detail", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        server.respond(() =>
+          jsonResponse({ detail: "SetEventKind solo se aplica a un hueco" }, 422),
+        );
+
+        fireEvent.keyDown(region, { key: "n" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "El servidor no aceptó el cambio (Do 4 en el hueco de negra, compás 2, voz 2): no se guardó nada.",
+          );
+        });
+        expect(screen.queryByText(/solo se aplica/)).toBeNull();
+        expect(screen.getByText("Hueco de negra")).toBeVisible();
       });
     });
 

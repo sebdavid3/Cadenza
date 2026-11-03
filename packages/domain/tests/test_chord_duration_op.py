@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from cadenza.domain import (
     CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     Anchor,
@@ -113,7 +114,8 @@ def test_chord_duration_is_a_meter_op_and_content_stays_at_seven() -> None:
     # Con la ligadura de prolongación (ADR-0055, `test_tie_and_chord_edits.py`).
     assert {EditOp.SET_TIME, EditOp.SET_TUPLET, OP, EditOp.SET_TIE} == METER_EDIT_OPS
     assert OP not in CONTENT_EDIT_OPS and OP not in MARK_EDIT_OPS
-    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS
+    # Y los huecos de una voz, la suya (ADR-0058, `test_gap_edits.py`).
+    assert set(EditOp) == CONTENT_EDIT_OPS | MARK_EDIT_OPS | METER_EDIT_OPS | GAP_EDIT_OPS
     # La cobertura de exp_02 se calcula sobre las siete de contenido: no cambia (ADR-0039 §3).
     assert len(CONTENT_EDIT_OPS) == 7
 

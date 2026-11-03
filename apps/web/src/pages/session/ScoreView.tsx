@@ -346,7 +346,15 @@ export function ScoreView({
       : ahead && drawn.seq === snapshot.seq
         ? (chosen?.anchor ?? null)
         : null;
-  const found = selectable && shownAnchor ? eventAt(snapshot.transcription, shownAnchor) : null;
+  const located = selectable && shownAnchor ? eventAt(snapshot.transcription, shownAnchor) : null;
+  // Un hueco solo se corrige si la vista lo ofrece, con su marca (ADR-0058): uno que OSMD no
+  // guarda no se elige, aunque lo deje elegido un borrado o deshacer.
+  const found =
+    located?.event.hidden === true && shownAnchor
+      ? selectable?.some((candidate) => candidate.key === anchorKey(shownAnchor))
+        ? located
+        : null
+      : located;
   const target: EditTarget | null = shownAnchor && found ? { anchor: shownAnchor, ...found } : null;
   const multiStaff = expectedMeasures.length > 1;
   const description = target
@@ -596,6 +604,20 @@ export function ScoreView({
                   style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
                 />
               ))}
+              {/* Los huecos de una voz (ADR-0058): una trama de tinta donde OSMD guarda su silencio
+                  transparente, para que se vean y se puedan elegir sin dibujarlos en la partitura. */}
+              {selectable
+                ?.filter((candidate) => candidate.gap)
+                .flatMap((candidate) =>
+                  candidate.boxes.map((box, index) => (
+                    <div
+                      key={`hueco:${candidate.key}:${String(index)}`}
+                      className="notation__gap"
+                      data-key={candidate.key}
+                      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+                    />
+                  )),
+                )}
               {/* Una marca por figura: la de una nota partida no abarca lo que hay entre medias. */}
               {chosen?.boxes.map((box, index) => (
                 <div
