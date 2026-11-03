@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from cadenza.omr import MeterStage
 
 # Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
 _ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
@@ -258,7 +261,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    def build_meter_stage(self) -> Any | None:
+    def build_meter_stage(self) -> MeterStage | None:
         """La etapa del compás con los rasgos configurados, o None si no hay ninguno (ADR-0059)."""
 
         from cadenza.omr import MeterStage, parse_meter_features

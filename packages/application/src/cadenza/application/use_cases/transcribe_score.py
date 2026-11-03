@@ -8,10 +8,11 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from cadenza.domain import Finding, ScoreMetadata, normalize_source_filename
-from cadenza.omr import MeterStage, OMREngine
+from cadenza.omr import OMREngine
 from cadenza.validation import ValidationEngine
 
 from ..ports.artifact_store import ArtifactStore, compute_sha256, detect_image_media_type
+from ..ports.recognition_stage import RecognitionStage
 from ..ports.session_repository import NewSuggestion, SessionData, SessionRepository
 from ..ports.suggestion_model import SuggestionModel
 from ..suggestions import suggest
@@ -57,7 +58,7 @@ def transcribe_score(
     suggestion_model: SuggestionModel | None = None,
     metadata: ScoreMetadata | None = None,
     source_filename: str | None = None,
-    meter_stage: MeterStage | None = None,
+    meter_stage: RecognitionStage | None = None,
 ) -> TranscribeResult:
     """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión.
 
