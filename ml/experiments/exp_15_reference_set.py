@@ -27,7 +27,8 @@ rasgo:
 3. **La armadura por compás**: la del principio de la página, cada cambio a mitad de página y
    la de cada compás.
 4. **Las partes y los pentagramas**: cuántas partes y cuántos pentagramas por parte (voz y
-   piano son dos partes, de 1 y 2 pentagramas).
+   piano son dos partes, de 1 y 2 pentagramas), y si el contenido de cada pentagrama leído va en
+   el suyo, compás a compás (`staves`, ADR-0060 §3).
 
 PrIMuS (renders de Verovio, no escaneos): el compás inicial de cada incipit, numerador y
 denominador, frente a su verdad MEI, y el símbolo C y ¢ con `time_symbol_agreement`, sobre las
@@ -940,15 +941,21 @@ def compare_staff_content(
     cada pentagrama de la verdad y cada compás de la página con notas en él (las unidades), se
     toma el compás alineado del pentagrama leído del mismo orden (sin las columnas de cortesía) y
     se compara su multiconjunto de alturas con el de cada pentagrama de la verdad en ese compás
-    (F1 de las alturas). Está `in_place` si se parece más a su pentagrama que a cualquier otro;
-    `elsewhere` si se parece más a otro (o igual); `missing` si el pentagrama no se leyó o no
-    comparte ninguna altura con ninguno.
+    (F1 de las alturas). Está `in_place` si se parece más a su pentagrama que a cualquier otro, o
+    si lo lee entero aunque otro sea igual (una mano que dobla la voz); `elsewhere` si se parece
+    más a otro (o igual, sin leerlo entero); `missing` si el pentagrama no se leyó o no comparte
+    ninguna altura con ninguno. Un compás que falta en un pentagrama de la verdad cuenta como sin
+    notas. La alineación es la proporcional de `map_index`: un compás de más o de menos en la
+    lectura también puede dejar el contenido en `elsewhere` o en `missing`.
     """
 
     prepared = prepare_read_staves(read_staves)
     counts = {"units": 0, "in_place": 0, "elsewhere": 0, "missing": 0}
     for p, index in enumerate(page):
-        truths = [_pitches(staff[index]) for staff in truth_staves]
+        truths = [
+            _pitches(staff[index]) if index < len(staff) else Counter[str]()
+            for staff in truth_staves
+        ]
         for t, truth in enumerate(truths):
             if not truth:
                 continue
@@ -961,7 +968,9 @@ def compare_staff_content(
             scores = [_pitch_f1(read, other) for other in truths]
             if not any(scores):
                 counts["missing"] += 1
-            elif all(scores[t] > score for o, score in enumerate(scores) if o != t):
+            elif scores[t] == 1.0 or all(
+                scores[t] > score for o, score in enumerate(scores) if o != t
+            ):
                 counts["in_place"] += 1
             else:
                 counts["elsewhere"] += 1

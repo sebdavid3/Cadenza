@@ -30,7 +30,7 @@ El alcance acordado de #239 son las partituras de piano con una voz o un instrum
 `HOMREngine` sustituye, al importar HOMR y como ya hace con `detect_title` (#106), `MultiStaff._select_grandstaffs` por una envoltura (`cadenza.omr.adapters.homr_grand_staff`):
 
 - Solo en los sistemas de **tres pentagramas**. Los de dos (el piano solo) o de más de tres siguen como los deja HOMR.
-- Un elemento que abarca al menos la mitad del alto de **los tres** pentagramas no decide el par: es la barra del sistema. HOMR elige el par con su misma puntuación entre los demás elementos (la llave del piano, que solo abarca dos).
+- Un elemento que abarca al menos la mitad del alto de **cada uno de los tres** pentagramas no decide el par: es la barra del sistema. HOMR elige el par con su misma puntuación entre los demás elementos (la llave del piano, que solo abarca dos).
 - Si solo hay elementos de los que abarcan los tres, el piano son **los dos de abajo**, como en toda partitura de una voz o un instrumento por encima del piano.
 - Si la versión de HOMR no tiene `_select_grandstaffs`, importar HOMR falla con un mensaje claro: sin la sustitución, la voz y la mano derecha volverían a juntarse en silencio.
 
@@ -38,7 +38,7 @@ No se toca el resto de HOMR: el reconocimiento de cada pentagrama, las claves y 
 
 ### 3. `exp_15` mide también dónde va el contenido de cada pentagrama
 
-`compare_page` gana `staves`: para cada pentagrama de la verdad y cada compás de la página con notas en él (las unidades), toma el compás alineado del pentagrama leído del mismo orden y compara su multiconjunto de alturas con el de cada pentagrama de la verdad en ese compás (F1 de las alturas). Está `in_place` si se parece más a su pentagrama que a cualquier otro; `elsewhere` si se parece más a otro (o igual); `missing` si no se leyó o no comparte ninguna altura con ninguno. El resumen da `staves_in_place`, `staves_elsewhere` y `staves_missing` con su numerador y denominador, y el CSV de las páginas, una columna por cuenta. Lo demás de ADR-0056 no cambia.
+`compare_page` gana `staves`: para cada pentagrama de la verdad y cada compás de la página con notas en él (las unidades), toma el compás alineado del pentagrama leído del mismo orden y compara su multiconjunto de alturas con el de cada pentagrama de la verdad en ese compás (F1 de las alturas). Está `in_place` si se parece más a su pentagrama que a cualquier otro, o si lo lee entero aunque otro sea igual (una mano que dobla la voz); `elsewhere` si se parece más a otro (o igual, sin leerlo entero); `missing` si no se leyó o no comparte ninguna altura con ninguno. La alineación es la proporcional de ADR-0056: un compás de más o de menos en la lectura también puede dejar el contenido en `elsewhere` o en `missing`, así que la métrica mezcla el cambio de pentagrama con la desalineación. El resumen da `staves_in_place`, `staves_elsewhere` y `staves_missing` con su numerador y denominador, y el CSV de las páginas, una columna por cuenta. Lo demás de ADR-0056 no cambia.
 
 ### 4. El nombre y el instrumento de las partes no se deducen
 
@@ -56,16 +56,17 @@ Con HOMR en la GPU, una API local y la web del worktree, a 1440 y a 390 px, en T
 
 ### Positivas
 
-- **Medido con `exp_15`** (las doce páginas de voz y piano de #234, HOMR en CPU, en el scratchpad): partes y pentagramas por parte 12 de 12 antes y después (antes [2, 1] en la verdad y en la lectura; después [1, 2] en las dos); los compases leídos por pentagrama, como antes salvo la p. 7 de *Ellens Gesang I* (24, 24 y 23 → 24, 23 y 23, de 23); el contenido de cada pentagrama en su sitio pasa de 122 de 734 unidades (16,6 %) a 690 de 734 (94,0 %), con 14 en otro pentagrama y 30 sin leer. El resto de `exp_15` se mueve en un compás: la armadura bien leída, de 781 a 782 de 789, y los compases heredados sin compás, de 409 a 410 de 414, porque HOMR lee ahora los pentagramas en otros grupos. Los cambios de armadura siguen 6 de 6 detectados y correctos (#238).
+- **Medido con `exp_15`** (las doce páginas de voz y piano de #234, HOMR 0.7.0 en CPU, con la salida en el scratchpad). **Antes:** el script de `exp_15` de esta rama, con la métrica nueva, sobre los paquetes de `dev` (1771ffc) y con `--reuse-predictions` sobre las predicciones de HOMR de `results/exp_15/` (las de la línea base de #234); las demás cifras coinciden con la línea base. **Después:** esta rama entera, transcribiendo de nuevo. partes y pentagramas por parte 12 de 12 antes y después (antes [2, 1] en la verdad y en la lectura; después [1, 2] en las dos); los compases leídos por pentagrama, como antes salvo la p. 7 de *Ellens Gesang I* (24, 24 y 23 → 24, 23 y 23, de 23); el contenido de cada pentagrama en su sitio pasa de 126 de 734 unidades (17,2 %) a 698 de 734 (95,1 %), con 6 en otro pentagrama y 30 sin leer. El resto de `exp_15` se mueve en un compás: la armadura bien leída, de 781 a 782 de 789, y los compases heredados sin compás, de 409 a 410 de 414, porque HOMR lee ahora los pentagramas en otros grupos. Los cambios de armadura siguen 6 de 6 detectados y correctos (#238).
 - La voz se dibuja arriba, la llave del piano abarca solo el piano y el compás sale una vez por pentagrama, como en la página.
 - El instrumento indicado al subir llega a su parte (ADR-0041 §3).
 
 ### Negativas / Riesgos
 
 - **Depende de un método privado de HOMR.** Otra versión puede cambiarlo; la importación falla si desaparece, y una prueba con el `MultiStaff` real lo comprueba cuando HOMR está instalado.
+- **La barra del sistema tiene que cubrir la mitad de cada pentagrama.** Si cubre menos de la mitad del de la voz (una página torcida o una barra cortada), cuenta como llave y HOMR puede volver a elegir el par de arriba. No pasa en las páginas medidas.
 - **La regla supone la voz arriba.** Un sistema de tres pentagramas con el gran pentagrama arriba y otro debajo (el órgano con el pedal), sin una llave que HOMR distinga de la barra del sistema, saldría con el par de abajo. Está fuera del alcance (#239).
 - **Una sesión anterior no cambia:** su `ScoreIR` ya está guardado con el orden de antes. El cambio vale para lo que se transcribe después y para lo que se importa de nuevo.
-- Las métricas de `exp_15` de antes y de después no se comparan en el contenido de los pentagramas con la línea base guardada en `results/exp_15/`, que no lo medía; la de antes se regeneró con el código de `dev` y las predicciones guardadas.
+- La línea base guardada en `results/exp_15/` no tiene la métrica del contenido de los pentagramas: hay que volver a medir `exp_15` para tenerla.
 
 ## Alternativas consideradas
 

@@ -437,6 +437,32 @@ def test_staff_content_counts_measures_read_in_their_own_staff() -> None:
     assert staves == {"units": 6, "in_place": 4, "elsewhere": 1, "missing": 1}
 
 
+def test_staff_content_counts_unread_staves_and_shorter_truth_staves() -> None:
+    voice = [_measure(1, FOUR, events=_notes("A4", "B4", "C5", "D5")), _measure(2, None)]
+    right = [_measure(1, FOUR, events=_notes("E5", "G5", "E5", "G5"))]  # un compás menos
+    left = [
+        _measure(1, FOUR, events=_notes("C3", "G3", "C3", "G3")),
+        _measure(2, None, events=_notes("D3", "A3", "D3", "A3")),
+    ]
+    truth = _voice_and_hands(voice, right, left)
+
+    # HOMR solo lee la voz: los otros pentagramas cuentan como no leídos.
+    staves = exp_15.compare_page(truth, _score(voice), 1, 2, {}, 1)["staves"]
+
+    assert staves == {"units": 5, "in_place": 2, "elsewhere": 0, "missing": 3}
+
+
+def test_staff_content_a_perfect_read_of_a_doubled_staff_is_in_place() -> None:
+    # La mano derecha dobla la voz nota a nota: su lectura perfecta empata con la voz.
+    voice = [_measure(1, FOUR, events=_notes("A4", "B4", "C5", "D5"))]
+    left = [_measure(1, FOUR, events=_notes("C3", "G3", "C3", "G3"))]
+    truth = _voice_and_hands(voice, voice, left)
+
+    staves = exp_15.compare_page(truth, truth, 1, 1, {}, 1)["staves"]
+
+    assert staves == {"units": 3, "in_place": 3, "elsewhere": 0, "missing": 0}
+
+
 def test_staff_content_ignores_measures_without_notes_in_the_truth() -> None:
     rest = (Event(kind=EventKind.REST, pitch=None, duration_beats=Fraction(4)),)
     staff = [_measure(1, FOUR, events=rest)]
