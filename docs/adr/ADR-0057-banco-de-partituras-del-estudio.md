@@ -36,7 +36,7 @@ El estudio con participantes (#253) corrige cinco partituras: TS-01 a TS-04 y la
 
 ### Riesgos, con el issue que los resuelve antes del congelado
 
-Son los de la primera revisión. Su estado tras la segunda, en §Segunda revisión: #239, #317 y #318 resueltos, la ligadura de TS-02 ya se corrige desde la vista y #250 ya no tiene que emparejar los pentagramas.
+Son los de la primera revisión. Su estado tras la segunda y la tercera, en §Segunda revisión y §Tercera revisión: #239, #317, #318, #325 y #326 resueltos, la ligadura de TS-02 ya se corrige desde la vista y #250 ya no tiene que emparejar los pentagramas.
 
 Decisión del responsable del 2026-11-02; la revisión del banco se repite cuando entren.
 
@@ -77,6 +77,34 @@ Repetida, como pedía #247, con #237, #239, #317 y #318 en `dev` (4620c9b), con 
 - **Un cambio de clave a mitad de compás** (mano izquierda de TS-02, cc. 1, 2, 5 y 6, y de TS-03, cc. 4 y 6) HOMR lo pone al principio del compás o no lo pone (TS-02, c. 1), y la vista no puede ponerlo a mitad de compás: las alturas están bien, pero esas notas se dibujan en la otra clave, con líneas adicionales, distintas de la imagen. Ya pasaba en la primera revisión.
 - **El calentamiento no tiene nada que corregir**: el ejercicio guiado (protocolo §5, punto 2) tendrá que señalar algo para practicar, o usar otra partitura.
 - **Una figura conserva el puntillo**: cambiar la negra con puntillo de TS-03 (c. 2) a corchea son dos ediciones (la figura y quitar el puntillo).
+
+## Tercera revisión (2026-11-03)
+
+Repetida sobre `dev` (`6ba625f`), con [#326](https://github.com/sebdavid3/Cadenza/issues/326) (#327) y [#325](https://github.com/sebdavid3/Cadenza/issues/325) (#328) fusionados, en el mismo entorno del congelado: HOMR 0.7.0 en CPU (`CADENZA_OMR_USE_GPU=false`) y la API local con la configuración por defecto. Cada partitura se transcribió por la API local con su `test_score_id`, en la condición asistida, y se corrigió **desde la vista**, con la barra y el teclado, en el navegador integrado a 1440 px; la selección y la barra se comprobaron también a 390 px, sin desplazamiento horizontal, y ninguna tropieza con D62. En las cinco sesiones, `materialize` del dominio sobre `raw_score` y `edit_events` da el mismo `current_score` que devuelve la API, y el resultado se comparó con la verdad de `banco_estudio/<id>.musicxml` pentagrama a pentagrama, por lo que se ve (inicio, nota o silencio, altura, figura y ligadura; sin el número de voz ni el orden de las notas de un acorde). Las cifras son **exploratorias**: salen de los scripts de la revisión, no de `ml/experiments`, y no son un resultado de la tesis. El protocolo §2.3 tiene la tabla actualizada.
+
+**Lo que cambió desde la segunda revisión:**
+
+- **El piano de voz y piano leído emparejado y solo (#325, enmienda de ADR-0060), resuelto.** En TS-03, la combinación toma la mano izquierda de la lectura por pentagrama suelto y la mano derecha de la emparejada: lo que falta y sobra en la lectura de HOMR frente a la verdad baja de 48 / 45 eventos (SER 0,579) a 26 / 25 (SER 0,246). La mano izquierda recupera la vuelta a la clave de fa (`F4`) del c. 7 y coincide con la verdad en los cc. 1, 3, 4, 5, 6, 7 y 8, sin ningún hueco ni nota desplazada; en ella solo difiere el c. 2 (faltan las tres ligaduras de prolongación del acorde La2–Mi3–La3). En la mano derecha quedan las mismas diferencias que en la segunda revisión en los cc. 2, 4 y 8 (la voz inferior del c. 2 omitida al fundir HOMR las dos voces en un Do♯4 negra con puntillo sin hueco, y los tresillos de semicorcheas sin marcar en los cc. 4 y 8). La voz no difiere de la verdad, salvo que falta el 6/8. En TS-02 y TS-04 no se elige ninguna mano suelta y el MusicXML de HOMR es byte a byte el de la segunda revisión; el calentamiento y TS-01 tampoco cambian.
+- **El compás en todas las partes con una acción (#326, enmienda de ADR-0044 y ADR-0048), resuelto.** En TS-02 (3/4), TS-03 (6/8) y TS-04 (C), elegir el compás desde la voz y pulsar «Cambiar» envía un solo `SetTime` con `"all_parts": true` que pone la indicación en la voz y en el piano a la vez (una edición en lugar de dos). Antes de ponerlo, al elegir una nota del piano cuando ninguna parte lleva compás, el desplegable propone `4/4` con números y «Cambiar compás» está activo; una vez puesto desde la voz, al elegir una nota del piano el desplegable muestra el compás ya aplicado (`3/4`, `6/8` o `C (4/4)`) con «Cambiar compás» inactivo.
+- **`SetTime` sobre compases sin indicación no propaga a los compases siguientes (#329, nuevo).** En TS-02, TS-03 y TS-04, HOMR importa todos los compases con `time_signature = None`. Al aplicar `SetTime` en el c. 1, `_apply_time_to_part` cambia el c. 1 pero solo actualiza los compases siguientes cuando su `time_signature` no es `None`, así que los cc. 2–N quedan en `None`. Por eso, al pulsar «Revalidar» en la vista tras poner el 6/8 en TS-03, el validador solo comprueba el c. 1 y devuelve 0 posibles errores; si el 6/8 se fija en los 8 compases, `measure.balance` señala los 3 compases con error real de duración (mano derecha, cc. 2, 4 y 8; en la segunda revisión eran 7 porque la mano izquierda también fallaba en los cc. 2, 4, 6 y 8), sin ningún aviso falso. En TS-02 y TS-04, con el compás en todos los compases siguen saliendo 0 posibles errores. Abierto en [#329](https://github.com/sebdavid3/Cadenza/issues/329).
+
+**Lo que hace falta para corregir cada partitura** (ediciones necesarias del log; 0 tropiezos en las cinco sesiones):
+
+| `test_score_id` | Ediciones | Queda después |
+|---|---|---|
+| `calentamiento` | 0: HOMR lo lee entero, también la C | Nada (el `ScoreIR` es igual al de la verdad; SER 0,000) |
+| `TS-01` | 13: la C (una) y doce figuras en los cc. 1-3 | Nada (el `ScoreIR` es igual al de la verdad; SER 0,000) |
+| `TS-02` | 11 (una menos que en la segunda revisión, por #326): 3/4 en todas las partes (una), el Si♭3 en el acorde del c. 6 de la mano izquierda (cinco) y la ligadura entre voces del c. 3 de la mano derecha (cinco, desde el hueco de la voz de la negra) | Nada de lo que se ve (faltan 0, sobran 0; SER 0,162 por números de voz, orden de notas de acorde y silencio invisible) |
+| `TS-03` | 8 (frente a las 79 necesarias y 13 tropiezos de la segunda revisión): 6/8 en todas las partes (una), el Do♯4 del c. 2 de la mano derecha de negra con puntillo a corchea (dos: figura y quitar el puntillo), los dos tresillos de los cc. 4 y 8 de la mano derecha con «Tres» / `R` (dos) y las tres ligaduras del acorde La2–Mi3–La3 del c. 2 de la mano izquierda con «Ligar» / `U` (tres). Desaparecen 71 ediciones necesarias: una del compás (#326), tres de huecos en la mano izquierda (cc. 2, 4 y 8), once del c. 6 de la mano izquierda y 56 de la clave de fa y las alturas de los cc. 7-8 (#325) | La voz de abajo del c. 2 de la mano derecha (Do♯4 negra con puntillo ligada a Do♯4 corchea): HOMR da una sola voz sin hueco y la barra no crea voces. Faltan 2 eventos y sobra 1 (SER 0,125) |
+| `TS-04` | 9 (una menos que en la segunda revisión, por #326): C en todas las partes (una), borrar el Do4 de más en el acorde de la voz 1 del c. 6 de la mano derecha (una) y añadir el silencio de corchea al final de la voz 2 del c. 6 (siete) | Nada de lo que se ve (faltan 0, sobran 0; SER 0,369 por números de voz, orden de notas de acorde y silencios invisibles) |
+
+**Lo que estorba a un participante:**
+
+- **Lo del compás puesto una vez por parte queda resuelto por #326:** un solo «Cambiar» lo escribe en la voz y en el piano. Queda en cambio [#329](https://github.com/sebdavid3/Cadenza/issues/329): como `SetTime` en el c. 1 deja `None` en los cc. 2–N cuando la partitura entró sin indicación de compás, «Revalidar» desde la vista no comprueba el balance de los cc. 2–N en TS-02, TS-03 y TS-04 (en TS-03 deja sin señalar los cc. 2, 4 y 8 de la mano derecha).
+- **La voz inferior del c. 2 de la mano derecha en TS-03** sigue sin poder escribirse desde la barra, porque HOMR funde las dos voces en una sin dejar hueco.
+- **Añadir algo al final de una voz** sigue costando siete ediciones en el c. 6 de TS-04 (la barra solo inserta antes del evento elegido); en el c. 6 de TS-03 ya no hace falta porque #325 lee el compás completo.
+- **Un cambio de clave a mitad de compás** (mano izquierda de TS-02, cc. 1, 2, 5 y 6, y de TS-03, cc. 4 y 6) sigue en el inicio del compás o sin ponerse (TS-02, c. 1), con las alturas bien pero dibujado en la otra clave.
+- **El calentamiento sigue sin tener nada que corregir** (0 errores de HOMR), y **cambiar una figura con puntillo a otra sin él** sigue pidiendo dos ediciones (TS-03, c. 2).
 
 ## Alternativas consideradas
 
