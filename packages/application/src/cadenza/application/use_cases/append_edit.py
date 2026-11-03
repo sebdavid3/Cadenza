@@ -10,6 +10,7 @@ from fractions import Fraction
 from typing import Any
 
 from cadenza.domain import (
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     Anchor,
@@ -209,7 +210,7 @@ def _check_before(
 
 
 # Operaciones cuyo `before` del cliente se compara con la instantánea del servidor.
-_SNAPSHOT_COMPARED_OPS = MARK_EDIT_OPS | METER_EDIT_OPS
+_SNAPSHOT_COMPARED_OPS = MARK_EDIT_OPS | METER_EDIT_OPS | GAP_EDIT_OPS
 
 
 def _meter_state(op: EditOp, state: Mapping[str, Any]) -> Any:
@@ -238,6 +239,11 @@ def _mark_state(op: EditOp, state: Mapping[str, Any]) -> Any:
 
     if op in METER_EDIT_OPS:
         return _meter_state(op, state)
+    if op is EditOp.SET_EVENT_KIND:
+        # Lo que es el evento (ADR-0058): su clase, su altura y si es un hueco.
+        if not isinstance(state["hidden"], bool):
+            raise TypeError(f"'hidden' debe ser booleano: {state['hidden']!r}")
+        return (state["kind"], state["pitch"], state["hidden"])
 
     def offset(value: Any) -> Fraction:
         return Fraction(str(value))
