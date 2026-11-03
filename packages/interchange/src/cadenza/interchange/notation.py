@@ -9,6 +9,7 @@ manuscritos históricos) queda fuera.
 from __future__ import annotations
 
 import copy
+import itertools
 import re
 import threading
 import xml.etree.ElementTree as ET
@@ -742,6 +743,103 @@ def read_score(path: Path) -> ScoreIR:
     except Exception as exc:  # pragma: no cover - mensaje accionable
         raise InterchangeError(f"partitura no interpretable: {path}: {exc}") from exc
     return _to_score_ir(parsed, _musicxml_source(path))
+
+
+# Lo que rige al principio de un compás y un recorte debe escribir aunque no lo imprima.
+_START_CONTEXT: Final[tuple[type, ...]] = (clef.Clef, key.KeySignature, meter.TimeSignature)
+
+
+def _context_at_start(measures: Sequence[stream.Measure]) -> dict[type, Any]:
+    """La clave, la armadura y el compás que rigen tras ``measures``: los últimos de cada clase,
+    estén donde estén dentro de su compás (un cambio de clave a mitad de compás rige después)."""
+
+    found: dict[type, Any] = {}
+    for measure in measures:
+        for element in measure.recurse().getElementsByClass(_START_CONTEXT):
+            for kind in _START_CONTEXT:
+                if isinstance(element, kind):
+                    found[kind] = element
+    return found
+
+
+def musicxml_excerpt(path: Path, first: int | None = None, last: int | None = None) -> str:
+    """El MusicXML de los compases ``first`` a ``last`` de un MusicXML (o `.mxl`), o de todo él.
+
+    Para la verdad del banco de partituras del estudio (#247), que recorta sistemas de una
+    página de OpenScore. ``first`` y ``last`` son ordinales desde 1 (una anacrusa es el
+    compás 1), los mismos en todas las partes. El recorte lleva en su primer compás la clave,
+    la armadura y el compás que rigen allí, aunque la fuente no los repita; sus compases se
+    numeran desde 1, como los de una transcripción de HOMR, y lo demás se escribe tal como
+    está en la fuente (letra, ornamentos y cambios de clave a mitad de compás incluidos). Sin
+    la fecha de codificación, la salida es la misma cualquier día.
+    """
+
+    if (first is None) != (last is None):
+        raise InterchangeError("Un recorte necesita su primer y su último compás")
+    _register_converters()
+    if not path.is_file():
+        raise FileNotFoundError(f"score not found: {path}")
+    try:
+        parsed = converter.parse(str(path))
+    except Exception as exc:  # pragma: no cover - mensaje accionable
+        raise InterchangeError(f"partitura no interpretable: {path}: {exc}") from exc
+    if not isinstance(parsed, stream.Score):
+        raise InterchangeError(f"No es una partitura con partes: {path}")
+
+    measures = [list(part.getElementsByClass(stream.Measure)) for part in parsed.parts]
+    count = len(measures[0]) if measures else 0
+    if not measures or any(len(part) != count for part in measures):
+        raise InterchangeError("Las partes no tienen los mismos compases")
+    excerpt = parsed
+    if first is not None and last is not None:
+        if not 1 <= first <= last <= count:
+            raise InterchangeError(f"Compases {first} a {last} fuera de la partitura (1 a {count})")
+        numbers = [measure.number for measure in measures[0]]
+        if any(a >= b for a, b in itertools.pairwise(numbers)):
+            raise InterchangeError("Los compases no van numerados en orden: no se recortan")
+        contexts = [_context_at_start(part[: first - 1]) for part in measures]
+        excerpt = parsed.measures(numbers[first - 1], numbers[last - 1])
+        for part, context in zip(excerpt.parts, contexts, strict=True):
+            opening = part.getElementsByClass(stream.Measure)[0]
+            for kind, element in context.items():
+                if not any(
+                    isinstance(present, kind) for present in opening.getElementsByOffset(0.0)
+                ):
+                    opening.insert(0.0, copy.deepcopy(element))
+    for part in excerpt.parts:
+        for number, measure in enumerate(part.getElementsByClass(stream.Measure), start=1):
+            measure.number = number
+
+    exporter = musicxml.m21ToXml.ScoreExporter(excerpt)
+    root = exporter.parse()
+    _drop_placeholder_metadata(root)
+    # Sin título, music21 pone el nombre del archivo: tampoco es de la partitura.
+    for title in root.findall("movement-title"):
+        if title.text == path.name:
+            root.remove(title)
+    for encoding in root.findall("identification/encoding"):
+        for date in encoding.findall("encoding-date"):
+            encoding.remove(date)
+    _number_part_ids(root)
+    exported: bytes = exporter.asBytes()
+    return exported.decode("utf-8")
+
+
+def _number_part_ids(root: Any) -> None:
+    """Numera en orden los identificadores de las partes (P1, P2...) y de sus instrumentos
+    (P1-I1...), que music21 inventa al azar en cada escritura, y los que los citan."""
+
+    renamed: dict[str, str] = {}
+    for part_number, score_part in enumerate(root.findall("part-list/score-part"), start=1):
+        renamed[score_part.get("id")] = f"P{part_number}"
+        for number, instrument_element in enumerate(
+            score_part.findall("score-instrument"), start=1
+        ):
+            renamed[instrument_element.get("id")] = f"P{part_number}-I{number}"
+    for element in root.iter():
+        old = element.get("id")
+        if old in renamed:
+            element.set("id", renamed[old])
 
 
 def _to_music21_pitch(pitch: str) -> str:
