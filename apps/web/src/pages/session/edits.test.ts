@@ -1604,6 +1604,15 @@ describe("los huecos de una voz (ADR-0058, #317)", () => {
     expect(
       planCommand({ kind: "insert", rest: false }, chosen(state, anchor(1, 0)), state),
     ).toMatchObject({ kind: "refused", reason: "chord" });
+    // Tampoco al volver a aplicarla tras un 409.
+    const again: DecidedEdit = {
+      op: "SetEventKind",
+      after: { kind: "note", pitch: "E4", hidden: false },
+    };
+    expect(planAgain(again, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "refused",
+      reason: "chord",
+    });
   });
 
   it("no mueve ningún ancla, y tras un 409 se pide lo mismo si sigue siendo un hueco", () => {

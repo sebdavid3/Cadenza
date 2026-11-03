@@ -410,14 +410,54 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     expect(moveSelection(events, "0:0:1:0:0", "down")?.key).toBe("0:0:1:1:0");
   });
 
-  it("no cuadra un hueco cuyos silencios transparentes no suman su duración", () => {
-    const map = buildNoteMap(
-      score([
-        [event({ kind: "rest", pitch: null, duration_beats: "1", hidden: true }), note("C4", "3")],
-      ]),
-      drawing([[[figure("rest", [1, 2], 0, { hidden: true }), figure(["C4"], [3, 1], 20)]]]),
+  it("si los silencios transparentes no suman el hueco, no lo ofrece y el compás sigue cuadrando", () => {
+    const events = complete(
+      buildNoteMap(
+        score([
+          [
+            event({ kind: "rest", pitch: null, duration_beats: "1", hidden: true }),
+            note("C4", "3"),
+          ],
+        ]),
+        drawing([[[figure("rest", [1, 2], 0, { hidden: true }), figure(["C4"], [3, 1], 20)]]]),
+      ),
     );
-    expect(map.status).toBe("incomplete");
+    expect(events.map((selectable) => [selectable.key, selectable.gap])).toEqual([
+      ["0:0:1:0:1", false],
+    ]);
+  });
+
+  it("un silencio transparente sin hueco tampoco deja el compás sin elegir", () => {
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "3"), note("D4", "1")]]),
+        drawing([
+          [
+            [
+              figure(["C4"], [3, 1], 0),
+              figure("rest", [1, 1], 20, { hidden: true }),
+              figure(["D4"], [1, 1], 30),
+            ],
+          ],
+        ]),
+      ),
+    );
+    expect(events.map((selectable) => selectable.key)).toEqual(["0:0:1:0:0", "0:0:1:0:1"]);
+  });
+
+  it("dos huecos seguidos: se ofrece el que tiene silencio transparente", () => {
+    const gap = (duration: string) =>
+      event({ kind: "rest", pitch: null, duration_beats: duration, hidden: true });
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "2"), gap("1"), gap("1")]]),
+        drawing([[[figure(["C4"], [2, 1], 0), figure("rest", [1, 1], 20, { hidden: true })]]]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.key, selectable.onset])).toEqual([
+      ["0:0:1:0:0", 0],
+      ["0:0:1:0:1", 2],
+    ]);
   });
 
   it("acepta un compás vacío si OSMD tampoco dibuja nada en él", () => {

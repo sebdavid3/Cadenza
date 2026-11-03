@@ -1700,6 +1700,47 @@ describe("elegir una nota sobre la partitura", () => {
     expect(document.querySelectorAll(".notation__gap")).toHaveLength(1);
   });
 
+  it("no corrige un hueco que la vista no ofrece aunque quede elegido (ADR-0058)", async () => {
+    // OSMD no guarda su silencio transparente: el hueco no tiene marca ni se elige.
+    osmd.figures = [
+      [
+        { pitch: "E5", whole: [3, 4], voice: 1 },
+        { pitch: "C4", whole: [2, 4], voice: 2 },
+      ],
+    ];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "E5", duration_beats: "3" },
+          { kind: "rest", pitch: null, duration_beats: "1", voice: 1, hidden: true },
+          { pitch: "C4", duration_beats: "2", voice: 1 },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    await findScore();
+    expect(document.querySelectorAll(".notation__gap")).toHaveLength(0);
+
+    // Un borrado o deshacer pueden dejarlo elegido: la barra no lo ofrece para corregir.
+    act(() => {
+      useSelectionStore.getState().select({
+        sessionId: ID,
+        seq: 0,
+        anchor: {
+          part: 0,
+          staff: 0,
+          measure: 1,
+          voice: 1,
+          event_index: 0,
+          staff_id: "part-0-staff-0",
+          bbox: null,
+          confidence: null,
+        },
+      });
+    });
+    expect(screen.queryByText("Hueco de negra")).toBeNull();
+  });
+
   it("elige por separado la nota de adorno y la nota a la que adorna (D60)", async () => {
     osmd.figures = [[{ pitch: "A4", whole: [3, 4], grace: "G#4" }]];
     api({

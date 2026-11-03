@@ -728,12 +728,14 @@ export function planAgain(
         : refuse("no-target");
     case "SetTie":
       return score ? replanTie(edit, score, (anchor) => anchor).plan : refuse("no-target");
-    case "SetEventKind":
-      // Lo mismo en el hueco, si sigue siéndolo.
+    case "SetEventKind": {
+      // Lo mismo en el hueco, si sigue siéndolo y una nota no se uniría a un acorde.
       if (!isGap(target.event)) {
         return refuse("same", "Ya no es un hueco: no hay nada que escribir en él.");
       }
-      return gapPlan(edit.after, target);
+      const joins = edit.after.kind === "note" && score !== null && joinsChordAfter(score, target);
+      return joins ? JOINS_CHORD : gapPlan(edit.after, target);
+    }
   }
   const { event } = target;
   if (edit.op === "SetDuration" || edit.op === "SetChordDuration") {
@@ -786,6 +788,18 @@ function gapPlan(after: GapFill, target: EditTarget): EditPlan {
   };
 }
 
+/** Si lo que sigue al hueco en su voz es una nota de un acorde: una nota en él se le uniría. */
+function joinsChordAfter(score: ScoreIRPayload, target: EditTarget): boolean {
+  const following = (voiceEvents(score, target.anchor) ?? [])[target.anchor.event_index + 1];
+  return following?.kind === "note" && following.is_chord === true;
+}
+
+const JOINS_CHORD: EditPlan = {
+  kind: "refused",
+  reason: "chord",
+  message: "Lo que sigue al hueco es una nota de un acorde: una nota en él se uniría al acorde.",
+};
+
 /**
  * Escribir una nota en el hueco elegido o hacerlo un silencio que se ve (ADR-0058), con su
  * figura: una nota con la altura de la nota anterior de su voz en el compás, o la siguiente; sin
@@ -793,17 +807,9 @@ function gapPlan(after: GapFill, target: EditTarget): EditPlan {
  */
 export function planFill(rest: boolean, target: EditTarget, score: ScoreIRPayload): EditPlan {
   if (rest) return gapPlan({ kind: "rest", pitch: null, hidden: false }, target);
+  if (joinsChordAfter(score, target)) return JOINS_CHORD;
   const events = voiceEvents(score, target.anchor) ?? [];
   const index = target.anchor.event_index;
-  const following = events[index + 1];
-  if (following?.kind === "note" && following.is_chord === true) {
-    return {
-      kind: "refused",
-      reason: "chord",
-      message:
-        "Lo que sigue al hueco es una nota de un acorde: una nota en él se uniría al acorde.",
-    };
-  }
   const near = (from: readonly ScoreEventPayload[]) =>
     from
       .map((event) => parsePitch(event.kind === "note" ? event.pitch : null))

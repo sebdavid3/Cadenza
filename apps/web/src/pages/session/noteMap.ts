@@ -261,8 +261,8 @@ function matchVoices(
  * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Un hueco
  * (un silencio invisible) se empareja con el silencio transparente que OSMD guarda en su sitio, si
  * lo hay. Las voces que se ven se emparejan como siempre; las hechas solo de huecos, entre ellas,
- * si OSMD guarda tantas como el `ScoreIR` (si no, sus huecos no se ofrecen, pero el compás
- * cuadra). Devuelve, por posición en el compás, las cajas de cada evento, si es de acorde y dónde
+ * si OSMD guarda tantas como el `ScoreIR`. Si los huecos no cuadran con lo que OSMD guarda, no se
+ * ofrecen, pero el compás cuadra si sus notas y silencios cuadran. Devuelve, por posición en el compás, las cajas de cada evento, si es de acorde y dónde
  * empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
@@ -283,8 +283,14 @@ function matchMeasure(
   const visibleDrawn = drawn.filter(drawnShown);
   if (visible.length !== visibleDrawn.length) return null;
 
-  const matched = new Map<number, Matched>();
-  if (!matchVoices(visible, visibleDrawn, matched)) return null;
+  let matched = new Map<number, Matched>();
+  if (!matchVoices(visible, visibleDrawn, matched)) {
+    // Si los silencios transparentes no cuadran con los huecos, el compás se empareja como antes
+    // de ADR-0058, sin ellos: sus huecos no se ofrecen, pero sus notas sí.
+    const withoutGaps = visibleDrawn.map((voice) => voice.filter((figure) => !figure.hidden));
+    matched = new Map<number, Matched>();
+    return matchVoices(visible, withoutGaps, matched) ? matched : null;
+  }
   const gaps = ordered.filter((voice) => !shown(voice));
   const gapsDrawn = drawn.filter((voice) => !drawnShown(voice));
   if (gaps.length > 0 && gaps.length === gapsDrawn.length) {
