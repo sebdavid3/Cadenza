@@ -242,6 +242,18 @@ def test_set_time_rejects_partial_measures_on_span_without_signature() -> None:
         )
 
 
+def test_undoing_set_time_on_a_measure_without_signature_leaves_it_without_one() -> None:
+    # La compensatoria escribe null: el compás 2 heredaba y vuelve a heredar.
+    score = _score([FOUR, None, FOUR, THREE])
+    after = {"time_signature": {"beats": 3, "beat_type": 8}}
+    edit = _edit(score, EditOp.SET_TIME, _anchor(2), after)
+    assert edit.before == {"time_signature": None, "measures": 2}
+    changed = apply_edit(score, edit)
+    eight = {"beats": 3, "beat_type": 8}
+    assert _signatures(changed) == [FOUR.to_primitive(), eight, eight, THREE.to_primitive()]
+    assert _undo(changed, edit).to_primitive() == score.to_primitive()
+
+
 def test_undoing_set_time_uses_the_length_it_changed() -> None:
     # Tras el cambio, el compás 4 lleva la misma indicación que el tramo cambiado: deshacer
     # devuelve solo los compases 2 y 3, los que cambió.
