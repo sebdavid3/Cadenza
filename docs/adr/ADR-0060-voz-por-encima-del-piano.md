@@ -3,7 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-11-02
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0005, ADR-0010, ADR-0018, ADR-0032, ADR-0041, ADR-0045 y ADR-0056, CLAUDE.md §8 y §9)
-- **Relacionado:** [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md), [ADR-0041](ADR-0041-titulo-compositor-e-instrumentos-de-la-sesion.md), [ADR-0045](ADR-0045-nombre-e-instrumentos-de-la-sesion-en-la-web.md), [ADR-0056](ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md), [#239](https://github.com/sebdavid3/Cadenza/issues/239), [#238](https://github.com/sebdavid3/Cadenza/issues/238), [#247](https://github.com/sebdavid3/Cadenza/issues/247), [#237](https://github.com/sebdavid3/Cadenza/issues/237)
+- **Relacionado:** [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md), [ADR-0041](ADR-0041-titulo-compositor-e-instrumentos-de-la-sesion.md), [ADR-0045](ADR-0045-nombre-e-instrumentos-de-la-sesion-en-la-web.md), [ADR-0056](ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md), [#239](https://github.com/sebdavid3/Cadenza/issues/239), [#238](https://github.com/sebdavid3/Cadenza/issues/238), [#247](https://github.com/sebdavid3/Cadenza/issues/247), [#237](https://github.com/sebdavid3/Cadenza/issues/237), [ADR-0057](ADR-0057-banco-de-partituras-del-estudio.md)
 
 ---
 
