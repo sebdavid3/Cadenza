@@ -49,6 +49,39 @@ Se establecen cuatro partituras de prueba calibradas en dificultad y complejidad
 * **`TS-03` (Rítmica compleja y ligaduras):** 8 compases con compás compuesto (6/8), tresillos, ligaduras de prolongación y silencios intercalados.
 * **`TS-04` (Voz y piano):** voz superior con acompañamiento de piano en dos pentagramas (clave de sol y fa), con acordes simultáneos. Decidido por el responsable el 2026-11-01 (#244), según el alcance del plan de cierre; depende de #239.
 
+**El banco real (#247, aprobado por el responsable el 2026-11-01).** Cada partitura se transcribe con su `test_score_id` (`TS-01` a `TS-04`, y `calentamiento` para la del §5). Las imágenes y las verdades no se versionan: `scripts/build_study_bank.py` las regenera en `banco_estudio/` desde las fuentes de `data/` y comprueba los sha256 de `docs/experimentos/banco_de_partituras.json`, el manifiesto con el origen, la licencia, la página, el recorte y las erratas de cada una ([ADR-0057](../adr/ADR-0057-banco-de-partituras-del-estudio.md)).
+
+| `test_score_id` | Partitura | Imagen | Verdad | Contenido |
+|---|---|---|---|---|
+| `calentamiento` | Íncipit de RISM en PrIMuS `190009364-1_1_1` | Su PNG: un render de Verovio, no un escaneo | Su MEI con la altura del `.semantic` | Melodía en fa mayor, compás C, anacrusa y 2 compases |
+| `TS-01` | Íncipit de RISM en PrIMuS `000106106-1_1_1` | Su PNG: un render de Verovio | Ídem | Melodía en sol mayor, compás C, 4 compases de negras y corcheas |
+| `TS-02` | Schubert, *Winterreise* n.º 16, *Letzte Hoffnung*, cc. 6-13 | P. 57 del PDF (53 impresa), sistemas 2 y 3, a 300 ppp | OpenScore `lc5007180` | Voz y piano, tres bemoles, 3/4, accidentes, acordes, dos voces y cambios de clave a mitad de compás |
+| `TS-03` | *Winterreise* n.º 11, *Frühlingstraum*, cc. 14-21 | P. 40 del PDF (36 impresa), sistemas 4 y 5 | OpenScore `lc5023603`, con una errata (ADR-0057 §5) | Voz y piano, tres sostenidos, 6/8, tresillos de semicorcheas, ligaduras de prolongación, silencios y acordes |
+| `TS-04` | *Winterreise* n.º 21, *Das Wirthshaus*, cc. 8-13 | P. 72 del PDF (68 impresa), sistemas 3 y 4 | OpenScore `lc5013945` | Voz y piano, un bemol, compás C (sin imprimir en el recorte), 6 compases: acordes en las dos manos, varias voces, una nota de adorno y un silencio de redonda en la voz |
+
+- **Licencias:** los íncipits, CC BY (RISM); el PDF de IMSLP #60822 (*Schuberts Werke*, Serie XX, Band 9, Breitkopf & Härtel, 1895), dominio público; las verdades de OpenScore Lieder, CC0. Los compases son ordinales (la anacrusa es el 1; OpenScore la numera 0).
+- **Las verdades se comprobaron a mano** contra la imagen, compás a compás. TS-02 y TS-03 no imprimen la indicación de compás (está en el sistema 1): su verdad lleva el 3/4 y el 6/8, que la persona pone con la barra (#241).
+- **D62:** ninguna partitura tropieza con él. En la vista se elige nota a nota en las cinco, a 1440 y a 390 px, también tras poner el compás; el único silencio de compás entero es el de la voz de TS-04 (c. 3), en 4/4, y se elige como los demás.
+
+**Lo que HOMR lee y lo que la barra corrige** (revisión exploratoria del 2026-11-02 sobre `dev` b0ab35f con HOMR 0.7.0 en GPU, que aún no es el sistema del congelado; las correcciones, contra la API local con las mismas ediciones que da la barra. No es un resultado de la tesis: se repite con el sistema congelado, después de #237, #239 y #241):
+
+| `test_score_id` | Errores de HOMR | Corregida entera desde la vista |
+|---|---|---|
+| `calentamiento` | Ninguno en las notas; escribe 4/4 donde la imagen tiene C | Sí, con una edición (`SetTime`). Casi no hay nada que corregir en el ejercicio guiado |
+| `TS-01` | Lee el C como 2/4 y divide entre dos las 12 figuras de los cc. 1-3; las alturas, bien | Sí: 13 ediciones; el `ScoreIR` queda igual que la verdad |
+| `TS-02` | Sin compás; tres corcheas leídas como semicorcheas (mano izquierda, c. 7); en la mano derecha del c. 3, la corchea Mi♭5 en el acorde de la otra voz y sin su ligadura. La voz, sin errores | Casi: 5 ediciones lo corrigen todo salvo esa ligadura: es un **límite** de la barra, que no pone una ligadura entre dos voces (`SetTie` da 422). Quedan 3 avisos `accidental.repeated` falsos (#318) |
+| `TS-03` | Sin compás; falta la semicorchea Fa♯4 de la voz (c. 1), el Re5 del último acorde de la mano derecha (c. 8) y las tres ligaduras del acorde de la mano izquierda (c. 2); en la mano derecha del c. 2 mezcla las dos voces. Lee bien los tresillos. Deja huecos invisibles (silencios ocultos de semicorchea o corchea) en los cc. 1, 2 y 5 de la voz y 1 y 5 de la mano derecha | Todavía no: 11 ediciones corrigen lo demás (las ligaduras con `SetTie`, el acorde con «Acorde»), pero la vista no deja elegir un silencio oculto, así que esas notas quedan desplazadas y el c. 1 sigue con dos posibles errores de compás lleno; y la voz de abajo del c. 2 (Do♯4 ligado) no se puede escribir, porque su voz empieza con un silencio oculto. Lo resuelve #317 |
+| `TS-04` | Sin compás; ordena los pentagramas como mano derecha, mano izquierda y voz (la voz se dibuja debajo del piano, #239); en la mano derecha del c. 6, un Do4 donde hay un silencio de corchea. Lee bien los acordes y las varias voces | Sí: 4 ediciones (C en las dos partes, borrar el Do4 del acorde con `keep_chord` e insertar el silencio) dejan lo que se ve igual que la verdad. Quedan 7 avisos `accidental.repeated` falsos (#318) |
+
+**Riesgos para el estudio** (lo que la vista no corrige hoy se arregla antes del congelado en issues aparte, decisión del responsable del 2026-11-02; la revisión del banco se repite cuando entren):
+- **TS-04 se recortó a los cc. 8-13.** Con la página entera (cc. 1-13), HOMR mezcla los pentagramas del sistema 2 (voz y mano derecha en uno, la mano izquierda en el de la derecha y un pentagrama vacío en los cc. 5-7), y la vista no puede corregirlo: un compás vacío no se elige y la barra no mueve notas de un pentagrama a otro. Son 6 compases, no 12.
+- **Los silencios ocultos de HOMR** (TS-03) no se eligen ni se borran desde la vista: la corrección no llega a la verdad y, en la condición asistida, el validador avisa de un compás lleno que la persona no puede arreglar. #317.
+- **HOMR agrupa y ordena mal las partes** de voz y piano: en TS-02 y TS-03 une la voz y la mano derecha en una parte y deja sola la mano izquierda (el compás se pone dos veces, una por parte, y la llave de piano une la voz y la mano derecha); en TS-04 la voz va debajo. #239.
+- **El compás** no se lee en TS-02, TS-03 y TS-04 (el recorte no lo imprime) y en TS-01 se lee 2/4 por C. #237.
+- **Posibles errores falsos** (`accidental.repeated`) en TS-02 y TS-04, en la condición asistida. #318.
+- **La ligadura de TS-02 entre dos voces** es un límite de la barra (`SetTie` solo liga dentro de una voz o hacia el compás siguiente).
+- **La fidelidad residual (#250)**: `read_score` pone el piano antes que la voz en la verdad, y la sesión de HOMR va en otro orden; además, el orden de las notas de un acorde y el número de voz cambian el SER aunque lo que se ve sea igual (en TS-02 corregida, el SER tal cual sigue muy lejos de 0 aunque solo falta una ligadura). #250 debe emparejar los pentagramas y normalizar acordes y voces antes de medir.
+
 ### 2.4 Matriz de Contrabalanceo y Asignación de Bloques
 Con una muestra mínima de $N=8$ transcriptores musicales:
 
@@ -130,7 +163,7 @@ Antes de iniciar la prueba, cada participante recibe un documento de informació
    * Asignación del código seudónimo y credenciales temporales.
 2. **Familiarización y Calentamiento (10 min):**
    * Breve recorrido por la interfaz web de Cadenza: herramientas de navegación, cursor, edición de notas, alteraciones y panel de hallazgos.
-   * Ejercicio guiado de corrección sobre una partitura de prueba neutra no evaluada.
+   * Ejercicio guiado de corrección sobre una partitura de prueba neutra no evaluada (`calentamiento`, §2.3).
 3. **Bloque Experimental 1 (15 min):**
    * Ejecución de las tareas correspondientes según la matriz de Cuadrado Latino.
    * Telemetría activa registrando eventos inmutables.

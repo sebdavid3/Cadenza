@@ -90,3 +90,6 @@ apps/web/coverage/
 
 # Base SQLite local creada al arrancar la API sin configurar CADENZA_DATABASE_URL
 /cadenza.db
+
+# Banco de partituras del estudio (#247): lo regenera scripts/build_study_bank.py
+/banco_estudio/
