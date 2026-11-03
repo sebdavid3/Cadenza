@@ -119,3 +119,5 @@ El OMR-NED medio sobre todos los incipits medidos baja 0,0140 y 0,0191 (musicdif
 4. **El numerador por el máximo de las sumas.** En PrIMuS acierta algo más que la moda (incipits cortos), pero en una página un compás leído de más decide el tramo. Se mide la moda.
 5. **Adivinar el compás de los compases sin indicación** (el tramo de otra página). Descartada aquí: sin denominador, 3/8 y 3/4 o 6/8 suman lo mismo (*Mondnacht*).
 6. **Audiveris** para el símbolo y los tresillos (INV-0002). Fuera de la entrega (#262): lento y no siempre acierta.
+
+**Decisión del responsable (2026-11-02):** `implicit_tuplets` queda activado aunque no cambie ninguna cifra de `exp_15`, porque no empeora nada de lo medido y es el que hace que la Sonata salga con sus tresillos (criterio de #237). Su efecto solo está comprobado en la Sonata.
