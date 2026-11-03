@@ -596,6 +596,20 @@ export function ScoreView({
                   style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
                 />
               ))}
+              {/* Los huecos de una voz (ADR-0058): una trama de tinta donde OSMD guarda su silencio
+                  transparente, para que se vean y se puedan elegir sin dibujarlos en la partitura. */}
+              {selectable
+                ?.filter((candidate) => candidate.gap)
+                .flatMap((candidate) =>
+                  candidate.boxes.map((box, index) => (
+                    <div
+                      key={`hueco:${candidate.key}:${String(index)}`}
+                      className="notation__gap"
+                      data-key={candidate.key}
+                      style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
+                    />
+                  )),
+                )}
               {/* Una marca por figura: la de una nota partida no abarca lo que hay entre medias. */}
               {chosen?.boxes.map((box, index) => (
                 <div

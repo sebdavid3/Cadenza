@@ -294,9 +294,11 @@ const IN_PLACE: readonly string[] = [
     "SetKey",
   ] satisfies EditOp[]),
   ...MARK_OPS,
-  // El compás y los tresillos tampoco (ADR-0044), ni la ligadura de prolongación (ADR-0055).
+  // El compás y los tresillos tampoco (ADR-0044), ni la ligadura de prolongación (ADR-0055), ni
+  // escribir en un hueco o hacerlo visible (ADR-0058).
   ...METER_OPS,
   "SetTie",
+  "SetEventKind",
 ];
 
 const sameVoice = (a: AnchorPayload, b: AnchorPayload) =>
@@ -380,7 +382,8 @@ interface KeyLike {
  * Tecla de corrección sobre la partitura, o null. No usa ninguna tecla de la selección (#182):
  * Mayús con ↑ y ↓ cambia la altura un paso y con Re Pág y Av Pág, una octava; del 1 al 7, la
  * figura, y el punto, el puntillo; + − =, la alteración; N inserta una nota y S un silencio antes
- * del evento elegido, y Supr o Retroceso lo borran (en un Mac, la tecla de borrar es Retroceso).
+ * del evento elegido (en un hueco de la voz, los escriben en él, ADR-0058), y Supr o Retroceso lo
+ * borran (en un Mac, la tecla de borrar es Retroceso).
  * Las marcas (ADR-0039): P, A, M y T ponen o quitan el picado, el acento, el marcato y el tenuto,
  * y C el calderón; I marca el inicio, y L, < y > crean desde él una ligadura de expresión, un
  * crescendo o un diminuendo hasta el evento elegido. R pone o quita el tresillo de tres figuras
@@ -475,7 +478,9 @@ export type RefusalReason =
   /** Una ligadura de prolongación que no se puede poner o quitar ahí (#312). */
   | "tie"
   /** Una nota que no se puede añadir a ese acorde (#312). */
-  | "chord";
+  | "chord"
+  /** Lo que un hueco de una voz no admite (ADR-0058, #317). */
+  | "gap";
 
 /** Rechazos que dicen su motivo con un mensaje propio. */
 type OwnMessage = "no-origin" | "span" | "meter" | "tie" | "chord";
@@ -488,6 +493,7 @@ const REFUSALS: Record<Exclude<RefusalReason, OwnMessage>, string> = {
   "not-figure": "Esta duración no es una figura simple: elige antes una figura.",
   "triplet-dot": "Una figura de tresillo no lleva puntillo: quita antes el tresillo.",
   same: "La nota ya tiene ese valor.",
+  gap: "Un hueco no tiene altura ni marcas: escribe antes una nota en él (N) o hazlo un silencio (S).",
 };
 
 /** Edición ya decidida (su operación y su `after`), para volver a pedirla en otro estado. */
@@ -499,6 +505,11 @@ export type DecidedEdit =
   | { op: "DeleteEvent"; after: null | { keep_chord: true } }
   /** La figura de un acorde entero (ADR-0049): la misma para cada una de sus notas. */
   | { op: "SetChordDuration"; after: { durations: string[] } }
+  /**
+   * Una nota o un silencio que se ve en un hueco de una voz (ADR-0058). Un literal, no una
+   * interfaz: va como `Record<string, unknown>` en la petición.
+   */
+  | { op: "SetEventKind"; after: { kind: "note" | "rest"; pitch: string | null; hidden: false } }
   /** La clave elegida (índice de `CLEFS`): su `after` depende del estado (ADR-0033). */
   | { op: "SetClef"; after: Record<string, unknown>; clef: number }
   /** La armadura elegida, en quintas. */
@@ -717,6 +728,12 @@ export function planAgain(
         : refuse("no-target");
     case "SetTie":
       return score ? replanTie(edit, score, (anchor) => anchor).plan : refuse("no-target");
+    case "SetEventKind":
+      // Lo mismo en el hueco, si sigue siéndolo.
+      if (!isGap(target.event)) {
+        return refuse("same", "Ya no es un hueco: no hay nada que escribir en él.");
+      }
+      return gapPlan(edit.after, target);
   }
   const { event } = target;
   if (edit.op === "SetDuration" || edit.op === "SetChordDuration") {
@@ -747,6 +764,57 @@ export function planAgain(
 }
 
 const isHidden = (event: ScoreEventPayload) => event.hidden === true;
+
+/** Un hueco de una voz: un silencio invisible (ADR-0032), que se elige y se corrige (ADR-0058). */
+export const isGap = (event: ScoreEventPayload) => event.kind === "rest" && isHidden(event);
+
+/** Lo que se escribe en un hueco con `SetEventKind` (ADR-0058): una nota o un silencio que se ve. */
+export type GapFill = Extract<DecidedEdit, { op: "SetEventKind" }>["after"];
+
+/** La edición que escribe `after` en el hueco elegido: el evento se queda donde está y elegido. */
+function gapPlan(after: GapFill, target: EditTarget): EditPlan {
+  const figure = durationName(target.event.duration_beats ?? null);
+  return {
+    kind: "edit",
+    op: "SetEventKind",
+    after,
+    anchor: target.anchor,
+    change:
+      after.kind === "note" && after.pitch
+        ? `${spoken(after.pitch)} en el hueco de ${figure}`
+        : `silencio de ${figure} en el hueco`,
+  };
+}
+
+/**
+ * Escribir una nota en el hueco elegido o hacerlo un silencio que se ve (ADR-0058), con su
+ * figura: una nota con la altura de la nota anterior de su voz en el compás, o la siguiente; sin
+ * ninguna, la de la línea central de la clave, como al insertar ante un silencio (ADR-0033).
+ */
+export function planFill(rest: boolean, target: EditTarget, score: ScoreIRPayload): EditPlan {
+  if (rest) return gapPlan({ kind: "rest", pitch: null, hidden: false }, target);
+  const events = voiceEvents(score, target.anchor) ?? [];
+  const index = target.anchor.event_index;
+  const following = events[index + 1];
+  if (following?.kind === "note" && following.is_chord === true) {
+    return {
+      kind: "refused",
+      reason: "chord",
+      message:
+        "Lo que sigue al hueco es una nota de un acorde: una nota en él se uniría al acorde.",
+    };
+  }
+  const near = (from: readonly ScoreEventPayload[]) =>
+    from
+      .map((event) => parsePitch(event.kind === "note" ? event.pitch : null))
+      .find((spelling): spelling is Spelling => spelling !== null);
+  const own = near(events.slice(0, index).reverse()) ?? near(events.slice(index + 1));
+  const pitch =
+    (own && canonical(own)) ??
+    middleLine(activeClef(score, target.anchor), activeFifths(score, target.anchor)) ??
+    "B4";
+  return gapPlan({ kind: "note", pitch, hidden: false }, target);
+}
 
 /** Ancla de una inserción: la posición en que queda el evento nuevo, sin caja ni confianza. */
 const insertionAnchor = (anchor: AnchorPayload, eventIndex: number): AnchorPayload => ({
@@ -925,19 +993,19 @@ function planChordAgain(
   };
 }
 
-/** Eventos que se ven de una voz en un compás, con su posición en la voz. */
-function visibleIn(measure: MeasurePayload, voice: number) {
+/** Eventos de una voz en un compás, con su posición en la voz. */
+function eventsIn(measure: MeasurePayload, voice: number) {
   return measure.events
     .filter((event) => event.voice === voice)
-    .map((event, index) => ({ event, index }))
-    .filter(({ event }) => !isHidden(event));
+    .map((event, index) => ({ event, index }));
 }
 
 /**
  * Evento que queda elegido tras borrar el del ancla, con su ancla en el estado siguiente: el que
- * pasa a ocupar su sitio en la voz o, si no hay, el anterior; si su voz se queda sin nada que se
- * vea en el compás, el primero del compás siguiente (de la misma voz o de la primera) o el último
- * del anterior, como los movimientos de la selección. Los silencios invisibles no se eligen.
+ * pasa a ocupar su sitio en la voz o, si no hay, el anterior; si su voz se queda sin nada en el
+ * compás, el primero del compás siguiente (de la misma voz o de la primera) o el último del
+ * anterior, como los movimientos de la selección. Los huecos de una voz también se eligen
+ * (ADR-0058).
  */
 export function selectAfterDelete(
   score: ScoreIRPayload,
@@ -963,18 +1031,16 @@ export function selectAfterDelete(
   const position = staff.measures.findIndex((measure) => measure.number === anchor.measure);
   const measure = staff.measures[position];
   if (!measure) return null;
-  const own = visibleIn(measure, anchor.voice);
+  const own = eventsIn(measure, anchor.voice);
   const next = own.find(({ index }) => index > anchor.event_index);
   if (next) return at(measure, anchor.voice, next.index - 1, next.event);
   const previous = own.filter(({ index }) => index < anchor.event_index).at(-1);
   if (previous) return at(measure, anchor.voice, previous.index, previous.event);
 
   const lane = (other: MeasurePayload) => {
-    const voices = [
-      ...new Set(other.events.filter((event) => !isHidden(event)).map((e) => e.voice)),
-    ].sort((a, b) => a - b);
+    const voices = [...new Set(other.events.map((e) => e.voice))].sort((a, b) => a - b);
     const voice = voices.includes(anchor.voice) ? anchor.voice : voices[0];
-    return voice === undefined ? null : { voice, events: visibleIn(other, voice) };
+    return voice === undefined ? null : { voice, events: eventsIn(other, voice) };
   };
   for (const later of staff.measures.slice(position + 1)) {
     const found = lane(later);
@@ -1025,7 +1091,7 @@ export function planDelete(target: EditTarget | null, score: ScoreIRPayload): Ed
     chordStart(events, index) === index &&
     next?.kind === "note" &&
     next.is_chord === true;
-  const { kind, pitch, duration_beats } = target.event;
+  const { kind, pitch, duration_beats, hidden } = target.event;
   const inChord = head || target.chord;
   const slurs = head ? 0 : drawnSlurEnds(score, target);
   return {
@@ -1036,7 +1102,9 @@ export function planDelete(target: EditTarget | null, score: ScoreIRPayload): Ed
     select: selectAfterDelete(score, target.anchor),
     change: inChord
       ? `borrado de ${spoken(pitch ?? "")} del acorde`
-      : `borrado de ${eventName(kind, pitch, duration_beats)}`,
+      : hidden === true
+        ? `borrado del hueco de ${durationName(duration_beats)}`
+        : `borrado de ${eventName(kind, pitch, duration_beats)}`,
     ...(slurs === 0
       ? {}
       : {
@@ -1170,6 +1238,23 @@ export function planCommand(
   origin: AnchorPayload | null = null,
 ): EditPlan {
   if (!score) return refuse("no-target");
+  if (target && isGap(target.event)) {
+    // Un hueco (ADR-0058): N escribe una nota en él, S lo hace un silencio que se ve y Supr lo
+    // borra; su figura se cambia como la de un silencio. No tiene altura ni marcas.
+    switch (command.kind) {
+      case "insert":
+        return planFill(command.rest, target, score);
+      case "step":
+      case "octave":
+      case "accidental":
+      case "articulation":
+      case "fermata":
+      case "chord-add":
+      case "tie":
+      case "untie-in":
+        return refuse("gap");
+    }
+  }
   switch (command.kind) {
     case "articulation":
     case "fermata":

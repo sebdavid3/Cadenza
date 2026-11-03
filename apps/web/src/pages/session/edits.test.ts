@@ -714,18 +714,18 @@ describe("borrar el evento elegido", () => {
     });
   });
 
-  it("salta los silencios invisibles, que no se eligen (ADR-0032)", () => {
+  it("elige también un hueco, que ahora se elige (ADR-0058)", () => {
     const state = staffScore([
       { events: [note("C4"), hiddenRest("1"), note("E4")] },
       { events: [hiddenRest("2"), note("F4")] },
     ]);
-    // Tras borrar Do4, el hueco pasa a la posición 0 y Mi4 a la 1.
+    // Tras borrar Do4, el hueco pasa a la posición 0 y queda elegido.
     expect(planDelete(chosen(state, anchor(1, 0)), state)).toMatchObject({
-      select: anchor(1, 1),
+      select: anchor(1, 0),
     });
-    // Tras borrar Fa4 solo queda el hueco en su voz: se elige el último del compás anterior.
+    // Tras borrar Fa4 queda el hueco en su voz: se elige.
     expect(planDelete(chosen(state, anchor(2, 1)), state)).toMatchObject({
-      select: anchor(1, 2),
+      select: anchor(2, 0),
     });
   });
 
@@ -1502,5 +1502,142 @@ describe("notas de un acorde y ligaduras de prolongación (ADR-0055)", () => {
     const state = staffScore([{ events: [note("C4"), note("C4")] }]);
     const detail = reloaded(state, [logged(1, "SetTie", anchor(1, 0))]);
     expect(carryAnchor(anchor(1, 1), 0, detail)).toEqual(anchor(1, 1));
+  });
+});
+
+describe("los huecos de una voz (ADR-0058, #317)", () => {
+  // La voz del compás 1 de TS-03, en La mayor: Sol#4, un hueco de semicorchea, Fa#4, Re5, otro
+  // hueco que sobra y dos Sol#4.
+  const ts03 = () =>
+    staffScore([
+      {
+        events: [
+          note("G#4", "3/4"),
+          hiddenRest("1/4"),
+          note("F#4", "1/2"),
+          note("D5", "3/4"),
+          hiddenRest("1/4"),
+          note("G#4", "1/4"),
+          note("G#4", "1/2"),
+        ],
+        clef: { sign: "G", line: 2 },
+        fifths: 3,
+      },
+    ]);
+
+  it("N escribe en el hueco una nota con la altura de la anterior, y el hueco queda elegido", () => {
+    const state = ts03();
+    const plan = planCommand({ kind: "insert", rest: false }, chosen(state, anchor(1, 1)), state);
+    expect(plan).toMatchObject({
+      kind: "edit",
+      op: "SetEventKind",
+      after: { kind: "note", pitch: "G#4", hidden: false },
+      anchor: anchor(1, 1),
+      change: "Sol sostenido 4 en el hueco de semicorchea",
+    });
+    // No mueve la selección: el evento sigue en su sitio.
+    expect(plan).not.toHaveProperty("select");
+  });
+
+  it("S lo hace un silencio que se ve, con su figura", () => {
+    const state = ts03();
+    expect(
+      planCommand({ kind: "insert", rest: true }, chosen(state, anchor(1, 4)), state),
+    ).toMatchObject({
+      op: "SetEventKind",
+      after: { kind: "rest", pitch: null, hidden: false },
+      change: "silencio de semicorchea en el hueco",
+    });
+  });
+
+  it("Supr lo borra y deja elegido lo que ocupa su sitio", () => {
+    const state = ts03();
+    expect(planCommand({ kind: "delete" }, chosen(state, anchor(1, 4)), state)).toMatchObject({
+      op: "DeleteEvent",
+      after: null,
+      anchor: anchor(1, 4),
+      select: anchor(1, 4),
+      change: "borrado del hueco de semicorchea",
+    });
+  });
+
+  it("su figura se cambia como la de un silencio; no tiene altura ni marcas", () => {
+    const state = ts03();
+    const gap = chosen(state, anchor(1, 1));
+    expect(planCommand({ kind: "figure", figure: 3 }, gap, state)).toMatchObject({
+      op: "SetDuration",
+      after: { duration_beats: "1/2" },
+    });
+    for (const command of [
+      { kind: "step", direction: 1 },
+      { kind: "accidental", accidental: "#" },
+      { kind: "fermata" },
+      { kind: "articulation", articulation: "accent" },
+      { kind: "chord-add" },
+      { kind: "tie" },
+    ] as const) {
+      expect(planCommand(command, gap, state)).toMatchObject({ kind: "refused", reason: "gap" });
+    }
+  });
+
+  it("una voz que empieza con un hueco toma la altura de lo que sigue o de la línea central", () => {
+    const state = staffScore([
+      {
+        events: [note("C#5", "3"), hiddenRest("1", 1), note("E4", "1/2", { voice: 1 })],
+        clef: { sign: "G", line: 2 },
+        fifths: 3,
+      },
+      { events: [hiddenRest("3")], clef: { sign: "F", line: 4 } },
+    ]);
+    expect(
+      planCommand({ kind: "insert", rest: false }, chosen(state, anchor(1, 0, 1)), state),
+    ).toMatchObject({ after: { kind: "note", pitch: "E4", hidden: false } });
+    expect(
+      planCommand({ kind: "insert", rest: false }, chosen(state, anchor(2, 0)), state),
+    ).toMatchObject({ after: { kind: "note", pitch: "D3", hidden: false } });
+  });
+
+  it("no escribe una nota que se uniría al acorde que sigue al hueco", () => {
+    const state = staffScore([
+      { events: [hiddenRest("1"), note("E4", "1", { is_chord: true }), note("C4", "2")] },
+    ]);
+    expect(
+      planCommand({ kind: "insert", rest: false }, chosen(state, anchor(1, 0)), state),
+    ).toMatchObject({ kind: "refused", reason: "chord" });
+  });
+
+  it("no mueve ningún ancla, y tras un 409 se pide lo mismo si sigue siendo un hueco", () => {
+    const state = ts03();
+    const edit: EditEventRead = {
+      id: "e1",
+      session_id: "s",
+      seq: 1,
+      op: "SetEventKind",
+      author: "ana",
+      anchor: anchor(1, 1),
+      before: null,
+      after: null,
+      created_at: "2026-11-02T00:00:00Z",
+    };
+    const detail = { current_seq: 1, edits: [edit], current_score: state } as SessionDetailRead;
+    expect(carryAnchor(anchor(1, 5), 0, detail)).toEqual(anchor(1, 5));
+    const request: EditRequestLike = {
+      op: "SetEventKind",
+      after: { kind: "note", pitch: "F#4", hidden: false },
+      anchor: anchor(1, 4),
+      baseSeq: 0,
+    };
+    expect(replan(request, detail).plan).toMatchObject({
+      kind: "edit",
+      op: "SetEventKind",
+      after: { kind: "note", pitch: "F#4", hidden: false },
+      anchor: anchor(1, 4),
+    });
+    // Si ya no es un hueco, no hay nada que volver a aplicar.
+    const filled = staffScore([{ events: [note("G#4", "3/4"), note("F#4", "1/4")] }]);
+    expect(planAgain(request, chosen(filled, anchor(1, 1)), filled)).toMatchObject({
+      kind: "refused",
+      reason: "same",
+    });
   });
 });

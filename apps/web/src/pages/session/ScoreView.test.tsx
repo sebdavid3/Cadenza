@@ -213,6 +213,7 @@ describe("ScoreView", () => {
           {
             rest: false,
             grace: false,
+            hidden: false,
             beats: [3, 1],
             notes: [{ midi: 60, step: "C", box: { left, top: 0, width: 5, height: 5 } }],
           },

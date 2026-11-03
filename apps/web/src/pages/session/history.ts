@@ -185,15 +185,22 @@ function hasThree(value: unknown): boolean {
 
 /**
  * El evento de una inserción o de la instantánea de un borrado: «Re 4, negra», «un silencio de
- * negra»; un silencio invisible (ADR-0032) no se ve en la partitura, y se dice.
+ * negra»; un silencio invisible (ADR-0032) es un hueco de la voz (ADR-0058), y se dice.
  */
 function eventOf(payload: Record<string, unknown>): string {
   const kind = text(payload.kind) ?? "rest";
   const beats = text(payload.duration_beats);
   if (kind === "rest" && payload.hidden === true) {
-    return `un silencio invisible de ${durationName(beats)}`;
+    return `un hueco de ${durationName(beats)}`;
   }
   return eventName(kind, text(payload.pitch), beats);
+}
+
+/** Lo que pasa a ser un hueco de una voz con `SetEventKind` (ADR-0058). */
+function kindChange(after: Record<string, unknown>): string {
+  const pitch = text(after.pitch);
+  if (text(after.kind) === "note" && pitch) return `${spoken(pitch)} en el hueco`;
+  return after.hidden === true ? "vuelta al hueco" : "silencio en el hueco";
 }
 
 /**
@@ -242,6 +249,9 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
     // La ligadura de prolongación (ADR-0055).
     case "SetTie":
       return describeTieEdit(edit.after);
+    // Los huecos de una voz (ADR-0058).
+    case "SetEventKind":
+      return kindChange(after);
     // La figura de un acorde entero (ADR-0049).
     case "SetChordDuration": {
       const durations = Array.isArray(after.durations) ? after.durations : [];
@@ -314,6 +324,8 @@ export function hasCompleteBefore(edit: Pick<EditEventRead, "op" | "before">): b
       return Array.isArray(before.durations);
     case "SetTie":
       return hasCompleteTieBefore(before);
+    case "SetEventKind":
+      return ["kind", "pitch", "hidden"].every((key) => key in before);
     case "SetNoteMarks":
     case "SetDynamic":
     case "SetSlur":
@@ -341,8 +353,8 @@ export function inverseOf(edit: EditEventRead): Pick<EditEventRead, "op" | "anch
  * Evento que queda elegido tras aplicar una edición sobre `score` (el estado en que se pide), con
  * su ancla en el estado siguiente (ADR-0011, ADR-0033): el evento cambiado, el insertado o el que
  * ocupa el sitio del borrado; undefined si la edición no mueve la selección (la clave, la
- * armadura, la dinámica, las ligaduras y el regulador) o si sería un silencio invisible, que no se
- * elige (ADR-0032); null si no queda ninguno.
+ * armadura, la dinámica, las ligaduras y el regulador); null si no queda ninguno. Un hueco de una
+ * voz también se elige (ADR-0058).
  */
 export function historyPlacement(
   edit: Pick<EditEventRead, "op" | "anchor" | "after">,
@@ -359,13 +371,11 @@ export function historyPlacement(
       // Tampoco la ligadura de prolongación (ADR-0055).
       return undefined;
     case "InsertEvent":
-      return record(edit.after)?.hidden === true ? undefined : edit.anchor;
+      return edit.anchor;
     case "DeleteEvent":
       return selectAfterDelete(score, edit.anchor);
-    default: {
-      const found = eventAt(score, edit.anchor);
-      return found && found.event.hidden !== true ? edit.anchor : undefined;
-    }
+    default:
+      return eventAt(score, edit.anchor) ? edit.anchor : undefined;
   }
 }
 
