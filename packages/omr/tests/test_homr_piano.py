@@ -8,6 +8,7 @@ imágenes ni HOMR.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -15,6 +16,7 @@ from cadenza.domain import (
     Clef,
     Event,
     EventKind,
+    KeySignature,
     Measure,
     Part,
     ScoreIR,
@@ -100,6 +102,12 @@ def test_the_usual_duration_is_the_most_repeated_and_the_longer_on_a_tie() -> No
     assert usual_duration([_full(1, "C5"), _short(2, "C5"), _full(3, "C5")]) == 4
     assert usual_duration([_full(1, "C5"), _short(2, "C5")]) == 4
     assert usual_duration([_m(1)]) is None
+
+
+def test_measures_without_notes_are_not_irregular() -> None:
+    # Un compás que HOMR deja vacío no dice nada de las figuras de la lectura.
+    staff = _staff(PAIRED, [_full(1, "C5"), _m(2), _full(3, "C5")], [3])
+    assert staff.irregular(0) == 0
 
 
 def test_a_reading_must_cover_its_measures_with_its_systems() -> None:
@@ -299,6 +307,35 @@ def test_the_time_signature_is_carried_only_when_it_changes() -> None:
         None,
         None,
     ]
+
+
+def test_a_spliced_system_starts_with_the_key_in_force_in_its_reading() -> None:
+    # La lectura sola lee un bemol en el sistema 1 (no elegido) y lo mantiene en el 2, que sí se
+    # elige para la mano derecha: el sistema empalmado empieza con esa armadura.
+    alone = _alone()
+    alone_right = alone.parts[1].staves[0]
+    second = replace(alone_right.measures[1], key_signature=KeySignature(-1))
+    alone = ScoreIR(
+        parts=(
+            alone.parts[0],
+            Part(
+                id="part-1",
+                staves=(
+                    Staff(
+                        id=alone_right.id,
+                        measures=(alone_right.measures[0], second, *alone_right.measures[2:]),
+                    ),
+                ),
+            ),
+            alone.parts[2],
+        )
+    )
+
+    result = combine_voice_and_piano(_paired(), PAIRED_XML, alone, ALONE_XML)
+    assert result is not None
+    right, left = result[0].parts[1].staves
+    assert [m.key_signature for m in right.measures] == [None, None, KeySignature(-1), None]
+    assert [m.key_signature for m in left.measures] == [None, None, None, None]
 
 
 def test_pages_that_are_not_voice_and_piano_are_not_combined() -> None:
