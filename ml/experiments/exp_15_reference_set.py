@@ -27,7 +27,8 @@ rasgo:
 3. **La armadura por compás**: la del principio de la página, cada cambio a mitad de página y
    la de cada compás.
 4. **Las partes y los pentagramas**: cuántas partes y cuántos pentagramas por parte (voz y
-   piano son dos partes, de 1 y 2 pentagramas).
+   piano son dos partes, de 1 y 2 pentagramas), y si el contenido de cada pentagrama leído va en
+   el suyo, compás a compás (`staves`, ADR-0060 §3).
 
 PrIMuS (renders de Verovio, no escaneos): el compás inicial de cada incipit, numerador y
 denominador, frente a su verdad MEI, y el símbolo C y ¢ con `time_symbol_agreement`, sobre las
@@ -84,7 +85,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from xml.etree import ElementTree
 
-from cadenza.domain import Measure, Part, ScoreIR, Staff, TimeSignature
+from cadenza.domain import EventKind, Measure, Part, ScoreIR, Staff, TimeSignature
 from cadenza.domain.time_signature import COMMON, CUT
 from cadenza.interchange import musicxml_to_score_ir, read_score
 from cadenza.learning import time_symbol_agreement
@@ -913,6 +914,69 @@ def compare_layout(truth: ScoreIR, read: ScoreIR) -> dict[str, Any]:
     }
 
 
+def _pitches(measure: Measure) -> Counter[str]:
+    return Counter(
+        event.pitch
+        for event in measure.events
+        if event.kind is EventKind.NOTE and event.pitch is not None
+    )
+
+
+def _pitch_f1(read: Counter[str], truth: Counter[str]) -> float:
+    common = sum((read & truth).values())
+    if not common:
+        return 0.0
+    return 2 * common / (sum(read.values()) + sum(truth.values()))
+
+
+def compare_staff_content(
+    truth_staves: Sequence[Sequence[Measure]],
+    page: Sequence[int],
+    read_staves: Sequence[Sequence[Measure]],
+) -> dict[str, int]:
+    """Si cada pentagrama leído tiene lo de su pentagrama de la verdad, compás a compás (#239).
+
+    Las partes y los pentagramas por parte (`layout`) pueden cuadrar aunque HOMR junte la voz con
+    la mano derecha en un sistema y deje la mano izquierda en el pentagrama de la derecha. Para
+    cada pentagrama de la verdad y cada compás de la página con notas en él (las unidades), se
+    toma el compás alineado del pentagrama leído del mismo orden (sin las columnas de cortesía) y
+    se compara su multiconjunto de alturas con el de cada pentagrama de la verdad en ese compás
+    (F1 de las alturas). Está `in_place` si se parece más a su pentagrama que a cualquier otro, o
+    si lo lee entero aunque otro sea igual (una mano que dobla la voz); `elsewhere` si se parece
+    más a otro (o igual, sin leerlo entero); `missing` si el pentagrama no se leyó o no comparte
+    ninguna altura con ninguno. Un compás que falta en un pentagrama de la verdad cuenta como sin
+    notas. La alineación es la proporcional de `map_index`: un compás de más o de menos en la
+    lectura también puede dejar el contenido en `elsewhere` o en `missing`.
+    """
+
+    prepared = prepare_read_staves(read_staves)
+    counts = {"units": 0, "in_place": 0, "elsewhere": 0, "missing": 0}
+    for p, index in enumerate(page):
+        truths = [
+            _pitches(staff[index]) if index < len(staff) else Counter[str]()
+            for staff in truth_staves
+        ]
+        for t, truth in enumerate(truths):
+            if not truth:
+                continue
+            counts["units"] += 1
+            measures = prepared[t].measures if t < len(prepared) else ()
+            if not measures:
+                counts["missing"] += 1
+                continue
+            read = _pitches(measures[map_index(p, len(page), len(measures))])
+            scores = [_pitch_f1(read, other) for other in truths]
+            if not any(scores):
+                counts["missing"] += 1
+            elif scores[t] == 1.0 or all(
+                scores[t] > score for o, score in enumerate(scores) if o != t
+            ):
+                counts["in_place"] += 1
+            else:
+                counts["elsewhere"] += 1
+    return counts
+
+
 def page_features(
     truth: ScoreIR, first_measure: int, last_measure: int, kinds: Mapping[int, str]
 ) -> list[str]:
@@ -975,6 +1039,7 @@ def compare_page(
             len(prepared.measures) for prepared in prepare_read_staves(read_staves)
         ],
         "layout": compare_layout(truth, read),
+        "staves": compare_staff_content(truth_staves, page, read_staves),
     }
     # Una lectura vacía no se salta: sus unidades cuentan como no leídas.
     result.update(
@@ -1297,6 +1362,7 @@ def headline(
         for what in ("detected", "meter_correct", "notation_correct")
     }
     layout = [page["comparison"]["layout"] for page in pages]
+    staves = _sum_counts(page["comparison"]["staves"] for page in pages)
 
     def share(key: str) -> dict[str, Any]:
         cases = sum(1 for item in layout if item[key])
@@ -1345,6 +1411,9 @@ def headline(
             },
             "layout_correct": share("layout_correct"),
             "parts_correct": share("parts_correct"),
+            "staves_in_place": pair(staves, "in_place", "units"),
+            "staves_elsewhere": pair(staves, "elsewhere", "units"),
+            "staves_missing": pair(staves, "missing", "units"),
             "empty_readings": sum(1 for page in pages if page["comparison"]["empty_reading"]),
             "missing_staves": time_counts.get("missing_staves", 0),
             "extra_read_staves": time_counts.get("extra_read_staves", 0),
@@ -1414,6 +1483,8 @@ def _page_row(page: Mapping[str, Any]) -> dict[str, Any]:
         "layout_correct": comparison["layout"]["layout_correct"],
         "seconds": page["transcription"].get("seconds"),
     }
+    for key, value in comparison["staves"].items():
+        row[f"staves_{key}"] = value
     for section in ("time", "key", "tuplets"):
         counts = comparison[section]["counts"]
         for key, value in counts.items():

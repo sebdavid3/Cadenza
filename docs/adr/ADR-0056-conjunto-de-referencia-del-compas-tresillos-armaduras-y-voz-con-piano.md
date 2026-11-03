@@ -1,6 +1,6 @@
 # ADR-0056: Conjunto de referencia del compás, los tresillos, las armaduras y la voz con piano
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (ampliado por [ADR-0060](ADR-0060-voz-por-encima-del-piano.md): `exp_15` mide también si el contenido de cada pentagrama leído va en el suyo, `staves`)
 - **Fecha:** 2026-11-02
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0018, ADR-0031, ADR-0032 y ADR-0044, CLAUDE.md §8 y §9)
 - **Relacionado:** [ADR-0018](ADR-0018-homr-como-unico-motor-omr.md), [ADR-0044](ADR-0044-compas-con-su-simbolo-y-tresillos-como-edicion.md), [INV-0002](../investigaciones/INV-0002-audiveris-frente-a-homr.md), [#234](https://github.com/sebdavid3/Cadenza/issues/234), [#236](https://github.com/sebdavid3/Cadenza/issues/236), [#237](https://github.com/sebdavid3/Cadenza/issues/237), [#238](https://github.com/sebdavid3/Cadenza/issues/238), [#239](https://github.com/sebdavid3/Cadenza/issues/239), [#247](https://github.com/sebdavid3/Cadenza/issues/247)

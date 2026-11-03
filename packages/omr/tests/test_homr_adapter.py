@@ -59,6 +59,22 @@ def test_effective_device_with_mocked_gpu(monkeypatch: pytest.MonkeyPatch) -> No
     assert HOMREngine(use_gpu=True).device == "cuda"
 
 
+class _FakeMultiStaff:
+    def _select_grandstaffs(self, brace_dot: list[Any]) -> list[Any]:
+        return []
+
+
+def _fake_model(monkeypatch: pytest.MonkeyPatch, fake_homr: Any) -> Any:
+    import sys
+    import types
+
+    fake_model: Any = types.ModuleType("homr.model")
+    fake_model.MultiStaff = type("MultiStaff", (_FakeMultiStaff,), {})
+    fake_homr.model = fake_model
+    monkeypatch.setitem(sys.modules, "homr.model", fake_model)
+    return fake_model
+
+
 def test_import_homr_disables_detect_title(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     import types
@@ -74,6 +90,7 @@ def test_import_homr_disables_detect_title(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setitem(sys.modules, "homr", fake_homr)
     monkeypatch.setitem(sys.modules, "homr.main", fake_main)
+    _fake_model(monkeypatch, fake_homr)
 
     imported_main = _import_homr()
     assert imported_main is fake_main
@@ -92,6 +109,30 @@ def test_import_homr_disables_detect_title(monkeypatch: pytest.MonkeyPatch) -> N
     original_detect_title.assert_not_called()
 
 
+def test_import_homr_replaces_the_grand_staff_choice(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    from cadenza.omr.adapters.homr import _import_homr
+
+    fake_homr: Any = types.ModuleType("homr")
+    fake_main: Any = types.ModuleType("homr.main")
+    fake_main.detect_title = MagicMock()
+    fake_homr.main = fake_main
+    monkeypatch.setitem(sys.modules, "homr", fake_homr)
+    monkeypatch.setitem(sys.modules, "homr.main", fake_main)
+    fake_model = _fake_model(monkeypatch, fake_homr)
+    original = fake_model.MultiStaff._select_grandstaffs
+
+    _import_homr()
+    patched = fake_model.MultiStaff._select_grandstaffs
+    _import_homr()
+
+    assert patched is not original
+    assert fake_model.MultiStaff._select_grandstaffs is patched
+
+
 def test_import_homr_raises_if_detect_title_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     import types
@@ -104,6 +145,7 @@ def test_import_homr_raises_if_detect_title_missing(monkeypatch: pytest.MonkeyPa
 
     monkeypatch.setitem(sys.modules, "homr", fake_homr)
     monkeypatch.setitem(sys.modules, "homr.main", fake_main)
+    _fake_model(monkeypatch, fake_homr)
 
     with pytest.raises(RuntimeError, match="detect_title"):
         _import_homr()
