@@ -4065,10 +4065,14 @@ describe("corregir la nota elegida", () => {
         renderPage();
         await chooseGap();
 
-        fireEvent.click(button("Hacer el hueco un silencio que se ve"));
+        const silence = button("Hacer el hueco un silencio que se ve");
+        silence.focus();
+        fireEvent.click(silence);
         await waitFor(() => {
           expect(editStatus()).toHaveTextContent("Guardado: silencio de negra en el hueco.");
         });
+        // El foco sigue en el mismo botón, que ahora inserta un silencio antes.
+        expect(document.activeElement).toBe(button("Insertar un silencio antes"));
         expect(server.bodies[0]).toMatchObject({
           op: "SetEventKind",
           after: { kind: "rest", pitch: null, hidden: false },

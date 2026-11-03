@@ -934,8 +934,10 @@ export function EditBar({
                   {gap ? "Hueco" : "Insertar antes o borrar"}
                 </p>
                 <div className="editor__buttons">
-                  {(gap ? GAP_STRUCTURE : STRUCTURE).map((button) => (
-                    <CommandButton key={button.label} {...button} {...shared} />
+                  {/* Los mismos tres botones en un hueco: la misma clave, para que el foco siga
+                      en el que se pulsó cuando el hueco pasa a ser una nota (ADR-0058). */}
+                  {(gap ? GAP_STRUCTURE : STRUCTURE).map((button, index) => (
+                    <CommandButton key={index} {...button} {...shared} />
                   ))}
                 </div>
               </div>
