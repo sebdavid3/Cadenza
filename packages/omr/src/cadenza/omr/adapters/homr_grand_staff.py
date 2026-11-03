@@ -17,6 +17,7 @@ abajo, como en toda partitura de una voz o un instrumento por encima del piano (
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -86,6 +87,8 @@ def install(multi_staff_class: Any) -> None:
         return
     original = current
 
+    # `wraps` deja en `__wrapped__` la elección de HOMR sin sustituir, para compararla.
+    @functools.wraps(original)
     def select(self: Any, brace_dot: list[Any]) -> list[Any]:
         return select_grandstaffs_voice_above_piano(original, self, brace_dot)
 

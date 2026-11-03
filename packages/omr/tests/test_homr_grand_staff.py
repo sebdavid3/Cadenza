@@ -1,8 +1,8 @@
 """El piano de un sistema de voz y piano son los dos pentagramas de abajo (#239, ADR-0060).
 
 Las medidas de los sistemas son las que HOMR da en las páginas del banco del estudio (TS-02 y
-TS-04) y de *Mondnacht*: el alto de cada pentagrama y el centro y el tamaño de los elementos altos
-de la izquierda del sistema (la barra que une los tres pentagramas y la llave del piano).
+TS-04): el alto de cada pentagrama y el centro y el tamaño de los elementos altos de la izquierda
+del sistema (la barra que une los tres pentagramas y la llave del piano).
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ TS04 = [(60, 125), (214, 277), (373, 436)]
 TS02_SYSTEM_LINE = ((152, 218), (21, 383))
 TS04_SYSTEM_LINE = ((142, 249), (7, 396))
 TS04_BRACE = ((128, 324), (14, 245))
+# Una llave del piano de TS-02 que, sola, puntúa menos que la barra del sistema en el par de arriba.
+TS02_SHORT_BRACE = ((128, 302), (14, 220))
 
 
 @dataclass
@@ -54,18 +56,23 @@ class _Pair:
 
 
 class _MultiStaff:
-    """Lo que hace HOMR 0.7 en `MultiStaff._select_grandstaffs`, con su misma puntuación."""
+    """Lo que hace HOMR 0.7 en `MultiStaff._select_grandstaffs` y `_score_brace_with_staff_pair`
+    (homr/model.py), con el tamaño de unidad del pentagrama como la cuarta parte de su alto."""
 
     def __init__(self, staffs: Sequence[tuple[float, float]]) -> None:
         self.staffs = [_Staff(*bounds) for bounds in staffs]
 
     def _score(self, symbol: _Symbol, upper: _Staff, lower: _Staff) -> float:
-        unit_size = (upper.max_y - upper.min_y) / 4
+        unit_size = ((upper.max_y - upper.min_y) / 4 + (lower.max_y - lower.min_y) / 4) / 2
         x_distance = abs(min(upper.min_x, lower.min_x) - symbol.center[0])
         top = symbol.center[1] - symbol.size[1] / 2
         bottom = symbol.center[1] + symbol.size[1] / 2
         y_overlap = min(bottom, lower.max_y) - max(top, upper.min_y)
-        if x_distance < 5 * unit_size and y_overlap > 0.5 * symbol.size[1]:
+        if (
+            x_distance < 5 * unit_size
+            and y_overlap > 0.5 * symbol.size[1]
+            and y_overlap > x_distance
+        ):
             return y_overlap - x_distance
         return 0
 
@@ -112,6 +119,11 @@ def test_a_line_over_the_whole_system_makes_the_two_lower_staves_the_piano() -> 
 
 
 def test_the_brace_decides_and_the_system_line_does_not_count() -> None:
+    line, brace = _symbol(TS02_SYSTEM_LINE), _symbol(TS02_SHORT_BRACE)
+    # HOMR solo se quedaría con la barra del sistema en el par de arriba.
+    assert [p.get_index() for p in _MultiStaff(TS02)._select_grandstaffs([line, brace])] == [[0, 1]]
+
+    assert _chosen(TS02, line, brace) == [[1, 2]]
     assert _chosen(TS04, _symbol(TS04_SYSTEM_LINE), _symbol(TS04_BRACE)) == [[1, 2]]
 
 
@@ -202,6 +214,10 @@ def test_real_homr_multistaff_takes_the_two_lower_staves() -> None:
     system = MultiStaff([staff(*bounds) for bounds in TS02], [])
     (cx, cy), (w, h) = TS02_SYSTEM_LINE
     line = RotatedBoundingBox(((cx, cy), (w, h), 0.0), np.zeros((0, 1, 2), dtype=np.int32))
+
+    # Sin la sustitución, HOMR juntaría la voz con la mano derecha.
+    original = MultiStaff._select_grandstaffs.__wrapped__
+    assert [pair.get_index() for pair in original(system, [line])] == [[0, 1]]
 
     merged = system.create_grandstaffs([line])
 
