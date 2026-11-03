@@ -179,7 +179,10 @@ def _process_image(homr_main: Any, image: Path, config: Any, xml_generator_args:
             raise OMRTranscriptionError("HOMR no produjo ningún MusicXML")
         xml_path = candidates[0]
     text = xml_path.read_text(encoding="utf-8", errors="replace")
-    xml_path.unlink()
+    # Para que la segunda lectura no encuentre este; si Windows no deja borrarlo, HOMR lo
+    # sobrescribe.
+    with contextlib.suppress(OSError):
+        xml_path.unlink()
     return text
 
 
@@ -227,10 +230,11 @@ def _run_homr(
             # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
             if [1, 2] not in paired.piano_pairs:
                 return paired_xml
+            # Cualquier fallo de la segunda lectura deja la emparejada, que con #239 salía.
             try:
                 with homr_grand_staff.reading(PianoReading.ALONE):
                     alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
-            except OMRTranscriptionError:
+            except Exception:
                 _LOGGER.exception("Falló la lectura del piano solo; queda la emparejada")
                 return paired_xml
     return homr_piano.combine_musicxml(paired_xml, alone_xml)
@@ -318,10 +322,10 @@ class HOMREngine(OMREngine):
 
         Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
         pérdida de información del `ScoreIR` (que no modela armaduras, claves ni
-        barras de compás). En una página de voz y piano es otra cosa: la
-        combinación de las dos lecturas del piano, escrita por el exportador de
-        Cadenza desde el `ScoreIR` (#325), sin los saltos de sistema, las
-        repeticiones ni las voltas de HOMR.
+        barras de compás). En una página de voz y piano en la que alguna mano
+        sale de la lectura sola es otra cosa: la combinación de las dos lecturas
+        del piano, escrita por el exportador de Cadenza desde el `ScoreIR`
+        (#325), sin los saltos de sistema, las repeticiones ni las voltas de HOMR.
         """
 
         if not image_path.is_file():

@@ -240,6 +240,29 @@ def test_if_the_reading_alone_fails_the_paired_one_is_kept(
     assert main.passes == ["paired", "alone"]
 
 
+def test_any_failure_of_the_reading_alone_keeps_the_paired_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cadenza.omr.adapters import homr, homr_grand_staff
+    from cadenza.omr.adapters.homr_grand_staff import PianoReading
+
+    _fake_xml_generator(monkeypatch)
+    process = homr._process_image
+
+    def locked(homr_main: Any, image: Path, config: Any, args: Any) -> str:
+        record = homr_grand_staff._current
+        if record is not None and record.mode is PianoReading.ALONE:
+            raise PermissionError("el MusicXML está abierto en otro proceso")
+        return process(homr_main, image, config, args)
+
+    monkeypatch.setattr(homr, "_process_image", locked)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    main = _FakeHomrMain(piano=[1, 2])
+
+    assert homr._run_homr(main, image, use_gpu=False) == "<paired/>"
+
+
 @pytest.mark.skipif(not HOMR_INSTALLED, reason="requiere el extra opcional 'homr'")
 def test_homr_real_transcription_does_not_initialize_ocr_reader() -> None:
     import json

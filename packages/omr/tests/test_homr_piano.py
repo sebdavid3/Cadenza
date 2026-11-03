@@ -104,10 +104,10 @@ def test_the_usual_duration_is_the_most_repeated_and_the_longer_on_a_tie() -> No
     assert usual_duration([_m(1)]) is None
 
 
-def test_measures_without_notes_are_not_irregular() -> None:
-    # Un compás que HOMR deja vacío no dice nada de las figuras de la lectura.
-    staff = _staff(PAIRED, [_full(1, "C5"), _m(2), _full(3, "C5")], [3])
-    assert staff.irregular(0) == 0
+def test_measures_without_notes_are_irregular() -> None:
+    # Un compás que HOMR deja vacío perdió sus notas: cuenta contra la lectura.
+    staff = _staff(PAIRED, [_full(1, "C5"), _m(2), _short(3, "C5")], [3])
+    assert staff.irregular(0, Fraction(4)) == 2
 
 
 def test_a_reading_must_cover_its_measures_with_its_systems() -> None:
@@ -148,6 +148,38 @@ def test_a_hand_alone_with_other_measures_in_the_system_is_not_taken() -> None:
 
     assert choose_readings(paired, alone) == [
         SystemChoice(PAIRED, ALONE),
+        SystemChoice(PAIRED, PAIRED),
+    ]
+
+
+def test_a_hand_alone_that_lost_its_notes_is_not_taken() -> None:
+    # Sola, la mano derecha deja vacíos dos compases del sistema 2; emparejada, uno es corto.
+    paired = [
+        _staff(PAIRED, [_full(1, "C5"), _full(2, "C5"), _full(3, "C5"), _short(4, "C5")], [1, 3]),
+        _staff(PAIRED, [_full(1, "C3"), _full(2, "C3"), _full(3, "C3"), _full(4, "C3")], [1, 3]),
+    ]
+    alone = [
+        _staff(ALONE, [_full(1, "E5"), _m(2), _m(3), _full(4, "E5")], [1, 3]),
+        _staff(ALONE, [_full(1, "E3"), _full(2, "E3"), _full(3, "E3"), _full(4, "E3")], [1, 3]),
+    ]
+
+    assert choose_readings(paired, alone)[1] == SystemChoice(PAIRED, PAIRED)
+
+
+def test_a_hand_alone_with_another_usual_duration_is_not_taken() -> None:
+    # Sola, la mano derecha lee tres tiempos en todos los compases: con su propia habitual
+    # parecería regular, pero dejaría compases de 3 frente a los de 4 de la mano izquierda.
+    paired = [
+        _staff(PAIRED, [_full(1, "C5"), _full(2, "C5"), _full(3, "C5"), _short(4, "C5")], [2, 2]),
+        _staff(PAIRED, [_full(1, "C3"), _full(2, "C3"), _full(3, "C3"), _full(4, "C3")], [2, 2]),
+    ]
+    alone = [
+        _staff(ALONE, [_short(n, "E5") for n in range(1, 5)], [2, 2]),
+        _staff(ALONE, [_full(n, "E3") for n in range(1, 5)], [2, 2]),
+    ]
+
+    assert choose_readings(paired, alone) == [
+        SystemChoice(PAIRED, PAIRED),
         SystemChoice(PAIRED, PAIRED),
     ]
 
@@ -346,6 +378,8 @@ def test_pages_that_are_not_voice_and_piano_are_not_combined() -> None:
     assert combine_voice_and_piano(paired, PAIRED_XML, paired, PAIRED_XML) is None
     # Otros sistemas en la lectura sola: no se sabe qué compases emparejar.
     assert combine_voice_and_piano(paired, PAIRED_XML, alone, _xml([4], [4], [4])) is None
+    # Tampoco si solo cambian los de la voz: HOMR se saltó sistemas distintos en cada lectura.
+    assert combine_voice_and_piano(paired, PAIRED_XML, alone, _xml([4], [2, 2], [2, 2])) is None
 
 
 # ------------------------------------------------------------------------- de punta a punta
@@ -402,8 +436,10 @@ def _voice_part() -> str:
     )
 
 
-def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
-    # Emparejada: en el sistema 2 la mano derecha suma tres negras (HOMR se equivocó).
+def _homr_readings(paired_right: Sequence[int]) -> tuple[str, str]:
+    """El MusicXML de las dos lecturas de HOMR de una página de dos sistemas: en el segundo, la
+    mano derecha emparejada lee `paired_right` y la sola, dos blancas."""
+
     piano = _part_xml(
         2,
         [
@@ -416,8 +452,8 @@ def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
             ),
             _measure(
                 2,
-                _notes("C5", [1, 1, 1])
-                + "<backup><duration>3</duration></backup>"
+                _notes("C5", paired_right)
+                + f"<backup><duration>{sum(paired_right)}</duration></backup>"
                 + _notes("C3", [4], staff=2),
                 new_system=True,
             ),
@@ -450,6 +486,12 @@ def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
         + left
         + "</score-partwise>"
     )
+    return paired_xml, alone_xml
+
+
+def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
+    # Emparejada: en el sistema 2 la mano derecha suma tres negras (HOMR se equivocó).
+    paired_xml, alone_xml = _homr_readings([1, 1, 1])
 
     score = musicxml_to_score_ir(combine_musicxml(paired_xml, alone_xml))
 
@@ -460,6 +502,25 @@ def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
     assert [e.duration_beats for e in rh.measures[1].events] == [2, 2]
     assert _pitches(lh.measures) == ["C3", "C3"]
     assert lh.measures[0].clef == Clef.bass()
+
+
+def test_if_no_hand_is_taken_alone_the_paired_reading_is_returned_as_is() -> None:
+    # Las dos lecturas valen igual: sin pasar por el exportador, la de HOMR con sus saltos de
+    # sistema y sus ligaduras (#239).
+    paired_xml, alone_xml = _homr_readings([1, 1, 1, 1])
+
+    assert combine_musicxml(paired_xml, alone_xml) == paired_xml
+
+
+def test_a_combination_that_does_not_import_again_leaves_the_paired_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import cadenza.interchange
+
+    monkeypatch.setattr(cadenza.interchange, "score_ir_to_musicxml", lambda score: "<roto")
+    paired_xml, alone_xml = _homr_readings([1, 1, 1])
+
+    assert combine_musicxml(paired_xml, alone_xml) == paired_xml
 
 
 def test_readings_that_cannot_be_combined_leave_the_paired_one() -> None:
