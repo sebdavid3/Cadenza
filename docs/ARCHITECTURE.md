@@ -1013,6 +1013,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0055](adr/ADR-0055-ligaduras-de-prolongacion-y-notas-de-un-acorde.md) | Ligaduras de prolongación (`SetTie`) y notas de un acorde (`InsertEvent` con `is_chord`, `DeleteEvent` con `keep_chord`) desde la barra |
 | [ADR-0056](adr/ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md) | Conjunto de referencia del compás, los tresillos, las armaduras y la voz con piano: páginas reales con su verdad de OpenScore, manifiesto con sha256 y `exp_15` |
 | [ADR-0057](adr/ADR-0057-banco-de-partituras-del-estudio.md) | Banco de partituras del estudio: recortes de páginas de dominio público con su verdad de OpenScore, regenerables desde un manifiesto con sha256 |
+| [ADR-0058](adr/ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md) | Elegir y corregir los huecos de una voz: la marca del silencio invisible en la vista y `SetEventKind` |
 | [ADR-0060](adr/ADR-0060-voz-por-encima-del-piano.md) | La voz por encima del piano: la importación conserva el orden de la página y, en un sistema de tres pentagramas, el piano son los dos de abajo |
 
 
