@@ -177,9 +177,9 @@
     {
       "id": "TS-04",
       "papel": "TS-04",
-      "obra": "Schubert, Winterreise D 911 n.º 21, Das Wirthshaus, cc. 1-13",
-      "contenido": "Voz y piano (tres pentagramas), fa mayor (un bemol), compás C, 13 compases: acordes en las dos manos y varias voces en un pentagrama.",
-      "compases": 13,
+      "obra": "Schubert, Winterreise D 911 n.º 21, Das Wirthshaus, cc. 8-13",
+      "contenido": "Voz y piano (tres pentagramas), fa mayor (un bemol), 4/4 (el C está en el sistema 1), 6 compases: acordes en las dos manos, varias voces en un pentagrama, una nota de adorno y un silencio de redonda en la voz.",
+      "compases": 6,
       "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
       "imagen": {
         "origen": "pdf",
@@ -187,19 +187,24 @@
         "pagina_pdf": 72,
         "pagina_impresa": 68,
         "ppp": 300,
-        "recorte": null,
-        "nota": "La página entera, con el título y el pie de imprenta."
+        "recorte": [
+          0,
+          1940,
+          2745,
+          3320
+        ],
+        "nota": "Sistemas 3 y 4 de la página, a todo el ancho; sin el título, el pie de imprenta ni la indicación de compás impresa. Decidido por el responsable el 2026-11-02: con la página entera, HOMR mezcla los pentagramas del sistema 2 y la vista no puede corregirlo."
       },
       "verdad": {
         "tipo": "openscore",
         "archivo": "data/reference/truth/lc5013945.mxl",
         "sha256_origen": "ca18046b969cbf51fc7e3681750bccde2bfc0c8687b2fcd06e63c60d36bd07c2",
         "compases": [
-          1,
+          8,
           13
         ],
         "compases_en_la_fuente": [
-          1,
+          8,
           13
         ]
       },
@@ -208,8 +213,8 @@
         "verdad": "TS-04.musicxml"
       },
       "sha256": {
-        "imagen": "a6907eef25bd1066659e999d8ad3a14596ec5a306363a0b41024dbb706d184aa",
-        "verdad": "f8cffcc4e0a5b2b806b9ce7d137010c0d75dff2dee0ddfa0cbc64e05f4911098"
+        "imagen": "eb2f3c76d9d143121b19314ea85b117f8c8f1a89f7b5764be95cce68971b64e2",
+        "verdad": "7586ecc188008cc8503114dca7fa9e64a9d61414b39f697b370dbc28cf98dc90"
       }
     }
   ]
