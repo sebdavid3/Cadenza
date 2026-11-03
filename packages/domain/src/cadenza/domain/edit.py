@@ -112,6 +112,14 @@ class EditOp(StrEnum):
         - ``before``/``after``: ``{"tie": str | None, "next": {"measure": int, "voice": int,
           "event_index": int, "tie": str | None} | None}``, el valor de cada nota
           (``"start"``, ``"continue"``, ``"stop"`` o ``None``).
+
+    Los huecos de una voz (ADR-0058). También de tipo «fijar», y tampoco mueve ningún evento.
+
+    16. `SET_EVENT_KIND` ("SetEventKind"):
+        - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una
+          nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.
+        - ``before``/``after``: ``{"kind": "note" | "rest", "pitch": str | None,
+          "hidden": bool}``.
     """
 
     SET_PITCH = "SetPitch"
@@ -129,6 +137,7 @@ class EditOp(StrEnum):
     SET_TUPLET = "SetTuplet"
     SET_CHORD_DURATION = "SetChordDuration"
     SET_TIE = "SetTie"
+    SET_EVENT_KIND = "SetEventKind"
 
 
 MARK_EDIT_OPS: frozenset[EditOp] = frozenset(
@@ -146,6 +155,13 @@ figuras de dos notas (ADR-0055). `derive_edit_events` no las produce (no alinea 
 de compás, un tresillo o la figura de un acorde salen como un `SetDuration` por nota, y una
 ligadura como un borrado y una inserción de cada nota), así que no entran en la cobertura de
 `exp_02` ni son muestras del dataset."""
+
+GAP_EDIT_OPS: frozenset[EditOp] = frozenset({EditOp.SET_EVENT_KIND})
+"""Operaciones sobre los huecos de una voz (ADR-0058): convertir un silencio invisible en un
+silencio que se ve o en una nota en su lugar. `derive_edit_events` no las produce (un silencio que
+se ve no se empareja con uno invisible: el diff da un borrado del hueco y una inserción), así que
+no entran en la cobertura de `exp_02` ni son muestras del dataset. Las métricas de esfuerzo las
+cuentan como contenido."""
 
 CONTENT_EDIT_OPS: frozenset[EditOp] = frozenset(
     {
@@ -270,7 +286,8 @@ def create_inverse_edit(
     - SetPitch / SetDuration / SetAccidental / SetClef / SetKey, las de marcas (SetNoteMarks,
       SetDynamic, SetWedge, SetSlur, ADR-0039), las de compás y tresillos (SetTime,
       SetTuplet, ADR-0044), la figura de un acorde (SetChordDuration, ADR-0049) y la ligadura
-      de prolongación (SetTie, ADR-0055): intercambia `before` y `after`.
+      de prolongación (SetTie, ADR-0055) y los huecos de una voz (SetEventKind, ADR-0058):
+      intercambia `before` y `after`.
     - InsertEvent: el inverso es un DeleteEvent en el mismo ancla, con
       `before = edit.after` y `after = None`.
     - DeleteEvent: el inverso es un InsertEvent en el mismo ancla, con

@@ -185,6 +185,24 @@ def _restore_chord_note(
     )
 
 
+def _with_kind(target: Event, after: Mapping[str, Any] | None) -> Event:
+    """El evento convertido en lo que dice el `after` de `SetEventKind` (ADR-0058): un hueco, un
+    silencio que se ve o una nota, con su misma figura. Un silencio no lleva ligadura de
+    prolongación ni es nota de un acorde."""
+
+    if after is None:
+        raise ValueError("SetEventKind sin 'after' no se puede aplicar")
+    kind = EventKind(after["kind"])
+    pitch = after.get("pitch")
+    if kind is EventKind.NOTE:
+        if not isinstance(pitch, str):
+            raise ValueError(f"una nota requiere su altura: {pitch!r}")
+        return replace(target, kind=kind, pitch=pitch, hidden=False)
+    return replace(
+        target, kind=kind, pitch=None, hidden=after.get("hidden") is True, tie=None, is_chord=False
+    )
+
+
 def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Measure:
     if edit.op is EditOp.SET_CLEF:
         return replace(measure, clef=_extract_clef(edit.after))
@@ -266,6 +284,8 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         del events[position]
         if _value(edit.after, "keep_chord") is True:
             _promote_chord_note(events, position, anchor.voice, target)
+    elif edit.op is EditOp.SET_EVENT_KIND:
+        events[position] = _with_kind(target, edit.after)
     else:
         op_label = edit.op.value if hasattr(edit.op, "value") else str(edit.op)
         raise UnsupportedEditOpError(f"operación no proyectable: {op_label}")
