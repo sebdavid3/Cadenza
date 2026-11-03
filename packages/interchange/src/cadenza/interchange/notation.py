@@ -663,7 +663,11 @@ def _group_parts(parsed: stream.Score) -> list[list[stream.Part]]:
         else:
             grouped.append([curr])
             idx += 1
-    return grouped
+    # Las partes van en el orden del documento, que es el de la página: la voz por encima del
+    # piano (#239, ADR-0060). Sin ordenar, los grupos de pentagramas (el piano) pasaban delante
+    # de las partes de un pentagrama.
+    position = {id(part): index for index, part in enumerate(raw_parts)}
+    return sorted(grouped, key=lambda group: min(position[id(part)] for part in group))
 
 
 def music21_stream_to_score_ir(parsed: Any) -> ScoreIR:
