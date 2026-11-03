@@ -26,6 +26,7 @@ from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from ..engine import OMREngine
 from ..errors import OMRTranscriptionError
 from ..preprocessing import PreprocessingConfig, preprocess_image_file
+from . import homr_grand_staff
 
 ENGINE_ID = "homr"
 # HOMR guarda sus sesiones de ONNX y las salidas preasignadas del decodificador como estado global
@@ -75,10 +76,14 @@ def _import_homr() -> Any:
     La sustitución es idempotente y para todo el proceso. Si `homr.main` no expone
     `detect_title`, se eleva `RuntimeError` para evitar que una versión futura de
     HOMR reintroduzca el OCR en silencio.
+
+    Sustituye también la elección del gran pentagrama de un sistema de tres: el piano son los
+    dos de abajo aunque la barra del sistema abarque los tres (#239, ADR-0060).
     """
 
     try:
         from homr import main as homr_main
+        from homr import model as homr_model
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise RuntimeError(_HOMR_EXTRA_HINT) from exc
 
@@ -92,6 +97,7 @@ def _import_homr() -> Any:
     if homr_main.detect_title is not _no_title_detection:
         homr_main.detect_title = _no_title_detection
 
+    homr_grand_staff.install(homr_model.MultiStaff)
     return homr_main
 
 
