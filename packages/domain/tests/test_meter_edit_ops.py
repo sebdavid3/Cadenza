@@ -211,29 +211,35 @@ def test_set_time_changes_every_staff_of_the_part() -> None:
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
 
 
-def test_set_time_keeps_measures_without_signature_inheriting() -> None:
-    # Compases que heredan (sin indicación): siguen sin ella y heredan la nueva.
-    score = _score([FOUR, None, FOUR, THREE])
-    edit = _edit(
-        score, EditOp.SET_TIME, _anchor(1), {"time_signature": {"beats": 2, "beat_type": 2}}
-    )
-    assert edit.before == {"time_signature": FOUR.to_primitive(), "measures": 3}
+def test_set_time_on_score_without_signature_fills_all_measures_and_undoes_and_redoes() -> None:
+    # Un ScoreIR sin compás (None en todos los compases) recibe la indicación en todo el tramo,
+    # como hace la importación (#329); deshacer devuelve todos a None y rehacer los vuelve a llenar.
+    score = _score([None, None, None])
+    six_eight = {"beats": 6, "beat_type": 8}
+    after = {"time_signature": six_eight}
+    edit = _edit(score, EditOp.SET_TIME, _anchor(1), after)
+    assert edit.before == {"time_signature": None, "measures": 3}
     changed = apply_edit(score, edit)
-    cut = {"beats": 2, "beat_type": 2}
-    assert _signatures(changed) == [cut, None, cut, THREE.to_primitive()]
-    assert _undo(changed, edit).to_primitive() == score.to_primitive()
+    assert _signatures(changed) == [six_eight, six_eight, six_eight]
+    undone = _undo(changed, edit)
+    assert _signatures(undone) == [None, None, None]
+    assert undone.to_primitive() == score.to_primitive()
+    inverse = create_inverse_edit(edit, id="u", seq=2, author="ana", created_at=NOW)
+    redo = _edit(undone, EditOp.SET_TIME, _anchor(1), after, seq=3)
+    assert materialize(score, [edit, inverse, redo]).to_primitive() == changed.to_primitive()
 
 
-def test_undoing_set_time_on_a_measure_without_signature_leaves_it_without_one() -> None:
-    # La compensatoria escribe null: el compás 2 heredaba y vuelve a heredar.
-    score = _score([FOUR, None, FOUR, THREE])
-    after = {"time_signature": {"beats": 3, "beat_type": 8}}
-    edit = _edit(score, EditOp.SET_TIME, _anchor(2), after)
-    assert edit.before == {"time_signature": None, "measures": 2}
-    changed = apply_edit(score, edit)
-    eight = {"beats": 3, "beat_type": 8}
-    assert _signatures(changed) == [FOUR.to_primitive(), eight, eight, THREE.to_primitive()]
-    assert _undo(changed, edit).to_primitive() == score.to_primitive()
+def test_set_time_rejects_partial_measures_on_span_without_signature() -> None:
+    # Cambiar solo k < run compases en None dejaría None detrás de un compás con indicación,
+    # haciendo que un SetTime posterior sobre todo el tramo no se deshaga con exactitud (#329).
+    score = _score([None, None, None])
+    with pytest.raises(InvalidEditPayload, match="debe cubrir todo el tramo"):
+        validate_after(
+            score,
+            _anchor(1),
+            EditOp.SET_TIME,
+            {"time_signature": {"beats": 6, "beat_type": 8}, "measures": 2},
+        )
 
 
 def test_undoing_set_time_uses_the_length_it_changed() -> None:

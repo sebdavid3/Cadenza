@@ -153,7 +153,7 @@ def test_one_set_time_puts_the_meter_in_every_part_and_undoes_in_one_step(
     detail = client.get(f"/sessions/{sid}", headers=headers).json()
     assert detail["current_seq"] == 1
     three = {**THREE, "symbol": None}
-    assert _signatures(detail["current_score"]) == [[three, None]] * 3
+    assert _signatures(detail["current_score"]) == [[three, three]] * 3
     export = client.get(f"/sessions/{sid}/export?format=musicxml", headers=headers)
     assert export.text.count("<beats>3</beats>") == 2  # una por parte
 
@@ -165,7 +165,7 @@ def test_one_set_time_puts_the_meter_in_every_part_and_undoes_in_one_step(
     redo = _set_time(client, headers, sid, {"time_signature": THREE, "all_parts": True}, 2)
     assert redo.status_code == 201, redo.text
     detail = client.get(f"/sessions/{sid}", headers=headers).json()
-    assert _signatures(detail["current_score"]) == [[three, None]] * 3
+    assert _signatures(detail["current_score"]) == [[three, three]] * 3
 
 
 def test_without_all_parts_set_time_stays_in_the_part_of_the_anchor(tmp_path: Path) -> None:
@@ -176,7 +176,7 @@ def test_without_all_parts_set_time_stays_in_the_part_of_the_anchor(tmp_path: Pa
     assert res.json()["before"] == {"time_signature": None, "measures": 2}
     detail = client.get(f"/sessions/{sid}", headers=headers).json()
     three = {**THREE, "symbol": None}
-    assert _signatures(detail["current_score"]) == [[None, None], [three, None], [three, None]]
+    assert _signatures(detail["current_score"]) == [[None, None], [three, three], [three, three]]
 
 
 def test_invalid_all_parts_is_422(tmp_path: Path) -> None:
@@ -189,3 +189,36 @@ def test_invalid_all_parts_is_422(tmp_path: Path) -> None:
         res = _set_time(client, headers, sid, after, 0)
         assert res.status_code == 422, (after, res.text)
     assert client.get(f"/sessions/{sid}", headers=headers).json()["current_seq"] == 0
+
+
+def test_set_time_on_score_without_meter_enables_measure_balance_validation_after_bar_one(
+    tmp_path: Path,
+) -> None:
+    client, headers = _client(tmp_path)
+    sid = _session(client, headers)
+
+    # Con measures < tramo sobre un documento sin compás, la API rechaza con 422 (#329).
+    partial = _set_time(
+        client,
+        headers,
+        sid,
+        {"time_signature": {"beats": 2, "beat_type": 4}, "measures": 1, "all_parts": True},
+        0,
+    )
+    assert partial.status_code == 422, partial.text
+
+    # Al fijar 2/4 en todas las partes, el compás 2 (con 3 tiempos) también recibe el aviso.
+    res = _set_time(
+        client,
+        headers,
+        sid,
+        {"time_signature": {"beats": 2, "beat_type": 4}, "all_parts": True},
+        0,
+    )
+    assert res.status_code == 201, res.text
+    val = client.post(f"/sessions/{sid}/validate", headers=headers)
+    assert val.status_code == 200, val.text
+    balance_measures = sorted(
+        f["anchor"]["measure"] for f in val.json()["findings"] if f["rule_id"] == "measure.balance"
+    )
+    assert 2 in balance_measures
