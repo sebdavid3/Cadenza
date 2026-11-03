@@ -1015,7 +1015,7 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0057](adr/ADR-0057-banco-de-partituras-del-estudio.md) | Banco de partituras del estudio: recortes de páginas de dominio público con su verdad de OpenScore, regenerables desde un manifiesto con sha256 |
 | [ADR-0058](adr/ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md) | Elegir y corregir los huecos de una voz: la marca del silencio invisible en la vista y `SetEventKind` |
 | [ADR-0059](adr/ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md) | Compás por tramos, C y ¢, y tresillos implícitos en una etapa propia tras HOMR, por rasgo y en la procedencia |
-| [ADR-0060](adr/ADR-0060-voz-por-encima-del-piano.md) | La voz por encima del piano: la importación conserva el orden de la página y, en un sistema de tres pentagramas, el piano son los dos de abajo |
+| [ADR-0060](adr/ADR-0060-voz-por-encima-del-piano.md) | La voz por encima del piano: la importación conserva el orden de la página y, en un sistema de tres pentagramas, el piano son los dos de abajo; con la enmienda de #325, ese piano se lee emparejado y con cada pentagrama solo, y se combina mano a mano |
 
 
 ---
