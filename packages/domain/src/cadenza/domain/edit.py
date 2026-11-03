@@ -91,6 +91,11 @@ class EditOp(StrEnum):
           "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
           número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
           ``time_signature`` solo lo escribe la compensatoria).
+        - Con ``"all_parts": true`` en el ``after`` (#326), en todas las partes de la partitura,
+          cada una en su tramo: el ``before`` guarda además ``"all_parts": true`` y ``"parts"``,
+          ``[{"time_signature", "measures"} | None, ...]``, lo de cada parte (None si no tiene
+          el compás), con lo que la compensatoria devuelve cada parte a lo suyo. Sin él, solo
+          la parte del ancla, como antes de #326.
 
     13. `SET_TUPLET` ("SetTuplet"):
         - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
