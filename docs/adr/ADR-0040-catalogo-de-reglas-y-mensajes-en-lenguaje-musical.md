@@ -306,9 +306,11 @@ Los grupos de cinco o siete (cinquillos y septillos) quedan **fuera** de esta re
 - en un becuadro contra la armadura: en el recuento, ninguno de los 4 casos era un error;
 - en la misma letra en otra octava;
 - en una nota de otra voz, como en el contexto del corpus (ADR-0036 §2);
-- entre compases: la barra anula la alteración, y en el recuento las notas así no tienen ninguna corrección.
+- entre compases: la barra anula la alteración, y en el recuento las notas así no tienen ninguna corrección;
+- en una nota de un acorde cuya nota anterior de la misma altura también es de un acorde (enmienda 11, #318);
+- cuando otra voz u otro pentagrama del mismo compás lleva la misma letra con la misma alteración sonando cuando empieza la nota o después (enmienda 11, #318).
 
-**Falso positivo conocido**: la alteración repetida que sí está escrita así (en el recuento, 12 de 193). En una página real con cromatismos (TS-02) habrá más. Por eso la severidad es `warning` y el mensaje pregunta.
+**Falso positivo conocido**: la alteración repetida que sí está escrita así (en el recuento, 12 de 193). En una página real con cromatismos (TS-02) habrá más. Por eso la severidad es `warning` y el mensaje pregunta. La enmienda 11 explica por qué y quita los casos que el resto del compás confirma.
 
 **Ancla**: la nota.
 
@@ -555,3 +557,43 @@ En una sesión `unassisted` el validador **no se ejecuta** (protocolo §2.2), y 
 8. **El compás 0 no llega a las reglas** (`Anchor` exige compás ≥ 1): «la anacrusa» existe solo en el vocabulario.
 9. **Medido** (regenerado el 2026-10-31 en `results/rules_catalog_v2/`): `exp_06` (91 incipits, verdad del MEI) pasa de P=64.52% y R=39.80% a P=79.57% y R=36.82%; `exp_14` (352 incipits de prueba, verdad en la altura que suena) pasa de P=42.8% y R=64.1% a P=55.4% y R=59.4% con las reglas solas, y los compases con error de alteración que detectan las reglas, de 19 a 31 de 32. Como preveía el §14, la capa se queda en 2 posibles errores propios (ninguno correcto); ordena mejor que la regla los 79 posibles errores con el arreglo verdadero entre sus candidatos (68 frente a 53 en primera posición), y con la política del estudio se muestran 47 sugerencias, 40 correctas y 3 notas correctas estropeadas.
 10. **Con #236 ([ADR-0044](ADR-0044-compas-con-su-simbolo-y-tresillos-como-edicion.md) §5), 2026-11-01, sustituye a la enmienda 1:** la métrica leída se nombra como se escribe, «C» o «¢» si el `ScoreIR` guarda su símbolo (HOMR no lo escribe, así que los mensajes medidos no cambian). `time.signature` trae como candidato un `SetTime` a S desde el compás del ancla: hasta el siguiente cambio en el caso «en todo el tramo» y solo los compases de la racha (`measures`) en el caso «desde un compás». `SetTime` no es de ninguna familia de sugerencias, así que la política del estudio no lo muestra (mostrarlo lo decide #244); las mediciones de las sugerencias (`exp_14`, #257) cuentan solo los candidatos de contenido, así que sus cifras no cambian, y `RULES_CATALOG_VERSION` sigue en 2.
+
+## Enmienda de #318 (2026-11-02): `accidental.repeated` en las páginas del estudio
+
+11. **`accidental.repeated` deja de señalar dos casos (§7)**: el acorde que repite la nota de otro acorde, y la alteración que otra voz confirma en el compás.
+
+    **El problema.** En la verdad del banco del estudio (#247) la regla daba 10 avisos, todos falsos.
+    - 3 en TS-02 (*Letzte Hoffnung*): el segundo Do♭5 de la voz en los compases 1 y 5 y el segundo Fa♯4 del compás 8.
+    - 7 en TS-04: el Re♭4 de la mano derecha en el compás 1 y los Mi♭ de las dos manos en los compases 3 y 4.
+
+    Salen igual en la lectura de HOMR y en la sesión corregida, porque HOMR lee bien esas notas.
+
+    **La causa: el alcance del compás.** En la práctica común una alteración se escribe una vez y vale hasta la barra. La nota repetida no lleva signo, y su altura es la misma que daría un becuadro que HOMR no viera. Desde la altura no se distinguen.
+
+    La precisión del §7 viene de PrIMuS, cuyas partituras vuelven a imprimir la alteración en cada nota. En el corpus de correcciones (`results/correction_corpus.jsonl`, #255; otra base que el recuento del §7) la regla dispara en 204 notas, 195 de ellas corregidas. En el agnóstico de PrIMuS, el compás de la verdad tiene en esa letra y octava:
+    - un becuadro impreso que HOMR no vio, en 181 de las corregidas y en 2 de las otras;
+    - la alteración impresa otra vez, en 7 sin corregir;
+    - en otras 13 corregidas, ningún signo en esa letra y octava (HOMR se equivocó de nota);
+    - en 1, la alteración escrita una sola vez que vale para la nota repetida. Es el caso de TS-02 y TS-04, y la corrección de esa nota es de duración.
+
+    Así que el corpus casi no tiene el caso normal de una página real, y la precisión medida no vale para él. Tampoco tiene ningún acorde: es de una sola línea.
+
+    **El cambio.** Las notas de un acorde siguen contando como anteriores. La regla deja de disparar en dos casos:
+    - **Cuando la nota y la anterior de su altura son de un acorde** (la primera nota del acorde incluida). El acorde que repite la nota alterada del acorde anterior mantiene la armonía, y el corpus no tiene ningún caso. Quita el Re♭ de TS-04 y los Mi♭ que pasan de acorde a acorde. Tras una nota suelta, el acorde se sigue señalando.
+    - **Cuando otra voz u otro pentagrama del mismo compás, de cualquier parte, lleva la misma letra con la misma alteración, en cualquier octava, sonando cuando empieza la nota o empezando después.** Con el becuadro, las dos voces formarían una falsa relación (Fa♮ contra Fa♯), que la práctica común evita: la armonía del compás confirma la alteración.
+      - Quita los tres avisos de TS-02: el piano lleva el Do♭5 en un acorde de la mano derecha que empieza después de la nota de la voz, y el Fa♯ en las dos manos durante todo el compás 8.
+      - Quita el Mi♭ · Re · Mi♭ de la mano izquierda de TS-04, compás 4: suena a la vez que el Mi♭4 de un acorde de la derecha.
+      - No confirman ni una nota de otra voz que ya dejó de sonar, ni la misma voz en otra octava, ni otra alteración de la letra, ni la de otro compás.
+
+    **Lo que se sigue señalando.** La alteración repetida de una sola línea que nada confirma: los ejemplos «becuadro» y «bemol» del §12, o la voz de TS-02 sin el piano. Sigue siendo el falso positivo conocido del §7, porque en una línea sola no se distingue de un becuadro que HOMR no vio. Por eso sigue siendo `warning` y pregunta. También se señala la duplicación a la octava de Fa♯ · Fa♮ en la que HOMR no ve el becuadro de una de las dos voces, porque el Fa♯ de la otra ya no suena.
+
+    **Falsos negativos nuevos.**
+    - Si en esa duplicación HOMR no viera ninguno de los dos becuadros, las dos voces se confirmarían entre sí y no se señalaría. Es la misma forma que la alteración que vale hasta la barra en las dos manos de TS-04, y hace falta perder dos becuadros.
+    - El compás se cruza entre pentagramas por su número: si HOMR lee una barra de más o de menos en un pentagrama, la confirmación saldría de otra música.
+    - Una parte transpositora se compara por su altura escrita.
+
+    **Comprobado.** Con la regla nueva, la verdad del banco (calentamiento y TS-01 a TS-04), la lectura de HOMR y la sesión corregida no dan ningún `accidental.repeated`. TS-02 pasa de 3 a 0, TS-04 de 7 a 0 y la página entera de TS-04 leída por HOMR, de 13 a 0. Hacen falta los dos criterios: sin el del acorde queda el Re♭ de TS-04, y sin el de la otra voz quedan los tres de TS-02.
+
+    `test_accidental_repeated.py` reproduce TS-02 en las dos disposiciones (la de la verdad, piano y voz en dos partes, y la de HOMR, una parte con tres pentagramas) y los compases 1, 3 y 4 de TS-04. Con la regla anterior fallan. Los 21 ejemplos del §12 siguen pasando.
+
+    **Medido de nuevo (2026-11-02).** `exp_06` (91 incipits) y `exp_14`, con todo lo admisible y con la política del estudio, dan los mismos archivos que `results/rules_catalog_v2/`, salvo rutas, fechas y commit. Como en la enmienda 10, `RULES_CATALOG_VERSION` sigue en 2: subirla impediría comparar con la capa activa (ADR-0036 §9) sin que cambie ninguna cifra medida. Lo que cambia en las páginas del estudio no lo mide ninguno de los dos; lo comprueban las pruebas y el banco.
