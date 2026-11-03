@@ -25,7 +25,7 @@ Leído en el código de HOMR 0.7.0 y en sus lecturas del conjunto de referencia 
 
 `cadenza.omr.meter_stage` (su propio módulo, que solo depende del dominio): `recognize_meter(score, rasgos)` recibe el `ScoreIR` que dio el motor y devuelve otro, con lo que decidió; `MeterStage(rasgos).apply(documento)` lo aplica a un `ScoreDocument`, deriva de nuevo las anclas (la etapa no añade ni quita eventos, así que cada ancla sigue señalando el mismo evento) y se anota en la procedencia (§5).
 
-- **Corre en el caso de uso `transcribe_score`**, tras `OMREngine.transcribe` y antes de las reglas, **en las dos condiciones** (`assisted` y `unassisted`): las dos condiciones del estudio parten de la misma lectura.
+- **Corre en el caso de uso `transcribe_score`** (que la recibe por el puerto `RecognitionStage`, un `Protocol` que `MeterStage` cumple por estructura), tras `OMREngine.transcribe` y antes de las reglas, **en las dos condiciones** (`assisted` y `unassisted`): las dos condiciones del estudio parten de la misma lectura.
 - **`HOMREngine` no cambia**, ni los experimentos que lo construyen: siguen midiendo HOMR solo. Tampoco se sustituye nada de HOMR en caliente.
 - **En la API**, `create_app` construye la etapa con los rasgos de `CADENZA_OMR_METER_FEATURES` cuando construye HOMR (sin motor inyectado). Con un motor inyectado, solo corre la etapa que se inyecte (`create_app(meter_stage=…)`): el doble de pruebas da su partitura tal cual y las pruebas que dependen de ella no cambian.
 - Trabaja sobre el `ScoreIR`, no sobre el MusicXML de HOMR: es lo que se guarda en la sesión, se prueba con lecturas sintéticas sin HOMR ni imágenes, y #239, que cambia la importación de las partes, no la toca.
@@ -34,16 +34,16 @@ Leído en el código de HOMR 0.7.0 y en sus lecturas del conjunto de referencia 
 
 - **El denominador leído**, que no se cambia (HOMR acierta el denominador en el 99,2 % de PrIMuS).
 - **Lo que suma cada compás de cada pentagrama**: la voz más larga, sin las notas de un acorde.
-- **La anacrusa y el último compás**: el primero no vota si suma menos que el más largo de los demás; el último tampoco (el que completa la anacrusa, o un incipit cortado). Solo con tres compases o más.
+- **La anacrusa y el último compás**: el primero no vota si suma menos que la mediana de los demás; el último tampoco (el que completa la anacrusa, o un incipit cortado). Solo con tres compases o más. Con la mediana, y no con el más largo, un compás leído de más no le quita el voto a un primer o un último compás completos.
 - **Los tresillos marcados**: las figuras con un 3 en el denominador (ADR-0044 §3) que HOMR dejó.
 - **La parte**: la duración del compás es la de la parte (ADR-0044 §2), así que lo que dura un pentagrama confirma la del otro.
 - **La agrupación no se usa**: no está en la salida de HOMR. Sin ella, 3/2 con doce corcheas y ¢ con doce tresillos de corchea solo se distinguen por la parte o por los tresillos marcados (§3.3).
 
 ### 3. Tres rasgos que se activan por separado
 
-1. **`numerator`, el numerador por tramo.** Cada tramo de cada parte (los compases seguidos con la misma indicación de HOMR; sin indicación no hay tramo) recibe la duración que más votos tiene: cada compás de cada pentagrama vota por lo que suma, sin la anacrusa ni el último si suman menos (§2), y a igualdad gana la mayor. El numerador es esa duración por el denominador leído, si da un entero de 1 a 32; si no (o si el tramo está vacío, como una cortesía leída como un compás aparte), se queda el de HOMR. Se usa la moda y no el máximo: en una página, un compás leído de más pesaría tanto como todos los buenos.
+1. **`numerator`, el numerador por tramo.** Cada tramo de cada parte (los compases seguidos con la misma indicación de HOMR; sin indicación no hay tramo) recibe la duración que más votos tiene: cada compás de cada pentagrama vota por lo que suma, sin la anacrusa ni el último si suman menos (§2), y a igualdad gana la mayor. Solo votan las sumas que dan, con el denominador leído, un numerador entero de 1 a 32 (con denominador 4, nueve corcheas no son ningún compás: son una lectura de más o de menos). El numerador es la duración ganadora por el denominador; si no vota ninguna suma (o el tramo está vacío, como una cortesía leída como un compás aparte), se queda el de HOMR. Se usa la moda y no el máximo: en una página, un compás leído de más pesaría tanto como todos los buenos.
 2. **`symbol`, C y ¢.** Un tramo en 4/4 se escribe C, y uno en 2/2, ¢: es lo que se imprime casi siempre. En PrIMuS, 775 incipits llevan C frente a 5 con 4/4, y 284 llevan ¢ frente a 19 con 2/2; en las páginas del conjunto, todos los 4/4 y 2/2 impresos son C y ¢. No es leer el símbolo, que HOMR no da, sino la grafía más probable de la métrica; su acierto se mide aparte con `time_symbol_agreement` (ADR-0044 §1).
-3. **`implicit_tuplets`, los tresillos sin marcar.** Un compás cuya voz dura más que el compás del tramo se lee con tresillos si pasar a tresillo de 3:2 **todas** sus figuras de un mismo valor sin puntillo (notas y silencios, en múltiplo de tres, con las notas de sus acordes) lo deja durando justo lo que el compás; si cuadra con dos figuras distintas, es ambiguo y no se toca, y las figuras que ya son de tresillo no cambian. Hace falta una señal de que hay tresillos sin marcar: que el pentagrama ya tenga tresillos marcados de esa figura en el tramo, en ese compás o antes (al estilo de `implicitTuplets` de Audiveris), o que **otro pentagrama de la parte** tenga compases que duren justo eso. Con `numerator`, el compás del tramo y los tresillos se deciden a la vez: un compás que cuadra con tresillos a una duración vota también por ella. En la Sonata, la mano izquierda (una redonda) y la derecha con tresillos votan ¢ (14 votos) frente a la derecha sin ellos, 3/2 (7); doce corcheas solas, sin otra señal, empatan y se quedan en 3/2.
+3. **`implicit_tuplets`, los tresillos sin marcar.** Un compás cuya voz dura más que el compás del tramo se lee con tresillos si pasar a tresillo de 3:2 **todas** sus figuras de un mismo valor sin puntillo (notas y silencios, en múltiplo de tres, con las notas de sus acordes) lo deja durando justo lo que el compás; si cuadra con dos figuras distintas, es ambiguo y no se toca, y las figuras que ya son de tresillo no cambian. Hace falta una señal de que hay tresillos sin marcar: que el pentagrama ya tenga tresillos marcados de esa figura en el tramo, en ese compás o antes (al estilo de `implicitTuplets` de Audiveris), o que **otro pentagrama de la parte** tenga compases que duren justo eso (sin contar su anacrusa ni su último compás) y que **al menos dos** compases del pentagrama cuadren así: un solo compás leído de más que cuadra por casualidad no basta. Con `numerator`, el compás del tramo y los tresillos se deciden a la vez: un compás que cuadra con tresillos a una duración vota también por ella. En la Sonata, la mano izquierda (una redonda) y la derecha con tresillos votan ¢ frente a la derecha sin ellos, que vota 3/2; sin `implicit_tuplets`, las dos manos empatan y gana la mayor, 3/2. Doce corcheas en un solo pentagrama, sin tresillos marcados, no tienen señal y se quedan en 3/2.
 
 ### 4. Activación
 
@@ -72,30 +72,32 @@ Leído en el código de HOMR 0.7.0 y en sus lecturas del conjunto de referencia 
 | Páginas: símbolo C/¢ por compás (`time_symbol_agreement`) | 0/120 | 0/120 | 120/135 | 0/120 | 120/120 |
 | Páginas: tresillos implícitos leídos | 0/2 | 0/2 | 0/2 | 0/2 | 0/2 |
 | Páginas: compases leídos con tresillos que están en la verdad | 4/4 | 4/4 | 4/4 | 4/4 | 4/4 |
-| PrIMuS: numerador (y métrica) | 1 236 (62,8 %) | 1 712 (87,0 %) | 1 236 | 1 236 | 1 712 (87,0 %) |
-| PrIMuS: métrica y grafía | 660 (33,5 %) | 825 | 1 224 | 660 | 1 690 (85,9 %) |
-| PrIMuS: símbolo C/¢ por compás | 0/4 192 | 0/4 192 | 2 287/4 304 | 0/4 192 | 3 598/4 329 (83,1 %) |
+| PrIMuS: numerador (y métrica) | 1 236 (62,8 %) | 1 717 (87,2 %) | 1 236 | 1 236 | 1 717 (87,2 %) |
+| PrIMuS: métrica y grafía | 660 (33,5 %) | 828 | 1 224 | 660 | 1 695 (86,1 %) |
+| PrIMuS: símbolo C/¢ por compás | 0/4 192 | 0/4 192 | 2 287/4 304 | 0/4 192 | 3 602/4 336 (83,1 %) |
+
+`symbol` solo, sin `numerator`, escribe C donde HOMR lee 4/4 un 3/4 (*Ellens Gesang*, p. 7): de ahí los 15 compases con el símbolo mal de esa columna, que desaparecen con los dos rasgos.
 
 **La SER y el OMR-NED de PrIMuS** solo cambian con `numerator` (con `symbol` o `implicit_tuplets` solos, la etapa no cambia ninguna lectura que midan; los tres juntos dan lo mismo que `numerator`):
 
 | Fuente | Incipits | Cambiados por la etapa | SER media antes → después | Mejoran / empeoran (SER) | OMR-NED medio de los cambiados antes → después | Mejoran / empeoran (OMR-NED) |
 |---|---|---|---|---|---|---|
-| `primus-exp-03` | 91 | 23 | 0,1124 → 0,0896 | 18 / 3 | 0,2916 → 0,2360 | 20 / 3 |
-| `primus-exp-12` | 1 877 | 552 | 0,1339 → 0,0968 | 487 / 24 | 0,3267 → 0,2621 | 501 / 28 |
+| `primus-exp-03` | 91 | 18 | 0,1124 → 0,0873 | 16 / 0 | 0,3574 → 0,2866 | 18 / 0 |
+| `primus-exp-12` | 1 877 | 531 | 0,1339 → 0,0966 | 480 / 13 | 0,3295 → 0,2619 | 494 / 15 |
 
-El OMR-NED medio sobre todos los incipits medidos baja 0,0141 y 0,0190. Los que empeoran (27 por la SER, sumando las dos fuentes) son incipits en los que la mediana de HOMR acertaba y la suma más repetida no: casi siempre compases leídos de más, que ganan por mayoría o por el empate a la mayor (un C que HOMR leía 4/4 y la etapa pasa a 5/4, 6/4 u 8/4; un 6/8 que pasa a 8/8).
+El OMR-NED medio sobre todos los incipits medidos baja 0,0140 y 0,0191 (musicdiff comparó todos los pares). **Esto no es una prueba aparte de que el resto no empeora**: con `numerator` solo no cambia ninguna figura, solo la indicación, que la SER cuenta en cada compás (`time:b/t`) y el OMR-NED en cada `<time>`; la SER y el OMR-NED repiten, pesado por compases, el acierto del numerador. Lo que asegura que el resto no empeora es que, sin `implicit_tuplets`, la etapa no toca ningún evento; y con él, que en `exp_15` no cambia ninguno. Los incipits que empeoran (13 por la SER) son lecturas en las que la mediana de HOMR acertaba y la suma más repetida no: compases leídos de más que ganan (un C que HOMR leía 4/4 y la etapa pasa a 5/4, 6/4 u 8/4; un 3/4 que pasa a 4/4).
 
 **Los tresillos implícitos no cambian nada en `exp_15`**: en las páginas, los dos compases implícitos (*Der stürmische Morgen*, p. 65) no tienen tresillos marcados en su página y HOMR lee sus figuras con otro valor; en PrIMuS no hay incipit que cumpla la regla. Fuera del conjunto:
 
 - **La Sonata *Claro de luna*** (página del responsable, no versionada), por el camino de producción (`HOMREngine` en CPU, la etapa con los rasgos por defecto y `transcribe_score`): HOMR lee 3/2 con doce corcheas; la etapa da ¢ y doce tresillos de corchea en la mano derecha de los compases 1 a 4, y el MusicXML exportado lleva `<time symbol="cut">` y los `<time-modification>`. Con `numerator` y `symbol` sin `implicit_tuplets`, la página se queda en 3/2.
 - **El banco del estudio** (#247, solo para comprobar): el calentamiento y la página de TS-04 pasan de 4/4 a C, como su verdad; TS-01, un incipit en C que HOMR lee como 2/4 porque lee las negras como corcheas en tres de sus cuatro compases, sigue en 2/4; TS-02, TS-03 y el recorte de TS-04 no traen compás impreso y la etapa no los toca.
 
-**Decisión por rasgo**: `numerator` y `symbol` se activan, porque mejoran cada medida de su rasgo y no empeoran el resto (la SER y el OMR-NED de PrIMuS mejoran de media, con 24 y 28 incipits peores de 1 877). `implicit_tuplets` se activa también: no cambia ninguna cifra de `exp_15` ni de PrIMuS (no empeora nada) y es lo que da los tresillos y el ¢ de la Sonata que pide #237. Su única evidencia es esa página, que no está en el conjunto; si el responsable prefiere no activarlo sin una medida del conjunto, basta con quitarlo de `CADENZA_OMR_METER_FEATURES`, sin cambiar código.
+**Decisión por rasgo**: `numerator` y `symbol` se activan: juntos dejan bien todos los compases con indicación impresa de las páginas y suben la métrica y la grafía de PrIMuS, sin tocar ningún evento. `implicit_tuplets` se activa también: no cambia ninguna cifra de `exp_15` ni de PrIMuS (no empeora nada) y es lo que da los tresillos y el ¢ de la Sonata que pide #237. Su única evidencia es esa página, que no está en el conjunto; si el responsable prefiere no activarlo sin una medida del conjunto, basta con quitarlo de `CADENZA_OMR_METER_FEATURES`, sin cambiar código.
 
 ## Consecuencias
 
 ### Positivas
-- En las páginas del conjunto, todos los compases con indicación impresa salen con la métrica y la grafía buenas (375 de 375), también los dos cambios a mitad de página; en PrIMuS, la métrica pasa del 62,8 % al 87,0 % y la grafía del 33,5 % al 85,9 %, con la SER y el OMR-NED mejores de media.
+- En las páginas del conjunto, todos los compases con indicación impresa salen con la métrica y la grafía buenas (375 de 375), también los dos cambios a mitad de página; en PrIMuS, la métrica pasa del 62,8 % al 87,2 % y la grafía del 33,5 % al 86,1 %.
 - La Sonata sale en ¢ con los tresillos de la mano derecha en los compases 1 a 4.
 - Lo que la etapa decidió queda en la sesión, y se puede apagar rasgo a rasgo sin tocar código.
 - Los experimentos de HOMR no cambian, y la etapa se mide con el mismo conjunto, rasgo a rasgo.
@@ -106,6 +108,8 @@ El OMR-NED medio sobre todos los incipits medidos baja 0,0141 y 0,0190. Los que 
 - **Un cambio de compás con el mismo denominador a mitad de página se pierde**: HOMR quita la segunda indicación (`_remove_redudant_…`) y el tramo une las dos métricas; la moda se queda con la de más compases.
 - **Los compases sin indicación** (un tramo que empezó en otra página, 409 de 414 en el conjunto) siguen sin ella: sin denominador leído, la etapa no los adivina.
 - **Tresillos implícitos**: solo los de 3:2 y solo si todas las figuras de un valor de la voz pasan a tresillo; un compás que mezcla tresillos y figuras normales del mismo valor no cuadra y no se toca. En `exp_15` no se ve ninguno (los dos compases implícitos de *Der stürmische Morgen* no tienen tresillos marcados en su página y HOMR lee sus figuras de otro valor); la única evidencia de que mejora es la Sonata, que no es del conjunto.
+- **Tresillos por la parte**: en un piano, la mano izquierda suele durar el compás, así que basta que dos compases de la derecha estén leídos de más justo en un tercio de sus figuras de un valor para que pasen a tresillos. En las doce páginas no ocurre (los compases leídos con tresillos siguen estando todos en la verdad), pero son pocas páginas.
+- **La etapa se diseñó y se midió con el mismo conjunto** (el de #234, sin el banco del estudio): sus cifras no son de una muestra independiente. Además son del scratchpad del autor; antes de citarlas, el responsable las regenera en `results/` (CLAUDE.md §8.4).
 
 ## Alternativas consideradas
 
