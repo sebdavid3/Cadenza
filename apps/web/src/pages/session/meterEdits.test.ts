@@ -125,7 +125,7 @@ describe("cambiar el compás (SetTime)", () => {
     expect(planTime(CUT, anchor(1, 3), current)).toEqual({
       kind: "edit",
       op: "SetTime",
-      after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } },
+      after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" }, all_parts: true },
       time: CUT,
       anchor: anchor(1),
       change: "compás ¢ en los compases 1 a 4",
@@ -178,6 +178,94 @@ describe("cambiar el compás (SetTime)", () => {
       message: expect.stringContaining("no llevan el mismo compás") as string,
     });
     expect(planTime(CUT, null, uneven)).toMatchObject({ kind: "refused", reason: "no-target" });
+  });
+});
+
+describe("el compás en todas las partes (#326)", () => {
+  const THREE: TimeChoice = { beats: 3, beat_type: 4, symbol: null };
+
+  /** Una parte por lista de pentagramas; cada pentagrama, el compás de cada uno de sus compases. */
+  function parts(...signatures: (TimeSignaturePayload | null)[][][]): ScoreIRPayload {
+    return {
+      parts: signatures.map((staves, part) => ({
+        id: `part-${String(part)}`,
+        staves: staves.map((measures, staff) => ({
+          id: `part-${String(part)}-staff-${String(staff)}`,
+          measures: measures.map((signature, index): MeasurePayload => ({
+            number: index + 1,
+            events: [note("C4", "3")],
+            time_signature: signature,
+          })),
+        })),
+      })),
+    };
+  }
+
+  const piano = (measure: number, staff = 1) =>
+    anchor(measure, 0, { part: 1, staff, staff_id: `part-1-staff-${String(staff)}` });
+
+  it("pone el compás en la voz y en el piano con una sola edición, desde cualquier parte", () => {
+    // Como TS-02 leída por HOMR: la voz y el piano, sin compás.
+    const current = parts(
+      [[null, null]],
+      [
+        [null, null],
+        [null, null],
+      ],
+    );
+    expect(planTime(THREE, piano(1), current)).toEqual({
+      kind: "edit",
+      op: "SetTime",
+      after: { time_signature: { beats: 3, beat_type: 4 }, all_parts: true },
+      time: THREE,
+      anchor: piano(1),
+      change: "compás 3/4 en los compases 1 a 2, en todas las partes",
+      notice: "Las figuras no cambian: revalida para ver los compases que no cuadran.",
+    });
+    expect(planTime(THREE, anchor(1), current)).toMatchObject({
+      after: { all_parts: true },
+      anchor: anchor(1),
+    });
+  });
+
+  it("propone el compás de la nota elegida aunque venga de otra parte", () => {
+    // El compás puesto solo en la voz antes de #326: el piano no lleva ninguno.
+    const current = parts(
+      [[time(3, 4), null]],
+      [
+        [null, null],
+        [null, null],
+      ],
+    );
+    expect(activeTime(current, piano(1))).toEqual(THREE);
+    expect(activeTime(current, piano(2, 0))).toEqual(THREE);
+    // Ponerlo de nuevo no es «el mismo»: el piano no lo tiene. Y se dice que ahora todas lo llevan.
+    expect(planTime(THREE, piano(1), current)).toMatchObject({
+      kind: "edit",
+      after: { all_parts: true },
+      notice: expect.stringContaining(
+        "Las partes no llevaban el mismo compás: ahora todas llevan 3/4.",
+      ) as string,
+    });
+    expect(planTime(THREE, anchor(1), current)).toMatchObject({ kind: "edit" });
+  });
+
+  it("es el mismo solo si todas las partes ya lo llevan", () => {
+    const current = parts([[time(3, 4)]], [[time(3, 4)], [time(3, 4)]]);
+    expect(planTime(THREE, piano(1), current)).toMatchObject({ kind: "refused", reason: "same" });
+    expect(planTime(FOUR, piano(1), current)).toMatchObject({
+      kind: "edit",
+      change: "compás 4/4 en el compás 1, en todas las partes",
+    });
+  });
+
+  it("no lo cambia si los pentagramas de otra parte no llevan el mismo compás", () => {
+    const current = parts([[time(4, 4)]], [[time(4, 4)], [time(3, 4)]]);
+    expect(planTime(THREE, anchor(1), current)).toMatchObject({
+      kind: "refused",
+      reason: "meter",
+      message: expect.stringContaining("no llevan el mismo compás") as string,
+    });
   });
 });
 
@@ -352,7 +440,7 @@ describe("poner y quitar tresillos (SetTuplet)", () => {
     // El compás, en el mismo compás con su tramo de ahora.
     const time: MeterDecision = {
       op: "SetTime",
-      after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } },
+      after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" }, all_parts: true },
       time: CUT,
     };
     expect(replanMeter(time, anchor(1), current, same).plan).toMatchObject({

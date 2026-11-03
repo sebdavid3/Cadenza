@@ -167,6 +167,16 @@ function timeChange(after: Record<string, unknown>): string {
   return `compás ${String(beats)}/${String(beatType)}`;
 }
 
+/**
+ * Si un `SetTime` cambió el compás en varias partes (`all_parts`, #326): su instantánea, y la
+ * compensatoria que la lleva como `after`, guardan lo de cada parte en `parts`.
+ */
+function inAllParts(before: unknown, after: Record<string, unknown>): boolean {
+  return [record(before), after].some(
+    (state) => state?.all_parts === true && Array.isArray(state.parts) && state.parts.length > 1,
+  );
+}
+
 /** Si `SetTuplet` pone o quita el tresillo: lo quita si sus figuras de antes eran de tresillo. */
 function tupletChange(before: unknown, after: Record<string, unknown>): string {
   const durations = Array.isArray(after.durations) ? after.durations : [];
@@ -243,7 +253,7 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return keyChange(after);
     // El compás y los tresillos (ADR-0044).
     case "SetTime":
-      return timeChange(after);
+      return timeChange(after) + (inAllParts(edit.before, after) ? " en todas las partes" : "");
     case "SetTuplet":
       return tupletChange(edit.before, after);
     // La ligadura de prolongación (ADR-0055).
@@ -274,7 +284,7 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
  * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
-  { op, anchor }: { op: string; anchor: AnchorPayload },
+  { op, anchor, after }: { op: string; anchor: AnchorPayload; after?: unknown },
   multiStaff: boolean,
   score: ScoreIRPayload | null = null,
 ): string {
@@ -283,9 +293,12 @@ export function placeOf(
     ? `compás ${String(anchor.measure)}`
     : `compás ${String(anchor.measure)}, voz ${String(anchor.voice + 1)}`;
   // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla, sino la
-  // parte, si hay varias.
+  // parte, si hay varias; y en todas las partes (`all_parts`, #326), ninguna.
   if (op === "SetTime") {
-    return (score?.parts.length ?? 0) > 1 ? `parte ${String(anchor.part + 1)}, ${place}` : place;
+    const everywhere = record(after)?.all_parts === true;
+    return !everywhere && (score?.parts.length ?? 0) > 1
+      ? `parte ${String(anchor.part + 1)}, ${place}`
+      : place;
   }
   if (!multiStaff) return place;
   const previous = (score?.parts ?? [])
