@@ -301,6 +301,25 @@ describe("compás y tresillos (ADR-0044)", () => {
       before: { time_signature: three, all_parts: true },
     });
     expect(describeEdit(undone)).toBe("quitar el cambio de compás en todas las partes");
+    // Si las partes llevaban compases distintos, deshacer devuelve a cada una el suyo.
+    const mixed = {
+      ...before,
+      parts: [
+        { time_signature: three, measures: 2 },
+        { time_signature: null, measures: 2 },
+      ],
+    };
+    expect(describeEdit(edit(2, "SetTime", mixed, { before: done.after }))).toBe(
+      "devolver el compás de cada parte",
+    );
+    // Sin lo de cada parte, el servidor no la puede deshacer.
+    expect(
+      hasCompleteBefore(
+        edit(1, "SetTime", null, {
+          before: { time_signature: null, measures: 2, all_parts: true },
+        }),
+      ),
+    ).toBe(false);
     // Con una sola parte no hay «todas las partes».
     const single = edit(
       1,
