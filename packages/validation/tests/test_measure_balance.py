@@ -268,3 +268,35 @@ def test_a_short_voice_explained_by_an_incomplete_tuplet_is_left_to_the_tuplet()
     third = Fraction(1, 3)
     doc = surrounded(m(2, n("C5", third), n("D5", third), n("E5", Fraction(3))))
     assert ValidationEngine([MeasureBalanceRule()]).validate(doc) == []
+
+
+def test_measure_balance_checks_measures_after_first_once_set_time_sets_meter() -> None:
+    """Tras SetTime 6/8 sobre un ScoreIR sin compás, measure.balance revisa los cc. 2..N (#329)."""
+    from datetime import UTC, datetime
+
+    from cadenza.domain import Anchor, EditEvent, EditOp, apply_edit, snapshot_before
+
+    doc = document(
+        [
+            m(1, n("C5", Fraction(3)), time=None),
+            m(2, n("D5", Fraction(2)), time=None),
+        ]
+    )
+    assert ValidationEngine([MeasureBalanceRule()]).validate(doc) == []
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="staff-1")
+    after = {"time_signature": {"beats": 6, "beat_type": 8}}
+    edit = EditEvent(
+        id="e1",
+        document_id=doc.id,
+        seq=1,
+        anchor=anchor,
+        op=EditOp.SET_TIME,
+        author="ana",
+        created_at=datetime(2026, 11, 3, tzinfo=UTC),
+        before=snapshot_before(doc.score, anchor, EditOp.SET_TIME, after),
+        after=after,
+    )
+    updated_score = apply_edit(doc.score, edit)
+    updated_doc = replace(doc, score=updated_score, anchors=build_anchor_index(updated_score))
+    findings = ValidationEngine([MeasureBalanceRule()]).validate(updated_doc)
+    assert [f.anchor.measure for f in findings] == [2]

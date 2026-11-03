@@ -101,3 +101,28 @@ def test_symbols_are_exported_and_survive_the_roundtrip() -> None:
     )
     # Tres indicaciones escritas: C, ¢ y el 4/4 con números, aunque sea la métrica de C.
     assert xml.count("<time") == 3
+
+
+def test_import_leaves_none_only_before_the_first_time_signature() -> None:
+    """Invariante de ADR-0044 (enmienda de #329): ningún None va detrás de un compás con
+    indicación. Si el compás aparece en el c. 3, los cc. 1-2 quedan en None y del c. 3 en
+    adelante llevan ese compás."""
+    note = (
+        "<note><pitch><step>C</step><octave>5</octave></pitch><duration>3</duration>"
+        "<type>half</type><dot/></note>"
+    )
+    clef = (
+        "<attributes><divisions>1</divisions><clef><sign>G</sign><line>2</line></clef></attributes>"
+    )
+    meter = "<attributes><time><beats>3</beats><beat-type>4</beat-type></time></attributes>"
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<score-partwise version="3.1">'
+        '<part-list><score-part id="P1"><part-name>Music</part-name></score-part></part-list>'
+        f'<part id="P1"><measure number="1">{clef}{note}</measure>'
+        f'<measure number="2">{note}</measure>'
+        f'<measure number="3">{meter}{note}</measure>'
+        f'<measure number="4">{note}</measure></part></score-partwise>'
+    )
+    score = musicxml_to_score_ir(xml)
+    assert _signatures(score) == [None, None, TimeSignature(3, 4), TimeSignature(3, 4)]

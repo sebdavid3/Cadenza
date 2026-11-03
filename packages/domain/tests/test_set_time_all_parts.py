@@ -119,7 +119,7 @@ def test_set_time_without_all_parts_still_changes_only_the_part_of_the_anchor() 
     edit = _edit(score, _anchor(0), {"time_signature": THREE_AFTER})
     assert edit.before == {"time_signature": None, "measures": 2}
     changed = apply_edit(score, edit)
-    assert _signatures(changed, 0) == [THREE_AFTER, None]
+    assert _signatures(changed, 0) == [THREE_AFTER, THREE_AFTER]
     assert _signatures(changed, 1, 0) == [None, None]
     assert _signatures(changed, 1, 1) == [None, None]
     assert materialize(score, [edit]).to_primitive() == changed.to_primitive()
@@ -133,9 +133,9 @@ def test_all_parts_sets_voice_and_piano_with_one_edit_and_undoes_in_one_step() -
     score = _score([[None, None, None]], [[None, None, None], [None, None, None]])
     edit = _edit(score, _anchor(0), _all_parts())
     changed = apply_edit(score, edit)
-    assert _signatures(changed, 0) == [THREE_AFTER, None, None]
-    assert _signatures(changed, 1, 0) == [THREE_AFTER, None, None]
-    assert _signatures(changed, 1, 1) == [THREE_AFTER, None, None]
+    assert _signatures(changed, 0) == [THREE_AFTER, THREE_AFTER, THREE_AFTER]
+    assert _signatures(changed, 1, 0) == [THREE_AFTER, THREE_AFTER, THREE_AFTER]
+    assert _signatures(changed, 1, 1) == [THREE_AFTER, THREE_AFTER, THREE_AFTER]
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
 
 
@@ -150,7 +150,7 @@ def test_all_parts_from_a_note_of_another_part_changes_them_all() -> None:
 
 def test_all_parts_before_keeps_each_part_and_is_complete() -> None:
     # La voz ya llevaba 3/4 (un SetTime de antes de #326) y el piano, nada.
-    score = _score([[THREE, None]], [[None, None], [None, None]])
+    score = _score([[THREE, THREE]], [[None, None], [None, None]])
     edit = _edit(score, _anchor(0), _all_parts())
     assert edit.before == {
         "time_signature": THREE_AFTER,
@@ -163,7 +163,7 @@ def test_all_parts_before_keeps_each_part_and_is_complete() -> None:
     }
     assert has_complete_before(edit)
     changed = apply_edit(score, edit)
-    assert _signatures(changed, 1, 1) == [THREE_AFTER, None]
+    assert _signatures(changed, 1, 1) == [THREE_AFTER, THREE_AFTER]
     assert _undo(changed, edit).to_primitive() == score.to_primitive()
 
 
@@ -200,7 +200,7 @@ def test_all_parts_skips_a_part_without_that_measure() -> None:
 
 
 def test_all_parts_redo_after_undo_gives_the_same_state() -> None:
-    score = _score([[FOUR, None]], [[None, None]])
+    score = _score([[FOUR, FOUR]], [[None, None]])
     after = _all_parts()
     edit = _edit(score, _anchor(0), after)
     inverse = create_inverse_edit(edit, id="u", seq=2, author="ana", created_at=NOW)
@@ -258,3 +258,25 @@ def test_all_parts_before_without_its_parts_is_not_complete() -> None:
         after=_all_parts(),
     )
     assert not has_complete_before(partial)
+
+
+def test_all_parts_six_eight_on_score_without_meter_fills_all_and_undoes_and_redoes() -> None:
+    score = _score([[None, None, None]], [[None, None, None], [None, None, None]])
+    six_eight = {"beats": 6, "beat_type": 8}
+    after = _all_parts(six_eight)
+    edit = _edit(score, _anchor(0), after)
+    changed = apply_edit(score, edit)
+    for part, staff in ((0, 0), (1, 0), (1, 1)):
+        assert _signatures(changed, part, staff) == [six_eight, six_eight, six_eight]
+    undone = _undo(changed, edit)
+    for part, staff in ((0, 0), (1, 0), (1, 1)):
+        assert _signatures(undone, part, staff) == [None, None, None]
+    inverse = create_inverse_edit(edit, id="u", seq=2, author="ana", created_at=NOW)
+    redo = _edit(undone, _anchor(0), after, seq=3)
+    assert materialize(score, [edit, inverse, redo]).to_primitive() == changed.to_primitive()
+
+
+def test_all_parts_rejects_partial_measures_when_a_part_has_no_signature() -> None:
+    score = _score([[FOUR, FOUR, FOUR]], [[None, None, None], [None, None, None]])
+    with pytest.raises(InvalidEditPayload, match="debe cubrir todo el tramo"):
+        validate_after(score, _anchor(0), EditOp.SET_TIME, _all_parts(measures=2))

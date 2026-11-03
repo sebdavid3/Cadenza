@@ -10,13 +10,17 @@ el estado que sustituyen, con la forma de su `after`, y la compensatoria interca
   ``{"time_signature": {"beats", "beat_type", "symbol"?} | None, "measures"?: k}``. Cambia el
   compás desde el compás del ancla hasta el siguiente cambio, en todos los pentagramas de la
   parte (la métrica es de la parte: todos sus pentagramas comparten la duración del compás).
-  La importación da a cada compás su métrica efectiva, así que «hasta el siguiente cambio» es
-  el **tramo**: el compás del ancla y los siguientes que llevan su misma indicación (o ninguna),
-  hasta el primero que lleva otra. El compás del ancla pasa a llevar la indicación de `after`
-  y los demás del tramo que llevaban una, la nueva vigente. `measures` fija cuántos compases
-  cambia; sin él, el tramo entero. La instantánea los lleva siempre, para que deshacer devuelva
-  exactamente esos compases. Solo la compensatoria escribe ``None`` (un compás que no llevaba
-  indicación y hereda la del anterior); de un cliente, se rechaza. Con ``"all_parts": true``
+  La importación da a cada compás su métrica efectiva (o ``None`` si la partitura no tiene
+  compás), así que «hasta el siguiente cambio» es el **tramo**: el compás del ancla y los
+  siguientes que llevan su misma indicación (o ``None`` si el tramo no tiene compás), hasta el
+  primero que lleva otra. Todos los compases del tramo pasan a llevar la nueva indicación
+  vigente (#329, enmienda de ADR-0044), como hace la importación, y ``None`` significa solo
+  «sin compás». `measures` fija cuántos compases cambia en un tramo que ya tiene indicación;
+  en un tramo en ``None`` debe cubrir el tramo entero (para no dejar ``None`` detrás de un
+  compás con indicación, lo que impediría deshacer con exactitud un `SetTime` posterior). La
+  instantánea lleva siempre `measures`, para que deshacer devuelva exactamente esos compases.
+  Solo la compensatoria escribe ``None`` (para devolver a «sin compás» un tramo que no llevaba
+  indicación); de un cliente, se rechaza. Con ``"all_parts": true``
   (#326, enmienda de ADR-0044), lo mismo en todas las partes, cada una en su tramo; la
   instantánea guarda lo de cada parte en ``parts`` y la compensatoria (la única que lo escribe)
   devuelve cada una a lo suyo. Sin él, solo la parte del ancla: un `SetTime` guardado antes de
@@ -250,17 +254,28 @@ def _check_time(score: ScoreIR, anchor: Anchor, after: object) -> None:
         raise InvalidEditPayload(f"'all_parts' debe ser true o false: {after[ALL_PARTS]!r}")
     _parse_signature(after["time_signature"])
     if _all_parts(after):
-        runs = [scope[1] for scope in _parts_scope(score, anchor) if scope is not None]
+        scopes = [
+            (score.parts[index], *scope)
+            for index, scope in enumerate(_parts_scope(score, anchor))
+            if scope is not None
+        ]
     else:
-        runs = [_time_scope(score, anchor)[2]]
+        scopes = [_time_scope(score, anchor)]
     if "measures" in after:
         measures = _parse_measures(after["measures"])
-        run = min(runs)
+        run = min(scope[2] for scope in scopes)
         if measures > run:
             raise InvalidEditPayload(
                 f"'measures' ({measures}) pasa del siguiente cambio de compás: desde el compás "
                 f"{anchor.measure} rige en {run}"
             )
+        for part, staves, part_run in scopes:
+            staff, position = staves[0]
+            if part.staves[staff].measures[position].time_signature is None and measures < part_run:
+                raise InvalidEditPayload(
+                    f"'measures' ({measures}) debe cubrir todo el tramo sin indicación de compás "
+                    f"({part_run} compases desde el compás {anchor.measure})"
+                )
 
 
 def _part_snapshot(
@@ -309,8 +324,7 @@ def _apply_time_to_part(
         vigente = signature or _effective_before(bars, position)
         bars[position] = replace(bars[position], time_signature=signature)
         for index in range(position + 1, min(position + run, len(bars))):
-            if bars[index].time_signature is not None:
-                bars[index] = replace(bars[index], time_signature=vigente)
+            bars[index] = replace(bars[index], time_signature=vigente)
         staves[staff_index] = replace(staff, measures=tuple(bars))
     return replace(part, staves=tuple(staves)) if found else None
 
