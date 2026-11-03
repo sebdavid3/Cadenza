@@ -292,6 +292,50 @@ El OMR-NED de `musicdiff` tarda segundos por par (el `build` de `exp_12` tardó 
 OMR-NED entre procesos, y una variante idéntica a otra del mismo incipit (sin sugerencias
 aplicadas) reutiliza su valor. El resultado no depende del número de procesos.
 
+### `exp_15_reference_set.py` — conjunto de referencia del compás, los tresillos, las armaduras y la voz con piano (#234)
+
+La línea base de #237, #238 y #239 ([ADR-0056](../docs/adr/ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md)).
+El conjunto lo fija `ml/experiments/reference_set_manifest.json`: doce páginas impresas de IMSLP
+(dominio público) de *Ellens Gesang I*, *Mondnacht* y *Der stürmische Morgen* con su verdad de
+OpenScore Lieder (CC0), y las predicciones de HOMR sobre PrIMuS de `exp_04` y `exp_12` (renders de
+Verovio, no escaneos) para el numerador del compás y C y ¢. Los PDF, las verdades y las predicciones
+están en `data/` sin versionar; el manifiesto guarda su sha256. Las páginas del banco del estudio
+(#247) no entran.
+
+```powershell
+# Rasteriza las páginas con pdftoppm a 300 ppp en data/reference/pages/ (run lo hace si faltan)
+uv run --no-sync python ml/experiments/exp_15_reference_set.py pages
+# Transcribe las doce páginas con HOMR en CPU, compara y lee PrIMuS (por defecto, en results/)
+uv run --no-sync python ml/experiments/exp_15_reference_set.py run
+```
+
+Si falta un archivo del manifiesto, o su sha256 (o la huella de las predicciones de PrIMuS) no es el
+del manifiesto, falla antes de transcribir con la lista de lo que falta. Las imágenes tienen que dar
+el sha256 del manifiesto, que se hizo con `pdftoppm` 24.04.0 (poppler): con otra versión, falla. Los
+rasgos que el manifiesto dice de cada página se cotejan con su verdad.
+
+Mide pentagrama a pentagrama (los de la verdad: uno que HOMR no lee cuenta como no leído), con
+alineación proporcional de los compases de la página, una tolerancia de `--tolerance` compases (1 por
+defecto) y cada cambio o compás con tresillos leído emparejado como mucho con uno de la verdad (de
+los cambios dentro de la tolerancia, el que lee el valor bueno y, si no, el más cercano):
+
+- **el compás por tramo**: cada indicación impresa (al principio de página o a mitad), si HOMR la lee,
+  con la métrica y con la grafía; la métrica y la grafía de cada compás; el símbolo C y ¢ con
+  `time_symbol_agreement`; los compases de un tramo que empezó antes, sin indicación impresa, aparte;
+  la indicación de cortesía del final y los cambios de más;
+- **la armadura**: al principio de la página, en cada cambio, en la cortesía y en cada compás;
+- **los tresillos**: los compases de la verdad con tresillos, marcados o implícitos (sin número en el
+  MusicXML de la verdad), que HOMR lee, y los que lee HOMR que están en la verdad;
+- **las partes y los pentagramas** de cada página;
+- **PrIMuS**: el compás inicial (numerador, denominador y grafía, con las confusiones) y el símbolo en
+  todos los compases, sobre los incipits medidos y con los fallos de HOMR como mal leídos.
+
+Salida (`--output-dir`, por defecto `results/`): `reference_set_summary.json` (con `run_info`),
+`reference_set_pages.csv`, `reference_set_primus.csv`, `exp_15_run_info.json` y
+`reference_set_predictions/` con el MusicXML de HOMR de cada página (`--reuse-predictions` lo
+reutiliza si es de la misma imagen y del mismo motor). `--gpu` transcribe en GPU; `--workers` (hasta 8
+por defecto) lee PrIMuS en paralelo.
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
