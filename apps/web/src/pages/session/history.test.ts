@@ -322,6 +322,10 @@ describe("compás y tresillos (ADR-0044)", () => {
         parts,
       ),
     ).toBe("compás 3");
+    // Deshacerlo o rehacerlo lo dice por la edición del log.
+    expect(
+      placeOf({ op: "SetTime", anchor: { ...anchor(3), part: 1 }, edit: done }, true, parts),
+    ).toBe("compás 3");
   });
 
   it("la figura de un acorde se dice con su figura, en su voz, y se deshace con su instantánea", () => {

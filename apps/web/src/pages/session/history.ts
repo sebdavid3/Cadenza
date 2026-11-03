@@ -284,7 +284,12 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
  * anteriores, como los compases marcados (`measureSlot`); sin `score`, dentro de su parte.
  */
 export function placeOf(
-  { op, anchor, after }: { op: string; anchor: AnchorPayload; after?: unknown },
+  {
+    op,
+    anchor,
+    after,
+    edit,
+  }: { op: string; anchor: AnchorPayload; after?: unknown; edit?: { after?: unknown } },
   multiStaff: boolean,
   score: ScoreIRPayload | null = null,
 ): string {
@@ -295,7 +300,8 @@ export function placeOf(
   // El compás es de toda la parte (ADR-0044 §2): no se dice el pentagrama del ancla, sino la
   // parte, si hay varias; y en todas las partes (`all_parts`, #326), ninguna.
   if (op === "SetTime") {
-    const everywhere = record(after)?.all_parts === true;
+    // Deshacer y rehacer lo dicen por la edición del log que deshacen o reenvían.
+    const everywhere = record(after ?? edit?.after)?.all_parts === true;
     return !everywhere && (score?.parts.length ?? 0) > 1
       ? `parte ${String(anchor.part + 1)}, ${place}`
       : place;
