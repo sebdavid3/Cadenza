@@ -1,0 +1,352 @@
+{
+  "name": "Conjunto de referencia del compás, los tresillos, las armaduras y la voz con piano",
+  "issue": 234,
+  "adr": "ADR-0056",
+  "version": 1,
+  "paths": "Las rutas de scans, truths y primus son relativas a data/; las de las imágenes, a data/reference/pages/ (o --pages-dir). Nada de eso se versiona: solo este manifiesto.",
+  "rasterization": {
+    "tool": "pdftoppm",
+    "tool_version": "24.04.0",
+    "dpi": 300,
+    "format": "png",
+    "command": "pdftoppm -r 300 -f <página> -l <página> -png -singlefile <pdf> <salida>",
+    "generated_by": "uv run --no-sync python ml/experiments/exp_15_reference_set.py pages"
+  },
+  "excluded": "Las verdades lc5007180, lc5023603 y lc5013945 y las pp. 40, 57 y 72 del PDF de IMSLP60822 son del banco del estudio (#247): no entran aquí, para no medir con lo mismo que el estudio.",
+  "required_features": [
+    "time_numerator",
+    "time_symbol_common",
+    "time_symbol_cut",
+    "time_change",
+    "tuplets_marked",
+    "tuplets_implicit",
+    "key_change",
+    "voice_piano"
+  ],
+  "scans": [
+    {
+      "id": "imslp-62381",
+      "path": "reference/scans/IMSLP62381-PMLP39389-Schubert_Werke_Breitkopf_Serie_XX_Band_8_F.S.830.pdf",
+      "url": "https://imslp.org/wiki/Special:ReverseLookup/62381",
+      "edition": "Franz Schuberts Werke, Serie XX, Band 8 (Leipzig: Breitkopf & Härtel), F.S. 830: Ellens Gesang I, D 837, pp. 70-77 impresas (8 páginas del PDF)",
+      "license": "Dominio público (IMSLP)",
+      "sha256": "a97fcefe5397953df6cc843cae28f783cc7a1c344cfca494a6f86a85d65167b4"
+    },
+    {
+      "id": "imslp-270920",
+      "path": "reference/scans/IMSLP270920-PMLP12741-Schumann,_Robert_Werke_Breitkopf_Gregg_Serie_13_Band_2_RS_127_Op_39_scan.pdf",
+      "url": "https://imslp.org/wiki/Special:ReverseLookup/270920",
+      "edition": "Robert Schumanns Werke, Serie XIII, Band 2 (Leipzig: Breitkopf & Härtel, 1885), R.S. 127: Liederkreis op. 39 (22 páginas); el mismo PDF que INV-0002",
+      "license": "Dominio público (IMSLP)",
+      "sha256": "baf437235f98d4515426a34ef930ef793c7fec080fe39bac3c1e13e802506212"
+    },
+    {
+      "id": "imslp-60822",
+      "path": "reference/scans/IMSLP60822-PMLP02203-Schubert_Werke_Breitkopf_Serie_XX_Band_9_F.S.878-904.pdf",
+      "url": "https://imslp.org/wiki/Special:ReverseLookup/60822",
+      "edition": "Franz Schuberts Werke, Serie XX, Band 9 (Leipzig: Breitkopf & Härtel), F.S. 878-904: Winterreise (81 páginas; la página del PDF es la impresa + 4)",
+      "license": "Dominio público (IMSLP)",
+      "reserved_pages": "Las pp. 40, 57 y 72 del PDF son del banco del estudio (#247): no se usan aquí.",
+      "sha256": "7e1d7e1b9456f1f8576078ba72cec03934d36c229d5c50dc1dee073babbd0799"
+    }
+  ],
+  "truths": [
+    {
+      "id": "lc6181353",
+      "path": "reference/truth/lc6181353.mxl",
+      "title": "Ellens Gesang I, D 837 (op. 52 n.º 1)",
+      "composer": "Franz Schubert",
+      "url": "https://musescore.com/scores/franz-schubert/op52-907131469213391",
+      "license": "CC0 1.0 (OpenScore Lieder)",
+      "original": "reference/truth/lc6181353.mscx",
+      "sha256": "f99d216edec7510357f6ed9ef0b699aa28b9fe2300fa5f796acda17d49d3ff62",
+      "original_sha256": "deefe814d457626a0b7083bceee58a74cd03584bcee1dfb5668647f650c4ee7e"
+    },
+    {
+      "id": "lc4987640",
+      "path": "reference/truth/lc4987640.mxl",
+      "title": "Mondnacht (Liederkreis op. 39 n.º 5)",
+      "composer": "Robert Schumann",
+      "url": "http://musescore.com/openscore-lieder-corpus/scores/4987640",
+      "license": "CC0 1.0 (OpenScore Lieder)",
+      "original": "reference/truth/lc4987640.mscx",
+      "sha256": "05454fafdddaa39171e96fac68b27dcaab49e8221a2ab25f0163245b60fc83ba",
+      "original_sha256": "51fad48cf9382c9699720355a01bc11662e3d31ab532ec8f5adbb36e03a939ee"
+    },
+    {
+      "id": "lc5007182",
+      "path": "reference/truth/lc5007182.mxl",
+      "title": "Der stürmische Morgen (Winterreise D 911 n.º 18)",
+      "composer": "Franz Schubert",
+      "url": "https://musescore.com/scores/franz-schubert/winterreise-d911-871684612092376",
+      "license": "CC0 1.0 (OpenScore Lieder)",
+      "original": "reference/truth/lc5007182.mscx",
+      "sha256": "729b5e4e6c3014db25857e06dac038ac5e25f1eff30208a158fe17c05522f137",
+      "original_sha256": "bc6a44aed1b65039ce0894bbdbe5692ced0b34eaaf233a6ad34be0d9844050bf"
+    }
+  ],
+  "cases": [
+    {
+      "id": "ellens-gesang-1-p1",
+      "scan": "imslp-62381",
+      "pdf_page": 1,
+      "printed_page": 70,
+      "truth": "lc6181353",
+      "measures": [
+        1,
+        20
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "notes": "Principio de la pieza: 3/4 y 5 bemoles.",
+      "image": {
+        "path": "ellens-gesang-1-p1.png",
+        "sha256": "dd97da051cbc7384bf4fc36b3374ed47fba6795a44445f35f61ebcbc5cd5fd62"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p2",
+      "scan": "imslp-62381",
+      "pdf_page": 2,
+      "printed_page": 71,
+      "truth": "lc6181353",
+      "measures": [
+        21,
+        42
+      ],
+      "features": [
+        "key_change",
+        "time_change",
+        "time_symbol_cut",
+        "voice_piano"
+      ],
+      "notes": "En el compás 31 (principio del tercer sistema) pasa de 3/4 a ¢ y de 5 bemoles a 3 sostenidos, con la indicación de cortesía al final del segundo sistema.",
+      "image": {
+        "path": "ellens-gesang-1-p2.png",
+        "sha256": "39bd54c89b7436b2a48632eec93ab1c6ca27a99603f4cc78733e2b426f5a34e9"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p3",
+      "scan": "imslp-62381",
+      "pdf_page": 3,
+      "printed_page": 72,
+      "truth": "lc6181353",
+      "measures": [
+        43,
+        65
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "notes": "Termina con la indicación de cortesía del cambio a 3/4 y 5 bemoles del compás 66, que empieza la página siguiente.",
+      "image": {
+        "path": "ellens-gesang-1-p3.png",
+        "sha256": "03d6dae1ecfa686ff3f0f1bc1ffea1803f43525319edf33579dc0595ef8075ba"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p4",
+      "scan": "imslp-62381",
+      "pdf_page": 4,
+      "printed_page": 73,
+      "truth": "lc6181353",
+      "measures": [
+        66,
+        91
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "notes": "Empieza con el cambio a 3/4 y 5 bemoles del compás 66.",
+      "image": {
+        "path": "ellens-gesang-1-p4.png",
+        "sha256": "a5a6ab2124f329098d9646dedc797a1d05aa7907b386e1186be234408de0a9dd"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p5",
+      "scan": "imslp-62381",
+      "pdf_page": 5,
+      "printed_page": 74,
+      "truth": "lc6181353",
+      "measures": [
+        92,
+        109
+      ],
+      "features": [
+        "time_symbol_common",
+        "voice_piano"
+      ],
+      "notes": "Empieza con el cambio a C y 3 sostenidos del compás 92 (Geschwind).",
+      "image": {
+        "path": "ellens-gesang-1-p5.png",
+        "sha256": "bc1b5f9304be646dc1e4e4ce23e97257e3ce32ae1e356248c768cfc42b93d009"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p6",
+      "scan": "imslp-62381",
+      "pdf_page": 6,
+      "printed_page": 75,
+      "truth": "lc6181353",
+      "measures": [
+        110,
+        125
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "image": {
+        "path": "ellens-gesang-1-p6.png",
+        "sha256": "f639b8a59e81347207c71d45f6a87c2a5bed8b8f3c18e6b1bf69d6875384d5dd"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p7",
+      "scan": "imslp-62381",
+      "pdf_page": 7,
+      "printed_page": 76,
+      "truth": "lc6181353",
+      "measures": [
+        126,
+        148
+      ],
+      "features": [
+        "key_change",
+        "time_change",
+        "voice_piano"
+      ],
+      "notes": "En el compás 144 (principio del quinto sistema) vuelve a 3/4 y 5 bemoles, con la indicación de cortesía al final del cuarto.",
+      "image": {
+        "path": "ellens-gesang-1-p7.png",
+        "sha256": "525443cd66a16934564307d6e6efbb767164145739d4b55d787cdf9f973c1040"
+      }
+    },
+    {
+      "id": "ellens-gesang-1-p8",
+      "scan": "imslp-62381",
+      "pdf_page": 8,
+      "printed_page": 77,
+      "truth": "lc6181353",
+      "measures": [
+        149,
+        176
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "image": {
+        "path": "ellens-gesang-1-p8.png",
+        "sha256": "c65ac2468e6126b2f78906a549194cffc63fb30b9c1916cd740a88dfaf0bd944"
+      }
+    },
+    {
+      "id": "mondnacht-p9",
+      "scan": "imslp-270920",
+      "pdf_page": 9,
+      "truth": "lc4987640",
+      "measures": [
+        1,
+        34
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "notes": "Voz y piano en 3/8 y 4 sostenidos; las mismas páginas que INV-0002.",
+      "image": {
+        "path": "mondnacht-p9.png",
+        "sha256": "71593738c4beb025835f36a2abdf2bdf5935ade75d7f153eae203ac3622dfcfe"
+      }
+    },
+    {
+      "id": "mondnacht-p10",
+      "scan": "imslp-270920",
+      "pdf_page": 10,
+      "truth": "lc4987640",
+      "measures": [
+        35,
+        68
+      ],
+      "features": [
+        "voice_piano"
+      ],
+      "image": {
+        "path": "mondnacht-p10.png",
+        "sha256": "462988b4e6e542489902680c431a30fe809307964abd5c3e5bcb407e88c19b50"
+      }
+    },
+    {
+      "id": "der-sturmische-morgen-p64",
+      "scan": "imslp-60822",
+      "pdf_page": 64,
+      "printed_page": 60,
+      "truth": "lc5007182",
+      "measures": [
+        1,
+        10
+      ],
+      "features": [
+        "time_symbol_common",
+        "tuplets_marked",
+        "voice_piano"
+      ],
+      "notes": "Principio de la pieza en C y 1 bemol. Tresillos con número en los compases 2, 3, 8 y 9.",
+      "image": {
+        "path": "der-sturmische-morgen-p64.png",
+        "sha256": "18e2429c23bcd15b4b3b0f4cf83a7ceea2dbbb2e9046bc8203bdf9a4526f7409"
+      }
+    },
+    {
+      "id": "der-sturmische-morgen-p65",
+      "scan": "imslp-60822",
+      "pdf_page": 65,
+      "printed_page": 61,
+      "truth": "lc5007182",
+      "measures": [
+        11,
+        19
+      ],
+      "features": [
+        "tuplets_implicit",
+        "voice_piano"
+      ],
+      "notes": "Tresillos sin número en los compases 18 y 19. El compás 13 está partido entre el primer y el segundo sistema: la página imprime 10 compases para 9 de la verdad.",
+      "image": {
+        "path": "der-sturmische-morgen-p65.png",
+        "sha256": "401f484f889f26ab7ff6655c10f3649d86ba29076b4ad9894b59847d2e1f1cd9"
+      }
+    }
+  ],
+  "primus": [
+    {
+      "id": "primus-exp-03",
+      "manifest": {
+        "path": "manifest.json",
+        "sha256": "35bba7c3968429409b30053d199ac836932ba206bf1b6a4c0e77d77bebaafccf"
+      },
+      "predictions": {
+        "path": "primus/predictions",
+        "sha256": "21a53a4503885c987bb21178b52696cfc154b7f70818f82477377199a4e919fb"
+      },
+      "images": "Renders de Verovio de PrIMuS, no escaneos",
+      "transcription": "HOMR 0.7.0 de exp_04 sobre los 100 incipits de exp_03",
+      "license": "PrIMuS (Calvo-Zaragoza y Rizo, 2018): uso académico, condiciones en su sitio oficial"
+    },
+    {
+      "id": "primus-exp-12",
+      "manifest": {
+        "path": "primus/exp_12/manifest.json",
+        "sha256": "ecefff86e5b487225c9b8e1645e03ffbeb5f9109ecd3e67093e0ffbf9c3fbde4"
+      },
+      "predictions": {
+        "path": "primus/exp_12/predictions",
+        "sha256": "13b35aa0d379582c421fdc1b85d2bf387b08617182ae98804cc674644aff2dc8"
+      },
+      "images": "Renders de Verovio de PrIMuS, no escaneos",
+      "transcription": "HOMR 0.7.0 en CPU y sin preprocesado de exp_12 (2 000 incipits al azar fuera de exp_03)",
+      "license": "PrIMuS (Calvo-Zaragoza y Rizo, 2018): uso académico, condiciones en su sitio oficial"
+    }
+  ]
+}
