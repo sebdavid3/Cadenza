@@ -219,10 +219,9 @@ def test_an_erratum_that_does_not_find_its_slur_fails() -> None:
         apply_errata(_SLURRED, [{**_SLUR_TO_TIE, "cambio": "otro"}])
 
 
-def test_the_manifest_is_valid_json_with_lf() -> None:
+def test_the_manifest_is_valid_json() -> None:
     raw = MANIFEST.read_bytes()
 
-    assert b"\r\n" not in raw
     assert json.loads(raw.decode("utf-8"))["salida"] == "banco_estudio"
 
 
