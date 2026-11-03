@@ -183,3 +183,13 @@ def test_a_gap_edit_counts_as_a_content_intervention() -> None:
     # Las métricas de esfuerzo siguen con tres clases (protocolo §3.4, ADR-0058).
     assert effort_class(KIND) == "content"
     assert {effort_class(op) for op in EditOp} == {"content", "mark", "meter"}
+
+
+def test_redo_sends_the_same_after_onto_the_gap_undo_brought_back() -> None:
+    repos = _repos()
+    _append(repos, KIND, _anchor(1), NOTE)
+    undo_edit("s1", session_repository=repos[0], edit_repository=repos[1], current_user=USER)
+    # Rehacer reenvía la edición deshecha con `before: null`, sobre el estado que dejó deshacer.
+    redone = _append(repos, KIND, _anchor(1), NOTE)
+    assert redone.before == GAP
+    assert _current(repos)[1].pitch == "F#4"

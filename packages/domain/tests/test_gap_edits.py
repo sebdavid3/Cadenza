@@ -309,3 +309,20 @@ def test_the_compensation_turns_the_note_back_into_the_gap_it_was() -> None:
     # Rehacer reenvía el mismo `after` sobre el hueco que devolvió deshacer.
     back = apply_edit(apply_edit(score, edit), inverse)
     validate_after(back, _anchor(1), KIND, NOTE_F4)
+
+
+def test_a_gap_with_a_figure_no_edit_admits_is_not_filled() -> None:
+    # Un hueco importado de más de una longa: se acorta antes con su figura.
+    score = _score((_gap(17), _note("C4", 1)))
+    _rejected(score, _anchor(0), NOTE_F4, "figura del hueco")
+    _rejected(score, _anchor(0), SHOWN_REST, "figura del hueco")
+
+
+def test_the_marks_a_gap_brings_stay_with_the_event_and_undo_is_exact() -> None:
+    # La importación conserva el calderón de un silencio invisible; la nota escrita lo conserva y
+    # deshacer devuelve el hueco con él.
+    score = _score((_note("C4", 2), _rest(1, hidden=True, fermata=True), _note("D4", 3)))
+    edit = _edit(score, _anchor(1), KIND, NOTE_F4)
+    filled = apply_edit(score, edit)
+    assert _events(filled)[1].fermata is True
+    assert _undo(filled, edit).to_primitive() == score.to_primitive()

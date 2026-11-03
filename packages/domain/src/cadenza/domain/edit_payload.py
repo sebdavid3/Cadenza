@@ -432,6 +432,14 @@ def _check_event_kind(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any] |
         )
     if hidden:
         raise InvalidEditPayload("SetEventKind no cambia nada: el evento ya es un hueco")
+    # Lo que se escribe en el hueco lleva su figura: ha de ser una que admiten las ediciones
+    # (ADR-0017), como la de una nota insertada. Un hueco importado puede no serlo.
+    try:
+        _check_duration(None if target.duration_beats is None else str(target.duration_beats))
+    except InvalidEditPayload as exc:
+        raise InvalidEditPayload(
+            f"la figura del hueco no se admite en una edición ({exc}): cámbiala antes"
+        ) from exc
     events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
     following = anchor.event_index + 1
     if (
