@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from cadenza.domain import Finding, ScoreMetadata, normalize_source_filename
-from cadenza.omr import OMREngine
+from cadenza.omr import MeterStage, OMREngine
 from cadenza.validation import ValidationEngine
 
 from ..ports.artifact_store import ArtifactStore, compute_sha256, detect_image_media_type
@@ -57,11 +57,15 @@ def transcribe_score(
     suggestion_model: SuggestionModel | None = None,
     metadata: ScoreMetadata | None = None,
     source_filename: str | None = None,
+    meter_stage: MeterStage | None = None,
 ) -> TranscribeResult:
     """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión.
 
     Con `suggestion_model`, la capa de sugerencias corre tras las reglas y la procedencia
     guarda su versión (ADR-0036 §3, §11). En `unassisted` no corre ni una cosa ni otra (D38).
+
+    Con `meter_stage`, la etapa del compás corre tras el motor y antes de las reglas, en las dos
+    condiciones, y queda en la procedencia (ADR-0059 §4, §5).
 
     Guarda con la sesión el título, el compositor y los instrumentos (`metadata`), sin los de
     las partes que el OMR no detectó, y el nombre del archivo subido (#235, ADR-0041 §3).
@@ -78,6 +82,8 @@ def transcribe_score(
         actual_image_artifact = compute_sha256(image_path.read_bytes())
 
     document = omr_engine.transcribe(image_path)
+    if meter_stage is not None:
+        document = meter_stage.apply(document)
     assisted = norm_condition != "unassisted"
     rule_findings: Sequence[Finding] = validator.validate(document) if assisted else ()
     model = suggestion_model if assisted else None
