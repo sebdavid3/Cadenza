@@ -87,6 +87,16 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("omr_meter_features")
+    @classmethod
+    def _check_meter_features(cls, value: str) -> str:
+        """Un rasgo desconocido impide arrancar: una errata no debe apagarlo en silencio."""
+
+        from cadenza.omr import parse_meter_features
+
+        parse_meter_features(value)
+        return value
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _parse_cors_origins(cls, value: Any) -> Any:
@@ -203,6 +213,15 @@ class Settings(BaseSettings):
             "omr_preprocess_rescale está activo."
         ),
     )
+    omr_meter_features: str = Field(
+        default="numerator,symbol,implicit_tuplets",
+        description=(
+            "Rasgos de la etapa del compás que corre tras HOMR (CADENZA_OMR_METER_FEATURES, "
+            "ADR-0059), separados por comas: numerator (el numerador de cada tramo), symbol (C "
+            "y ¢) e implicit_tuplets (los tresillos sin marcar); 'all' o 'none'. Por defecto, "
+            "los que mejoran la medición de exp_15 sin empeorar el resto."
+        ),
+    )
     suggestions_enabled: bool = Field(
         default=False,
         description=(
@@ -238,6 +257,14 @@ class Settings(BaseSettings):
             "del proceso en Windows al arrancar (#106)."
         ),
     )
+
+    def build_meter_stage(self) -> Any | None:
+        """La etapa del compás con los rasgos configurados, o None si no hay ninguno (ADR-0059)."""
+
+        from cadenza.omr import MeterStage, parse_meter_features
+
+        features = parse_meter_features(self.omr_meter_features)
+        return MeterStage(features) if features else None
 
     def build_preprocessing_config(self) -> Any | None:
         """Construye un PreprocessingConfig si el preprocesado está habilitado."""
