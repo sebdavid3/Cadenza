@@ -166,6 +166,46 @@ def test_the_most_frequent_sum_wins_and_a_tie_goes_to_the_longest() -> None:
     assert _times(recognize_meter(tie, NUMERATOR)[0]) == ["4/4"] * 2
 
 
+@pytest.mark.parametrize(
+    "sums",
+    [(4, 5, 4), (4, 5, 4, 4), (4, 4, 5, 4)],
+    ids=["en-medio", "con-ultimo", "con-primero"],
+)
+def test_a_measure_read_too_long_does_not_drop_the_full_first_and_last(
+    sums: tuple[int, ...],
+) -> None:
+    read = TimeSignature(4, 4)
+    score = _score([_m(n, read, *_notes(*(1,) * total)) for n, total in enumerate(sums, 1)])
+
+    assert recognize_meter(score, NUMERATOR)[0] is score
+
+
+def test_sums_that_give_no_numerator_do_not_vote() -> None:
+    # Con denominador 4, nueve corcheas no son ningún compás: votan los de tres negras.
+    read = TimeSignature(4, 4)
+    long = _notes(2, 2, EIGHTH)
+    score = _score(
+        [_m(1, read, *_notes(1, 1, 1))]
+        + [_m(n, read, *long) for n in (2, 3, 4)]
+        + [_m(n, read, *_notes(1, 1, 1)) for n in (5, 6)]
+    )
+    # Con el último compás más corto que los demás, no vota: solo quedan los de nueve corcheas.
+    cut = _score([_m(n, read, *long) for n in (1, 2, 3)] + [_m(4, read, *_notes(1, 1, 1))])
+
+    assert _times(recognize_meter(score, NUMERATOR)[0]) == ["3/4"] * 6
+    assert recognize_meter(cut, NUMERATOR)[0] is cut
+
+
+def test_a_two_staff_segment_with_a_pickup_takes_the_full_measures() -> None:
+    read = TimeSignature(2, 4)
+    right = [_m(1, read, *_notes(1))] + [_m(n, read, *_notes(1, 1, 1)) for n in (2, 3, 4)]
+    left = [_m(1, read, *_notes(1))] + [_m(n, read, *_notes(3)) for n in (2, 3, 4)]
+
+    result, _ = recognize_meter(_score(right, left), NUMERATOR)
+
+    assert _times(result) == ["3/4"] * 4 and _times(result, staff=1) == ["3/4"] * 4
+
+
 def test_a_sum_that_is_no_numerator_of_the_read_denominator_keeps_homr() -> None:
     read = TimeSignature(4, 4)
     score = _score([_m(n, read, *_notes(2, 2, EIGHTH)) for n in (1, 2, 3)])
@@ -278,14 +318,60 @@ def test_without_a_signal_an_overfull_measure_is_not_turned_into_triplets() -> N
 
 def test_a_fit_with_two_figures_is_ambiguous_and_left_alone() -> None:
     # En 5/4, tres negras y seis corcheas (6 negras) cuadran pasando a tresillo cualquiera de
-    # las dos figuras: no se sabe cuál, así que no se toca. El otro pentagrama dura 5.
+    # las dos figuras: no se sabe cuál, así que no se toca. El otro pentagrama dura 5, y con una
+    # sola figura los dos compases sí pasarían a tresillos (los de abajo, con seis corcheas).
     read = TimeSignature(5, 4)
-    score = _score([_m(1, read, *_notes(1, 1, 1, *(EIGHTH,) * 6))], [_m(1, read, *_notes(4, 1))])
+    ambiguous = _notes(1, 1, 1, *(EIGHTH,) * 6)
+    score = _score(
+        [_m(n, read, *ambiguous) for n in (1, 2)], [_m(n, read, *_notes(4, 1)) for n in (1, 2)]
+    )
+    clear = _score(
+        [_m(n, read, *_notes(2, 1, *(EIGHTH,) * 6)) for n in (1, 2)],
+        [_m(n, read, *_notes(4, 1)) for n in (1, 2)],
+    )
+    assert len(recognize_meter(clear, TUPLETS)[1].tuplets) == 2
 
     result, report = recognize_meter(score, TUPLETS)
 
     assert result is score
     assert report.tuplets == ()
+
+
+def test_one_overfull_measure_confirmed_only_by_the_other_staff_is_not_enough() -> None:
+    """Una sola negra-negra-negra-tres corcheas en 4/4 (4,5) que cuadra con tresillos, con la
+    mano izquierda llena: puede ser un compás leído de más, así que no se toca."""
+
+    read = TimeSignature(4, 4)
+    right = [_m(1, read, *_notes(1, 1, 1, EIGHTH, EIGHTH, EIGHTH))] + [
+        _m(n, read, *_notes(1, 1, 1, 1)) for n in (2, 3)
+    ]
+    left = [_m(n, read, *_notes(4)) for n in (1, 2, 3)]
+
+    result, report = recognize_meter(_score(right, left), TUPLETS)
+
+    assert report.tuplets == ()
+    assert _durations(result.parts[0].staves[0].measures[0])[-1] == EIGHTH
+
+
+def test_hidden_rests_are_neither_converted_nor_marked() -> None:
+    read = TimeSignature(2, 4)
+    gap = Event(kind=EventKind.REST, duration_beats=Fraction(1, 3), hidden=True, voice=1)
+    eighths = _notes(EIGHTH, EIGHTH, EIGHTH, 1)
+    score = _score([_m(1, read, gap, *_notes(Fraction(5, 3), voice=1)), _m(2, read, *eighths)])
+
+    assert marked_figures(score.parts[0].staves[0].measures) == [frozenset(), frozenset()]
+    assert recognize_meter(score, TUPLETS)[1].tuplets == ()
+
+
+def test_a_measure_converts_only_if_every_overfull_voice_fits() -> None:
+    read = TimeSignature(2, 4)
+    marked = _m(1, read, *_notes(TRIPLET_EIGHTH, TRIPLET_EIGHTH, TRIPLET_EIGHTH, 1))
+    fits = _notes(EIGHTH, EIGHTH, EIGHTH, 1)
+    both = _m(2, read, *fits, *_notes(1, 1, 1, voice=1))
+    one = _m(2, read, *fits, *_notes(1, 1, voice=1))
+
+    assert recognize_meter(_score([marked, both]), TUPLETS)[1].tuplets == ()
+    assert [t["measure"] for t in recognize_meter(_score([marked, one]), TUPLETS)[1].tuplets] == [2]
 
 
 def test_chord_notes_follow_their_first_note() -> None:

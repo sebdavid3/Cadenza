@@ -9,16 +9,18 @@ mediana de la página. Esta etapa corre después, sobre el `ScoreIR` que HOMR da
 Cada rasgo se activa por separado (`MeterFeature`):
 
 - **`numerator`**: el numerador de cada tramo, entre los cambios de compás que leyó HOMR, sale
-  de lo que suman sus compases: la suma más repetida (a igualdad, la mayor), sin el primer
-  compás si suma menos que el más largo de los demás (la anacrusa) ni el último si también
-  suma menos (el compás que la completa o un incipit cortado). El denominador es el leído.
+  de lo que suman sus compases: la suma más repetida (a igualdad, la mayor) de las que dan un
+  numerador entero, sin el primer compás si suma menos que la mediana de los demás (la
+  anacrusa) ni el último si también suma menos (el compás que la completa o un incipit
+  cortado). El denominador es el leído.
 - **`symbol`**: un tramo en 4/4 se escribe C, y uno en 2/2, ¢. HOMR no ve el símbolo; es lo
   que se imprime casi siempre (en PrIMuS, 775 C frente a 5 4/4 y 284 ¢ frente a 19 2/2).
 - **`implicit_tuplets`**: un compás que suma más que el tramo y cuadra exactamente si todas sus
   figuras de un mismo valor (en múltiplo de tres) pasan a tresillo se lee con tresillos; los
-  tresillos que HOMR ya leyó no se tocan. Con `numerator`, el compás del tramo se decide a la vez
-  que los tresillos: 3/2 con corcheas y ¢ con tresillos de corchea cuadran igual, y gana la
-  medida que explica más compases (los otros pentagramas de la parte la confirman).
+  tresillos que HOMR ya leyó no se tocan. Hace falta una señal: tresillos marcados de esa figura
+  en el pentagrama, o dos compases o más que cuadran con la duración de otro pentagrama de la
+  parte. Con `numerator`, el compás del tramo se decide a la vez que los tresillos: 3/2 con
+  corcheas y ¢ con tresillos de corchea cuadran igual, y gana la medida que explica más compases.
 
 Lo que la etapa cambió queda en la procedencia del documento (`Provenance.omr_stages`).
 """
@@ -120,7 +122,8 @@ def _triplet_plan(
     `allowed` (notas y silencios, en múltiplo de tres) pasan a tresillo de 3:2 y entonces dura
     justo `capacity`. Si cuadra con más de una figura, es ambiguo y no cuenta. Todas las voces
     tienen que acabar durando como mucho `capacity`, y alguna, cambiar. Las figuras que ya son
-    de tresillo (las que HOMR leyó marcadas) no se tocan."""
+    de tresillo (las que HOMR leyó marcadas) y los silencios invisibles (el hueco de una voz,
+    ADR-0032) no se tocan."""
 
     plan: dict[int, Fraction] = {}
     for voice, total in _voice_sums(measure).items():
@@ -131,6 +134,7 @@ def _triplet_plan(
             for event in measure.events
             if event.voice == voice
             and not event.is_chord
+            and not event.hidden
             and event.duration_beats is not None
             and event.duration_beats in allowed
         )
@@ -149,7 +153,9 @@ def _apply_triplets(measure: Measure, plan: Mapping[int, Fraction]) -> Measure:
     events = tuple(
         (
             replace(event, duration_beats=event.duration_beats * _TRIPLET)
-            if event.duration_beats is not None and plan.get(event.voice) == event.duration_beats
+            if event.duration_beats is not None
+            and not event.hidden
+            and plan.get(event.voice) == event.duration_beats
             else event
         )
         for event in measure.events
@@ -162,14 +168,15 @@ def marked_figures(measures: Sequence[Measure]) -> list[frozenset[Fraction]]:
 
     Un tresillo marcado (una figura con un 3 en el denominador, ADR-0044 §3) dice la figura sin
     puntillo que vale 3/2 de ella: los tresillos de corchea (1/3) dicen «corchea» (1/2). Cuenta
-    el propio compás y los anteriores del tramo, no los siguientes."""
+    el propio compás y los anteriores del tramo, no los siguientes. Un silencio invisible no es un
+    tresillo marcado: es un hueco calculado al importar (ADR-0032)."""
 
     seen: set[Fraction] = set()
     result: list[frozenset[Fraction]] = []
     for measure in measures:
         for event in measure.events:
             duration = event.duration_beats
-            if duration is not None and duration.denominator % 3 == 0:
+            if duration is not None and not event.hidden and duration.denominator % 3 == 0:
                 base = duration / _TRIPLET
                 if base in _PLAIN_FIGURES:
                     seen.add(base)
@@ -256,9 +263,18 @@ def _cells(columns: Sequence[Sequence[Measure]]) -> list[_Cell]:
     ]
 
 
+def _usual(values: Iterable[Fraction]) -> Fraction:
+    """La mediana (la menor de las dos centrales, si son pares) de lo que suman los demás."""
+
+    ordered = sorted(values)
+    return ordered[(len(ordered) - 1) // 2]
+
+
 def _core(cells: Sequence[_Cell]) -> list[_Cell]:
-    """Los compases con contenido, sin la anacrusa ni el último compás si suman menos que el
-    más largo de los demás (el que completa la anacrusa o el de un incipit cortado)."""
+    """Los compases con contenido, sin la anacrusa ni el último compás si suman menos que lo que
+    suelen sumar los demás (el que completa la anacrusa o el de un incipit cortado). Se compara
+    con la mediana de los demás, no con el más largo: un compás leído de más no debe quitarle el
+    voto a un primer o un último compás completos."""
 
     longest: dict[int, Fraction] = {}
     for cell in cells:
@@ -266,11 +282,11 @@ def _core(cells: Sequence[_Cell]) -> list[_Cell]:
             longest[cell.position] = max(longest.get(cell.position, Fraction(0)), cell.total)
     positions = sorted(longest)
     first, last = 0, len(positions)
-    if last - first >= 3 and longest[positions[first]] < max(
+    if last - first >= 3 and longest[positions[first]] < _usual(
         longest[p] for p in positions[first + 1 : last]
     ):
         first += 1
-    if last - first >= 3 and longest[positions[last - 1]] < max(
+    if last - first >= 3 and longest[positions[last - 1]] < _usual(
         longest[p] for p in positions[first : last - 1]
     ):
         last -= 1
@@ -278,23 +294,37 @@ def _core(cells: Sequence[_Cell]) -> list[_Cell]:
     return [cell for cell in cells if cell.position in kept and cell.total > 0]
 
 
-def _allowed(cell: _Cell, capacity: Fraction, cells: Sequence[_Cell]) -> Collection[Fraction]:
-    """Las figuras que pueden pasar a tresillo en un compás para que dure `capacity`.
+def _triplet_plans(
+    cells: Sequence[_Cell], capacity: Fraction, signal: Sequence[_Cell]
+) -> dict[tuple[int, int], dict[int, Fraction]]:
+    """Los compases (pentagrama, posición) que pasan a tresillos para durar `capacity`.
 
-    Hace falta una señal de que hay tresillos sin marcar: que el pentagrama ya tenga tresillos
-    marcados de esa figura en el tramo (en ese compás o antes), o que otro pentagrama de la parte
-    tenga compases que duran justo `capacity` (la duración del compás es de la parte)."""
+    Hace falta una señal de que hay tresillos sin marcar:
 
-    if any(other.staff != cell.staff and other.total == capacity for other in cells):
-        return _PLAIN_FIGURES
-    return cell.marked
+    - que el pentagrama ya tenga tresillos marcados de esa figura en el tramo, en ese compás o
+      antes (al estilo de `implicitTuplets` de Audiveris); o
+    - que otro pentagrama de la parte tenga compases que duran justo `capacity` (la duración del
+      compás es de la parte) y que **al menos dos** compases del pentagrama cuadren así: un solo
+      compás leído de más que cuadra por casualidad no basta.
 
+    `signal` son los compases que cuentan para la segunda señal, los mismos al votar el compás
+    del tramo y al aplicar los tresillos: sin la anacrusa ni el último si suman menos."""
 
-def _fits(cell: _Cell, capacity: Fraction, cells: Sequence[_Cell]) -> dict[int, Fraction] | None:
-    if cell.total <= capacity:
-        return None
-    allowed = _allowed(cell, capacity, cells)
-    return _triplet_plan(cell.measure, capacity, allowed) if allowed else None
+    confirmed = {cell.staff for cell in signal if cell.total == capacity}
+    marked: dict[tuple[int, int], dict[int, Fraction]] = {}
+    by_part: dict[tuple[int, int], dict[int, Fraction]] = {}
+    for cell in cells:
+        if cell.total <= capacity:
+            continue
+        plan = _triplet_plan(cell.measure, capacity, cell.marked) if cell.marked else None
+        if plan is not None:
+            marked[(cell.staff, cell.position)] = plan
+        elif confirmed - {cell.staff}:
+            plan = _triplet_plan(cell.measure, capacity, _PLAIN_FIGURES)
+            if plan is not None:
+                by_part[(cell.staff, cell.position)] = plan
+    per_staff = Counter(staff for staff, _ in by_part)
+    return marked | {key: plan for key, plan in by_part.items() if per_staff[key[0]] >= 2}
 
 
 def choose_capacity(
@@ -302,21 +332,21 @@ def choose_capacity(
 ) -> Fraction | None:
     """La duración (en negras) del compás de un tramo a partir de lo que suman sus compases.
 
-    Cada compás de cada pentagrama vota por lo que suma; con `with_triplets`, también por la
-    duración a la que cuadra con tresillos (`_fits`). Gana la más votada y, a igualdad, la mayor
-    (así, sin otra señal, doce corcheas son 3/2 y no ¢ con tresillos)."""
+    Cada compás de cada pentagrama vota por lo que suma, si esa suma da un numerador entero de 1
+    a 32 con el denominador leído (una que no lo da es una lectura de más o de menos: con
+    denominador 4, nueve corcheas no son ningún compás); con `with_triplets`, también por la
+    duración a la que cuadra con tresillos (`_triplet_plans`). Gana la más votada y, a igualdad,
+    la mayor. Sin ninguna suma así, None: se queda la lectura del motor."""
 
     cells = _core(_cells(columns))
-    candidates = {cell.total for cell in cells if _numerator(cell.total, beat_type)}
+    candidates = {cell.total for cell in cells if _numerator(cell.total, beat_type) is not None}
     if not candidates:
         return None
     votes: Counter[Fraction] = Counter()
     for capacity in candidates:
-        for cell in cells:
-            if cell.total == capacity or (
-                with_triplets and _fits(cell, capacity, cells) is not None
-            ):
-                votes[capacity] += 1
+        votes[capacity] = sum(1 for cell in cells if cell.total == capacity)
+        if with_triplets:
+            votes[capacity] += len(_triplet_plans(cells, capacity, cells))
     return max(votes.items(), key=lambda item: (item[1], item[0]))[0]
 
 
@@ -403,9 +433,12 @@ def _recognize_part(
             }
         )
         cells = _cells(span)
+        plans = (
+            _triplet_plans(cells, signature.quarter_length, _core(cells)) if with_triplets else {}
+        )
         for cell in cells:
             updated = replace(cell.measure, time_signature=signature)
-            plan = _fits(cell, signature.quarter_length, cells) if with_triplets else None
+            plan = plans.get((cell.staff, cell.position))
             if plan is not None:
                 updated = _apply_triplets(updated, plan)
                 changes.tuplets.append(
