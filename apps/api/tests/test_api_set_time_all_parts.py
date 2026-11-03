@@ -45,9 +45,7 @@ def _staff(part: int, staff: int) -> Staff:
         measures=tuple(
             Measure(
                 number=number,
-                events=(
-                    Event(kind=EventKind.NOTE, pitch="C5", duration_beats=Fraction(3)),
-                ),
+                events=(Event(kind=EventKind.NOTE, pitch="C5", duration_beats=Fraction(3)),),
             )
             for number in (1, 2)
         ),

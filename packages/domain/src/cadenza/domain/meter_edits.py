@@ -211,9 +211,7 @@ def _time_scope(score: ScoreIR, anchor: Anchor) -> tuple[Part, list[tuple[int, i
     return part, staves, run
 
 
-def _parts_scope(
-    score: ScoreIR, anchor: Anchor
-) -> list[tuple[list[tuple[int, int]], int] | None]:
+def _parts_scope(score: ScoreIR, anchor: Anchor) -> list[tuple[list[tuple[int, int]], int] | None]:
     """Con `all_parts` (#326): el alcance de cada parte en el compás del ancla, o None en las
     partes que no lo tienen."""
 
