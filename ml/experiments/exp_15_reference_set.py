@@ -54,6 +54,14 @@ dan sobre los incipits medidos y con los fallos de HOMR como mal leídos (`*_wit
 Sin el manifiesto, o si falta uno de sus archivos o su sha256 no coincide, el experimento falla
 con la lista de lo que falta: no tiene modo sintético ni valores de reserva (CLAUDE.md §8).
 
+**La etapa del compás (#237, ADR-0059).** Con `--meter-features` (por defecto, ninguno), la
+lectura de HOMR de cada página y de cada incipit pasa por la etapa de Cadenza que corre tras
+HOMR en producción (`cadenza.omr.recognize_meter`) con esos rasgos antes de compararla: así se
+mide la etapa rasgo a rasgo con el mismo conjunto. Sin rasgos, se mide HOMR solo. Con rasgos,
+cada incipit de PrIMuS da además la SER antes y después de la etapa y, si la etapa cambió la
+métrica o las figuras, el OMR-NED antes y después (MusicXML exportados del `ScoreIR` sin el
+símbolo del compás, como `exp_14`, ADR-0044 §1): `omr_quality` dice si la etapa empeora el resto.
+
 Salidas (`--output-dir`, por defecto `results/`, sin versionar):
 - `reference_set_summary.json`: la medición completa, con `run_info`.
 - `reference_set_pages.csv`: una fila por página.
@@ -74,6 +82,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import zipfile
 from collections import Counter
@@ -87,8 +96,20 @@ from xml.etree import ElementTree
 
 from cadenza.domain import EventKind, Measure, Part, ScoreIR, Staff, TimeSignature
 from cadenza.domain.time_signature import COMMON, CUT
-from cadenza.interchange import musicxml_to_score_ir, read_score
-from cadenza.learning import time_symbol_agreement
+from cadenza.interchange import Music21ScoreExporter, musicxml_to_score_ir, read_score
+from cadenza.learning import (
+    omr_ned_pair,
+    score_ser_pair,
+    time_symbol_agreement,
+    without_time_symbols,
+)
+from cadenza.omr.meter_stage import (
+    METER_STAGE_VERSION,
+    MeterFeature,
+    features_label,
+    parse_meter_features,
+    recognize_meter,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -1126,10 +1147,48 @@ def compare_primus_pair(read: ScoreIR, truth: ScoreIR) -> dict[str, Any]:
     }
 
 
-def _primus_task(task: tuple[str, str, str, str]) -> dict[str, Any]:
-    """Una tarea de proceso: lee la predicción y la verdad de un incipit y las compara."""
+def _export_plain(score: ScoreIR, path: Path) -> Path:
+    # Sin el símbolo del compás, como `exp_14` (ADR-0044 §1): el OMR-NED no cuenta la grafía.
+    path.write_text(
+        Music21ScoreExporter().to_musicxml(without_time_symbols(score)), encoding="utf-8"
+    )
+    return path
 
-    entry_id, prediction, ground_truth, expected_sha = task
+
+def stage_quality(read: ScoreIR, staged: ScoreIR, truth: ScoreIR) -> dict[str, Any]:
+    """La SER antes y después de la etapa del compás y, si la etapa cambió la métrica o las
+    figuras, el OMR-NED antes y después. Si no cambió nada que se mida (la igualdad del `ScoreIR`
+    no ve el símbolo), el OMR-NED es el mismo y no se calcula."""
+
+    quality: dict[str, Any] = {
+        "ser_before": score_ser_pair(truth, read).ser,
+        "ser_after": score_ser_pair(truth, staged).ser,
+        "stage_changed": staged != read,
+        "omr_ned_before": None,
+        "omr_ned_after": None,
+        "omr_ned_error": "",
+    }
+    if not quality["stage_changed"]:
+        return quality
+    with tempfile.TemporaryDirectory(prefix="exp15-ned-") as work:
+        folder = Path(work)
+        try:
+            truth_file = _export_plain(truth, folder / "truth.musicxml")
+            before = omr_ned_pair(_export_plain(read, folder / "before.musicxml"), truth_file)
+            after = omr_ned_pair(_export_plain(staged, folder / "after.musicxml"), truth_file)
+            quality["omr_ned_before"] = before.omr_ned
+            quality["omr_ned_after"] = after.omr_ned
+        except Exception as exc:  # un par que musicdiff no lee se registra, no se imputa
+            quality["omr_ned_error"] = f"{type(exc).__name__}: {exc}"
+    return quality
+
+
+def _primus_task(task: tuple[str, str, str, str, str]) -> dict[str, Any]:
+    """Una tarea de proceso: lee la predicción y la verdad de un incipit y las compara.
+
+    El quinto campo son los rasgos de la etapa del compás (vacío: HOMR solo)."""
+
+    entry_id, prediction, ground_truth, expected_sha, features = task
     truth_path = Path(ground_truth)
     if sha256_of_file(truth_path) != expected_sha:
         return {"id": entry_id, "error": f"la verdad no es la del manifiesto: {truth_path}"}
@@ -1150,11 +1209,70 @@ def _primus_task(task: tuple[str, str, str, str]) -> dict[str, Any]:
             "status": "prediction_unreadable",
             "reason": f"{type(exc).__name__}: {exc}",
         }
-    return {"id": entry_id, "status": "measured", **compare_primus_pair(read, truth)}
+    active = parse_meter_features(features)
+    if not active:
+        return {"id": entry_id, "status": "measured", **compare_primus_pair(read, truth)}
+    staged, _ = recognize_meter(read, active)
+    return {
+        "id": entry_id,
+        "status": "measured",
+        **compare_primus_pair(staged, truth),
+        **stage_quality(read, staged, truth),
+    }
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return round(sum(values) / len(values), 4) if values else None
+
+
+def _before_after(before: Sequence[float], after: Sequence[float]) -> dict[str, Any]:
+    pairs = list(zip(before, after, strict=True))
+    return {
+        "n": len(pairs),
+        "mean_before": _mean(before),
+        "mean_after": _mean(after),
+        "better": sum(1 for b, a in pairs if a < b),
+        "worse": sum(1 for b, a in pairs if a > b),
+    }
+
+
+def quality_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any] | None:
+    """La SER y el OMR-NED antes y después de la etapa sobre los incipits medidos, con cuántos
+    mejoran y cuántos empeoran; None si se midió HOMR solo."""
+
+    measured = [row for row in rows if row.get("status") == "measured" and "ser_before" in row]
+    if not measured:
+        return None
+    ned = [
+        row
+        for row in measured
+        if row["omr_ned_before"] is not None and row["omr_ned_after"] is not None
+    ]
+    delta = sum(float(row["omr_ned_after"]) - float(row["omr_ned_before"]) for row in ned)
+    return {
+        "incipits": len(measured),
+        "stage_changed": sum(1 for row in measured if row["stage_changed"]),
+        "ser": _before_after(
+            [float(row["ser_before"]) for row in measured],
+            [float(row["ser_after"]) for row in measured],
+        ),
+        # Solo los incipits que la etapa cambió: en los demás el OMR-NED es el mismo.
+        "omr_ned_changed": _before_after(
+            [float(row["omr_ned_before"]) for row in ned],
+            [float(row["omr_ned_after"]) for row in ned],
+        ),
+        "omr_ned_mean_delta_over_all": round(delta / len(measured), 4),
+        "omr_ned_errors": {
+            row["id"]: row["omr_ned_error"] for row in measured if row.get("omr_ned_error")
+        },
+    }
 
 
 def measure_primus(
-    source: PrimusSource, data_dir: Path, workers: int
+    source: PrimusSource,
+    data_dir: Path,
+    workers: int,
+    meter_features: Collection[MeterFeature] = (),
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     manifest = json.loads((data_dir / source.manifest).read_text(encoding="utf-8"))
     folder = data_dir / source.predictions
@@ -1164,7 +1282,8 @@ def measure_primus(
         if failures_file.is_file()
         else set()
     )
-    tasks: list[tuple[str, str, str, str]] = []
+    features = ",".join(features_label(meter_features))
+    tasks: list[tuple[str, str, str, str, str]] = []
     missing: list[str] = []
     for entry in manifest["entries"]:
         prediction = folder / f"{entry['id']}.musicxml"
@@ -1175,6 +1294,7 @@ def measure_primus(
                     str(prediction),
                     str(data_dir / entry["ground_truth"]),
                     entry["ground_truth_sha256"],
+                    features,
                 )
             )
         elif entry["id"] not in failed:
@@ -1243,6 +1363,9 @@ def measure_primus(
         "by_truth_notation": {key: dict(value) for key, value in sorted(by_truth.items())},
         "confusions": dict(confusions.most_common()),
     }
+    quality = quality_summary(rows)
+    if quality is not None:
+        summary["omr_quality"] = quality
     return summary, sorted(rows, key=lambda row: str(row["id"]))
 
 
@@ -1516,9 +1639,12 @@ def run(
     workers: int = 1,
     reuse_predictions: bool = False,
     pdftoppm: str | None = None,
+    meter_features: Collection[MeterFeature] = (),
     log: Callable[[str], None] = print,
 ) -> dict[str, Any]:
-    """Comprueba el conjunto, rasteriza lo que falte, transcribe, compara y escribe la salida."""
+    """Comprueba el conjunto, rasteriza lo que falte, transcribe, compara y escribe la salida.
+
+    Con `meter_features`, cada lectura de HOMR pasa antes por la etapa del compás (ADR-0059)."""
 
     if tolerance < 0:
         raise ValueError("tolerance must be >= 0")
@@ -1536,7 +1662,7 @@ def run(
     primus_rows: list[dict[str, Any]] = []
     for source in manifest.primus:
         log(f"[exp_15] PrIMuS {source.id}: leyendo predicciones y verdades")
-        summary, rows = measure_primus(source, data_dir, workers)
+        summary, rows = measure_primus(source, data_dir, workers, meter_features)
         primus_summaries.append(summary)
         primus_rows.extend(rows)
 
@@ -1586,6 +1712,10 @@ def run(
             encoding="utf-8"
         )
         read = musicxml_to_score_ir(xml_text)
+        stage_report: dict[str, Any] | None = None
+        if meter_features:
+            read, report = recognize_meter(read, meter_features)
+            stage_report = report.to_primitive()
         pages.append(
             {
                 "id": case.id,
@@ -1599,6 +1729,7 @@ def run(
                 "comparison": compare_page(
                     truth, read, case.first_measure, case.last_measure, kinds, tolerance
                 ),
+                "meter_stage": stage_report,
             }
         )
         log(f"[exp_15] {case.id}: comparada")
@@ -1615,11 +1746,17 @@ def run(
         for name, value in group.items()
         if isinstance(value, dict) and "proportion" in value
     }
+    meter_stage = {
+        "features": features_label(meter_features),
+        "version": METER_STAGE_VERSION if meter_features else None,
+        "issue": 237,
+    }
     run_info = {
         **get_run_info(EXPERIMENT, manifest_path=manifest_path),
         "issue": 234,
         "simulated": False,
         "tolerance": tolerance,
+        "meter_stage": meter_stage,
         "omr": runtime,
         "rasterization": rasterization,
         "data_dir": str(data_dir),
@@ -1632,6 +1769,7 @@ def run(
         "issue": 234,
         "simulated": False,
         "tolerance": tolerance,
+        "meter_stage": meter_stage,
         "coverage": coverage(manifest, primus_summaries),
         "headline": heads,
         "pages": pages,
@@ -1692,6 +1830,14 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="procesos para leer PrIMuS (por defecto, hasta 8: music21 ocupa mucha memoria)",
     )
     run_parser.add_argument(
+        "--meter-features",
+        default="none",
+        help=(
+            "rasgos de la etapa del compás tras HOMR (ADR-0059), separados por comas: "
+            "numerator, symbol, implicit_tuplets, 'all' o 'none' (por defecto, HOMR solo)"
+        ),
+    )
+    run_parser.add_argument(
         "--reuse-predictions",
         action="store_true",
         help="reutiliza el MusicXML de HOMR de --output-dir si es de la misma imagen",
@@ -1720,6 +1866,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 workers=args.workers,
                 reuse_predictions=args.reuse_predictions,
                 pdftoppm=args.pdftoppm,
+                meter_features=parse_meter_features(args.meter_features),
             )
     except ReferenceSetError as exc:
         raise SystemExit(f"[exp_15] {exc}") from None

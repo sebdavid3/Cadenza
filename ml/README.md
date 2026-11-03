@@ -336,6 +336,18 @@ Salida (`--output-dir`, por defecto `results/`): `reference_set_summary.json` (c
 reutiliza si es de la misma imagen y del mismo motor). `--gpu` transcribe en GPU; `--workers` (hasta 8
 por defecto) lee PrIMuS en paralelo.
 
+**La etapa del compás (#237, [ADR-0059](../docs/adr/ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md)).**
+`--meter-features` (por defecto `none`: HOMR solo) pasa cada lectura de HOMR por la etapa que corre
+tras HOMR en producción, con esos rasgos (`numerator`, `symbol`, `implicit_tuplets`, `all`), antes de
+compararla. Con rasgos, cada fuente de PrIMuS da además `omr_quality`: la SER antes y después de la
+etapa en todos los incipits medidos y, en los que la etapa cambia, el OMR-NED antes y después
+(MusicXML exportados del `ScoreIR` sin el símbolo del compás, como `exp_14`), con cuántos mejoran y
+cuántos empeoran. El resumen dice los rasgos y la versión de la etapa (`meter_stage`).
+
+```powershell
+uv run --no-sync python ml/experiments/exp_15_reference_set.py run --reuse-predictions --meter-features all --output-dir <carpeta>
+```
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
