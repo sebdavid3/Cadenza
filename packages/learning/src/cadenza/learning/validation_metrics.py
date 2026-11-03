@@ -14,6 +14,7 @@ from typing import Any
 
 from cadenza.domain import (
     CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     EditEvent,
@@ -183,6 +184,9 @@ def categorize_edit_op(op: EditOp | str) -> str:
     # edición (ADR-0044, ADR-0049, ADR-0055).
     if val in {op.value for op in METER_EDIT_OPS}:
         return "meter"
+    # Ni escribir en un hueco de una voz o hacerlo visible (ADR-0058).
+    if val in {op.value for op in GAP_EDIT_OPS}:
+        return "gap"
     return "other"
 
 
