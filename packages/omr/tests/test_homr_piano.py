@@ -126,25 +126,22 @@ def test_each_hand_takes_the_reading_with_fewer_irregular_measures() -> None:
     ]
 
 
-def test_hands_with_different_measures_take_one_reading_for_the_system() -> None:
-    # La mano derecha sola es mejor, pero tiene un compás más que la izquierda emparejada.
+def test_a_hand_alone_with_other_measures_in_the_system_is_not_taken() -> None:
+    # La lectura sola es mejor en las dos manos, pero tiene un compás más que la emparejada: el
+    # piano dejaría de tener los compases de la voz desde ese sistema (#239 los alinea).
     paired = [
-        _staff(PAIRED, [_short(1, "C5"), _full(2, "C5")], [2]),
-        _staff(PAIRED, [_full(1, "C3"), _full(2, "C3")], [2]),
+        _staff(PAIRED, [_short(1, "C5"), _full(2, "C5"), _full(3, "C5")], [2, 1]),
+        _staff(PAIRED, [_short(1, "C3"), _full(2, "C3"), _full(3, "C3")], [2, 1]),
     ]
-    alone_right = [_full(1, "E5"), _full(2, "E5"), _full(3, "E5")]
+    alone = [
+        _staff(ALONE, [_full(1, "E5"), _full(2, "E5"), _full(3, "E5"), _full(4, "E5")], [3, 1]),
+        _staff(ALONE, [_full(1, "E3"), _full(2, "E3"), _full(3, "E3")], [2, 1]),
+    ]
 
-    alone_fits = [
-        _staff(ALONE, alone_right, [3]),
-        _staff(ALONE, [_full(1, "E3"), _full(2, "E3"), _full(3, "E3")], [3]),
+    assert choose_readings(paired, alone) == [
+        SystemChoice(PAIRED, ALONE),
+        SystemChoice(PAIRED, PAIRED),
     ]
-    assert choose_readings(paired, alone_fits) == [SystemChoice(ALONE, ALONE)]
-
-    alone_apart = [
-        _staff(ALONE, alone_right, [3]),
-        _staff(ALONE, [_full(1, "E3"), _full(2, "E3")], [2]),
-    ]
-    assert choose_readings(paired, alone_apart) == [SystemChoice(PAIRED, PAIRED)]
 
 
 def test_readings_with_different_systems_are_not_combined() -> None:
@@ -431,3 +428,17 @@ def test_homr_readings_combine_into_the_voice_above_the_piano() -> None:
 def test_readings_that_cannot_be_combined_leave_the_paired_one() -> None:
     paired_xml = _HEADER.format(parts=_score_part(1)) + _voice_part() + "</score-partwise>"
     assert combine_musicxml(paired_xml, paired_xml) == paired_xml
+
+
+def test_a_combination_that_fails_leaves_the_paired_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from cadenza.omr.adapters import homr_piano
+
+    def broken(*args: object) -> None:
+        raise RuntimeError("roto")
+
+    monkeypatch.setattr(homr_piano, "combine_voice_and_piano", broken)
+    paired_xml = _HEADER.format(parts=_score_part(1)) + _voice_part() + "</score-partwise>"
+
+    assert combine_musicxml(paired_xml, "<no es MusicXML") == paired_xml

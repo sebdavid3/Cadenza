@@ -153,10 +153,11 @@ def test_import_homr_raises_if_detect_title_missing(monkeypatch: pytest.MonkeyPa
 
 class _FakeHomrMain:
     """`homr.main` de mentira: cada pasada escribe `<imagen>.musicxml` con el modo de la lectura
-    y, si `piano`, anota un piano en el sistema como haría la elección de pares."""
+    y anota el par de piano `piano` como haría la elección de pares."""
 
-    def __init__(self, piano: bool) -> None:
+    def __init__(self, piano: list[int] | None, fail_alone: bool = False) -> None:
         self.piano = piano
+        self.fail_alone = fail_alone
         self.passes: list[str] = []
 
     def ProcessingConfig(self, **kwargs: Any) -> dict[str, Any]:
@@ -171,8 +172,10 @@ class _FakeHomrMain:
         record = homr_grand_staff._current
         assert record is not None
         self.passes.append(record.mode.value)
-        if self.piano:
-            record.piano_pairs.append([1, 2])
+        if self.piano is not None:
+            record.piano_pairs.append(self.piano)
+        if self.fail_alone and record.mode.value == "alone":
+            raise RuntimeError("HOMR falló")
         Path(image).with_suffix(".musicxml").write_text(f"<{record.mode.value}/>", encoding="utf-8")
 
 
@@ -185,7 +188,7 @@ def _fake_xml_generator(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "homr.music_xml_generator", module)
 
 
-def test_a_page_without_voice_and_piano_is_read_once(
+def test_a_page_without_voice_and_piano_below_is_read_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from cadenza.omr.adapters.homr import _run_homr
@@ -193,10 +196,11 @@ def test_a_page_without_voice_and_piano_is_read_once(
     _fake_xml_generator(monkeypatch)
     image = tmp_path / "page.png"
     image.write_bytes(b"png")
-    main = _FakeHomrMain(piano=False)
-
-    assert _run_homr(main, image, use_gpu=False) == "<paired/>"
-    assert main.passes == ["paired"]
+    for piano in (None, [0, 1]):
+        # Sin piano, o con el piano arriba (que no se combina), basta una lectura.
+        main = _FakeHomrMain(piano=piano)
+        assert _run_homr(main, image, use_gpu=False) == "<paired/>"
+        assert main.passes == ["paired"]
 
 
 def test_a_voice_and_piano_page_is_read_both_ways_and_combined(
@@ -215,11 +219,25 @@ def test_a_voice_and_piano_page_is_read_both_ways_and_combined(
     monkeypatch.setattr(homr_piano, "combine_musicxml", combine)
     image = tmp_path / "page.png"
     image.write_bytes(b"png")
-    main = _FakeHomrMain(piano=True)
+    main = _FakeHomrMain(piano=[1, 2])
 
     assert _run_homr(main, image, use_gpu=False) == "<combined/>"
     assert main.passes == ["paired", "alone"]
     assert combined == [("<paired/>", "<alone/>")]
+
+
+def test_if_the_reading_alone_fails_the_paired_one_is_kept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from cadenza.omr.adapters.homr import _run_homr
+
+    _fake_xml_generator(monkeypatch)
+    image = tmp_path / "page.png"
+    image.write_bytes(b"png")
+    main = _FakeHomrMain(piano=[1, 2], fail_alone=True)
+
+    assert _run_homr(main, image, use_gpu=False) == "<paired/>"
+    assert main.passes == ["paired", "alone"]
 
 
 @pytest.mark.skipif(not HOMR_INSTALLED, reason="requiere el extra opcional 'homr'")

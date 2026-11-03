@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import logging
 import os
 import shutil
 import site
@@ -30,6 +31,7 @@ from . import homr_grand_staff, homr_piano
 from .homr_grand_staff import PianoReading
 
 ENGINE_ID = "homr"
+_LOGGER = logging.getLogger(__name__)
 # HOMR guarda sus sesiones de ONNX y las salidas preasignadas del decodificador como estado global
 # del proceso: dos hilos a la vez se las pisan y fallan con errores internos de ONNX Runtime. Las
 # llamadas se hacen de una en una en todo el proceso (#165, ADR-0024).
@@ -222,10 +224,15 @@ def _run_homr(
                 )
             with homr_grand_staff.reading(PianoReading.PAIRED) as paired:
                 paired_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
-            if not paired.piano_pairs:
+            # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
+            if [1, 2] not in paired.piano_pairs:
                 return paired_xml
-            with homr_grand_staff.reading(PianoReading.ALONE):
-                alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
+            try:
+                with homr_grand_staff.reading(PianoReading.ALONE):
+                    alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
+            except OMRTranscriptionError:
+                _LOGGER.exception("Falló la lectura del piano solo; queda la emparejada")
+                return paired_xml
     return homr_piano.combine_musicxml(paired_xml, alone_xml)
 
 
@@ -311,8 +318,10 @@ class HOMREngine(OMREngine):
 
         Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
         pérdida de información del `ScoreIR` (que no modela armaduras, claves ni
-        barras de compás). En una página de voz y piano es la combinación de las
-        dos lecturas del piano, escrita por el exportador de Cadenza (#325).
+        barras de compás). En una página de voz y piano es otra cosa: la
+        combinación de las dos lecturas del piano, escrita por el exportador de
+        Cadenza desde el `ScoreIR` (#325), sin los saltos de sistema, las
+        repeticiones ni las voltas de HOMR.
         """
 
         if not image_path.is_file():

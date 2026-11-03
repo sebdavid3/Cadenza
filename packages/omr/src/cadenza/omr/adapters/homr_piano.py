@@ -10,10 +10,9 @@ pero a veces se equivoca en las figuras de una mano.
 Aquí se combinan las dos lecturas de la misma página, sistema a sistema y mano a mano, sin la
 verdad: de cada mano se toma la lectura con menos compases cuya duración no es la habitual de esa
 mano en esa lectura (la suma más repetida de sus compases; a igualdad, la mayor), y, a igualdad,
-la emparejada. Las dos manos de un sistema tienen que tener los mismos compases; si las
-elegidas no los tienen, el sistema entero sale de una sola lectura: la de las dos manos solas si
-tienen los mismos compases y menos compases irregulares entre las dos, y si no, la emparejada.
-La voz sale de la lectura emparejada (en las dos se lee sola).
+la emparejada. Una mano sola solo se toma si tiene en ese sistema los mismos compases que la
+emparejada: así las dos manos de cada sistema tienen los mismos compases, y el piano, los mismos
+que tenía con #239 frente a la voz. La voz sale de la lectura emparejada (en las dos se lee sola).
 
 Los sistemas se cuentan en el MusicXML de HOMR, que empieza cada uno con
 `<print new-system="yes">`. Si las dos lecturas no tienen las partes esperadas (la voz y el piano
@@ -23,6 +22,7 @@ sistemas, se queda la emparejada.
 
 from __future__ import annotations
 
+import logging
 import xml.etree.ElementTree as ET
 from collections import Counter
 from collections.abc import Sequence
@@ -44,6 +44,8 @@ from cadenza.domain import (
 
 from ..meter_stage import measure_sum
 from .homr_grand_staff import PianoReading
+
+_LOGGER = logging.getLogger(__name__)
 
 RIGHT, LEFT = 0, 1
 """Las manos del piano: el pentagrama de arriba y el de abajo."""
@@ -118,31 +120,25 @@ def system_sizes(xml_text: str) -> list[list[int]]:
 def choose_readings(
     paired: Sequence[StaffReading], alone: Sequence[StaffReading]
 ) -> list[SystemChoice]:
-    """La lectura de cada mano en cada sistema (las dos manos, en el orden `RIGHT`, `LEFT`)."""
+    """La lectura de cada mano en cada sistema (las dos manos, en el orden `RIGHT`, `LEFT`).
+
+    Una mano sola se toma si tiene menos compases irregulares que la emparejada y los mismos
+    compases en el sistema."""
 
     systems = len(paired[RIGHT].systems)
     if any(len(staff.systems) != systems for staff in (*paired, *alone)):
         raise ValueError("las dos lecturas no tienen los mismos sistemas")
     choices: list[SystemChoice] = []
     for system in range(systems):
-        bad_paired = [staff.irregular(system) for staff in paired]
-        bad_alone = [staff.irregular(system) for staff in alone]
         hands = [
-            PianoReading.ALONE if bad_alone[hand] < bad_paired[hand] else PianoReading.PAIRED
-            for hand in (RIGHT, LEFT)
-        ]
-        sizes = [
-            (alone if hands[hand] is PianoReading.ALONE else paired)[hand].systems[system]
-            for hand in (RIGHT, LEFT)
-        ]
-        if sizes[RIGHT] != sizes[LEFT]:
-            alone_fits = alone[RIGHT].systems[system] == alone[LEFT].systems[system]
-            whole = (
+            (
                 PianoReading.ALONE
-                if alone_fits and sum(bad_alone) < sum(bad_paired)
+                if alone[hand].systems[system] == paired[hand].systems[system]
+                and alone[hand].irregular(system) < paired[hand].irregular(system)
                 else PianoReading.PAIRED
             )
-            hands = [whole, whole]
+            for hand in (RIGHT, LEFT)
+        ]
         choices.append(SystemChoice(right=hands[RIGHT], left=hands[LEFT]))
     return choices
 
@@ -306,16 +302,26 @@ def combine_musicxml(paired_xml: str, alone_xml: str) -> str:
     """El MusicXML de la combinación de las dos lecturas de HOMR de una página de voz y piano.
 
     Sale del `ScoreIR` combinado con el exportador de Cadenza, que importado da el mismo
-    `ScoreIR`. Si las lecturas no se pueden combinar, el MusicXML de la emparejada tal cual."""
+    `ScoreIR` (salvo, a veces, cómo se emparejan los extremos de una ligadura de expresión, como
+    en toda exportación). Si las lecturas no se pueden combinar, o algo falla al hacerlo, el
+    MusicXML de la emparejada tal cual: la combinación no debe hacer fallar una transcripción que
+    con #239 salía."""
 
     from cadenza.interchange import musicxml_to_score_ir, score_ir_to_musicxml
 
-    combined = combine_voice_and_piano(
-        musicxml_to_score_ir(paired_xml), paired_xml, musicxml_to_score_ir(alone_xml), alone_xml
-    )
-    if combined is None:
+    try:
+        combined = combine_voice_and_piano(
+            musicxml_to_score_ir(paired_xml),
+            paired_xml,
+            musicxml_to_score_ir(alone_xml),
+            alone_xml,
+        )
+        if combined is None:
+            return paired_xml
+        return score_ir_to_musicxml(combined[0])
+    except Exception:
+        _LOGGER.exception("No se combinaron las lecturas del piano; queda la emparejada")
         return paired_xml
-    return score_ir_to_musicxml(combined[0])
 
 
 __all__ = [
