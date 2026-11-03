@@ -142,6 +142,7 @@ from cadenza.domain import (
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
     HOMREngine,
+    MeterStage,
     OMREngine,
     OMRTranscriptionError,
     get_effective_device,
@@ -520,6 +521,7 @@ def create_app(
     model_registry: Any | None = None,
     score_cache: ScoreStateCache | None = None,
     suggestion_model: SuggestionModel | None = None,
+    meter_stage: MeterStage | None = None,
 ) -> FastAPI:
     """Construye la aplicación con dependencias inyectadas (raíz de composición).
 
@@ -527,6 +529,10 @@ def create_app(
     versión promovida del registro se carga aquí, al arrancar, envuelta en la política de qué
     se muestra (ADR-0036, enmienda 19), salvo que se inyecte otra: la inyectada se usa tal
     cual, sin política.
+
+    La etapa del compás (ADR-0059) corre tras HOMR con los rasgos de
+    `Settings.omr_meter_features`. Con un motor inyectado solo corre la etapa que se inyecte:
+    el doble de pruebas da su partitura tal cual.
     """
 
     configure_logging()
@@ -736,6 +742,11 @@ def create_app(
         )
     )
     app.state.omr_engine = resolved_engine
+    app.state.meter_stage = (
+        meter_stage
+        if meter_stage is not None
+        else (app_settings.build_meter_stage() if omr_engine is None else None)
+    )
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else get_default_rules()
     )
@@ -1293,6 +1304,7 @@ def create_app(
                     suggestion_model=request.app.state.suggestion_model,
                     metadata=metadata,
                     source_filename=file.filename,
+                    meter_stage=request.app.state.meter_stage,
                 )
                 work_db.commit()
                 return outcome

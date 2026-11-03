@@ -89,6 +89,18 @@ def test_provenance_with_preprocessing_roundtrip() -> None:
     assert Provenance.from_primitive(provenance.to_primitive()) == provenance
 
 
+def test_provenance_with_omr_stages_roundtrip_and_is_omitted_without_them() -> None:
+    """Las etapas tras el OMR (ADR-0059 §5) se guardan solo si corrieron: un documento de antes
+    de #237 se lee y se guarda igual."""
+    staged = Provenance(
+        omr_engine="homr",
+        omr_stages={"meter": {"version": "1", "features": ["numerator"], "segments": []}},
+    )
+    assert Provenance.from_primitive(staged.to_primitive()) == staged
+    assert "omr_stages" not in Provenance(omr_engine="homr").to_primitive()
+    assert Provenance.from_primitive({"omr_engine": "homr"}).omr_stages is None
+
+
 def test_score_document_roundtrip() -> None:
     score = _sample_score()
     document = ScoreDocument(

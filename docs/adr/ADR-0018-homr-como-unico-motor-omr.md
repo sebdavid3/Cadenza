@@ -110,3 +110,9 @@ flowchart LR
   noviembre de 2026. Su integración como fuente de propuestas queda como trabajo futuro
   ([#262](https://github.com/sebdavid3/Cadenza/issues/262)) y necesitaría un ADR que
   modifique este.
+- **2026-11-02, una etapa de Cadenza tras HOMR ([ADR-0059](ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md), [#237](https://github.com/sebdavid3/Cadenza/issues/237)).**
+  HOMR sigue siendo el único motor y `HOMREngine` no cambia, pero en producción su transcripción ya
+  no se valida tal cual: el caso de uso de transcribir la pasa antes por la etapa del compás
+  (`cadenza.omr.meter_stage`), que reconoce el numerador por tramos, C y ¢ y los tresillos
+  implícitos, y queda en la procedencia (`omr_stages`). Los experimentos que construyen
+  `HOMREngine` siguen midiendo HOMR solo.

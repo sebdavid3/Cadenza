@@ -28,6 +28,7 @@ from cadenza.domain import (
     TimeSignature,
 )
 from cadenza.interchange import score_ir_to_musicxml
+from cadenza.omr import METER_STAGE_VERSION, MeterFeature, recognize_meter
 
 from ml.experiments import common
 from ml.experiments import exp_15_reference_set as exp_15
@@ -986,3 +987,157 @@ def test_reused_predictions_must_come_from_the_same_engine(tmp_path: Path) -> No
 
     assert len(first.calls) == 1
     assert len(second.calls) == 1
+
+
+# ---------------------------------------------------------------------------- etapa del compás
+
+
+def test_run_with_the_meter_stage_measures_its_reading(tmp_path: Path) -> None:
+    """Con `meter_features`, la lectura pasa por la etapa del compás antes de compararla (#237):
+    el ¢ que HOMR lee 2/2 sale con su símbolo, y PrIMuS da la SER antes y después."""
+
+    world = _build_world(tmp_path)
+
+    summary = exp_15.run(
+        manifest_path=world["manifest"],
+        data_dir=world["data"],
+        pages_dir=world["pages"],
+        output_dir=tmp_path / "out",
+        engine=_FixedEngine(world["read_xml"]),
+        meter_features=frozenset({MeterFeature.SYMBOL}),
+        log=lambda _message: None,
+    )
+
+    assert summary["meter_stage"]["features"] == ["symbol"]
+    assert summary["run_info"]["meter_stage"]["version"] == METER_STAGE_VERSION
+    page = summary["pages"][0]
+    assert page["meter_stage"]["features"] == ["symbol"]
+    assert page["comparison"]["time"]["counts"]["segments_mid_page_notation_correct"] == 3
+    quality = summary["primus"][0]["omr_quality"]
+    assert quality["incipits"] == 1
+    assert quality["stage_changed"] == 0
+    assert quality["ser"]["n"] == 1
+    assert quality["ser"]["mean_before"] == quality["ser"]["mean_after"]
+    assert quality["omr_ned_changed"]["n"] == 0
+
+
+def test_without_the_meter_stage_the_reading_is_homr_alone(tmp_path: Path) -> None:
+    world = _build_world(tmp_path)
+
+    summary = exp_15.run(
+        manifest_path=world["manifest"],
+        data_dir=world["data"],
+        pages_dir=world["pages"],
+        output_dir=tmp_path / "out",
+        engine=_FixedEngine(world["read_xml"]),
+        log=lambda _message: None,
+    )
+
+    assert summary["meter_stage"] == {"features": [], "version": None, "issue": 237}
+    assert summary["pages"][0]["meter_stage"] is None
+    assert "omr_quality" not in summary["primus"][0]
+
+
+def test_stage_quality_measures_omr_ned_only_when_the_stage_changes_the_reading() -> None:
+    truth = _score([_measure(1, THREE), _measure(2, THREE)])
+    # HOMR lee 4/4 (la mediana de la página) con compases de tres negras.
+    read = _score([_measure(1, FOUR, events=_quarters(3)), _measure(2, FOUR, events=_quarters(3))])
+    staged, _ = recognize_meter(read, {MeterFeature.NUMERATOR})
+
+    changed = exp_15.stage_quality(read, staged, truth)
+    unchanged = exp_15.stage_quality(truth, truth, truth)
+
+    assert changed["stage_changed"] is True
+    assert changed["ser_after"] == 0.0 < changed["ser_before"]
+    assert changed["omr_ned_before"] is not None and changed["omr_ned_after"] is not None
+    assert changed["omr_ned_after"] <= changed["omr_ned_before"]
+    assert unchanged["stage_changed"] is False
+    assert unchanged["omr_ned_before"] is None and unchanged["omr_ned_after"] is None
+
+
+def test_quality_summary_counts_better_and_worse_incipits() -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "id": "a",
+            "status": "measured",
+            "ser_before": 0.5,
+            "ser_after": 0.25,
+            "stage_changed": True,
+            "omr_ned_before": 0.4,
+            "omr_ned_after": 0.2,
+            "omr_ned_error": "",
+        },
+        {
+            "id": "b",
+            "status": "measured",
+            "ser_before": 0.1,
+            "ser_after": 0.2,
+            "stage_changed": True,
+            "omr_ned_before": 0.1,
+            "omr_ned_after": 0.3,
+            "omr_ned_error": "",
+        },
+        {
+            "id": "c",
+            "status": "measured",
+            "ser_before": 0.0,
+            "ser_after": 0.0,
+            "stage_changed": False,
+            "omr_ned_before": None,
+            "omr_ned_after": None,
+            "omr_ned_error": "",
+        },
+        {"id": "d", "status": "prediction_unreadable", "reason": "x"},
+    ]
+
+    quality = exp_15.quality_summary(rows)
+    # Un par que musicdiff no compara no cuenta como «sin cambio» en el delta medio.
+    with_error = exp_15.quality_summary(
+        [
+            *rows,
+            {
+                "id": "e",
+                "status": "measured",
+                "ser_before": 0.2,
+                "ser_after": 0.1,
+                "stage_changed": True,
+                "omr_ned_before": None,
+                "omr_ned_after": None,
+                "omr_ned_error": "ValueError: x",
+            },
+            {
+                "id": "f",
+                "status": "measured",
+                "ser_before": 0.3,
+                "ser_after": 0.3,
+                "stage_changed": True,
+                "omr_ned_before": 0.5,
+                "omr_ned_after": 0.2,
+                "omr_ned_error": "",
+            },
+        ]
+    )
+    assert with_error is not None
+    assert with_error["omr_ned_comparable"] == 4
+    assert with_error["omr_ned_mean_delta_over_all"] == -0.075
+    assert with_error["omr_ned_errors"] == {"e": "ValueError: x"}
+
+    assert quality is not None
+    assert quality["incipits"] == 3 and quality["stage_changed"] == 2
+    assert quality["ser"] == {
+        "n": 3,
+        "mean_before": 0.2,
+        "mean_after": 0.15,
+        "better": 1,
+        "worse": 1,
+    }
+    assert quality["omr_ned_changed"]["n"] == 2
+    assert quality["omr_ned_changed"]["better"] == 1 and quality["omr_ned_changed"]["worse"] == 1
+    assert quality["omr_ned_mean_delta_over_all"] == 0.0
+    assert exp_15.quality_summary([{"id": "e", "status": "measured"}]) is None
+
+
+def test_an_unknown_meter_feature_is_an_argument_error() -> None:
+    with pytest.raises(SystemExit) as stopped:
+        exp_15.main(["run", "--meter-features", "numerador"])
+    assert stopped.value.code == 2

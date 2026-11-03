@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from cadenza.omr import MeterStage
 
 # Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
 _ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
@@ -85,6 +88,16 @@ class Settings(BaseSettings):
                 f"CADENZA_AUTH_SECRET_KEY debe tener al menos {MIN_AUTH_SECRET_KEY_BYTES} bytes "
                 f"y tiene {size}: genera una con `openssl rand -hex 32`"
             )
+        return value
+
+    @field_validator("omr_meter_features")
+    @classmethod
+    def _check_meter_features(cls, value: str) -> str:
+        """Un rasgo desconocido impide arrancar: una errata no debe apagarlo en silencio."""
+
+        from cadenza.omr import parse_meter_features
+
+        parse_meter_features(value)
         return value
 
     @field_validator("cors_origins", mode="before")
@@ -203,6 +216,15 @@ class Settings(BaseSettings):
             "omr_preprocess_rescale está activo."
         ),
     )
+    omr_meter_features: str = Field(
+        default="numerator,symbol,implicit_tuplets",
+        description=(
+            "Rasgos de la etapa del compás que corre tras HOMR (CADENZA_OMR_METER_FEATURES, "
+            "ADR-0059), separados por comas: numerator (el numerador de cada tramo), symbol (C "
+            "y ¢) e implicit_tuplets (los tresillos sin marcar); 'all' o 'none'. Por defecto, "
+            "los que mejoran la medición de exp_15 sin empeorar el resto."
+        ),
+    )
     suggestions_enabled: bool = Field(
         default=False,
         description=(
@@ -238,6 +260,14 @@ class Settings(BaseSettings):
             "del proceso en Windows al arrancar (#106)."
         ),
     )
+
+    def build_meter_stage(self) -> MeterStage | None:
+        """La etapa del compás con los rasgos configurados, o None si no hay ninguno (ADR-0059)."""
+
+        from cadenza.omr import MeterStage, parse_meter_features
+
+        features = parse_meter_features(self.omr_meter_features)
+        return MeterStage(features) if features else None
 
     def build_preprocessing_config(self) -> Any | None:
         """Construye un PreprocessingConfig si el preprocesado está habilitado."""
