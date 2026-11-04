@@ -1500,6 +1500,7 @@ def create_app(
                         ttl=timedelta(seconds=app_settings.anonymous_preview_ttl_seconds),
                         metadata=metadata,
                         source_filename=file.filename,
+                        meter_stage=request.app.state.meter_stage,
                     )
                     work_db.commit()
             finally:

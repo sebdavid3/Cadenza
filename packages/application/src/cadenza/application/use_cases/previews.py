@@ -24,6 +24,7 @@ from cadenza.validation import ValidationEngine
 from ..exceptions import PreviewCapacityExceeded, PreviewNotFound
 from ..ports.artifact_store import ArtifactStore, compute_sha256, detect_image_media_type
 from ..ports.preview_repository import PreviewData, PreviewRepository
+from ..ports.recognition_stage import RecognitionStage
 from ..ports.session_repository import SessionRepository
 from ..ports.suggestion_model import SuggestionModel
 from ..user import User
@@ -73,15 +74,22 @@ def create_preview(
     ttl: timedelta,
     metadata: ScoreMetadata | None = None,
     source_filename: str | None = None,
+    meter_stage: RecognitionStage | None = None,
 ) -> PreviewResult:
     """Transcribe la imagen sin cuenta, cuenta los posibles errores y la guarda hasta `ttl`.
 
     Las reglas corren como en una sesión asistida para decir cuántos posibles errores hay, pero
     no se guardan: al reclamarla se vuelven a evaluar sobre el mismo documento, con la capa de
     sugerencias si está encendida, como en `POST /transcribe`.
+
+    Con `meter_stage`, la etapa del compás corre tras el motor, como en `transcribe_score`
+    (ADR-0059): la sesión que se reclama tiene el mismo documento que tendría transcrita con
+    cuenta, con la etapa en su procedencia.
     """
     image = image_path.read_bytes()
     document = omr_engine.transcribe(image_path)
+    if meter_stage is not None:
+        document = meter_stage.apply(document)
     findings = validator.validate(document)
     document = replace(
         document,

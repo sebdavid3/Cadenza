@@ -21,6 +21,7 @@ from cadenza.application import (
     hash_claim_token,
 )
 from cadenza.domain import Instrument, PartMetadata, ScoreMetadata
+from cadenza.omr import MeterFeature, MeterStage
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import ValidationEngine, get_default_rules
 
@@ -144,3 +145,38 @@ def test_capacity_purges_the_expired_and_counts_the_rest(tmp_path: Path) -> None
 
     ensure_preview_capacity(previews, now=NOW + timedelta(hours=2), max_active=1)
     assert previews.previews == {}
+
+
+def test_a_preview_runs_the_meter_stage_and_the_claimed_session_keeps_it(tmp_path: Path) -> None:
+    # Como en POST /transcribe (ADR-0059): la sesión reclamada parte de la misma lectura, con la
+    # etapa del compás en su procedencia.
+    previews = InMemoryPreviewRepository()
+    sessions = InMemorySessionRepository()
+    image = tmp_path / "minueto.png"
+    image.write_bytes(PNG)
+    result = create_preview(
+        image,
+        omr_engine=FakeOMREngine(),
+        validator=ValidationEngine(get_default_rules()),
+        preview_repository=previews,
+        now=NOW,
+        ttl=timedelta(hours=1),
+        meter_stage=MeterStage({MeterFeature.SYMBOL}),
+    )
+
+    claimed = claim_preview(
+        result.preview_id,
+        result.claim_token,
+        preview_repository=previews,
+        session_repository=sessions,
+        artifact_store=InMemoryArtifactStore(),
+        validator=ValidationEngine(get_default_rules()),
+        current_user=ANA,
+        now=NOW + timedelta(minutes=5),
+    )
+
+    session = sessions.get(claimed.session_id)
+    assert session is not None
+    measures = session.document["score"]["parts"][0]["staves"][0]["measures"]
+    assert {m["time_signature"]["symbol"] for m in measures} == {"common"}
+    assert session.document["provenance"]["omr_stages"]["meter"]["features"] == ["symbol"]
