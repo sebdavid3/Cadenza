@@ -235,6 +235,9 @@ export const sessionMidiQuery = (api: ApiClient, sessionId: string, seq: number)
       return blob;
     },
     staleTime: Infinity,
+    // Nadie la observa (se pide con `queryClient.query` al pulsar): sin esto, la caché la
+    // borraría a los 5 minutos. Al cambiar de sesión, `queryClient.clear()` la vacía.
+    gcTime: Infinity,
   });
 
 /**
