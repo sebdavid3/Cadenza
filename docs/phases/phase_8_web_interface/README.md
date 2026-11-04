@@ -40,7 +40,8 @@ móvil: un navegador sin interfaz no la oye.
 El alcance final y el calendario los fija el plan de cierre
 ([`../plan_de_cierre/README.md`](../plan_de_cierre/README.md),
 [#231](https://github.com/sebdavid3/Cadenza/issues/231)): esta fase entra en el congelado del
-2026-11-08, salvo #277, #189, #190 y #278, que no afectan al estudio y se despliegan después.
+2026-11-08. #277, #189, #190 y #278, que iban a esperar al final del estudio, se fusionaron el
+2026-11-04 por decisión del responsable; la transcripción sin cuenta (#278) va apagada.
 
 | Etapa | Issue | Contenido | Depende de | Deuda |
 |---|---|---|---|---|
@@ -59,7 +60,7 @@ El alcance final y el calendario los fija el plan de cierre
 | **Datos de la partitura** | ~~[#235](https://github.com/sebdavid3/Cadenza/issues/235)~~ | **Hecho:** título, compositor e instrumento de cada parte en la API, el MusicXML y el MIDI (ADR-0041) | — | — |
 | | ~~[#240](https://github.com/sebdavid3/Cadenza/issues/240)~~ | **Hecho:** nombre e instrumentos antes de transcribir; el nombre es el de la sesión y se cambia desde la vista (ADR-0045) | #235 | — |
 | **Portada** | ~~[#277](https://github.com/sebdavid3/Cadenza/issues/277)~~ | **Hecho:** subir una imagen y ver su transcripción desde la portada, con «Editar» hacia la sesión; sin sesión se pide entrar y la imagen espera en memoria; la cola enlaza cada resultado (ADR-0053) | #240 | — |
-| | ~~[#278](https://github.com/sebdavid3/Cadenza/issues/278)~~ | **Hecho:** transcribir sin cuenta desde la portada (`POST /previews`, tabla propia que caduca a la hora) y reclamarlo al entrar para editarlo (`POST /previews/{id}/claim`), con interruptor apagado por defecto, límite por IP, tope global y sin esperar un hueco de HOMR (ADR-0054); se despliega después del estudio | #277, #248 | — |
+| | [#278](https://github.com/sebdavid3/Cadenza/issues/278) | **Hecho, apagado:** transcribir sin cuenta desde la portada (`POST /previews`, tabla propia que caduca a la hora) y reclamarlo al entrar para editarlo (`POST /previews/{id}/claim`), con interruptor apagado por defecto, límite por IP, tope global y sin esperar un hueco de HOMR (ADR-0054). Fusionado el 2026-11-04 con el interruptor apagado; sigue abierto con lo que falta antes de encenderlo (una anónima puede quitar el turno de HOMR a quien tiene cuenta, y el CORS no frena un `POST` simple de otra web) | #277, #248 | — |
 | **Reproducción** | ~~[#242](https://github.com/sebdavid3/Cadenza/issues/242)~~ | **Hecho:** cada parte suena con su instrumento, sintetizado con Tone.js (ADR-0046) | #235 | — |
 | **Cierre** | ~~[#187](https://github.com/sebdavid3/Cadenza/issues/187)~~ | **Hecho:** finalizar y reabrir una sesión; finalizar conserva los descartes (ADR-0043) | #183 | D65 (resuelta) |
 | | ~~[#188](https://github.com/sebdavid3/Cadenza/issues/188)~~ | **Hecho:** registrar las métricas de esfuerzo según el protocolo (ADR-0050) | #187, #244 | D38 |
