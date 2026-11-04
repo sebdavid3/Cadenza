@@ -5,7 +5,7 @@ import { ApiError, errorMessage } from "../../api/errors";
 import type { SessionMetadataRead, SessionMetadataUpdate, SessionViewRead } from "../../types";
 import { metadataUpdate, type ScoreDataDraft } from "../transcription/scoreData";
 import { SESSIONS_QUERY_KEY } from "../transcription/sessions";
-import { sessionDetailQuery, sessionMusicXmlQuery } from "./session";
+import { sessionDetailQuery, sessionMidiKey, sessionMusicXmlQuery } from "./session";
 
 /**
  * `PATCH /sessions/{id}`: cambia el título, el compositor o los instrumentos (#235, ADR-0041). No
@@ -101,6 +101,9 @@ export function useSessionMetadata(api: ApiClient, sessionId: string) {
         queryKey: sessionMusicXmlQuery(api, sessionId, seq).queryKey,
         exact: true,
       });
+      // El MIDI lleva el programa de cada parte: el que se pidió antes, de cualquier estado, ya
+      // no vale. Se descarta y no se invalida, porque solo se pide al pulsar «Descargar MIDI».
+      queryClient.removeQueries({ queryKey: sessionMidiKey(sessionId) });
       void queryClient.invalidateQueries({ queryKey: SESSIONS_QUERY_KEY });
       setMessage({ kind: "saved", text: "Datos guardados." });
       return true;

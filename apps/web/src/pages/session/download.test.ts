@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MUSICXML_TYPE, musicXmlFile, REVOKE_DELAY_MS, saveFile } from "./download";
+import {
+  MIDI_TYPE,
+  midiFile,
+  MUSICXML_TYPE,
+  musicXmlFile,
+  REVOKE_DELAY_MS,
+  saveFile,
+} from "./download";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -17,6 +24,17 @@ describe("descarga del MusicXML", () => {
     expect(file.blob.type).toBe(MUSICXML_TYPE);
     expect(MUSICXML_TYPE).toBe("application/vnd.recordare.musicxml+xml");
     expect(await file.blob.text()).toBe("<score-partwise/>");
+  });
+
+  it("guarda el MIDI como cadenza-<8 primeros del id>.mid, de tipo audio/midi y con sus bytes", async () => {
+    // El Blob de la API puede llegar sin tipo (o con otro): el archivo lleva siempre audio/midi.
+    const bytes = new Uint8Array([0x4d, 0x54, 0x68, 0x64, 0, 0, 0, 6]);
+    const file = midiFile("3e951fef-8a58-489e-abc9-68cfc3cd405b", new Blob([bytes]));
+
+    expect(file.name).toBe("cadenza-3e951fef.mid");
+    expect(MIDI_TYPE).toBe("audio/midi");
+    expect(file.blob.type).toBe(MIDI_TYPE);
+    expect(new Uint8Array(await file.blob.arrayBuffer())).toEqual(bytes);
   });
 
   it("descarga con un enlace temporal y revoca la URL del Blob después", () => {

@@ -205,6 +205,41 @@ export const sessionMusicXmlQuery = (api: ApiClient, sessionId: string, seq: num
     staleTime: Infinity,
   });
 
+/** Cabecera con la que empieza todo archivo MIDI (Standard MIDI File). */
+const MIDI_HEADER = "MThd";
+
+/**
+ * Prefijo de los MIDI de una sesión en caché. El MIDI lleva el programa del instrumento de cada
+ * parte (#235): al guardar los datos de la partitura se descartan todos, de cualquier estado.
+ */
+export const sessionMidiKey = (sessionId: string) => ["session", sessionId, "midi"] as const;
+
+/**
+ * MIDI del estado materializado, para descargarlo (#189). Solo se pide al pulsar «Descargar
+ * MIDI» y queda en caché por estado, mientras no cambien los datos de la partitura: pulsar otra
+ * vez sin editar no lo vuelve a pedir. Una respuesta que no empieza por `MThd` (p. ej. una página
+ * HTML de un proxy) no es un MIDI y se trata como respuesta inesperada, para no guardar un
+ * archivo roto.
+ */
+export const sessionMidiQuery = (api: ApiClient, sessionId: string, seq: number) =>
+  queryOptions({
+    queryKey: [...sessionMidiKey(sessionId), seq],
+    queryFn: async ({ signal }) => {
+      const blob = await api.request<Blob>(`${sessionPath(sessionId)}/export`, {
+        query: { format: "midi" },
+        responseType: "blob",
+        signal,
+      });
+      const header = new TextDecoder().decode(await blob.slice(0, 4).arrayBuffer());
+      if (header !== MIDI_HEADER) throw new ApiError("unexpected", 200);
+      return blob;
+    },
+    staleTime: Infinity,
+    // Nadie la observa (se pide con `queryClient.query` al pulsar): sin esto, la caché la
+    // borraría a los 5 minutos. Al cambiar de sesión, `queryClient.clear()` la vacía.
+    gcTime: Infinity,
+  });
+
 /**
  * Mapa tiempo→ancla del estado materializado (D12): cuándo empieza cada compás y cada evento, en
  * negras. Con las alturas de `current_score`, es lo que se reproduce (ADR-0026).
