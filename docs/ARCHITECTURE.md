@@ -752,6 +752,7 @@ job `build-dataset` las deriva del log.
 | `effort_metrics` | `id`, `session_id`, `duration_ms`, `time_to_first_edit_ms`, `interventions` (JSONB), `accumulated`, `segments` (JSONB), `interventions_by_class` (JSONB), contadores de descartes, restauraciones y sugerencias, `created_at`, `updated_at` | Esfuerzo de corrección por sesión: un solo registro acumulado por sesión, por tramos de tiempo visible ([#188](https://github.com/sebdavid3/Cadenza/issues/188), ADR-0050). |
 | `artifacts` | `sha256` (PK), `kind`, `media_type`, `size_bytes`, `path`, `created_at` | Índice del `ArtifactStore`. |
 | `model_versions` | `version` (PK), `artifact_hash` → `artifacts`, `dataset_hash`, `config_hash`, `ser`, `omr_ned`, `promoted`, `created_at` | *Model Registry* persistente. |
+| `previews` | `id`, `token_hash`, `document` (JSONB), `image` (BYTEA), `image_media_type`, `title`, `composer`, `part_instruments` (JSONB), `source_filename`, `created_at`, `expires_at` | Transcripciones sin cuenta ([#278](https://github.com/sebdavid3/Cadenza/issues/278), [ADR-0054](adr/ADR-0054-transcribir-sin-cuenta-desde-la-portada.md)): sin dueño ni sesión, con el SHA-256 del token de un solo uso; caducan a la hora y, al reclamarlas, pasan a ser una sesión. Apagadas por defecto. |
 
 ```mermaid
 erDiagram
