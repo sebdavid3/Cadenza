@@ -5,6 +5,7 @@ from __future__ import annotations
 from .notation import (
     InterchangeError,
     music21_stream_to_score_ir,
+    musicxml_excerpt,
     musicxml_to_score_ir,
     read_score,
     score_ir_to_midi,
@@ -17,6 +18,7 @@ __all__ = [
     "InterchangeError",
     "Music21ScoreExporter",
     "music21_stream_to_score_ir",
+    "musicxml_excerpt",
     "musicxml_to_score_ir",
     "read_score",
     "score_ir_to_midi",

@@ -443,3 +443,58 @@ def test_the_contract_grows_compatibly() -> None:
     assert "SuggestionRead" in spec["components"]["schemas"]
     finding = spec["components"]["schemas"]["FindingRead"]
     assert "suggestions" not in finding.get("required", [])
+
+
+def _prod_api_environment() -> dict[str, str]:
+    compose = Path(__file__).resolve().parents[3] / "docker-compose.prod.yml"
+    in_api = False
+    in_env = False
+    env: dict[str, str] = {}
+    for raw in compose.read_text(encoding="utf-8").splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        stripped = raw.strip()
+        if indent == 2 and stripped.endswith(":"):
+            in_api = stripped == "api:"
+            in_env = False
+        elif in_api and indent == 4 and stripped.endswith(":"):
+            in_env = stripped == "environment:"
+        elif in_api and in_env and indent == 6 and ":" in stripped:
+            key, _, value = stripped.partition(":")
+            env[key.strip()] = value.strip()
+    return env
+
+
+def test_prod_compose_passes_suggestion_layer_variables_with_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _prod_api_environment()
+    expected = {
+        "CADENZA_SUGGESTIONS_ENABLED": ("${CADENZA_SUGGESTIONS_ENABLED:-false}", "false"),
+        "CADENZA_SUGGESTIONS_MIN_LEVEL": ("${CADENZA_SUGGESTIONS_MIN_LEVEL:-high}", "high"),
+        "CADENZA_SUGGESTIONS_FAMILIES": (
+            "${CADENZA_SUGGESTIONS_FAMILIES:-accidental}",
+            "accidental",
+        ),
+    }
+    for key, (expr, default) in expected.items():
+        assert env.get(key) == expr
+        monkeypatch.setenv(key, default)
+    settings = Settings(auth_secret_key=SECRET)
+    assert (
+        settings.suggestions_enabled,
+        settings.suggestions_min_level,
+        settings.suggestions_families,
+    ) == (False, "high", "accidental")
+
+    env_example = Path(__file__).resolve().parents[3] / "deploy" / ".env.example"
+    example_vars = {
+        key.strip(): value.strip()
+        for line in env_example.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line
+        for key, _, value in [line.partition("=")]
+    }
+    assert {key: example_vars.get(key) for key in expected} == {
+        key: default for key, (_, default) in expected.items()
+    }

@@ -105,6 +105,10 @@ def test_categorize_edit_op() -> None:
     assert categorize_edit_op(EditOp.SET_TUPLET) == "meter"
     # La figura de un acorde (ADR-0049), en la misma clase que los tresillos.
     assert categorize_edit_op(EditOp.SET_CHORD_DURATION) == "meter"
+    # Y la ligadura de prolongación (ADR-0055).
+    assert categorize_edit_op(EditOp.SET_TIE) == "meter"
+    # Los huecos de una voz (ADR-0058), su propia categoría.
+    assert categorize_edit_op(EditOp.SET_EVENT_KIND) == "gap"
     assert categorize_edit_op("custom") == "other"
 
 

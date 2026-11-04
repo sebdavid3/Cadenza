@@ -11,7 +11,10 @@ Dos reglas puras que la capa de aplicación aplica antes de persistir una edici�
   restaure siempre el estado exacto, sin depender de lo que envíe el cliente.
 
 Las operaciones de las marcas de notación (ADR-0039) tienen sus reglas en `mark_edits`, y las del
-compás y los tresillos (ADR-0044), en `meter_edits`.
+compás y los tresillos (ADR-0044), en `meter_edits` (la ligadura de prolongación, ADR-0055, en
+`tie_edits`). Los acordes (ADR-0055): una nota con `is_chord` se inserta justo tras otra nota y un
+evento sin él no parte un acorde; la primera nota de un acorde se borra con
+``{"keep_chord": true}``, y la siguiente pasa a ser la primera.
 """
 
 from __future__ import annotations
@@ -19,9 +22,11 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any, Final
 
 from .anchor import Anchor, EventKind
+from .chords import is_chord_head, joins_previous
 from .clef import Clef
 from .duration_rules import check_duration
 from .edit import MARK_EDIT_OPS, METER_EDIT_OPS, EditEvent, EditOp
@@ -82,6 +87,12 @@ _INSERT_KEYS: Final[frozenset[str]] = frozenset(
 # Sin marcas, la instantánea no las lleva: su ausencia es «sin marcas», como en las
 # instantáneas guardadas antes de ADR-0031.
 _DELETE_SNAPSHOT_KEYS: Final[frozenset[str]] = frozenset({"kind", "pitch", "duration_beats"})
+# Lo que es un evento para `SetEventKind` (ADR-0058): su clase, su altura y si es un hueco.
+_KIND_KEYS: Final[frozenset[str]] = frozenset({"kind", "pitch", _HIDDEN_KEY})
+# Borrar la primera nota de un acorde conservando el acorde (ADR-0055): el `after` del borrado, y
+# lo que tenía la nota siguiente como nota del acorde, en su instantánea y en la compensatoria.
+KEEP_CHORD: Final[str] = "keep_chord"
+NEXT_IN_CHORD: Final[str] = "next_in_chord"
 _ARTICULATIONS: Final[frozenset[str]] = frozenset(a.value for a in Articulation)
 _SLUR_TYPES: Final[frozenset[str]] = frozenset(t.value for t in SlurType)
 
@@ -243,6 +254,11 @@ def _check_key(op: EditOp, after: Mapping[str, Any]) -> None:
 
 
 def _check_insert(op: EditOp, anchor: Anchor, after: Mapping[str, Any]) -> None:
+    if NEXT_IN_CHORD in after:
+        raise InvalidEditPayload(
+            f"'{NEXT_IN_CHORD}' solo lo escribe la compensatoria de borrar la primera nota de un "
+            "acorde: para añadir una nota a un acorde, insértala con 'is_chord' tras otra nota"
+        )
     _require_keys(op, after, required=frozenset({"kind", "duration_beats"}), allowed=_INSERT_KEYS)
     # La voz la fija el ancla; se admite repetirla en `after` solo si coincide.
     if "voice" in after and (isinstance(after["voice"], bool) or after["voice"] != anchor.voice):
@@ -324,6 +340,120 @@ def _check_event_marks(after: Mapping[str, Any]) -> None:
             )
 
 
+def _check_insert_place(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> None:
+    """Una nota con `is_chord` va justo tras otra nota de su voz, y un evento sin él no se
+    inserta entre las notas de un acorde: el exportador y el mapa de tiempos lo leerían distinto
+    (ADR-0055 §2)."""
+
+    events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
+    index = anchor.event_index
+    if after.get("is_chord") is True:
+        if index == 0 or index > len(events) or events[index - 1].kind is not EventKind.NOTE:
+            raise InvalidEditPayload(
+                "una nota con 'is_chord' va justo tras otra nota de su voz: es una nota más de "
+                "su acorde"
+            )
+        if events[index - 1].duration_beats is None:
+            # El exportador dibujaría el acorde entero como adorno con la duración de la nueva.
+            raise InvalidEditPayload("una nota con duración no se añade a una nota de adorno")
+        if any(after.get(key) for key in _EVENT_MARK_KEYS):
+            raise InvalidEditPayload(
+                "las marcas de un acorde van en su primera nota: una nota con 'is_chord' no "
+                "lleva 'articulations', 'fermata' ni 'slurs'"
+            )
+    elif index < len(events) and joins_previous(events, index):
+        raise InvalidEditPayload(
+            "un evento sin 'is_chord' entre dos notas de un acorde partiría el acorde: "
+            "insértalo antes de su primera nota o, con 'is_chord', como una nota más"
+        )
+
+
+def _check_delete(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any] | None) -> None:
+    """`after: null`, o `{"keep_chord": true}` en la primera nota de un acorde, que lo necesita:
+    sin él, la nota siguiente se pegaría a lo que precede al acorde (ADR-0055 §3)."""
+
+    _locate_event(score, anchor)
+    events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
+    head = is_chord_head(events, anchor.event_index)
+    if after is None:
+        if head:
+            raise InvalidEditPayload(
+                "es la primera nota de un acorde: se borra con after {'keep_chord': true}, y la "
+                "nota siguiente pasa a ser la primera, con la figura y las marcas del acorde"
+            )
+        return
+    # `is True`: un 1 no vale como booleano (ADR-0017).
+    if (
+        not isinstance(after, Mapping)
+        or set(after) != {KEEP_CHORD}
+        or after[KEEP_CHORD] is not True
+    ):
+        raise InvalidEditPayload(
+            "DeleteEvent lleva after null o, en la primera nota de un acorde, "
+            "{'keep_chord': true}"
+        )
+    if not head:
+        raise InvalidEditPayload(
+            "'keep_chord' solo se usa en la primera nota de un acorde de dos o más notas"
+        )
+
+
+def _kind_state(event: Event) -> dict[str, Any]:
+    """Lo que es un evento, en la forma del `after` de `SetEventKind` (ADR-0058)."""
+
+    return {"kind": event.kind.value, "pitch": event.pitch, _HIDDEN_KEY: event.hidden}
+
+
+def _check_event_kind(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any] | None) -> None:
+    """`SetEventKind` convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se
+    ve o en una nota en su lugar, con la misma figura (ADR-0058). Solo la compensatoria lo
+    devuelve a hueco, y no pasa por aquí."""
+
+    target = _locate_event(score, anchor)
+    op = EditOp.SET_EVENT_KIND
+    payload = _require_mapping(op, after)
+    _require_keys(op, payload, required=_KIND_KEYS, allowed=_KIND_KEYS)
+    kind, pitch, hidden = payload["kind"], payload["pitch"], payload[_HIDDEN_KEY]
+    if not isinstance(hidden, bool):
+        raise InvalidEditPayload(f"'hidden' debe ser booleano: {hidden!r}")
+    if kind == EventKind.NOTE.value:
+        _check_pitch(pitch)
+        if hidden:
+            raise InvalidEditPayload("solo un silencio puede ser invisible ('hidden')")
+    elif kind == EventKind.REST.value:
+        if pitch is not None:
+            raise InvalidEditPayload("un silencio no lleva 'pitch'")
+    else:
+        raise InvalidEditPayload(f"SetEventKind solo admite kind 'note' o 'rest': {kind!r}")
+    if not (target.kind is EventKind.REST and target.hidden):
+        raise InvalidEditPayload(
+            "SetEventKind solo se aplica a un hueco (un silencio invisible): una nota o un "
+            "silencio que se ve se corrigen con las demás operaciones"
+        )
+    if hidden:
+        raise InvalidEditPayload("SetEventKind no cambia nada: el evento ya es un hueco")
+    # Lo que se escribe en el hueco lleva su figura: ha de ser una que admiten las ediciones
+    # (ADR-0017), como la de una nota insertada. Un hueco importado puede no serlo.
+    try:
+        _check_duration(None if target.duration_beats is None else str(target.duration_beats))
+    except InvalidEditPayload as exc:
+        raise InvalidEditPayload(
+            f"la figura del hueco no se admite en una edición ({exc}): cámbiala antes"
+        ) from exc
+    events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
+    following = anchor.event_index + 1
+    if (
+        kind == EventKind.NOTE.value
+        and following < len(events)
+        and events[following].kind is EventKind.NOTE
+        and events[following].is_chord
+    ):
+        raise InvalidEditPayload(
+            "la nota que sigue al hueco es de un acorde ('is_chord'): una nota en el hueco se "
+            "uniría a su acorde"
+        )
+
+
 def _check_slur_ends_free(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]) -> None:
     """Un extremo de ligadura insertado no puede repetir uno de la parte: el `number` identifica
     la ligadura dentro de su parte (ADR-0031), y dos inicios iguales no se sabría emparejarlos."""
@@ -373,9 +503,10 @@ def validate_after(
         return
 
     if op is EditOp.DELETE_EVENT:
-        _locate_event(score, anchor)
-        if after is not None:
-            raise InvalidEditPayload("DeleteEvent no lleva 'after' (debe ser null)")
+        _check_delete(score, anchor, after)
+        return
+    if op is EditOp.SET_EVENT_KIND:
+        _check_event_kind(score, anchor, after)
         return
 
     if op in (EditOp.SET_CLEF, EditOp.SET_KEY, EditOp.INSERT_EVENT):
@@ -387,6 +518,7 @@ def validate_after(
             _check_key(op, payload)
         else:
             _check_insert(op, anchor, payload)
+            _check_insert_place(score, anchor, payload)
             _check_slur_ends_free(score, anchor, payload)
         return
 
@@ -467,6 +599,21 @@ def _event_snapshot(event: Event) -> dict[str, Any]:
     return snapshot
 
 
+def _next_in_chord(score: ScoreIR, anchor: Anchor) -> dict[str, Any]:
+    """Lo que tiene como nota del acorde la que sigue a la primera (ADR-0055 §3): lo que cambia
+    al pasar a ser la primera, para que la compensatoria lo devuelva."""
+
+    following = _locate_event(score, replace(anchor, event_index=anchor.event_index + 1))
+    return {
+        "duration_beats": (
+            None if following.duration_beats is None else str(following.duration_beats)
+        ),
+        "articulations": [a.value for a in following.articulations],
+        "fermata": following.fermata,
+        "slurs": [slur.to_primitive() for slur in following.slurs],
+    }
+
+
 def snapshot_before(
     score: ScoreIR,
     anchor: Anchor,
@@ -478,6 +625,8 @@ def snapshot_before(
     Es exactamente lo que necesita `create_inverse_edit` para restaurar el estado previo.
     `InsertEvent` no modifica nada existente y devuelve None. Las operaciones de marcas
     (ADR-0039) necesitan además el `after` ya validado: dice qué posición o qué marca fijan.
+    Borrar la primera nota de un acorde con `keep_chord` guarda también lo que tenía la nota
+    siguiente (`next_in_chord`, ADR-0055).
     """
 
     if op in MARK_EDIT_OPS:
@@ -501,7 +650,12 @@ def snapshot_before(
         return {"duration_beats": None if duration is None else str(duration)}
     if op is EditOp.SET_ACCIDENTAL:
         return {"accidental": _accidental_of(target.pitch)}
-    return _event_snapshot(target)
+    if op is EditOp.SET_EVENT_KIND:
+        return _kind_state(target)
+    snapshot = _event_snapshot(target)
+    if op is EditOp.DELETE_EVENT and after is not None and after.get(KEEP_CHORD) is True:
+        snapshot[NEXT_IN_CHORD] = _next_in_chord(score, anchor)
+    return snapshot
 
 
 def has_complete_before(edit: EditEvent) -> bool:
@@ -524,7 +678,12 @@ def has_complete_before(edit: EditEvent) -> bool:
     if edit.op is EditOp.SET_ACCIDENTAL:
         return "accidental" in keys or "pitch" in keys
     if edit.op is EditOp.DELETE_EVENT:
-        return _DELETE_SNAPSHOT_KEYS.issubset(keys)
+        keeps_chord = edit.after is not None and edit.after.get(KEEP_CHORD) is True
+        return _DELETE_SNAPSHOT_KEYS.issubset(keys) and (
+            not keeps_chord or isinstance(before.get(NEXT_IN_CHORD), Mapping)
+        )
+    if edit.op is EditOp.SET_EVENT_KIND:
+        return _KIND_KEYS.issubset(keys)
     if edit.op is EditOp.SET_CLEF:
         return "clef" in keys or "sign" in keys
     if edit.op is EditOp.SET_KEY:

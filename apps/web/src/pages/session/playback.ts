@@ -87,7 +87,9 @@ const EPSILON = 1e-9;
 /**
  * Notas y compases a partir del mapa de tiempos (`GET /sessions/{id}/timing`) y de las alturas
  * del `ScoreIR` del mismo estado. El `event_index` del ancla cuenta los eventos de su voz dentro
- * del compás. Las notas ligadas suenan como una sola; los silencios no suenan, y una nota sin
+ * del compás. Las notas ligadas suenan como una sola, también si la ligadura cruza la barra a una
+ * voz con otro número (las voces se numeran en cada compás, ADR-0032 §3; ADR-0055); los silencios
+ * no suenan, y una nota sin
  * altura que se entienda tampoco. Cada nota suena con el instrumento de su parte: la entrada `i`
  * de `instruments` es la parte `i` (ADR-0041); sin entrada, como el piano (ADR-0046).
  */
@@ -125,15 +127,30 @@ export function buildPlayback(
     const midi = event?.pitch ? pitchToMidi(event.pitch) : null;
     if (midi === null) continue;
 
-    const tieKey = `${String(anchor.part)}:${String(anchor.staff)}:${String(anchor.voice)}:${String(midi)}`;
+    const staffKey = `${String(anchor.part)}:${String(anchor.staff)}`;
+    const tieKey = `${staffKey}:${String(anchor.voice)}:${String(midi)}`;
     const tie = event?.tie ?? null;
-    const previous = open.get(tieKey);
+    const reaches = (candidate: PlayedNote | undefined): candidate is PlayedNote =>
+      candidate !== undefined && Math.abs(candidate.start + candidate.duration - start) < EPSILON;
+    // La de su voz o, si la nota empieza su compás (la ligadura cruza la barra, y las voces se
+    // numeran en cada compás), la de otra voz de su pentagrama con su altura que acaba donde
+    // empieza.
+    const own = open.get(tieKey);
+    const startsMeasure = parseBeats(timed.measure_offset_beats) === 0;
+    const found: [string, PlayedNote] | undefined = reaches(own)
+      ? [tieKey, own]
+      : !startsMeasure
+        ? undefined
+        : [...open.entries()].find(
+            ([key, candidate]) =>
+              key.startsWith(`${staffKey}:`) &&
+              key.endsWith(`:${String(midi)}`) &&
+              reaches(candidate),
+          );
     let note: PlayedNote;
-    if (
-      (tie === "stop" || tie === "continue") &&
-      previous &&
-      Math.abs(previous.start + previous.duration - start) < EPSILON
-    ) {
+    if ((tie === "stop" || tie === "continue") && found) {
+      const [key, previous] = found;
+      open.delete(key);
       previous.duration += duration;
       note = previous;
     } else {

@@ -1010,6 +1010,12 @@ registro ([#194](https://github.com/sebdavid3/Cadenza/issues/194)), el volumen s
 | [ADR-0048](adr/ADR-0048-compas-y-tresillos-desde-la-barra.md) | El compás y los tresillos desde la barra: grupos «Tresillo» y «Compás», un solo `SetTuplet` o `SetTime` por acción y la figura de una nota de tresillo |
 | [ADR-0049](adr/ADR-0049-figura-de-un-acorde.md) | La figura de un acorde entero: `SetChordDuration`, una sola edición de tipo «fijar» en la primera nota del acorde |
 | [ADR-0050](adr/ADR-0050-metricas-de-esfuerzo-de-la-correccion.md) | Métricas de esfuerzo de la corrección: un registro acumulado por sesión, por tramos de tiempo visible y con actividad, con las intervenciones contadas en el servidor |
+| [ADR-0055](adr/ADR-0055-ligaduras-de-prolongacion-y-notas-de-un-acorde.md) | Ligaduras de prolongación (`SetTie`) y notas de un acorde (`InsertEvent` con `is_chord`, `DeleteEvent` con `keep_chord`) desde la barra |
+| [ADR-0056](adr/ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md) | Conjunto de referencia del compás, los tresillos, las armaduras y la voz con piano: páginas reales con su verdad de OpenScore, manifiesto con sha256 y `exp_15` |
+| [ADR-0057](adr/ADR-0057-banco-de-partituras-del-estudio.md) | Banco de partituras del estudio: recortes de páginas de dominio público con su verdad de OpenScore, regenerables desde un manifiesto con sha256 |
+| [ADR-0058](adr/ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md) | Elegir y corregir los huecos de una voz: la marca del silencio invisible en la vista y `SetEventKind` |
+| [ADR-0059](adr/ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md) | Compás por tramos, C y ¢, y tresillos implícitos en una etapa propia tras HOMR, por rasgo y en la procedencia |
+| [ADR-0060](adr/ADR-0060-voz-por-encima-del-piano.md) | La voz por encima del piano: la importación conserva el orden de la página y, en un sistema de tres pentagramas, el piano son los dos de abajo; con la enmienda de #325, ese piano se lee emparejado y con cada pentagrama solo, y se combina mano a mano |
 
 
 ---

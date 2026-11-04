@@ -11,7 +11,7 @@ import { chordStart, measureAnchor, voiceEvents } from "./markEdits";
 /**
  * Cambiar el compás y poner o quitar tresillos desde la barra de corrección (#241, ADR-0048), con
  * las operaciones de ADR-0044: `SetTime` cambia la indicación de compás desde el compás elegido
- * hasta el siguiente cambio, en todos los pentagramas de la parte; `SetTuplet` pone o quita el
+ * hasta el siguiente cambio, en todos los pentagramas de todas las partes (#326); `SetTuplet` pone o quita el
  * tresillo de 3:2 a varios eventos seguidos de una voz con una sola edición. Qué edición pide
  * cada orden, en el vocabulario del contrato. Nada se da por guardado: lo decide el servidor.
  */
@@ -113,9 +113,53 @@ function runLength(measures: readonly MeasurePayload[], index: number): number {
 }
 
 /**
+ * Lo de una parte en el compás `number`: la indicación que rige en él, hasta dónde llega su tramo y
+ * si sus pentagramas no llevan la misma ahí o no cambian en los mismos compases (`uneven`: el
+ * servidor lo rechazaría, ADR-0044 §2). Null si ningún pentagrama de la parte tiene el compás.
+ */
+function partScope(
+  staves: readonly { measures: readonly MeasurePayload[] }[],
+  number: number,
+  ownStaff: number,
+): {
+  measure: MeasurePayload;
+  current: TimeSignaturePayload | null;
+  until: number;
+  uneven: boolean;
+} | null {
+  const present = staves
+    .map((staff, index) => ({
+      index,
+      measures: staff.measures,
+      position: staff.measures.findIndex((candidate) => candidate.number === number),
+    }))
+    .filter((staff) => staff.position >= 0);
+  const own = present.find((staff) => staff.index === ownStaff) ?? present[0];
+  const measure = own?.measures[own.position];
+  if (!own || !measure) return null;
+  const run = runLength(own.measures, own.position);
+  const uneven = present.some(
+    (staff) =>
+      !sameTime(
+        staff.measures[staff.position]?.time_signature ?? null,
+        measure.time_signature ?? null,
+      ) || runLength(staff.measures, staff.position) !== run,
+  );
+  return {
+    measure,
+    current: measure.time_signature ?? effectiveBefore(own.measures, own.position),
+    until: own.measures[own.position + run - 1]?.number ?? measure.number,
+    uneven,
+  };
+}
+
+/**
  * La indicación de compás que rige el compás elegido y hasta dónde llegaría una nueva puesta en
- * él: el tramo, en todos los pentagramas de la parte. Si sus pentagramas no llevan la misma en ese
- * compás o no cambian en los mismos compases, `uneven` (el servidor lo rechazaría: ADR-0044 §2).
+ * él: el tramo de su parte. El compás se cambia en todas las partes (#326, enmienda de ADR-0044 y
+ * ADR-0048): `uneven` si los pentagramas de alguna parte no llevan la misma en ese compás o no
+ * cambian en los mismos compases; `currents`, la que rige en cada parte que tiene el compás. Si la
+ * parte elegida no lleva ninguna (una sesión con el compás puesto en otra parte antes de #326),
+ * rige la de otra parte, que es la que dibuja la partitura y la que usa el mapa de tiempos.
  */
 function timeScope(
   score: ScoreIRPayload,
@@ -123,34 +167,29 @@ function timeScope(
 ): {
   measure: MeasurePayload;
   current: TimeSignaturePayload | null;
+  currents: (TimeSignaturePayload | null)[];
   from: number;
   until: number;
   uneven: boolean;
 } | null {
   const staves = score.parts[place.part]?.staves ?? [];
-  const own = staves[place.staff]?.measures ?? [];
-  const index = own.findIndex((candidate) => candidate.number === place.measure);
-  const measure = own[index];
-  if (!measure) return null;
-  const run = runLength(own, index);
-  let uneven = false;
-  for (const staff of staves) {
-    const position = staff.measures.findIndex((candidate) => candidate.number === place.measure);
-    const other = staff.measures[position];
-    if (!other) continue;
-    if (
-      !sameTime(other.time_signature ?? null, measure.time_signature ?? null) ||
-      runLength(staff.measures, position) !== run
-    ) {
-      uneven = true;
-    }
-  }
+  const index = (staves[place.staff]?.measures ?? []).findIndex(
+    (candidate) => candidate.number === place.measure,
+  );
+  if (index < 0) return null;
+  const own = partScope(staves, place.measure, place.staff);
+  if (!own) return null;
+  const others = score.parts.map((part, number) =>
+    number === place.part ? own : partScope(part.staves, place.measure, 0),
+  );
+  const present = others.filter((scope) => scope !== null);
   return {
-    measure,
-    current: measure.time_signature ?? effectiveBefore(own, index),
-    from: measure.number,
-    until: own[index + run - 1]?.number ?? measure.number,
-    uneven,
+    measure: own.measure,
+    current: own.current ?? present.find((scope) => scope.current !== null)?.current ?? null,
+    currents: present.map((scope) => scope.current),
+    from: own.measure.number,
+    until: own.until,
+    uneven: present.some((scope) => scope.uneven),
   };
 }
 
@@ -181,7 +220,7 @@ const KEEPS_FIGURES = "Las figuras no cambian: revalida para ver los compases qu
 export type MeterDecision =
   | {
       op: "SetTime";
-      after: { time_signature: TimeSignaturePayload };
+      after: { time_signature: TimeSignaturePayload; all_parts: true };
       /** La indicación elegida: el tramo depende del estado. */
       time: TimeChoice;
     }
@@ -209,9 +248,11 @@ const NO_TARGET = "Elige primero una nota o un silencio.";
 
 /**
  * Cambiar la indicación de compás desde el compás elegido (`SetTime`, ADR-0044 §2): hasta el
- * siguiente cambio, en todos los pentagramas de la parte. Anclada al primer evento del compás,
- * como la armadura (ADR-0033). Las figuras no cambian: el validador señala después los compases
- * que no cuadran. Para quitar un cambio se pone la indicación del compás anterior.
+ * siguiente cambio, en todos los pentagramas de todas las partes (`all_parts`, #326), con una sola
+ * edición que se deshace de un paso. Anclada al primer evento del compás, como la armadura
+ * (ADR-0033). Las figuras no cambian: el validador señala después los compases que no cuadran.
+ * Para quitar un cambio se pone la indicación del compás anterior. Si las partes llevaban compases
+ * distintos en ese compás, se dice al guardar: ahora todas llevan el mismo.
  */
 export function planTime(
   choice: TimeChoice,
@@ -225,22 +266,27 @@ export function planTime(
     beat_type: choice.beat_type,
     ...(choice.symbol ? { symbol: choice.symbol } : {}),
   };
-  if (sameTime(found.current, { ...signature, symbol: choice.symbol })) {
+  const chosen = { ...signature, symbol: choice.symbol };
+  if (found.currents.every((current) => sameTime(current, chosen))) {
     return refuse("El compás ya tiene esa indicación.", "same");
   }
   if (found.uneven) {
     return refuse(
-      "Los pentagramas de la parte no llevan el mismo compás desde aquí: no se puede cambiar desde la vista.",
+      "Los pentagramas de una parte no llevan el mismo compás desde aquí: no se puede cambiar desde la vista.",
     );
   }
+  const several = score.parts.length > 1;
+  const mixed = found.currents.some((current) => !sameTime(current, found.currents[0] ?? null));
   return {
     kind: "edit",
     op: "SetTime",
-    after: { time_signature: signature },
+    after: { time_signature: signature, all_parts: true },
     time: choice,
     anchor: measureAnchor(score, place, found.measure),
-    change: `compás ${timeName(choice)} ${span(found.from, found.until)}`,
-    notice: KEEPS_FIGURES,
+    change: `compás ${timeName(choice)} ${span(found.from, found.until)}${several ? ", en todas las partes" : ""}`,
+    notice: mixed
+      ? `Las partes no llevaban el mismo compás: ahora todas llevan ${timeName(choice)}. ${KEEPS_FIGURES}`
+      : KEEPS_FIGURES,
   };
 }
 

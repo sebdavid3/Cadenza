@@ -1,6 +1,7 @@
 # ADR-0032: Varias voces en el `ScoreIR`: huecos como silencios invisibles, plicas al exportar y numeración de voces
 
 - **Estado:** Aceptado
+- **Enmendado por:** [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que deja elegir y corregir los huecos de una voz (§1)
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0002, ADR-0010, ADR-0011, ADR-0017, ADR-0027 y ADR-0031, CLAUDE.md §9)
 - **Relacionado:** [ADR-0002](ADR-0002-score-document-anchor-index.md), [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0026](ADR-0026-reproduccion-de-la-partitura-en-el-navegador.md), [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [#218](https://github.com/sebdavid3/Cadenza/issues/218)

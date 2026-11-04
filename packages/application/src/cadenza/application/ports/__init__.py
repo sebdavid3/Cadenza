@@ -23,6 +23,7 @@ from .model_registry import (
     PromotionRejected,
     PromotionThreshold,
 )
+from .recognition_stage import RecognitionStage
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .score_state_cache import (
     CachedScoreState,
@@ -82,6 +83,7 @@ __all__ = [
     "PersistedSuggestion",
     "PromotionRejected",
     "PromotionThreshold",
+    "RecognitionStage",
     "ScoreExporter",
     "ScoreStateCache",
     "ScoreStateKey",
