@@ -135,6 +135,15 @@ describe("cambiar la contraseña (#190)", () => {
     );
     expect(within(form()).getByLabelText("Repite la contraseña nueva")).toHaveFocus();
 
+    await userEvent.clear(within(form()).getByLabelText("Contraseña actual"));
+    await userEvent.clear(within(form()).getByLabelText("Contraseña nueva"));
+    await userEvent.clear(within(form()).getByLabelText("Repite la contraseña nueva"));
+    await fill(NEXT, NEXT);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La contraseña nueva es igual a la actual.",
+    );
+    expect(within(form()).getByLabelText("Contraseña nueva")).toHaveFocus();
+
     expect(posts(calls)).toHaveLength(0);
   });
 

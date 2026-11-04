@@ -92,6 +92,11 @@ function PasswordForm({ username }: { username: string }) {
       setError({ message: SHORT_PASSWORD_MESSAGE, field: "next" });
       return;
     }
+    // Igual que la actual, el aviso de después («la anterior ya no vale») sería falso.
+    if (next === current) {
+      setError({ message: "La contraseña nueva es igual a la actual.", field: "next" });
+      return;
+    }
     if (next !== confirmation) {
       setError({ message: "Las dos contraseñas nuevas no coinciden.", field: "confirmation" });
       return;
