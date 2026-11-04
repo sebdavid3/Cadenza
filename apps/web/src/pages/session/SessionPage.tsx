@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
@@ -10,7 +10,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { FindingRead } from "../../types";
 import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
 import { listUsers, statusLabel } from "../transcription/sessions";
-import { DownloadButton } from "./DownloadButton";
+import { DownloadButton, MidiDownloadButton } from "./DownloadButton";
 import { EditBar } from "./EditBar";
 import { useEditor, type Editor } from "./editor";
 import { useEffortMeter } from "./effort";
@@ -41,6 +41,7 @@ import {
   sessionDetailQuery,
   sessionFindingsQuery,
   sessionFullImageQuery,
+  sessionMidiQuery,
   sessionMusicXmlQuery,
   sessionTimingQuery,
   validatedSeqQuery,
@@ -88,6 +89,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const shortId = sessionId.slice(0, 8);
   const user = useAuthStore((state) => state.user);
   const isResearcher = user?.role === "investigador";
+  const queryClient = useQueryClient();
 
   const detail = useQuery(sessionDetailQuery(api, sessionId));
   // El nombre, el compositor y los instrumentos (#240, ADR-0045): lo último que se guardó desde
@@ -420,6 +422,12 @@ function SessionView({ sessionId }: { sessionId: string }) {
                   musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
                 }
                 onRetry={async () => (await musicXml.refetch()).data}
+              />
+              <MidiDownloadButton
+                sessionId={sessionId}
+                seq={seq}
+                ready={ready}
+                fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
               />
             </div>
             <div className="sheet__transport">
