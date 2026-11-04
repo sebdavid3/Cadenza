@@ -1,6 +1,7 @@
 # ADR-0050: Medir el esfuerzo de la corrección en la vista, con un solo registro por sesión que acumula tramos
 
 - **Estado:** Aceptado
+- **Enmendado por:** [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que cuenta `SetEventKind` (`GAP_EDIT_OPS`) en la clase «contenido» (§3)
 - **Fecha:** 2026-11-01
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0004, ADR-0007, ADR-0009, ADR-0011, ADR-0012, ADR-0014, ADR-0034, ADR-0035, ADR-0036, ADR-0039, ADR-0040, ADR-0043, ADR-0044 y ADR-0047, CLAUDE.md §9), sobre las definiciones que fijó el responsable en [#244](https://github.com/sebdavid3/Cadenza/issues/244) (protocolo §3.4)
 - **Completa:** [ADR-0043](ADR-0043-finalizar-y-reabrir-desde-la-vista.md) §16 (lo medido se envía antes de finalizar, no desde su 200) y [ADR-0009](ADR-0009-capa-de-aplicacion.md) (`record_effort`, #13, sigue como está)

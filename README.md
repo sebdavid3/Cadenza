@@ -247,6 +247,7 @@ Todas las variables llevan el prefijo `CADENZA_` y se leen del entorno del proce
 | `CADENZA_DATABASE_URL` | `sqlite+pysqlite:///./cadenza.db` | URL de SQLAlchemy: SQLite en local, PostgreSQL en despliegue. |
 | `CADENZA_ARTIFACTS_DIR` | `./data/artifacts` | Directorio del almacén de artefactos (imágenes y exportaciones). |
 | `CADENZA_OMR_USE_GPU` | `false` | Intentar la inferencia de HOMR en GPU. |
+| `CADENZA_OMR_METER_FEATURES` | `numerator,symbol,implicit_tuplets` | Rasgos de la etapa del compás tras HOMR (ADR-0059): el numerador por tramos, C y ¢ y los tresillos implícitos; `all` o `none`. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `30` | Validez de los tokens de acceso. |
 | `CADENZA_MAX_UPLOAD_SIZE_BYTES` | `20971520` | Tamaño máximo de imagen (20 MB). |
 | `CADENZA_AUTO_CREATE_SCHEMA` | `false` | Crear el esquema al arrancar (solo desarrollo y tests). |

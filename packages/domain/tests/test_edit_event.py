@@ -103,4 +103,8 @@ def test_edit_op_members() -> None:
         EditOp.SET_TUPLET,
         # La figura de un acorde (ADR-0049): también en `METER_EDIT_OPS`.
         EditOp.SET_CHORD_DURATION,
+        # La ligadura de prolongación (ADR-0055): también en `METER_EDIT_OPS`.
+        EditOp.SET_TIE,
+        # Los huecos de una voz (ADR-0058): `GAP_EDIT_OPS`.
+        EditOp.SET_EVENT_KIND,
     }

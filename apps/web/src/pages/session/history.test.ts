@@ -173,14 +173,30 @@ describe("describeEdit", () => {
     expect(describeEdit(edit(1, "DeleteEvent", null))).toBe("borrado de un evento");
   });
 
-  it("un silencio invisible se dice, porque no se ve en la partitura (ADR-0032)", () => {
+  it("un silencio invisible se dice como el hueco de la voz que es (ADR-0032, ADR-0058)", () => {
     const hidden = { kind: "rest", pitch: null, duration_beats: "1/2", hidden: true };
-    expect(describeEdit(edit(1, "InsertEvent", hidden))).toBe(
-      "inserción de un silencio invisible de corchea",
-    );
+    expect(describeEdit(edit(1, "InsertEvent", hidden))).toBe("inserción de un hueco de corchea");
     expect(describeEdit(edit(1, "DeleteEvent", null, { before: hidden }))).toBe(
-      "borrado de un silencio invisible de corchea",
+      "borrado de un hueco de corchea",
     );
+  });
+
+  it("escribir en un hueco, hacerlo visible y deshacerlo (ADR-0058)", () => {
+    const gap = { kind: "rest", pitch: null, hidden: true };
+    const note = { kind: "note", pitch: "F#4", hidden: false };
+    expect(describeEdit(edit(1, "SetEventKind", note, { before: gap }))).toBe(
+      "Fa sostenido 4 en el hueco",
+    );
+    expect(
+      describeEdit(edit(1, "SetEventKind", { kind: "rest", pitch: null, hidden: false })),
+    ).toBe("silencio en el hueco");
+    expect(describeEdit(edit(2, "SetEventKind", gap, { before: note }))).toBe("vuelta al hueco");
+    expect(hasCompleteBefore({ op: "SetEventKind", before: gap })).toBe(true);
+    expect(hasCompleteBefore({ op: "SetEventKind", before: { kind: "rest" } })).toBe(false);
+    expect(inverseOf(edit(1, "SetEventKind", note, { before: gap }))).toMatchObject({
+      op: "SetEventKind",
+      after: gap,
+    });
   });
 
   it("la clave y la armadura, también cuando se quita el cambio del compás", () => {
@@ -266,6 +282,71 @@ describe("compás y tresillos (ADR-0044)", () => {
     expect(historyPlacement(edit(1, "SetTime", { time_signature: null }), score)).toBeUndefined();
   });
 
+  it("el compás en todas las partes lo dice, y su deshacer también (#326)", () => {
+    const three = { beats: 3, beat_type: 4 };
+    const before = {
+      time_signature: null,
+      measures: 2,
+      all_parts: true,
+      parts: [
+        { time_signature: null, measures: 2 },
+        { time_signature: null, measures: 2 },
+      ],
+    };
+    const done = edit(1, "SetTime", { time_signature: three, all_parts: true }, { before });
+    expect(describeEdit(done)).toBe("compás 3/4 en todas las partes");
+    expect(hasCompleteBefore(done)).toBe(true);
+    // La compensatoria lleva la instantánea como `after`.
+    const undone = edit(2, "SetTime", before, {
+      before: { time_signature: three, all_parts: true },
+    });
+    expect(describeEdit(undone)).toBe("quitar el cambio de compás en todas las partes");
+    // Si las partes llevaban compases distintos, deshacer devuelve a cada una el suyo.
+    const mixed = {
+      ...before,
+      parts: [
+        { time_signature: three, measures: 2 },
+        { time_signature: null, measures: 2 },
+      ],
+    };
+    expect(describeEdit(edit(2, "SetTime", mixed, { before: done.after }))).toBe(
+      "devolver el compás de cada parte",
+    );
+    // Sin lo de cada parte, el servidor no la puede deshacer.
+    expect(
+      hasCompleteBefore(
+        edit(1, "SetTime", null, {
+          before: { time_signature: null, measures: 2, all_parts: true },
+        }),
+      ),
+    ).toBe(false);
+    // Con una sola parte no hay «todas las partes».
+    const single = edit(
+      1,
+      "SetTime",
+      { time_signature: three, all_parts: true },
+      { before: { ...before, parts: [{ time_signature: null, measures: 2 }] } },
+    );
+    expect(describeEdit(single)).toBe("compás 3/4");
+    // Es de todas las partes: no se dice cuál.
+    const parts = { parts: [{ staves: [] }, { staves: [] }] } as unknown as ScoreIRPayload;
+    expect(
+      placeOf(
+        {
+          op: "SetTime",
+          anchor: { ...anchor(3), part: 1 },
+          after: { time_signature: three, all_parts: true },
+        },
+        true,
+        parts,
+      ),
+    ).toBe("compás 3");
+    // Deshacerlo o rehacerlo lo dice por la edición del log.
+    expect(
+      placeOf({ op: "SetTime", anchor: { ...anchor(3), part: 1 }, edit: done }, true, parts),
+    ).toBe("compás 3");
+  });
+
   it("la figura de un acorde se dice con su figura, en su voz, y se deshace con su instantánea", () => {
     const chord = edit(
       1,
@@ -282,6 +363,58 @@ describe("compás y tresillos (ADR-0044)", () => {
       op: "SetChordDuration",
       after: { durations: ["1", "1", "1"] },
     });
+  });
+});
+
+describe("notas de un acorde y ligaduras de prolongación (ADR-0055)", () => {
+  it("una nota añadida al acorde o borrada de él se dice con su altura y su acorde", () => {
+    expect(
+      describeEdit(
+        edit(1, "InsertEvent", { kind: "note", pitch: "B4", duration_beats: "1", is_chord: true }),
+      ),
+    ).toBe("inserción de Si 4 en el acorde");
+    const head = edit(
+      1,
+      "DeleteEvent",
+      { keep_chord: true },
+      {
+        before: {
+          kind: "note",
+          pitch: "C4",
+          duration_beats: "1",
+          is_chord: false,
+          next_in_chord: { duration_beats: "1", articulations: [], fermata: false, slurs: [] },
+        },
+      },
+    );
+    expect(describeEdit(head)).toBe("borrado de Do 4 del acorde");
+    const other = edit(2, "DeleteEvent", null, {
+      before: { kind: "note", pitch: "E4", duration_beats: "1", is_chord: true },
+    });
+    expect(describeEdit(other)).toBe("borrado de Mi 4 del acorde");
+    // Deshacer el borrado de la primera vuelve a insertarla con la instantánea, que devuelve la
+    // siguiente al acorde.
+    expect(inverseOf(head)).toMatchObject({
+      op: "InsertEvent",
+      after: { pitch: "C4", next_in_chord: { duration_beats: "1" } },
+    });
+  });
+
+  it("la ligadura se dice, se deshace con su instantánea y no mueve la selección", () => {
+    const tie = edit(
+      1,
+      "SetTie",
+      { tie: "start", next: { measure: 2, voice: 0, event_index: 0, tie: "stop" } },
+      { before: { tie: null, next: { measure: 2, voice: 0, event_index: 0, tie: null } } },
+    );
+    expect(describeEdit(tie)).toBe("ligadura de prolongación");
+    expect(describeEdit(edit(2, "SetTie", { tie: null, next: null }))).toBe(
+      "quitar la ligadura de prolongación",
+    );
+    expect(hasCompleteBefore(tie)).toBe(true);
+    expect(hasCompleteBefore(edit(1, "SetTie", null, { before: { tie: null } }))).toBe(false);
+    expect(inverseOf(tie)).toMatchObject({ op: "SetTie", after: { tie: null } });
+    expect(historyPlacement(inverseOf(tie), { parts: [] })).toBeUndefined();
   });
 });
 
@@ -445,7 +578,7 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
     ).toBeUndefined();
   });
 
-  it("una inserción deja elegido el evento nuevo, salvo un silencio invisible (ADR-0032)", () => {
+  it("una inserción deja elegido el evento nuevo, también un hueco (ADR-0058)", () => {
     const current = score([event("C4")]);
     expect(
       historyPlacement(
@@ -458,14 +591,14 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
         { op: "InsertEvent", anchor: anchor(2), after: { kind: "rest", hidden: true } },
         current,
       ),
-    ).toBeUndefined();
+    ).toEqual(anchor(2));
   });
 
-  it("un borrado deja elegido el que ocupa su sitio, sin elegir un silencio invisible", () => {
+  it("un borrado deja elegido el que ocupa su sitio, también un hueco (ADR-0058)", () => {
     const current = score([event("C4"), event(null, true), event("E4")]);
     expect(
       historyPlacement({ op: "DeleteEvent", anchor: anchor(2), after: null }, current),
-    ).toEqual(anchor(2, 1));
+    ).toEqual(anchor(2, 0));
     const last = score([event("C4")]);
     // Sin nada más en el compás, el último del anterior.
     expect(historyPlacement({ op: "DeleteEvent", anchor: anchor(2), after: null }, last)).toEqual(
@@ -473,10 +606,13 @@ describe("historyPlacement: qué queda elegido tras deshacer o rehacer (ADR-0011
     );
   });
 
-  it("un cambio de valor sobre un silencio invisible no lo elige", () => {
+  it("un cambio sobre un hueco lo elige, como cualquier cambio de valor (ADR-0058)", () => {
     const current = score([event(null, true), event("D4")]);
     expect(
       historyPlacement({ op: "SetDuration", anchor: anchor(2), after: null }, current),
-    ).toBeUndefined();
+    ).toEqual(anchor(2));
+    expect(
+      historyPlacement({ op: "SetEventKind", anchor: anchor(2), after: null }, current),
+    ).toEqual(anchor(2));
   });
 });

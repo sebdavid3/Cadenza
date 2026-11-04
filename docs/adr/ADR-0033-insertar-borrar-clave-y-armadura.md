@@ -1,6 +1,6 @@
 # ADR-0033: Insertar y borrar eventos, y cambiar la clave y la armadura desde la vista de una sesión
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0055](ADR-0055-ligaduras-de-prolongacion-y-notas-de-un-acorde.md): la primera nota de un acorde se borra con `{"keep_chord": true}` y la siguiente lleva la figura y las marcas del acorde; desde la barra se añaden notas a un acorde y ligaduras de prolongación; y por [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que deja elegir, borrar y escribir en un hueco de una voz (§5 y §8))
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0010, ADR-0011, ADR-0017, ADR-0027, ADR-0030, ADR-0031 y ADR-0032, CLAUDE.md §9)
 - **Relacionado:** [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md), [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md), [#184](https://github.com/sebdavid3/Cadenza/issues/184)

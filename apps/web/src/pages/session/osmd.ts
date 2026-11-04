@@ -23,6 +23,11 @@ export interface DrawnNote {
 export interface DrawnFigure {
   rest: boolean;
   grace: boolean;
+  /**
+   * Un silencio invisible (`print-object="no"`, ADR-0032): OSMD lo guarda y VexFlow lo pinta
+   * transparente, en su sitio. Es el hueco de una voz, que se elige (ADR-0058).
+   */
+  hidden: boolean;
   /** Duración en negras como fracción exacta: numerador y denominador. */
   beats: readonly [number, number];
   notes: readonly DrawnNote[];
@@ -128,19 +133,24 @@ function drawnNote(note: GraphicalNote, origin: DOMRect, unit: number): DrawnNot
 
 /**
  * Figuras de un compás dibujado, agrupadas por voz y en el orden del número de voz. Un silencio
- * invisible (`print-object="no"`, ADR-0032) no es una figura: OSMD lo guarda pero no lo dibuja.
+ * invisible (`print-object="no"`, ADR-0032) es una figura marcada `hidden`: OSMD lo guarda y
+ * VexFlow lo pinta transparente, con su caja en el sitio que ocupa (ADR-0058).
  */
 function measureFigures(measure: GraphicalMeasure, origin: DOMRect, unit: number): DrawnVoice[] {
   const voices = new Map<number, DrawnFigure[]>();
   for (const entry of measure.staffEntries) {
     for (const voiceEntry of entry.graphicalVoiceEntries) {
       const first = voiceEntry.notes[0];
-      if (!first || voiceEntry.notes.every((note) => !note.sourceNote.PrintObject)) continue;
+      if (!first) continue;
+      const hidden = voiceEntry.notes.every((note) => !note.sourceNote.PrintObject);
+      // Solo un silencio es un hueco; una nota invisible no es nada que la vista conozca.
+      if (hidden && !first.sourceNote.isRest()) continue;
       // OSMD mide en redondas y guarda aparte la parte entera: 11/8 es 1 + 3/8.
       const length = first.sourceNote.Length;
       const figure: DrawnFigure = {
         rest: first.sourceNote.isRest(),
         grace: voiceEntry.parentVoiceEntry.IsGrace,
+        hidden,
         beats: [length.GetExpandedNumerator() * 4, length.Denominator],
         notes: voiceEntry.notes.map((note) => drawnNote(note, origin, unit)),
       };

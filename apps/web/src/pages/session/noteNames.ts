@@ -92,6 +92,14 @@ export function describeEvent(
   const spokenPlace = `${staff ? `${staff}, compás` : "Compás"} ${String(where.measure)}, voz ${voice}`;
 
   const duration = durationName(event.duration_beats);
+  // Un hueco de la voz (un silencio invisible, ADR-0032): no se dibuja, pero se elige (ADR-0058).
+  if (event.kind === "rest" && event.hidden === true) {
+    return {
+      place,
+      what: `Hueco de ${duration}`,
+      spoken: `${spokenPlace}: hueco de ${duration}, un silencio invisible.`,
+    };
+  }
   if (event.kind === "rest") {
     return {
       place,
