@@ -83,6 +83,11 @@ interface ScoreViewProps {
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
   /** Leyenda de las teclas de corrección, que también describe la partitura. */
   editKeysId?: string;
+  /**
+   * Si se pueden elegir notas sobre la partitura (ADR-0027). Sin ello es una imagen con nombre y
+   * no hay barra de selección: el resultado de la portada solo se mira (#277, ADR-0053).
+   */
+  notesSelectable?: boolean;
 }
 
 /** Tecla pulsada sobre la partitura: un movimiento, quitar la selección o nada. */
@@ -174,6 +179,7 @@ export function ScoreView({
   editor,
   onCommand,
   editKeysId,
+  notesSelectable = true,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [store] = useState(drawingStore);
@@ -309,12 +315,12 @@ export function ScoreView({
   // doble de StrictMode en desarrollo) la anota dos veces; el script de medida toma la última.
   const noteMap = useMemo(
     () =>
-      score && drawn && aligned && layout >= 0
+      notesSelectable && score && drawn && aligned && layout >= 0
         ? timeStage("mapa", sessionId, drawn.seq, () =>
             buildNoteMap(drawn.transcription, (slot) => score.measureFigures(slot)),
           )
         : null,
-    [score, drawn, aligned, layout, sessionId],
+    [notesSelectable, score, drawn, aligned, layout, sessionId],
   );
   // Sin notas ni silencios no hay nada que elegir: la partitura sigue siendo una imagen.
   const selectable =
@@ -555,7 +561,7 @@ export function ScoreView({
 
   return (
     <>
-      {status !== "failed" && (
+      {status !== "failed" && notesSelectable && (
         <SelectionBar
           status={selectionStatus}
           description={description}

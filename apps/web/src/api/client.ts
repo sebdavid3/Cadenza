@@ -70,7 +70,7 @@ function buildQuery(query: Record<string, QueryValue> | undefined): string {
   return text ? `?${text}` : "";
 }
 
-/** `Retry-After` en segundos (la API lo envía así en los 429), o null si falta o no es válido. */
+/** `Retry-After` en segundos (los 429 y el 503 de `/transcribe`), o null si falta o no vale. */
 function retryAfterSeconds(response: Response): number | null {
   const value = Number(response.headers.get("Retry-After"));
   return Number.isFinite(value) && value > 0 ? value : null;

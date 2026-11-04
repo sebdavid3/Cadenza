@@ -176,6 +176,29 @@ class StaleSuggestion(ApplicationError):
         self.message = msg
 
 
+class PreviewNotFound(ApplicationError):
+    """La transcripción sin cuenta no existe, caducó o el token no es el suyo (ADR-0054).
+
+    Las tres responden igual: no se puede averiguar cuáles existen.
+    """
+
+    def __init__(self, preview_id: str) -> None:
+        msg = f"Transcripción sin cuenta no encontrada: {preview_id}"
+        super().__init__(msg)
+        self.preview_id = preview_id
+        self.message = msg
+
+
+class PreviewCapacityExceeded(ApplicationError):
+    """Hay ya demasiadas transcripciones sin cuenta guardadas (ADR-0054)."""
+
+    def __init__(self, max_active: int) -> None:
+        msg = f"Hay {max_active} transcripciones sin cuenta guardadas: el máximo"
+        super().__init__(msg)
+        self.max_active = max_active
+        self.message = msg
+
+
 class SuggestionConflict(ApplicationError):
     """La sugerencia no admite esa respuesta: rechazar una ya aceptada (ADR-0036 §5)."""
 

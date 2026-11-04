@@ -17,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -369,4 +370,32 @@ class SuggestionModelVersionRecord(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PreviewRecord(Base):
+    """Transcripción sin cuenta de la portada, hasta que caduca o se reclama (#278, ADR-0054).
+
+    No es una sesión: no tiene dueño, log ni hallazgos. La imagen va en la propia fila y no en
+    el almacén de artefactos, para que reclamarla (borrar la fila y crear la sesión) sea una sola
+    transacción y caducar no tenga que mirar quién más usa la imagen. Del token solo se guarda su
+    SHA-256 (migración 0016).
+    """
+
+    __tablename__ = "previews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    image: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    image_media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    composer: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    part_instruments: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        NullableJsonDocument, nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
     )

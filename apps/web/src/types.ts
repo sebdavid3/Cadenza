@@ -484,6 +484,36 @@ export interface PartPayload {
 }
 
 /**
+ * Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054).
+ */
+export interface PreviewClaimRequest {
+  claim_token: string;
+}
+
+/**
+ * Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
+ * el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca.
+ */
+export interface PreviewResponse {
+  preview_id: string;
+  /** Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. Solo se devuelve aquí: el servidor guarda su SHA-256. */
+  claim_token: string;
+  /** Cuándo caduca y se borra con su imagen */
+  expires_at: string;
+  /** Posibles errores que señalan las reglas */
+  findings_count: number;
+  /** MusicXML de lo leído; null si no se pudo exportar */
+  musicxml?: string | null;
+  score: ScoreIRPayload;
+  /** Mapa de tiempos para reproducirla; su session_id es el preview_id */
+  timing: TimingMapRead;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
  * Trazabilidad y procedencia de la inferencia OMR y validación.
  */
 export interface ProvenancePayload {
