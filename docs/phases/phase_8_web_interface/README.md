@@ -64,7 +64,7 @@ El alcance final y el calendario los fija el plan de cierre
 | **Cierre** | ~~[#187](https://github.com/sebdavid3/Cadenza/issues/187)~~ | **Hecho:** finalizar y reabrir una sesión; finalizar conserva los descartes (ADR-0043) | #183 | D65 (resuelta) |
 | | ~~[#188](https://github.com/sebdavid3/Cadenza/issues/188)~~ | **Hecho:** registrar las métricas de esfuerzo según el protocolo (ADR-0050) | #187, #244 | D38 |
 | | ~~[#189](https://github.com/sebdavid3/Cadenza/issues/189)~~ | **Hecho:** «Descargar MIDI» junto a «Descargar MusicXML»: se pide al pulsarlo y se guarda como `cadenza-<8 del id>.mid` | — | — |
-| **Cuenta** | [#190](https://github.com/sebdavid3/Cadenza/issues/190) | Cambiar la contraseña | — | — |
+| **Cuenta** | ~~[#190](https://github.com/sebdavid3/Cadenza/issues/190)~~ | **Hecho:** cambiar la contraseña desde «Tu cuenta», sin cerrar la sesión abierta (ADR-0052) | — | — |
 | **Deuda** | ~~[#191](https://github.com/sebdavid3/Cadenza/issues/191)~~ | **Hecho:** excluir del dataset las sesiones de cuentas autorregistradas | — | D55 (resuelta) |
 | | ~~[#192](https://github.com/sebdavid3/Cadenza/issues/192)~~ | **Hecho:** la imagen de la API sin ejecutarse como root | — | D57 (resuelta) |
 | | ~~[#193](https://github.com/sebdavid3/Cadenza/issues/193)~~ | **Hecho:** longitud mínima de `CADENZA_AUTH_SECRET_KEY` | — | D58 (resuelta) |
