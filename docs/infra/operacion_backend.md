@@ -245,7 +245,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/previ
 # Apagar: lo mismo con false
 ```
 
-- **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade seis por hora por visitante, con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
+- **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade una por minuto por visitante (no admite tasas por hora), con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
 - **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al arrancar la API, al llegar la siguiente o al reclamar una: tras apagar el interruptor, reiniciar la API (el `up -d api web` de arriba) las borra. Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
 - **Al reclamarla** pasa a ser una sesión de la cuenta que entra, como cualquier otra: si es una cuenta del registro, queda fuera del dataset como las demás autorregistradas.
 
