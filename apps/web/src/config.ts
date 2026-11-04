@@ -20,3 +20,12 @@ export function registrationEnabled(): boolean {
  * cada tramo enviado lo lleva consigo.
  */
 export const EFFORT_IDLE_THRESHOLD_MS = 2 * 60_000;
+
+/**
+ * Si este despliegue transcribe sin cuenta desde la portada (#278, ADR-0054). La API lo trae
+ * apagado (`CADENZA_ANONYMOUS_PREVIEW_ENABLED`): la portada solo lo ofrece si el build lo declara
+ * con `VITE_ANONYMOUS_PREVIEW_ENABLED=true`, y si la API responde 404 vuelve a pedir que se entre.
+ */
+export function anonymousPreviewEnabled(): boolean {
+  return import.meta.env.VITE_ANONYMOUS_PREVIEW_ENABLED === "true";
+}

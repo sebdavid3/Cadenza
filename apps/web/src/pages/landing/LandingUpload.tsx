@@ -1,9 +1,9 @@
 import { useEffect, useRef, type FormEvent } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
-import { registrationEnabled } from "../../config";
+import { anonymousPreviewEnabled, registrationEnabled } from "../../config";
 import { formatSize } from "../transcription/format";
 import { Elapsed } from "../transcription/QueuePanel";
 import { ScoreDataFields, type PartField } from "../transcription/ScoreDataFields";
@@ -11,8 +11,13 @@ import { nonBlank } from "../transcription/scoreData";
 import { useBlockStrayDrops } from "../transcription/useBlockStrayDrops";
 import { UploadZone } from "../transcription/UploadZone";
 import "./landing-upload.css";
-import { SessionResult } from "./LandingResult";
-import { LANDING_UPLOAD_HASH, LANDING_UPLOAD_PATH, useLandingUpload } from "./uploadStore";
+import { PreviewResult, SessionResult } from "./LandingResult";
+import {
+  expiryTime,
+  LANDING_UPLOAD_HASH,
+  LANDING_UPLOAD_PATH,
+  useLandingUpload,
+} from "./uploadStore";
 
 /** Las dos partes que se piden, como en «Antes de transcribir» (ADR-0045 §1). */
 const PARTS: PartField[] = [
@@ -33,6 +38,9 @@ const RETURN_STATE = { from: LANDING_UPLOAD_PATH };
  * dan nombre e instrumentos (#240) y, con la sesión iniciada, se transcribe y se ve el resultado
  * aquí mismo; para editarlo se abre su sesión. Sin sesión se pide entrar o crear la cuenta, y al
  * volver la transcripción sigue sola con la imagen y los datos, que esperan en memoria.
+ *
+ * Si el despliegue transcribe sin cuenta (#278, ADR-0054), sin sesión se transcribe igual y se ve
+ * el resultado; «Editar» pide entrar y, al volver, la transcripción se reclama y se abre su sesión.
  */
 export function LandingUpload() {
   const location = useLocation();
@@ -44,8 +52,22 @@ export function LandingUpload() {
   const expired = useLandingUpload((state) => state.expired);
   const rejection = useLandingUpload((state) => state.rejection);
   const lostFile = useLandingUpload((state) => state.lostFile);
-  const { choose, setDraft, discard, requestAuth, detectLost, dismissLost, transcribe } =
-    useLandingUpload.getState();
+  const previewsOff = useLandingUpload((state) => state.previewsOff);
+  const claimAfterAuth = useLandingUpload((state) => state.claimAfterAuth);
+  const {
+    choose,
+    setDraft,
+    discard,
+    requestAuth,
+    detectLost,
+    dismissLost,
+    transcribe,
+    preview,
+    requestClaim,
+    claim,
+    detectPendingClaim,
+  } = useLandingUpload.getState();
+  const navigate = useNavigate();
 
   const sectionRef = useRef<HTMLElement>(null);
   const chooseRef = useRef<HTMLButtonElement>(null);
@@ -60,9 +82,11 @@ export function LandingUpload() {
   useBlockStrayDrops();
 
   // Una imagen que esperaba a que se entrara y ya no está: la página se recargó.
+  // Y una transcripción sin cuenta que espera a reclamarse (su token sobrevive a la recarga).
   useEffect(() => {
     detectLost();
-  }, [detectLost]);
+    detectPendingClaim();
+  }, [detectLost, detectPendingClaim]);
 
   // Al volver de entrar, la sección se trae a la vista (el enrutador no sigue el ancla).
   const hash = location.hash;
@@ -82,6 +106,35 @@ export function LandingUpload() {
     }
   }, [authenticated, returned, resumeAfterAuth, file, stage.kind, transcribe]);
 
+  // Lo mismo con la transcripción sin cuenta: al volver de entrar para editarla, se reclama. Tras
+  // una recarga solo queda su token, y volver de entrar basta para reclamarla.
+  // Una sola vez por transcripción: si falla, se reintenta con «Editar», no en bucle.
+  const pendingPreview = stage.kind === "previewed" ? stage.preview : undefined;
+  const pendingClaimId = stage.kind === "previewed" ? stage.claim.id : null;
+  const autoClaimed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!authenticated || !returned || pendingClaimId === null) return;
+    if (autoClaimed.current === pendingClaimId) return;
+    if (claimAfterAuth || pendingPreview === null) {
+      autoClaimed.current = pendingClaimId;
+      void claim(api);
+    }
+  }, [authenticated, returned, pendingClaimId, claimAfterAuth, pendingPreview, claim]);
+
+  // Ir a entrar para editarla vuelve a permitir que se reclame sola al volver.
+  const loginToEdit = () => {
+    autoClaimed.current = null;
+    requestClaim();
+  };
+
+  // Reclamada: ya es una sesión, y se abre para editarla.
+  const claimedId = stage.kind === "claimed" ? stage.sessionId : null;
+  useEffect(() => {
+    if (claimedId === null) return;
+    discard();
+    void navigate(`/sesiones/${encodeURIComponent(claimedId)}`, { replace: true });
+  }, [claimedId, discard, navigate]);
+
   // El foco acompaña a cada paso: al nombre tras elegir la imagen, al progreso al enviarla, al
   // resultado o al error al terminar.
   const previousStage = useRef(stage.kind);
@@ -89,8 +142,8 @@ export function LandingUpload() {
     const before = previousStage.current;
     previousStage.current = stage.kind;
     if (before === stage.kind) return;
-    if (stage.kind === "transcribing") progressRef.current?.focus();
-    else if (stage.kind === "done") resultRef.current?.focus();
+    if (stage.kind === "transcribing" || stage.kind === "claiming") progressRef.current?.focus();
+    else if (stage.kind === "done" || stage.kind === "previewed") resultRef.current?.focus();
     else if (stage.kind === "failed") failureRef.current?.focus();
     // La sesión caducó al enviar: el aviso de volver a entrar se lleva el foco.
     else if (before === "transcribing" && stage.kind === "chosen") authRef.current?.focus();
@@ -102,9 +155,13 @@ export function LandingUpload() {
     if (file && file !== before && stage.kind === "chosen") titleRef.current?.focus();
   }, [file, stage.kind]);
 
+  // Sin sesión, se transcribe sin cuenta si el despliegue lo abre y el servidor no dijo que no.
+  const anonymous = !authenticated && status !== "restoring";
+  const canPreview = anonymous && anonymousPreviewEnabled() && !previewsOff;
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (authenticated) void transcribe(api);
+    else if (canPreview) void preview(api);
   };
 
   // Al descartar, el foco vuelve a «Elegir una imagen», que puede no estar aún en pantalla (tras
@@ -120,7 +177,7 @@ export function LandingUpload() {
     discard();
   };
 
-  const busy = stage.kind === "transcribing";
+  const busy = stage.kind === "transcribing" || stage.kind === "claiming";
   const showForm = file !== null && (stage.kind === "chosen" || stage.kind === "failed");
   const name = file ? (nonBlank(draft.title) ?? file.name) : "";
 
@@ -140,7 +197,49 @@ export function LandingUpload() {
           suena y cuántos posibles errores señalan las reglas. Para corregirla, ábrela en su sesión.
         </p>
 
-        {stage.kind === "done" ? (
+        {stage.kind === "previewed" ? (
+          stage.preview ? (
+            <PreviewResult
+              preview={stage.preview}
+              name={stage.claim.name}
+              headingRef={resultRef}
+              actions={
+                <PreviewActions
+                  authenticated={authenticated}
+                  onEdit={() => void claim(api)}
+                  onLogin={loginToEdit}
+                  onAnother={onDiscard}
+                />
+              }
+              note={
+                <PreviewNote
+                  authenticated={authenticated}
+                  expired={expired}
+                  expiresAt={stage.claim.expiresAt}
+                />
+              }
+            />
+          ) : (
+            <section className="landing-upload__pending" aria-labelledby="landing-pending-title">
+              <h3 id="landing-pending-title" className="panel__title" ref={resultRef} tabIndex={-1}>
+                Transcripción sin cuenta
+              </h3>
+              <p>
+                «{stage.claim.name}» está transcrita sin cuenta y se guarda hasta las{" "}
+                {expiryTime(stage.claim.expiresAt)}.{" "}
+                {authenticated ? "Ábrela para editarla." : "Entra para editarla."}
+              </p>
+              <div className="landing-upload__actions">
+                <PreviewActions
+                  authenticated={authenticated}
+                  onEdit={() => void claim(api)}
+                  onLogin={loginToEdit}
+                  onAnother={onDiscard}
+                />
+              </div>
+            </section>
+          )
+        ) : stage.kind === "done" ? (
           <SessionResult
             sessionId={stage.result.session_id}
             provisionalName={stage.name}
@@ -157,14 +256,22 @@ export function LandingUpload() {
             role="status"
             aria-live="polite"
           >
-            <p className="landing-upload__progress-title">
-              Transcribiendo «{name}»
-              <Elapsed since={stage.startedAt} />
-            </p>
-            <p className="landing-upload__progress-note">
-              HOMR lee la imagen y propone la partitura; suele tardar unos segundos y puede llegar a
-              30. No hace falta quedarse mirando: el resultado aparecerá aquí.
-            </p>
+            {stage.kind === "claiming" ? (
+              <p className="landing-upload__progress-title">
+                Abriendo «{stage.claim.name}» para editarla…
+              </p>
+            ) : (
+              <>
+                <p className="landing-upload__progress-title">
+                  Transcribiendo «{name}»
+                  <Elapsed since={stage.startedAt} />
+                </p>
+                <p className="landing-upload__progress-note">
+                  HOMR lee la imagen y propone la partitura; suele tardar unos segundos y puede
+                  llegar a 30. No hace falta quedarse mirando: el resultado aparecerá aquí.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <UploadZone
@@ -233,7 +340,7 @@ export function LandingUpload() {
                 titleHint="Todo es opcional. Sin nombre, la sesión se llama como el archivo."
               />
             </fieldset>
-            {authenticated ? (
+            {authenticated || canPreview ? (
               <div className="landing-upload__actions">
                 <button type="submit" className="button button--primary">
                   {stage.kind === "failed" ? "Volver a intentarlo" : "Transcribir la imagen"}
@@ -241,6 +348,13 @@ export function LandingUpload() {
                 <button type="button" className="link-button" onClick={onDiscard}>
                   Descartar
                 </button>
+                {canPreview && (
+                  <p className="landing-upload__hint">
+                    Sin cuenta: la transcripción se guarda una hora para que puedas editarla al
+                    entrar o crear una cuenta. Si recargas la página antes de transcribirla, tendrás
+                    que volver a elegir la imagen.
+                  </p>
+                )}
               </div>
             ) : status === "restoring" ? (
               <div className="landing-upload__actions">
@@ -258,7 +372,7 @@ export function LandingUpload() {
                 >
                   {expired
                     ? "Tu sesión caducó antes de transcribirla. Vuelve a entrar: la imagen y sus datos siguen aquí y la transcripción empezará al volver."
-                    : "Para transcribir hace falta entrar. La imagen y sus datos esperan aquí mientras tanto, y la transcripción empieza al volver."}{" "}
+                    : `${previewsOff ? "Ahora no se puede transcribir sin cuenta. " : ""}Para transcribir hace falta entrar. La imagen y sus datos esperan aquí mientras tanto, y la transcripción empieza al volver.`}{" "}
                   Si recargas la página, tendrás que volver a elegir la imagen.
                 </p>
                 <div className="landing-upload__actions">
@@ -290,5 +404,73 @@ export function LandingUpload() {
         )}
       </div>
     </section>
+  );
+}
+
+interface PreviewActionsProps {
+  authenticated: boolean;
+  onEdit: () => void;
+  onLogin: () => void;
+  onAnother: () => void;
+}
+
+/**
+ * Las acciones de una transcripción sin cuenta: con sesión, «Editar» la reclama y abre la sesión;
+ * sin ella, se entra o se crea la cuenta y, al volver, se reclama sola (ADR-0054).
+ */
+function PreviewActions({ authenticated, onEdit, onLogin, onAnother }: PreviewActionsProps) {
+  return (
+    <>
+      {authenticated ? (
+        <button type="button" className="button button--primary" onClick={onEdit}>
+          Editar
+        </button>
+      ) : (
+        <>
+          <Link
+            className="button button--primary"
+            to="/entrar"
+            state={RETURN_STATE}
+            onClick={onLogin}
+          >
+            Entrar para editarla
+          </Link>
+          {registrationEnabled() && (
+            <Link className="button" to="/registro" state={RETURN_STATE} onClick={onLogin}>
+              Crear una cuenta
+            </Link>
+          )}
+        </>
+      )}
+      <button type="button" className="link-button" onClick={onAnother}>
+        Transcribir otra imagen
+      </button>
+    </>
+  );
+}
+
+function PreviewNote({
+  authenticated,
+  expired,
+  expiresAt,
+}: {
+  authenticated: boolean;
+  expired: boolean;
+  expiresAt: number;
+}) {
+  if (expired) {
+    return (
+      <p className="landing-upload__hint" role="alert">
+        Tu sesión caducó antes de abrirla. Vuelve a entrar: la transcripción sigue guardada.
+      </p>
+    );
+  }
+  return (
+    <p className="landing-upload__hint">
+      {authenticated
+        ? "Al editarla pasa a ser una sesión tuya."
+        : "Sin cuenta solo se puede ver: para editarla, entra o crea una cuenta y pasará a ser una sesión tuya."}{" "}
+      Se guarda hasta las {expiryTime(expiresAt)}; después se borra con la imagen.
+    </p>
   );
 }

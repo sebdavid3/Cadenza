@@ -12,6 +12,9 @@ COPY apps/web/ ./
 # Enlazar el registro desde la landing y el acceso solo si la API lo abre (ADR-0022).
 ARG VITE_REGISTRATION_ENABLED=false
 ENV VITE_REGISTRATION_ENABLED=${VITE_REGISTRATION_ENABLED}
+# Transcribir sin cuenta desde la portada solo si la API lo abre (ADR-0054).
+ARG VITE_ANONYMOUS_PREVIEW_ENABLED=false
+ENV VITE_ANONYMOUS_PREVIEW_ENABLED=${VITE_ANONYMOUS_PREVIEW_ENABLED}
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.31.7-alpine3.24 AS runner

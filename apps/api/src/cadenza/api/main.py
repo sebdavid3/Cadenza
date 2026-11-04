@@ -14,9 +14,11 @@ import os
 import re
 import sys
 import tempfile
+import threading
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -32,6 +34,8 @@ from cadenza.application import (
     NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
+    PreviewCapacityExceeded,
+    PreviewNotFound,
     Role,
     ScoreExporter,
     ScoreStateCache,
@@ -51,6 +55,7 @@ from cadenza.application import (
     WeakPassword,
     collect_stage_timings,
     detect_image_media_type,
+    ensure_preview_capacity,
     is_image_content,
     normalize_condition,
     timed_stage,
@@ -63,6 +68,12 @@ from cadenza.application import (
 )
 from cadenza.application import (
     change_password as change_password_use_case,
+)
+from cadenza.application import (
+    claim_preview as claim_preview_use_case,
+)
+from cadenza.application import (
+    create_preview as create_preview_use_case,
 )
 from cadenza.application import (
     create_user as create_user_use_case,
@@ -138,6 +149,7 @@ from cadenza.domain import (
     PartMetadata,
     ScoreMetadata,
     TimingMap,
+    compute_timing_map,
 )
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
@@ -154,6 +166,7 @@ from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyEffortRepository,
     SqlAlchemyModelRegistry,
+    SqlAlchemyPreviewRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -200,6 +213,8 @@ from .schemas import (
     FindingRead,
     HealthStatusResponse,
     PartInstrumentRead,
+    PreviewClaimRequest,
+    PreviewResponse,
     RegisterRequest,
     ReopenResponse,
     RevalidateResponse,
@@ -230,7 +245,11 @@ from .security import (
 )
 from .settings import Settings
 from .suggestions import load_suggestion_model
-from .transcription_slots import TranscriptionSlots, run_in_transcription_slot
+from .transcription_slots import (
+    RETRY_AFTER_SECONDS,
+    TranscriptionSlots,
+    run_in_transcription_slot,
+)
 
 logger = logging.getLogger("cadenza.api")
 API_VERSION = "1.0.0"
@@ -417,6 +436,56 @@ def _transcribe_metadata(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+async def _read_image_upload(file: UploadFile, max_bytes: int) -> bytes:
+    """Lee la imagen subida con las comprobaciones de `POST /transcribe`: 415 si no es una
+    imagen (por el tipo declarado o por sus primeros bytes) y 413 si pasa de `max_bytes`."""
+
+    declared_type = (file.content_type or "").lower()
+    if declared_type == "application/pdf" or (
+        declared_type
+        and not (declared_type.startswith("image/") or declared_type == "application/octet-stream")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no soportado. Se requiere una imagen.",
+        )
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"El archivo excede el tamaño máximo permitido ({max_bytes} bytes).",
+        )
+    if not is_image_content(content):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
+        )
+    return content
+
+
+def _effective_engine(request: Request, db: DbSession, artifact_store: ArtifactStore) -> OMREngine:
+    """El motor OMR de la petición: el de la app o, si hay una versión activa en el registro,
+    el construido con ella (#21)."""
+
+    app_settings: Settings = request.app.state.settings
+    model_registry = getattr(request.app.state, "model_registry", None) or SqlAlchemyModelRegistry(
+        db
+    )
+    active_version = model_registry.active()
+    engine: OMREngine = request.app.state.omr_engine
+    if active_version is None or not hasattr(type(engine), "from_active_model"):
+        return engine
+    # Solo HOMR sabe construirse con una versión del registro; los dobles de las pruebas, no.
+    engine_type: Any = type(engine)
+    built: OMREngine = engine_type.from_active_model(
+        model_registry,
+        artifact_store,
+        use_gpu=app_settings.omr_use_gpu,
+        preprocessing=getattr(engine, "_preprocessing", None),
+    )
+    return built
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -731,6 +800,30 @@ def create_app(
     )
     # Huecos de transcripción: los libera el cálculo al terminar, no la petición (ADR-0024).
     app.state.transcription_slots = TranscriptionSlots(app_settings.transcribe_max_concurrency)
+    # Transcripción sin cuenta (#278, ADR-0054): una a la vez como mucho, sin esperar nunca un
+    # hueco de HOMR; un límite por IP como el del registro, y el reloj, que las pruebas cambian.
+    app.state.preview_gate = threading.BoundedSemaphore(1)
+    app.state.preview_rate_limiter = LoginRateLimiter(
+        max_attempts=app_settings.anonymous_preview_rate_limit_max_attempts,
+        window_seconds=app_settings.anonymous_preview_rate_limit_window_seconds,
+        message=(
+            "Demasiadas transcripciones sin cuenta desde esta conexión. "
+            "Reintente en {retry_after} segundos."
+        ),
+    )
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC)  # noqa: E731
+    app.state.clock = clock
+    # Las transcripciones sin cuenta caducadas se borran también al arrancar: con el
+    # interruptor apagado (el estudio), ninguna transcripción nueva las borraría (ADR-0054 §3).
+    try:
+        with session_factory() as purge_db:
+            purged = SqlAlchemyPreviewRepository(purge_db).purge_expired(clock())
+            purge_db.commit()
+        if purged:
+            logger.info("previews_purged count=%d", purged)
+    except Exception:
+        # Sin la tabla (una base sin migrar) la API arranca igual: lo dice el registro.
+        logger.warning("previews_purge_skipped", exc_info=True)
 
     # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
     resolved_engine = (
@@ -822,6 +915,27 @@ def create_app(
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content={"detail": "session not found"},
+        )
+
+    @app.exception_handler(PreviewNotFound)
+    def preview_not_found_handler(request: Request, exc: PreviewNotFound) -> JSONResponse:
+        # La misma respuesta si no existe, caducó o el token no es el suyo (ADR-0054).
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "preview not found"},
+        )
+
+    @app.exception_handler(PreviewCapacityExceeded)
+    def preview_capacity_handler(request: Request, exc: PreviewCapacityExceeded) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": (
+                    "Hay demasiadas transcripciones sin cuenta guardadas. "
+                    "Inténtalo de nuevo más tarde o entra con tu cuenta."
+                )
+            },
+            headers={"Retry-After": "60"},
         )
 
     @app.exception_handler(FindingNotFound)
@@ -1230,53 +1344,9 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
-        # 1. Validar Content-Type declarado
-        declared_type = (file.content_type or "").lower()
-        if declared_type == "application/pdf" or (
-            declared_type
-            and not (
-                declared_type.startswith("image/") or declared_type == "application/octet-stream"
-            )
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Tipo de archivo no soportado. Se requiere una imagen.",
-            )
-
-        # 2. Leer contenido y validar tamaño máximo
-        content = await file.read()
-        if len(content) > app_settings.max_upload_size_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=(
-                    f"El archivo excede el tamaño máximo permitido "
-                    f"({app_settings.max_upload_size_bytes} bytes)."
-                ),
-            )
-
-        # 3. Validar tipo real por magic bytes
-        if not is_image_content(content):
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
-            )
-
+        content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
         artifact_store = get_artifact_store(request, db)
-
-        # Resolver versión activa del modelo OMR si existe en el registry (#21)
-        model_registry = getattr(
-            request.app.state, "model_registry", None
-        ) or SqlAlchemyModelRegistry(db)
-        active_version = model_registry.active()
-        effective_engine = request.app.state.omr_engine
-        if active_version is not None and hasattr(type(effective_engine), "from_active_model"):
-            preproc_config = getattr(effective_engine, "_preprocessing", None)
-            effective_engine = type(effective_engine).from_active_model(
-                model_registry,
-                artifact_store,
-                use_gpu=app_settings.omr_use_gpu,
-                preprocessing=preproc_config,
-            )
+        effective_engine = _effective_engine(request, db, artifact_store)
 
         upload_name = _upload_temp_name(file.filename, content)
         factory: SessionFactory = request.app.state.session_factory
@@ -1316,6 +1386,201 @@ def create_app(
             request.app.state.transcription_slots, transcribe_and_commit
         )
 
+        return TranscribeResponse(
+            session_id=result.session_id,
+            document_id=result.document_id,
+            omr_engine=result.omr_engine,
+            findings_count=result.findings_count,
+            condition=result.condition,
+            test_score_id=result.test_score_id,
+        )
+
+    def require_anonymous_preview_enabled(request: Request) -> None:
+        """Con la transcripción sin cuenta apagada, sus rutas responden 404 (ADR-0054)."""
+        app_settings: Settings = request.app.state.settings
+        if not app_settings.anonymous_preview_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    @app.post(
+        "/previews",
+        response_model=PreviewResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Transcription"],
+        summary="Transcribir sin cuenta desde la portada",
+        description=(
+            "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y "
+            "mapa de tiempos), cuántos posibles errores señalan las reglas y un token para "
+            "reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda "
+            "sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, "
+            "con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay "
+            "uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054)."
+        ),
+        responses={
+            **NOT_FOUND_404,
+            **UPLOAD_ERRORS,
+            **RATE_LIMITED_429,
+            **UNPROCESSABLE_422,
+            **TRANSCRIBE_BUSY_503,
+        },
+        dependencies=[Depends(require_anonymous_preview_enabled)],
+    )
+    async def create_preview(
+        request: Request,
+        db: DbDep,
+        file: Annotated[UploadFile, File()],
+        title: Annotated[
+            str | None,
+            Form(max_length=TITLE_MAX_LENGTH, description="Título de la partitura (#240)."),
+        ] = None,
+        composer: Annotated[
+            str | None,
+            Form(max_length=COMPOSER_MAX_LENGTH, description="Compositor (#235)."),
+        ] = None,
+        instruments: Annotated[
+            list[Instrument | Literal[""]] | None,
+            Form(description="Instrumento de cada parte, como en POST /transcribe (ADR-0041)."),
+        ] = None,
+        part_names: Annotated[
+            list[Annotated[str, Field(max_length=PART_NAME_MAX_LENGTH)]] | None,
+            Form(description="Nombre de cada parte, alineado con `instruments` (ADR-0041)."),
+        ] = None,
+    ) -> Response:
+        app_settings: Settings = request.app.state.settings
+        client_host = request.client.host if request.client else "unknown"
+        # Todo intento cuenta, también el que falla: comprobar y anotar es una sola operación.
+        rate_limiter: LoginRateLimiter = request.app.state.preview_rate_limiter
+        rate_limiter.hit(client_network_key(client_host))
+        metadata = _transcribe_metadata(title, composer, instruments, part_names)
+        content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
+
+        gate: threading.BoundedSemaphore = request.app.state.preview_gate
+        if not gate.acquire(blocking=False):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "El servidor está ocupado con otras transcripciones. "
+                    "Inténtalo de nuevo en unos segundos."
+                ),
+                headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+            )
+        # El semáforo lo suelta una sola vez quien acabe teniéndolo: el trabajo, si llega a
+        # empezar, o la petición, si falla o se cancela antes (también si el cliente se va).
+        handoff = threading.Lock()
+        progress = {"started": False, "abandoned": False}
+
+        def release_if_not_started() -> None:
+            with handoff:
+                if not progress["started"]:
+                    progress["abandoned"] = True
+                    gate.release()
+
+        upload_name = _upload_temp_name(file.filename, content)
+        factory: SessionFactory = request.app.state.session_factory
+        exporter: ScoreExporter = request.app.state.score_exporter
+        now: datetime = request.app.state.clock()
+
+        def preview_and_commit() -> PreviewResponse | None:
+            with handoff:
+                if progress["abandoned"]:
+                    return None
+                progress["started"] = True
+            try:
+                with (
+                    factory() as work_db,
+                    tempfile.TemporaryDirectory(prefix="cadenza-preview-") as work_dir,
+                ):
+                    upload_path = Path(work_dir) / upload_name
+                    upload_path.write_bytes(content)
+                    outcome = create_preview_use_case(
+                        upload_path,
+                        omr_engine=engine,
+                        validator=request.app.state.validator,
+                        preview_repository=SqlAlchemyPreviewRepository(work_db),
+                        now=now,
+                        ttl=timedelta(seconds=app_settings.anonymous_preview_ttl_seconds),
+                        metadata=metadata,
+                        source_filename=file.filename,
+                        meter_stage=request.app.state.meter_stage,
+                    )
+                    work_db.commit()
+            finally:
+                gate.release()
+            # La exportación con music21 y los tiempos, también fuera del bucle de eventos.
+            score = outcome.document.score
+            try:
+                musicxml: str | None = exporter.to_musicxml(score, outcome.metadata)
+            except Exception:
+                logger.exception("preview_export_failed preview_id=%s", outcome.preview_id)
+                musicxml = None
+            return PreviewResponse(
+                preview_id=outcome.preview_id,
+                claim_token=outcome.claim_token,
+                expires_at=outcome.expires_at,
+                findings_count=outcome.findings_count,
+                musicxml=musicxml,
+                score=ScoreIRPayload.model_validate(score.to_primitive()),
+                timing=_timing_read(outcome.preview_id, compute_timing_map(score)),
+                title=outcome.metadata.title,
+                composer=outcome.metadata.composer,
+                instruments=PartInstrumentRead.list_from(outcome.metadata),
+                source_filename=outcome.source_filename,
+            )
+
+        try:
+            # Con el semáforo ya tomado, el tope no se puede rebasar entre la comprobación y el
+            # alta: se borran las caducadas y se cuentan las guardadas antes de calcular.
+            ensure_preview_capacity(
+                SqlAlchemyPreviewRepository(db),
+                now=now,
+                max_active=app_settings.anonymous_preview_max_active,
+            )
+            engine = _effective_engine(request, db, get_artifact_store(request, db))
+            db.commit()
+            # Sin espera: si los huecos están ocupados (por el estudio o por quien entró), 503.
+            response = await run_in_transcription_slot(
+                request.app.state.transcription_slots, preview_and_commit, wait_seconds=0
+            )
+        except BaseException:
+            release_if_not_started()
+            raise
+        if response is None:  # pragma: no cover - solo si se abandonó, y entonces ya se lanzó
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _json_response(response, status_code=status.HTTP_201_CREATED)
+
+    @app.post(
+        "/previews/{preview_id}/claim",
+        response_model=TranscribeResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Transcription"],
+        summary="Reclamar una transcripción sin cuenta",
+        description=(
+            "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el "
+            "mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija "
+            "el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la "
+            "transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token "
+            "responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054)."
+        ),
+        responses={**AUTH_401, **NOT_FOUND_404, **UNPROCESSABLE_422},
+        dependencies=[Depends(require_anonymous_preview_enabled)],
+    )
+    def claim_preview(
+        preview_id: str,
+        payload: PreviewClaimRequest,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> TranscribeResponse:
+        result = claim_preview_use_case(
+            preview_id,
+            payload.claim_token,
+            preview_repository=SqlAlchemyPreviewRepository(db),
+            session_repository=SqlAlchemySessionRepository(db),
+            artifact_store=get_artifact_store(request, db),
+            validator=request.app.state.validator,
+            current_user=current_user,
+            now=request.app.state.clock(),
+            suggestion_model=request.app.state.suggestion_model,
+        )
         return TranscribeResponse(
             session_id=result.session_id,
             document_id=result.document_id,

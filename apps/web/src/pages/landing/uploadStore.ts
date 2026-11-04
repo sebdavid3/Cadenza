@@ -4,7 +4,7 @@ import { TRANSCRIBE_TIMEOUT_MS } from "../../api/config";
 import { ApiError } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import { registerPendingWork } from "../../pendingWork";
-import type { TranscribeResponse } from "../../types";
+import type { PreviewResponse, TranscribeResponse } from "../../types";
 import { precheck, PREPARED_PARTS, transcribeErrorMessage } from "../transcription/queue";
 import {
   appendScoreData,
@@ -18,6 +18,10 @@ import {
  * memoria, fuera de la vista, para que la imagen elegida sobreviva a ir a entrar y volver; nunca
  * se guarda en el navegador. Solo se apunta en `sessionStorage` el nombre del archivo mientras se
  * entra, para avisar de que se perdió si la página se recarga entretanto.
+ *
+ * Sin cuenta (#278, ADR-0054), si el despliegue lo abre, la imagen se transcribe con
+ * `POST /previews`: el resultado se ve igual y, para editarlo, se entra y se reclama con su token,
+ * que se apunta en `sessionStorage` (no la imagen) para poder reclamarlo también tras una recarga.
  */
 
 /** Ancla de la sección en la portada: adonde se vuelve tras entrar. */
@@ -26,6 +30,17 @@ export const LANDING_UPLOAD_PATH = `/${LANDING_UPLOAD_HASH}`;
 
 /** Clave de `sessionStorage` con el nombre de la imagen que espera a que se entre. */
 export const PENDING_UPLOAD_KEY = "cadenza.portada.pendiente";
+
+/** Clave de `sessionStorage` con la transcripción sin cuenta que espera a reclamarse (#278). */
+export const PENDING_CLAIM_KEY = "cadenza.portada.reclamar";
+
+/** Una transcripción sin cuenta que se puede reclamar: su id, su token y cuándo caduca (ms). */
+export interface PendingClaim {
+  id: string;
+  token: string;
+  expiresAt: number;
+  name: string;
+}
 
 export type LandingStage =
   /** Sin imagen. */
@@ -39,7 +54,16 @@ export type LandingStage =
    */
   | { kind: "done"; result: TranscribeResponse; ownerId: string; name: string }
   /** `timedOut`: venció la espera y la sesión puede haberse creado igualmente. */
-  | { kind: "failed"; message: string; timedOut: boolean };
+  | { kind: "failed"; message: string; timedOut: boolean }
+  /**
+   * Transcrita sin cuenta (#278): lo que leyó HOMR, para verlo, y cómo reclamarlo. Sin `preview`
+   * tras una recarga: solo queda el token.
+   */
+  | { kind: "previewed"; preview: PreviewResponse | null; claim: PendingClaim }
+  /** Reclamándola tras entrar. */
+  | { kind: "claiming"; claim: PendingClaim }
+  /** Reclamada: ya es la sesión `sessionId`, que la portada abre. */
+  | { kind: "claimed"; sessionId: string };
 
 interface LandingUploadState {
   file: File | null;
@@ -55,6 +79,10 @@ interface LandingUploadState {
   rejection: string | null;
   /** La página se recargó mientras se entraba: el nombre de la imagen que hay que volver a elegir. */
   lostFile: string | null;
+  /** El servidor no transcribe sin cuenta (404): se vuelve a pedir que se entre (#278). */
+  previewsOff: boolean;
+  /** Se pidió entrar para editar la transcripción sin cuenta: al volver, se reclama sola. */
+  claimAfterAuth: boolean;
   choose: (files: File[]) => void;
   setDraft: (draft: ScoreDataDraft) => void;
   /** Olvida la imagen y el resultado: el recuadro vuelve a empezar. */
@@ -65,6 +93,14 @@ interface LandingUploadState {
   detectLost: () => void;
   dismissLost: () => void;
   transcribe: (api: ApiClient) => Promise<void>;
+  /** Transcribe sin cuenta con `POST /previews` (#278, ADR-0054). */
+  preview: (api: ApiClient) => Promise<void>;
+  /** Se va a entrar o a crear la cuenta para editar la transcripción sin cuenta. */
+  requestClaim: () => void;
+  /** Con la sesión iniciada, la convierte en una sesión suya (`POST /previews/{id}/claim`). */
+  claim: (api: ApiClient) => Promise<void>;
+  /** Al montar la portada, recupera una transcripción sin cuenta que espera tras una recarga. */
+  detectPendingClaim: () => void;
   reset: () => void;
 }
 
@@ -86,6 +122,63 @@ function markPending(name: string | null) {
   }
 }
 
+/** La hora a la que caduca una transcripción sin cuenta, en la hora local («14:05»). */
+export function expiryTime(expiresAt: number): string {
+  return new Date(expiresAt).toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" });
+}
+
+function writeClaim(claim: PendingClaim | null) {
+  try {
+    const store = storage();
+    if (claim === null) store?.removeItem(PENDING_CLAIM_KEY);
+    else store?.setItem(PENDING_CLAIM_KEY, JSON.stringify(claim));
+  } catch {
+    // Sin almacenamiento: se puede reclamar mientras no se recargue la página.
+  }
+}
+
+/** La transcripción sin cuenta apuntada, si sigue vigente. */
+function readClaim(now: number = Date.now()): PendingClaim | null {
+  try {
+    const raw = storage()?.getItem(PENDING_CLAIM_KEY);
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<PendingClaim> | null;
+    if (
+      !value ||
+      typeof value.id !== "string" ||
+      typeof value.token !== "string" ||
+      typeof value.expiresAt !== "number" ||
+      !Number.isFinite(value.expiresAt) ||
+      typeof value.name !== "string" ||
+      value.expiresAt <= now
+    ) {
+      storage()?.removeItem(PENDING_CLAIM_KEY);
+      return null;
+    }
+    return { id: value.id, token: value.token, expiresAt: value.expiresAt, name: value.name };
+  } catch {
+    return null;
+  }
+}
+
+function minutes(seconds: number) {
+  const value = Math.max(1, Math.ceil(seconds / 60));
+  return value === 1 ? "un minuto" : `${String(value)} minutos`;
+}
+
+/** Mensajes de la transcripción sin cuenta: los de la cola, más el límite por conexión. */
+export function previewErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.kind === "rate-limited") {
+    return error.retryAfterSeconds !== null
+      ? `Has transcrito varias imágenes sin cuenta desde tu conexión. Vuelve a probar en ${minutes(error.retryAfterSeconds)} o entra con tu cuenta.`
+      : "Has transcrito varias imágenes sin cuenta desde tu conexión. Vuelve a probar más tarde o entra con tu cuenta.";
+  }
+  if (error instanceof ApiError && error.kind === "timeout") {
+    return "La transcripción tardó más de 30 s. Vuelve a intentarlo en un momento.";
+  }
+  return transcribeErrorMessage(error);
+}
+
 function readPending(): string | null {
   try {
     return storage()?.getItem(PENDING_UPLOAD_KEY) ?? null;
@@ -103,6 +196,7 @@ const initial = () => ({
   expired: false,
   rejection: null,
   lostFile: null,
+  claimAfterAuth: false,
 });
 
 export const useLandingUpload = create<LandingUploadState>()((set, get) => {
@@ -115,10 +209,25 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
     inFlight = null;
   };
 
+  const finishClaim = (sessionId: string) => {
+    writeClaim(null);
+    set({
+      file: null,
+      chooserId: null,
+      draft: emptyDraft(PREPARED_PARTS),
+      stage: { kind: "claimed", sessionId },
+      claimAfterAuth: false,
+    });
+  };
+
   return {
     ...initial(),
+    // Lo que el servidor no ofrece (un 404 de `/previews`) sigue así hasta salir de la sesión:
+    // descartar la imagen no lo olvida.
+    previewsOff: false,
     choose: (files) => {
-      if (get().stage.kind === "transcribing") return;
+      const busy = get().stage.kind;
+      if (busy === "transcribing" || busy === "claiming") return;
       if (files.length > 1) {
         set({
           rejection:
@@ -152,6 +261,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
     discard: () => {
       cancel();
       markPending(null);
+      writeClaim(null);
       set(initial());
     },
     requestAuth: () => {
@@ -234,20 +344,138 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
         if (inFlight === controller) inFlight = null;
       }
     },
+    preview: async (api) => {
+      const { file, draft, stage } = get();
+      if (!file || stage.kind === "transcribing" || get().previewsOff) return;
+      const runGeneration = generation;
+      const controller = new AbortController();
+      inFlight = controller;
+      markPending(null);
+      set({
+        stage: { kind: "transcribing", startedAt: Date.now() },
+        resumeAfterAuth: false,
+        expired: false,
+      });
+      const body = new FormData();
+      body.append("file", file, file.name);
+      appendScoreData(body, draft);
+      try {
+        const preview = await api.request<PreviewResponse>("/previews", {
+          method: "POST",
+          body,
+          auth: false,
+          signal: controller.signal,
+          timeoutMs: TRANSCRIBE_TIMEOUT_MS,
+        });
+        if (runGeneration !== generation) return;
+        const claim: PendingClaim = {
+          id: preview.preview_id,
+          token: preview.claim_token,
+          expiresAt: Date.parse(preview.expires_at),
+          name: nonBlank(draft.title) ?? file.name,
+        };
+        writeClaim(claim);
+        // La imagen se queda en memoria: si la transcripción caduca antes de reclamarla, se puede
+        // transcribir otra vez con la cuenta sin volver a elegirla.
+        set({ stage: { kind: "previewed", preview, claim } });
+      } catch (error) {
+        if (runGeneration !== generation) return;
+        if (error instanceof ApiError && error.kind === "not-found") {
+          // El servidor no transcribe sin cuenta: se pide entrar, como sin #278.
+          set({ stage: { kind: "chosen" }, previewsOff: true });
+          return;
+        }
+        set({
+          stage: { kind: "failed", message: previewErrorMessage(error), timedOut: false },
+        });
+      } finally {
+        if (inFlight === controller) inFlight = null;
+      }
+    },
+    requestClaim: () => {
+      set({ claimAfterAuth: true });
+    },
+    claim: async (api) => {
+      const { stage } = get();
+      if (stage.kind !== "previewed") return;
+      const { token } = useAuthStore.getState();
+      if (!token) {
+        set({ claimAfterAuth: true });
+        return;
+      }
+      const { claim, preview } = stage;
+      const runGeneration = generation;
+      set({
+        stage: { kind: "claiming", claim },
+        claimAfterAuth: false,
+        expired: false,
+        rejection: null,
+      });
+      try {
+        const result = await api.request<TranscribeResponse>(
+          `/previews/${encodeURIComponent(claim.id)}/claim`,
+          { method: "POST", json: { claim_token: claim.token }, token },
+        );
+        if (runGeneration !== generation) return;
+        finishClaim(result.session_id);
+      } catch (error) {
+        if (runGeneration !== generation) return;
+        if (error instanceof ApiError && error.kind === "unauthorized") {
+          set({ stage: { kind: "previewed", preview, claim }, expired: true });
+          return;
+        }
+        if (error instanceof ApiError && error.kind === "not-found") {
+          // Caducó, ya se reclamó o el servidor dejó de ofrecerlo: con la imagen aún en memoria,
+          // se puede transcribir con la cuenta; sin ella, hay que volver a elegirla.
+          writeClaim(null);
+          if (get().file) {
+            set({
+              stage: {
+                kind: "failed",
+                message:
+                  "La transcripción sin cuenta ya no está: caduca a la hora, solo se puede editar una vez y el servidor puede haber dejado de ofrecerla. Vuelve a transcribir la imagen con tu cuenta.",
+                timedOut: false,
+              },
+            });
+          } else {
+            set({
+              ...initial(),
+              rejection: `La transcripción sin cuenta de «${claim.name}» ya no está: caduca a la hora y solo se puede editar una vez. Vuelve a elegir la imagen para transcribirla.`,
+            });
+          }
+          return;
+        }
+        set({
+          stage: { kind: "previewed", preview, claim },
+          rejection: `No se pudo abrir la transcripción para editarla. ${errorMessageOf(error)}`,
+        });
+      }
+    },
+    detectPendingClaim: () => {
+      if (get().stage.kind !== "empty") return;
+      const claim = readClaim();
+      if (claim) set({ stage: { kind: "previewed", preview: null, claim } });
+    },
     reset: () => {
       cancel();
       markPending(null);
-      set(initial());
+      writeClaim(null);
+      set({ ...initial(), previewsOff: false });
     },
   };
 });
 
+function errorMessageOf(error: unknown): string {
+  return error instanceof ApiError ? error.message : "Inténtalo de nuevo.";
+}
+
 export const LANDING_LEAVE_WARNING =
   "La imagen de la portada se está transcribiendo. Si sales, puede que la sesión llegue a crearse igualmente. ¿Salir?";
 
-registerPendingWork(() =>
-  useLandingUpload.getState().stage.kind === "transcribing" ? LANDING_LEAVE_WARNING : null,
-);
+registerPendingWork(() => {
+  const { kind } = useLandingUpload.getState().stage;
+  return kind === "transcribing" || kind === "claiming" ? LANDING_LEAVE_WARNING : null;
+});
 
 // Lo elegido es de quien está ante la pestaña. Al salir de la sesión se olvida. Si entra otra
 // persona, el resultado de la anterior (una sesión suya) deja de enseñarse, y la imagen que

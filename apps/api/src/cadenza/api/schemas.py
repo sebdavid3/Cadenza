@@ -376,6 +376,43 @@ class TranscribeResponse(BaseModel):
     test_score_id: str | None = None
 
 
+class PreviewResponse(BaseModel):
+    """Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
+    el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."""
+
+    preview_id: str
+    claim_token: str = Field(
+        ...,
+        description=(
+            "Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. "
+            "Solo se devuelve aquí: el servidor guarda su SHA-256."
+        ),
+    )
+    expires_at: datetime = Field(..., description="Cuándo caduca y se borra con su imagen")
+    findings_count: int = Field(..., description="Posibles errores que señalan las reglas")
+    musicxml: str | None = Field(
+        default=None,
+        description="MusicXML de lo leído; null si no se pudo exportar",
+    )
+    score: ScoreIRPayload
+    timing: TimingMapRead = Field(
+        ...,
+        description="Mapa de tiempos para reproducirla; su session_id es el preview_id",
+    )
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
+
+
+class PreviewClaimRequest(BaseModel):
+    """Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_token: str = Field(..., min_length=1, max_length=128)
+
+
 class SuggestionRead(BaseModel):
     """Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).
 
@@ -953,5 +990,6 @@ class HealthStatusResponse(BaseModel):
     )
 
 
-# `UndoResponse` usa `TimingMapRead`, definido después.
+# `UndoResponse` y `PreviewResponse` usan `TimingMapRead`, definido después.
 UndoResponse.model_rebuild()
+PreviewResponse.model_rebuild()
