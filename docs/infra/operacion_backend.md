@@ -193,6 +193,28 @@ Comprobado al publicar, desde fuera del tailnet. Se usó otra IP pública, conec
 
 El primer acceso público, mientras Funnel obtenía el certificado, cortó el handshake TLS. Unos minutos después ya respondía.
 
+#### Despliegue continuo desde `main` ([#337](https://github.com/sebdavid3/Cadenza/issues/337), [ADR-0061](../adr/ADR-0061-despliegue-continuo-desde-main-en-el-homelab.md))
+
+`deploy/despliegue-continuo.sh` automatiza el procedimiento de «Actualizar» de arriba: cada 5 minutos trae `origin/main` y, si hay un commit nuevo cuyo flujo `CI` terminó en verde, hace la copia verificada, avanza en *fast-forward*, reconstruye, espera a que `/api/health` responda con la base de datos conectada (hasta 5 minutos) y limpia la caché de Docker. Si la API no queda sana, vuelve al commit anterior y descarta el nuevo. **Se activa después del estudio y de la promoción de `dev` a `main` ([#261](https://github.com/sebdavid3/Cadenza/issues/261)), no antes:** con `main` atrasado, avanzar a `main` sería volver atrás.
+
+```bash
+# Probar sin cambiar nada: dice qué commit desplegaría o por qué no
+sh deploy/despliegue-continuo.sh --simular
+
+# Activar (crontab del usuario del despliegue; gh vive en ~/.local/bin y debe estar autenticado)
+*/5 * * * * PATH=$HOME/.local/bin:/usr/bin:/bin /bin/sh /opt/docker/cadenza/deploy/despliegue-continuo.sh >> /opt/docker/cadenza/backups/despliegue.log 2>&1
+
+# Pausar y reanudar sin tocar el cron
+touch ~/.local/state/cadenza-despliegue/pausado
+rm ~/.local/state/cadenza-despliegue/pausado
+```
+
+- Sin novedad, con la CI en curso o en pausa no escribe en el log. Un error que se repetiría (árbol con cambios, `main` reescrita, CI inaccesible) se registra una vez.
+- Con la CI roja no se despliega, pero si se relanza y pasa, sí. Un commit que no arrancó queda en `~/.local/state/cadenza-despliegue/rechazados` y no se reintenta: lo arregla un commit posterior, o se quita de ese archivo para reintentarlo.
+- Si la copia previa falla, si el checkout falla o si tampoco arranca la versión anterior (la nueva ya migró la base: el log dice «ERROR GRAVE» con el nombre de la copia, que se restaura a mano, §4.2), el script se pone en pausa con el motivo en el archivo `pausado` y avisa. Se reanuda borrando ese archivo.
+- La promoción de `dev` a `main` se hace con un merge, no con *squash*: así el primer paso de producción a `main` es un *fast-forward*. Si no, ese paso se da a mano (copia, `git checkout -B main origin/main`, `$DC up -d --build`).
+- Variables, con su valor por defecto: `CADENZA_DESPLIEGUE_RAMA` (`main`), `CADENZA_DESPLIEGUE_REPO` (`sebdavid3/Cadenza`), `CADENZA_DESPLIEGUE_FLUJO` (`CI`), `CADENZA_DESPLIEGUE_AVISO` (vacío; un comando que recibe el mensaje como argumento, por ejemplo un `curl` a un servicio de avisos), `CADENZA_DESPLIEGUE_ESTADO` (`~/.local/state/cadenza-despliegue`), `CADENZA_DESPLIEGUE_SALUD` (`http://127.0.0.1:<CADENZA_WEB_PORT del .env>/api/health`), `CADENZA_DESPLIEGUE_ESPERA` (300 s) y `CADENZA_DESPLIEGUE_INTERVALO` (10 s).
+
 #### Cerrar y reabrir el registro ([#248](https://github.com/sebdavid3/Cadenza/issues/248))
 
 Durante el estudio ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) el registro está cerrado: solo entran las cuentas que crea un investigador (D59 en su mínimo; los límites completos del registro abierto quedan para [#194](https://github.com/sebdavid3/Cadenza/issues/194)). Se cierra antes del congelado ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y se reabre, si se quiere, al acabar el estudio.
