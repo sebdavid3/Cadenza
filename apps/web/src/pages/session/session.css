@@ -724,6 +724,15 @@
   user-select: none;
 }
 
+/* Hueco de una voz (ADR-0058): un silencio invisible que OSMD guarda transparente en su sitio. Una
+   trama de puntos de tinta, la de lo secundario, por detrás de las notas: se ve dónde está sin
+   dibujar en la partitura un signo que no tiene. */
+.notation__gap {
+  position: absolute;
+  background: var(--halftone-ink);
+  pointer-events: none;
+}
+
 /* Nota elegida: una caja de papel por detrás de su cabeza (o de su silencio), con un aro de papel
    y un filete violeta de 3 px. Abre un hueco limpio en la trama del compás dudoso y convive con el
    contorno de tinta del compás que suena. Sin movimiento: aparece donde se elige. */

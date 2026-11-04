@@ -21,6 +21,11 @@ export interface SelectableEvent {
   chord: boolean;
   /** Si es una nota de adorno: una nota sin duración, que no ocupa tiempo (ADR-0028). */
   grace: boolean;
+  /**
+   * Si es un hueco de su voz: un silencio invisible (ADR-0032), que OSMD pinta transparente en su
+   * sitio. Se elige y se corrige (ADR-0058), y la vista lo señala sin dibujarlo en la partitura.
+   */
+  gap: boolean;
   /** Caja de cada figura que lo dibuja: más de una si el exportador partió su duración. */
   boxes: Box[];
   /** Caja que abarca todas sus figuras. */
@@ -161,12 +166,104 @@ interface Matched {
 }
 
 /**
+ * Empareja las voces de un compás con sus figuras, en orden, y anota en `matched` lo de cada
+ * evento. Un hueco consume los silencios invisibles que OSMD guarda en su sitio y que suman su
+ * duración; si no los hay (el exportador escribió un `<forward>`), solo retrasa lo que le sigue y
+ * no tiene caja. False si algo no cuadra.
+ */
+function matchVoices(
+  voices: readonly Indexed[][],
+  drawn: readonly DrawnVoice[],
+  matched: Map<number, Matched>,
+): boolean {
+  for (const [voiceIndex, voice] of voices.entries()) {
+    const figures = drawn[voiceIndex] ?? [];
+    const groups = groupsOf(voice);
+    if (!groups) return false;
+    let cursor = 0;
+    let start: Fraction = [0, 1];
+    for (const group of groups) {
+      const length = drawnLength(group);
+      if (!length) return false;
+      const onset = start[0] / start[1];
+      if (group.hidden) {
+        if (length.grace) continue;
+        const boxes: Box[] = [];
+        let sum: Fraction = [0, 1];
+        while (compare(sum, length.beats) < 0 && figures[cursor]?.hidden) {
+          const figure = figures[cursor];
+          const box = figure?.notes[0]?.box;
+          if (!figure || !box) return false;
+          sum = add(sum, figure.beats);
+          boxes.push(box);
+          cursor += 1;
+        }
+        if (boxes.length > 0 && compare(sum, length.beats) !== 0) return false;
+        const member = group.members[0];
+        if (member && boxes.length > 0) {
+          matched.set(member.index, { boxes, chord: false, grace: false, onset });
+        }
+        start = add(start, length.beats);
+        continue;
+      }
+      const used: DrawnFigure[] = [];
+      if (length.grace) {
+        // Una nota de adorno es una sola figura, sin tiempo: no cuenta la duración de su figura.
+        const figure = figures[cursor];
+        if (!figure?.grace || figure.hidden) return false;
+        used.push(figure);
+        cursor += 1;
+      } else {
+        let sum: Fraction = [0, 1];
+        while (compare(sum, length.beats) < 0) {
+          const figure = figures[cursor];
+          if (!figure || figure.grace || figure.hidden) return false;
+          sum = add(sum, figure.beats);
+          used.push(figure);
+          cursor += 1;
+        }
+        if (compare(sum, length.beats) !== 0) return false;
+      }
+
+      const perMember: Box[][] = group.members.map(() => []);
+      for (const figure of used) {
+        if (figure.rest !== group.rest) return false;
+        const pairs = group.rest
+          ? figure.notes.length === 1
+            ? [0]
+            : null
+          : pairNotes(group.members, figure);
+        if (!pairs) return false;
+        for (const [member, position] of pairs.entries()) {
+          const box = figure.notes[position]?.box;
+          if (!box) return false;
+          perMember[member]?.push(box);
+        }
+      }
+      group.members.forEach((member, position) => {
+        matched.set(member.index, {
+          boxes: perMember[position] ?? [],
+          chord: group.members.length > 1,
+          grace: length.grace,
+          onset,
+        });
+      });
+      if (!length.grace) start = add(start, length.beats);
+    }
+    if (cursor !== figures.length) return false;
+  }
+  return true;
+}
+
+/**
  * Empareja los eventos de un compás con sus figuras dibujadas: voz con voz por orden y, dentro
  * de cada voz, cada nota, acorde o silencio con las figuras que suman su duración (una nota sin
- * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Un
- * silencio invisible no tiene figura: solo retrasa lo que le sigue, y una voz hecha solo de
- * silencios invisibles no es una voz dibujada. Devuelve, por posición en el compás, las cajas de
- * cada evento que se ve, si es de acorde y dónde empieza en el dibujo; o null si algo no cuadra.
+ * duración, con una sola figura de adorno), que han de ser de su misma clase y alturas. Un hueco
+ * (un silencio invisible) se empareja con el silencio transparente que OSMD guarda en su sitio, si
+ * lo hay. Las voces que se ven se emparejan como siempre; las hechas solo de huecos, entre ellas,
+ * si OSMD guarda tantas como el `ScoreIR`. Si los huecos no cuadran con lo que OSMD guarda, no se
+ * ofrecen, pero el compás cuadra si sus notas y silencios cuadran. Devuelve, por posición en el compás, las cajas de cada evento, si es de acorde y dónde
+ * empieza en el dibujo; o null si algo no cuadra.
  */
 function matchMeasure(
   events: readonly ScoreEventPayload[],
@@ -179,71 +276,27 @@ function matchMeasure(
     if (voice) voice.push({ event, index });
     else voices.set(event.voice, [{ event, index }]);
   });
-  const ordered = [...voices.entries()]
-    .sort(([a], [b]) => a - b)
-    .map(([, voice]) => voice)
-    .filter((voice) => voice.some(({ event }) => !isHidden(event)));
-  if (ordered.length !== drawn.length) return null;
+  const ordered = [...voices.entries()].sort(([a], [b]) => a - b).map(([, voice]) => voice);
+  const shown = (voice: readonly Indexed[]) => voice.some(({ event }) => !isHidden(event));
+  const drawnShown = (voice: DrawnVoice) => voice.some((figure) => !figure.hidden);
+  const visible = ordered.filter(shown);
+  const visibleDrawn = drawn.filter(drawnShown);
+  if (visible.length !== visibleDrawn.length) return null;
 
-  const matched = new Map<number, Matched>();
-  for (const [voiceIndex, voice] of ordered.entries()) {
-    const figures = drawn[voiceIndex] ?? [];
-    const groups = groupsOf(voice);
-    if (!groups) return null;
-    let cursor = 0;
-    let start: Fraction = [0, 1];
-    for (const group of groups) {
-      const length = drawnLength(group);
-      if (!length) return null;
-      if (group.hidden) {
-        if (!length.grace) start = add(start, length.beats);
-        continue;
-      }
-      const used: DrawnFigure[] = [];
-      if (length.grace) {
-        // Una nota de adorno es una sola figura, sin tiempo: no cuenta la duración de su figura.
-        const figure = figures[cursor];
-        if (!figure?.grace) return null;
-        used.push(figure);
-        cursor += 1;
-      } else {
-        let sum: Fraction = [0, 1];
-        while (compare(sum, length.beats) < 0) {
-          const figure = figures[cursor];
-          if (!figure || figure.grace) return null;
-          sum = add(sum, figure.beats);
-          used.push(figure);
-          cursor += 1;
-        }
-        if (compare(sum, length.beats) !== 0) return null;
-      }
-
-      const perMember: Box[][] = group.members.map(() => []);
-      for (const figure of used) {
-        if (figure.rest !== group.rest) return null;
-        const pairs = group.rest
-          ? figure.notes.length === 1
-            ? [0]
-            : null
-          : pairNotes(group.members, figure);
-        if (!pairs) return null;
-        for (const [member, position] of pairs.entries()) {
-          const box = figure.notes[position]?.box;
-          if (!box) return null;
-          perMember[member]?.push(box);
-        }
-      }
-      group.members.forEach((member, position) => {
-        matched.set(member.index, {
-          boxes: perMember[position] ?? [],
-          chord: group.members.length > 1,
-          grace: length.grace,
-          onset: start[0] / start[1],
-        });
-      });
-      if (!length.grace) start = add(start, length.beats);
-    }
-    if (cursor !== figures.length) return null;
+  let matched = new Map<number, Matched>();
+  if (!matchVoices(visible, visibleDrawn, matched)) {
+    // Si los silencios transparentes no cuadran con los huecos, el compás se empareja como antes
+    // de ADR-0058, sin ellos: sus huecos no se ofrecen, pero sus notas sí.
+    const withoutGaps = visibleDrawn.map((voice) => voice.filter((figure) => !figure.hidden));
+    matched = new Map<number, Matched>();
+    return matchVoices(visible, withoutGaps, matched) ? matched : null;
+  }
+  const gaps = ordered.filter((voice) => !shown(voice));
+  const gapsDrawn = drawn.filter((voice) => !drawnShown(voice));
+  if (gaps.length > 0 && gaps.length === gapsDrawn.length) {
+    const own = new Map<number, Matched>();
+    // Si no cuadran, esos huecos no se ofrecen: el resto del compás sí.
+    if (matchVoices(gaps, gapsDrawn, own)) for (const [key, value] of own) matched.set(key, value);
   }
   return matched;
 }
@@ -259,8 +312,10 @@ function union(boxes: readonly Box[]): Box {
 /**
  * Mapa ancla→caja de la partitura: cada evento del `ScoreIR` que se ve con su ancla
  * (`event_index` cuenta los eventos de su voz en el compás, también los silencios invisibles,
- * como `compute_timing_map`) y las cajas de las figuras que OSMD dibujó para él. `drawn` da las
- * figuras de cada compás dibujado.
+ * como `compute_timing_map`) y las cajas de las figuras que OSMD dibujó para él, y cada hueco
+ * de una voz con la caja del silencio transparente que OSMD guarda en su sitio (ADR-0058). Los
+ * huecos no cuentan en `total`: si no se encuentran, no se ofrecen, pero el mapa sigue completo.
+ * `drawn` da las figuras de cada compás dibujado.
  */
 export function buildNoteMap(
   score: ScoreIRPayload,
@@ -288,7 +343,9 @@ export function buildNoteMap(
         measure.events.forEach((event, index) => {
           const eventIndex = counters.get(event.voice) ?? 0;
           counters.set(event.voice, eventIndex + 1);
-          if (isHidden(event)) return;
+          // Un hueco se ofrece si se sabe dónde está: con la caja de su silencio transparente.
+          const gap = isHidden(event);
+          if (gap && !matched.has(index)) return;
           const anchor: AnchorPayload = {
             part: partIndex,
             staff: staffIndex,
@@ -313,6 +370,7 @@ export function buildNoteMap(
             onset,
             chord,
             grace,
+            gap,
             boxes,
             box: union(boxes),
           });

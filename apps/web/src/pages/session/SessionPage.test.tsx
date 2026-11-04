@@ -1848,7 +1848,7 @@ describe("elegir una nota sobre la partitura", () => {
     expect(screen.getByText("Compás 2 · Voz 1")).toBeVisible();
   });
 
-  it("no cuenta como figura el silencio invisible que OSMD guarda ni lo ofrece para elegir (ADR-0032)", async () => {
+  it("elige el hueco de una voz en el silencio transparente que OSMD guarda y lo señala (ADR-0058)", async () => {
     osmd.figures = [
       [
         { pitch: "E5", whole: [3, 4], voice: 1 },
@@ -1870,12 +1870,57 @@ describe("elegir una nota sobre la partitura", () => {
 
     fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(screen.getByText("Mi5 · blanca con puntillo")).toBeVisible();
+    // El hueco empieza con la voz: es lo más cercano al bajar.
     fireEvent.keyDown(region, { key: "ArrowDown" });
     expect(screen.getByText("Compás 1 · Voz 2")).toBeVisible();
+    expect(screen.getByText("Hueco de negra")).toBeVisible();
+    fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(screen.getByText("Do4 · blanca")).toBeVisible();
-    // El silencio invisible no se elige: al principio de la voz está Do4.
     fireEvent.keyDown(region, { key: "Home" });
-    expect(screen.getByText("Do4 · blanca")).toBeVisible();
+    expect(screen.getByText("Hueco de negra")).toBeVisible();
+    // Se señala con una trama, sin dibujarlo en la partitura: no es una figura.
+    expect(document.querySelectorAll(".notation__gap")).toHaveLength(1);
+  });
+
+  it("no corrige un hueco que la vista no ofrece aunque quede elegido (ADR-0058)", async () => {
+    // OSMD no guarda su silencio transparente: el hueco no tiene marca ni se elige.
+    osmd.figures = [
+      [
+        { pitch: "E5", whole: [3, 4], voice: 1 },
+        { pitch: "C4", whole: [2, 4], voice: 2 },
+      ],
+    ];
+    api({
+      detail: detail({
+        current_score: firstMeasure([
+          { pitch: "E5", duration_beats: "3" },
+          { kind: "rest", pitch: null, duration_beats: "1", voice: 1, hidden: true },
+          { pitch: "C4", duration_beats: "2", voice: 1 },
+        ]).current_score,
+      }),
+    });
+    renderPage();
+    await findScore();
+    expect(document.querySelectorAll(".notation__gap")).toHaveLength(0);
+
+    // Un borrado o deshacer pueden dejarlo elegido: la barra no lo ofrece para corregir.
+    act(() => {
+      useSelectionStore.getState().select({
+        sessionId: ID,
+        seq: 0,
+        anchor: {
+          part: 0,
+          staff: 0,
+          measure: 1,
+          voice: 1,
+          event_index: 0,
+          staff_id: "part-0-staff-0",
+          bbox: null,
+          confidence: null,
+        },
+      });
+    });
+    expect(screen.queryByText("Hueco de negra")).toBeNull();
   });
 
   it("elige por separado la nota de adorno y la nota a la que adorna (D60)", async () => {
@@ -2086,6 +2131,23 @@ describe("corregir la nota elegida", () => {
       before = { kind, pitch, duration_beats, tie, is_chord, bbox, confidence };
       for (const key of EVENT_EXTRAS) if (key in event) before[key] = event[key];
       measure.events.splice(position, 1);
+      // La primera nota de un acorde (ADR-0055): la siguiente pasa a ser la primera, con la
+      // figura y las marcas del acorde.
+      const following = positions[body.anchor.event_index + 1];
+      const promoted = following === undefined ? undefined : measure.events[following - 1];
+      if (after.keep_chord === true && promoted) {
+        before.next_in_chord = {
+          duration_beats: promoted.duration_beats,
+          articulations: promoted.articulations ?? [],
+          fermata: promoted.fermata === true,
+          slurs: promoted.slurs ?? [],
+        };
+        promoted.is_chord = false;
+        promoted.duration_beats = duration_beats;
+        for (const key of ["articulations", "fermata", "slurs"] as const) {
+          if (key in event) promoted[key] = event[key] as never;
+        }
+      }
     }
     if (event && body.op === "SetPitch") {
       before = { pitch: event.pitch };
@@ -2094,6 +2156,14 @@ describe("corregir la nota elegida", () => {
     if (event && body.op === "SetDuration") {
       before = { duration_beats: event.duration_beats };
       event.duration_beats = String(after.duration_beats);
+    }
+    // Un hueco de una voz (ADR-0058): pasa a ser una nota o un silencio que se ve, y vuelve.
+    if (event && body.op === "SetEventKind") {
+      before = { kind: event.kind, pitch: event.pitch, hidden: event.hidden === true };
+      event.kind = after.kind === "note" ? "note" : "rest";
+      event.pitch = typeof after.pitch === "string" ? after.pitch : null;
+      if (after.hidden === true) event.hidden = true;
+      else delete event.hidden;
     }
     // La figura de un acorde (ADR-0049): una por nota, desde la primera.
     if (event && position !== undefined && body.op === "SetChordDuration") {
@@ -2141,6 +2211,26 @@ describe("corregir la nota elegida", () => {
       ];
     }
     const measures = next.current_score?.parts[0]?.staves[0]?.measures ?? [];
+    // La ligadura de prolongación (ADR-0055): el valor de cada una de sus dos notas.
+    if (event && body.op === "SetTie") {
+      const other = after.next as {
+        measure: number;
+        voice: number;
+        event_index: number;
+        tie: string | null;
+      } | null;
+      const otherEvent = other
+        ? measures
+            .find((candidate) => candidate.number === other.measure)
+            ?.events.filter((candidate) => candidate.voice === other.voice)[other.event_index]
+        : undefined;
+      before = {
+        tie: event.tie ?? null,
+        next: other && otherEvent ? { ...other, tie: otherEvent.tie ?? null } : null,
+      };
+      event.tie = (after.tie as string | null) ?? null;
+      if (other && otherEvent) otherEvent.tie = other.tie;
+    }
     const number = Number(after.number);
     if (body.op === "SetSlur") {
       const ends: Record<string, unknown> = { number, start: null, stop: null };
@@ -3869,32 +3959,177 @@ describe("corregir la nota elegida", () => {
       });
     });
 
-    it("no borra la primera nota de un acorde y dice por qué", async () => {
+    it("borra cualquier nota de un acorde; la primera, conservando el acorde (D61)", async () => {
+      const server = editableApi(
+        withSecond([
+          note("C4", "3", { articulations: ["accent"] }),
+          note("E4", "3", { is_chord: true }),
+          note("G4", "3", { is_chord: true }),
+        ]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
+      expect(button("Borrar")).toHaveAttribute("aria-disabled", "false");
+
+      fireEvent.keyDown(region, { key: "Delete" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Do 4 del acorde.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "DeleteEvent",
+        anchor: anchorOf(2),
+        before: null,
+        after: { keep_chord: true },
+      });
+      // Queda elegida la nota que ocupa su sitio, que lleva el acento del acorde.
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: anchorOf(2),
+      });
+      const promoted = server.current().current_score?.parts[0]?.staves[0]?.measures[1]?.events[0];
+      expect(promoted).toMatchObject({ pitch: "E4", is_chord: false, articulations: ["accent"] });
+
+      // Una nota del acorde que no es la primera se borra sola.
+      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
+      fireEvent.click(button("Borrar"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: borrado de Sol 4 del acorde.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        op: "DeleteEvent",
+        after: null,
+        anchor: { event_index: 1 },
+      });
+    });
+
+    it("añade una nota al acorde de la elegida con un botón o con E, y la elige", async () => {
       const server = editableApi(
         withSecond([note("C4", "3"), note("E4", "3", { is_chord: true })]),
       );
       renderPage();
       const region = await chooseMeasure(2);
-      expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
 
-      expect(button("Borrar")).toHaveAttribute("aria-disabled", "true");
-      fireEvent.click(button("Borrar"));
-      fireEvent.keyDown(region, { key: "Delete" });
+      fireEvent.click(button("Añadir una nota al acorde"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Sol 4 en el acorde.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), event_index: 2, bbox: null, confidence: null },
+        before: null,
+        after: { kind: "note", pitch: "G4", duration_beats: "3", is_chord: true },
+      });
+      expect(useSelectionStore.getState().selection).toMatchObject({
+        seq: 1,
+        anchor: { measure: 2, event_index: 2 },
+      });
+      expect(screen.getByText("Sol4 · blanca con puntillo")).toBeVisible();
+
+      // Con E, otra tercera por encima de la más aguda.
+      fireEvent.keyDown(region, { key: "e" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Si 4 en el acorde.");
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "InsertEvent",
+        anchor: { event_index: 3 },
+        after: { pitch: "B4", is_chord: true },
+      });
+    });
+
+    it("liga con la nota siguiente con un botón o con U, y la quita al volver a pulsarlo", async () => {
+      const server = editableApi(withSecond([note("C4", "3"), note("C4", "3")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(button("Ligar con la siguiente")).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(button("Ligar con la siguiente"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: ligadura de prolongación de Do 4.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "SetTie",
+        anchor: anchorOf(2),
+        before: null,
+        after: { tie: "start", next: { measure: 2, voice: 0, event_index: 1, tie: "stop" } },
+      });
+      // La selección no se mueve, y el botón queda pulsado.
+      expect(useSelectionStore.getState().selection).toMatchObject({ anchor: anchorOf(2) });
+      await waitFor(() => {
+        expect(button("Ligar con la siguiente")).toHaveAttribute("aria-pressed", "true");
+      });
+
+      fireEvent.keyDown(region, { key: "u" });
       await waitFor(() => {
         expect(editStatus()).toHaveTextContent(
-          "La primera nota de un acorde lleva su figura y sus marcas: borra antes las demás notas del acorde.",
+          "Guardado: quitar la ligadura de prolongación de Do 4.",
+        );
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTie",
+        after: { tie: null, next: { measure: 2, voice: 0, event_index: 1, tie: null } },
+      });
+    });
+
+    it("quita la ligadura que llega y liga a través de la barra", async () => {
+      const server = editableApi(
+        withSecond([note("C4", "3/2", { tie: "start" }), note("C4", "3/2", { tie: "stop" })]),
+      );
+      renderPage();
+      const region = await chooseMeasure(2);
+      // A la primera no le llega ninguna: no se ofrece quitarla.
+      expect(within(editor()).queryByText("Quitar la ligadura que llega")).toBeNull();
+
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      fireEvent.click(button("Quitar la ligadura que llega"));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: quitar la ligadura de prolongación que llega a Do 4.",
+        );
+      });
+      // Anclada en su nota de origen, la primera.
+      expect(server.bodies[0]).toMatchObject({
+        op: "SetTie",
+        anchor: { measure: 2, event_index: 0 },
+        after: { tie: null, next: { measure: 2, voice: 0, event_index: 1, tie: null } },
+      });
+
+      // La segunda acaba el compás: se liga con el Do que empieza el compás 3.
+      fireEvent.keyDown(region, { key: "u" });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Guardado: ligadura de prolongación de Do 4 hasta el compás 3.",
+        );
+      });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        op: "SetTie",
+        anchor: { measure: 2, event_index: 1 },
+        after: { tie: "start", next: { measure: 3, voice: 0, event_index: 0, tie: "stop" } },
+      });
+    });
+
+    it("no liga con una nota distinta y dice por qué", async () => {
+      const server = editableApi(withSecond([note("C4", "3/2"), note("D4", "3/2")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+
+      fireEvent.keyDown(region, { key: "u" });
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(
+          "Lo siguiente no es un Do 4: una ligadura de prolongación une dos notas de la misma altura.",
         );
       });
       expect(server.bodies).toHaveLength(0);
-
-      // Mi4, la otra nota del acorde, sí se borra.
-      fireEvent.click(region, { clientX: 35 * 7.5, clientY: 6 * 7.5 });
-      expect(screen.getByText("Mi4 · blanca con puntillo")).toBeVisible();
-      fireEvent.click(button("Borrar"));
-      await waitFor(() => {
-        expect(editStatus()).toHaveTextContent("Guardado: borrado de Mi 4, blanca con puntillo.");
-      });
-      expect(server.bodies[0]).toMatchObject({ op: "DeleteEvent", anchor: { event_index: 1 } });
     });
 
     it("insertar ante una nota de un acorde inserta antes del acorde entero", async () => {
@@ -3947,6 +4182,9 @@ describe("corregir la nota elegida", () => {
       const region = await chooseMeasure(2);
       fireEvent.keyDown(region, { key: "ArrowDown" });
       expect(screen.getByText("Compás 2 · Voz 2")).toBeVisible();
+      // Bajar lleva al hueco, que empieza con la voz; la nota es la siguiente (ADR-0058).
+      fireEvent.keyDown(region, { key: "ArrowRight" });
+      expect(screen.getByText("Do4 · blanca")).toBeVisible();
 
       fireEvent.keyDown(region, { key: "n" });
 
@@ -3960,6 +4198,159 @@ describe("corregir la nota elegida", () => {
       });
       expect(useSelectionStore.getState().selection).toMatchObject({
         anchor: { measure: 2, voice: 1, event_index: 1 },
+      });
+    });
+
+    describe("los huecos de una voz (ADR-0058, #317)", () => {
+      const gapped = () =>
+        withSecond([
+          note("E5", "3"),
+          note(null, "1", { voice: 1, hidden: true }),
+          note("C4", "2", { voice: 1 }),
+        ]);
+      /** Elige el hueco de la voz 2 del compás 2. */
+      async function chooseGap() {
+        const region = await chooseMeasure(2);
+        fireEvent.keyDown(region, { key: "ArrowDown" });
+        expect(screen.getByText("Hueco de negra")).toBeVisible();
+        return region;
+      }
+
+      it("N escribe una nota en el hueco con la altura de la siguiente y lo deja elegido", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        expect(within(editor()).getByText("Hueco")).toBeVisible();
+
+        fireEvent.keyDown(region, { key: "n" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: Do 4 en el hueco de negra.");
+        });
+        expect(server.bodies[0]).toEqual({
+          base_seq: 0,
+          op: "SetEventKind",
+          anchor: { ...anchorOf(2), voice: 1 },
+          before: null,
+          after: { kind: "note", pitch: "C4", hidden: false },
+        });
+        expect(useSelectionStore.getState().selection).toMatchObject({
+          seq: 1,
+          anchor: { measure: 2, voice: 1, event_index: 0 },
+        });
+        expect(screen.getByText("Do4 · negra")).toBeVisible();
+        expect(document.querySelectorAll(".notation__gap")).toHaveLength(0);
+      });
+
+      it("con el ratón lo hace un silencio que se ve o lo borra, y deshacer lo devuelve", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        await chooseGap();
+
+        const silence = button("Hacer el hueco un silencio que se ve");
+        silence.focus();
+        fireEvent.click(silence);
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: silencio de negra en el hueco.");
+        });
+        // El foco sigue en el mismo botón, que ahora inserta un silencio antes.
+        expect(document.activeElement).toBe(button("Insertar un silencio antes"));
+        expect(server.bodies[0]).toMatchObject({
+          op: "SetEventKind",
+          after: { kind: "rest", pitch: null, hidden: false },
+        });
+        expect(screen.getByText("Silencio de negra")).toBeVisible();
+
+        fireEvent.click(button("Deshacer"));
+        await waitFor(() => {
+          expect(screen.getByText("Hueco de negra")).toBeVisible();
+        });
+
+        fireEvent.click(button("Borrar el hueco"));
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: borrado del hueco de negra.");
+        });
+        expect(server.bodies.at(-1)).toMatchObject({
+          base_seq: 2,
+          op: "DeleteEvent",
+          anchor: { measure: 2, voice: 1, event_index: 0 },
+          after: null,
+        });
+        // Lo que sigue al hueco ocupa su sitio y queda elegido.
+        expect(screen.getByText("Do4 · blanca")).toBeVisible();
+      });
+
+      it("un hueco no tiene altura ni marcas: lo dice sin enviar nada", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+
+        fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
+        fireEvent.keyDown(region, { key: "a" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "Un hueco no tiene altura ni marcas: escribe antes una nota en él (N) o hazlo un silencio (S).",
+          );
+        });
+        expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+        expect(server.bodies).toHaveLength(0);
+      });
+
+      it("tras un 409, vuelve a escribir en el hueco desplazado", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        server.respond(() => {
+          // Otra pestaña insertó una nota delante del hueco, en su voz (ADR-0011 §2).
+          server.replace(
+            apply(server.current(), {
+              base_seq: 0,
+              op: "InsertEvent",
+              anchor: { ...anchorOf(2), voice: 1 },
+              before: null,
+              after: { kind: "note", pitch: "E4", duration_beats: "1" },
+            }).next,
+          );
+          return jsonResponse({ detail: "conflicto" }, 409);
+        });
+
+        fireEvent.keyDown(region, { key: "s" });
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "No se guardó: silencio de negra en el hueco (compás 2, voz 2). La sesión cambió en otra pestaña o dispositivo antes de guardarlo; ya ves su estado actual.",
+          );
+        });
+        fireEvent.click(within(editor()).getByRole("button", { name: "Volver a aplicar" }));
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent("Guardado: silencio de negra en el hueco.");
+        });
+        expect(server.bodies[1]).toMatchObject({
+          base_seq: 1,
+          op: "SetEventKind",
+          anchor: { measure: 2, voice: 1, event_index: 1 },
+          after: { kind: "rest", pitch: null, hidden: false },
+        });
+      });
+
+      it("un 422 no guarda nada y lo dice sin el detail", async () => {
+        const server = editableApi(gapped());
+        renderPage();
+        const region = await chooseGap();
+        server.respond(() =>
+          jsonResponse({ detail: "SetEventKind solo se aplica a un hueco" }, 422),
+        );
+
+        fireEvent.keyDown(region, { key: "n" });
+
+        await waitFor(() => {
+          expect(editStatus()).toHaveTextContent(
+            "El servidor no aceptó el cambio (Do 4 en el hueco de negra, compás 2, voz 2): no se guardó nada.",
+          );
+        });
+        expect(screen.queryByText(/solo se aplica/)).toBeNull();
+        expect(screen.getByText("Hueco de negra")).toBeVisible();
       });
     });
 
@@ -7083,7 +7474,8 @@ describe("corregir la nota elegida", () => {
       expect(server.bodies[0]).toMatchObject({
         op: "SetTime",
         anchor: anchorOf(2),
-        after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" } },
+        // En todas las partes, con una edición (#326).
+        after: { time_signature: { beats: 2, beat_type: 2, symbol: "cut" }, all_parts: true },
       });
       expect(server.bodies[0]?.after).not.toHaveProperty("measures");
       expect(picker()).toHaveValue("2/2:cut");
