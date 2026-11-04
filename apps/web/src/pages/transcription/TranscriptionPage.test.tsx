@@ -474,6 +474,27 @@ describe("vista de transcripción", () => {
     expect(within(queue).getByText("1 en cola · 1 transcrita · 1 con error")).toBeVisible();
   });
 
+  it("cada imagen transcrita enlaza a su sesión (#277)", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    setQueue([
+      item("a", "a.png", {
+        status: "done",
+        result: transcribed("abcdef12-1"),
+        data: { title: "Minueto", composer: "", parts: [] },
+      }),
+      item("b", "b.png", { status: "error", error: "No se reconoció ninguna partitura." }),
+    ]);
+
+    const queue = screen.getByRole("region", { name: "Cola" });
+    const links = within(queue).getAllByRole("link");
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAccessibleName("Abrir la sesión de Minueto");
+    expect(links[0]).toHaveAttribute("href", "/sesiones/abcdef12-1");
+  });
+
   it("el contador de la imagen en curso cuenta desde que empezó, aunque se vuelva a la vista", async () => {
     mockApi({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
@@ -527,7 +548,8 @@ describe("vista de transcripción", () => {
     };
     expect(dropOutside().defaultPrevented).toBe(true);
 
-    await act(() => router.navigate("/"));
+    // Fuera de las vistas con zona de subida (esta y el recuadro de la portada, #277).
+    await act(() => router.navigate("/no-existe"));
     expect(dropOutside().defaultPrevented).toBe(false);
   });
 

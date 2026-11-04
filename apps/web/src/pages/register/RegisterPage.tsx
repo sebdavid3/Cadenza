@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Link, Navigate } from "react-router";
+import { Link, Navigate, useLocation } from "react-router";
 import { ApiError } from "../../api/errors";
 import { api } from "../../api/instance";
+import { destination } from "../../auth/destination";
 import { logIn } from "../../auth/session";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
-import { PRIVATE_HOME, registrationEnabled } from "../../config";
+import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { UserRead } from "../../types";
 import "../login/login.css";
@@ -42,8 +43,9 @@ export function RegisterPage() {
 /** El registro cerrado: sin formulario ni llamadas a la API, solo el camino a entrar (#248). */
 function RegistrationClosed() {
   useDocumentTitle("Registro cerrado");
+  const location = useLocation();
   const status = useAuthStore((state) => state.status);
-  if (status === "authenticated") return <Navigate to={PRIVATE_HOME} replace />;
+  if (status === "authenticated") return <Navigate to={destination(location.state)} replace />;
   return (
     <>
       <SiteHeader showSections={false} />
@@ -56,7 +58,7 @@ function RegistrationClosed() {
             Ahora no se pueden crear cuentas: las cuentas las crea un investigador del proyecto. Si
             el equipo te dio una, entra con tu usuario y tu contraseña.
           </p>
-          <Link className="button login__submit" to="/entrar">
+          <Link className="button login__submit" to="/entrar" state={location.state as unknown}>
             Ir a entrar
             <PixelIcon name="arrow-right" />
           </Link>
@@ -68,11 +70,13 @@ function RegistrationClosed() {
 
 /**
  * Formulario del registro: solo usuario y contraseña, sin correo. La cuenta nace activa: tras
- * crearla, la vista entra con ella y lleva a la zona privada. Si ese acceso falla, dice que la
- * cuenta existe y enlaza a la página de entrar.
+ * crearla, la vista entra con ella y lleva a la zona privada, o a la vista de la que se venía
+ * (`state.from`, como al entrar: la portada con la imagen elegida, #277). Si ese acceso falla,
+ * dice que la cuenta existe y enlaza a la página de entrar.
  */
 function RegisterForm() {
   useDocumentTitle("Crear una cuenta");
+  const location = useLocation();
   const status = useAuthStore((state) => state.status);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -97,7 +101,7 @@ function RegisterForm() {
     if (created) doneRef.current?.focus();
   }, [created]);
 
-  if (status === "authenticated") return <Navigate to={PRIVATE_HOME} replace />;
+  if (status === "authenticated") return <Navigate to={destination(location.state)} replace />;
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -130,7 +134,8 @@ function RegisterForm() {
       return;
     }
     try {
-      // Al entrar, el estado pasa a autenticado y el <Navigate> de arriba lleva a la zona privada.
+      // Al entrar, el estado pasa a autenticado y el <Navigate> de arriba lleva a la zona privada
+      // o a la vista de la que se venía.
       await logIn(api, name, password);
     } catch (caught) {
       // La cuenta existe aunque no se haya podido entrar con ella: se dice por qué y se enlaza a
@@ -173,7 +178,7 @@ function RegisterForm() {
             <p className="login__notice" id="register-done-notice">
               {created.notice}
             </p>
-            <Link className="button login__submit" to="/entrar">
+            <Link className="button login__submit" to="/entrar" state={location.state as unknown}>
               Ir a entrar
               <PixelIcon name="arrow-right" />
             </Link>
@@ -269,7 +274,10 @@ function RegisterForm() {
             </button>
             <p className="login__help">
               Entras en el momento, sin esperar a nadie.{" "}
-              <Link to="/entrar">¿Ya tienes cuenta? Entra</Link>.
+              <Link to="/entrar" state={location.state as unknown}>
+                ¿Ya tienes cuenta? Entra
+              </Link>
+              .
             </p>
           </form>
         )}

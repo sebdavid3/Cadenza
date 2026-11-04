@@ -1,23 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router";
 import { api } from "../../api/instance";
+import { destination } from "../../auth/destination";
 import { loginErrorMessage, logIn } from "../../auth/session";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
-import { PRIVATE_HOME, registrationEnabled } from "../../config";
+import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import "./login.css";
-
-/** Ruta a la que volver tras entrar: solo rutas internas de la propia aplicación. */
-function destination(state: unknown): string {
-  if (state && typeof state === "object" && "from" in state && typeof state.from === "string") {
-    const from = state.from;
-    if (from.startsWith("/") && !from.startsWith("//") && !from.includes("\\")) return from;
-  }
-  return PRIVATE_HOME;
-}
 
 type Field = "username" | "password";
 
@@ -149,7 +141,12 @@ export function LoginPage() {
           <p className="login__help">
             {registrationEnabled() ? (
               <>
-                ¿No tienes cuenta? <Link to="/registro">Créala</Link> y entra en el momento.{" "}
+                ¿No tienes cuenta?{" "}
+                {/* Quien venía de otra vista vuelve a ella también tras crear la cuenta (#277). */}
+                <Link to="/registro" state={location.state as unknown}>
+                  Créala
+                </Link>{" "}
+                y entra en el momento.{" "}
               </>
             ) : (
               "Las cuentas las crea un investigador del proyecto. "
