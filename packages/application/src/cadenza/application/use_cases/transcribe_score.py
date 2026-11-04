@@ -7,12 +7,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from cadenza.domain import Finding
+from cadenza.domain import Finding, ScoreDocument, ScoreMetadata, normalize_source_filename
 from cadenza.omr import OMREngine
 from cadenza.validation import ValidationEngine
 
 from ..ports.artifact_store import ArtifactStore, compute_sha256, detect_image_media_type
-from ..ports.session_repository import SessionData, SessionRepository
+from ..ports.recognition_stage import RecognitionStage
+from ..ports.session_repository import NewSuggestion, SessionData, SessionRepository
+from ..ports.suggestion_model import SuggestionModel
+from ..suggestions import suggest
 from ..user import User
 
 
@@ -52,8 +55,22 @@ def transcribe_score(
     image_artifact: str | None = None,
     condition: str = "assisted",
     test_score_id: str | None = None,
+    suggestion_model: SuggestionModel | None = None,
+    metadata: ScoreMetadata | None = None,
+    source_filename: str | None = None,
+    meter_stage: RecognitionStage | None = None,
 ) -> TranscribeResult:
-    """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión."""
+    """Ejecuta el pipeline OMR, evalúa reglas (en condición asistida) y persiste la sesión.
+
+    Con `suggestion_model`, la capa de sugerencias corre tras las reglas y la procedencia
+    guarda su versión (ADR-0036 §3, §11). En `unassisted` no corre ni una cosa ni otra (D38).
+
+    Con `meter_stage`, la etapa del compás corre tras el motor y antes de las reglas, en las dos
+    condiciones, y queda en la procedencia (ADR-0059 §4, §5).
+
+    Guarda con la sesión el título, el compositor y los instrumentos (`metadata`), sin los de
+    las partes que el OMR no detectó, y el nombre del archivo subido (#235, ADR-0041 §3).
+    """
 
     norm_condition = normalize_condition(condition)
 
@@ -66,16 +83,58 @@ def transcribe_score(
         actual_image_artifact = compute_sha256(image_path.read_bytes())
 
     document = omr_engine.transcribe(image_path)
-    findings: Sequence[Finding] = (
-        () if norm_condition == "unassisted" else validator.validate(document)
+    if meter_stage is not None:
+        document = meter_stage.apply(document)
+    return create_session_from_document(
+        document,
+        validator=validator,
+        session_repository=session_repository,
+        current_user=current_user,
+        image_artifact=actual_image_artifact,
+        session_id=session_id,
+        condition=norm_condition,
+        test_score_id=test_score_id,
+        suggestion_model=suggestion_model,
+        metadata=metadata,
+        source_filename=source_filename,
     )
+
+
+def create_session_from_document(
+    document: ScoreDocument,
+    *,
+    validator: ValidationEngine,
+    session_repository: SessionRepository,
+    current_user: User,
+    image_artifact: str | None,
+    session_id: str | None = None,
+    condition: str = "assisted",
+    test_score_id: str | None = None,
+    suggestion_model: SuggestionModel | None = None,
+    metadata: ScoreMetadata | None = None,
+    source_filename: str | None = None,
+) -> TranscribeResult:
+    """Crea la sesión de `current_user` con un documento ya leído por el OMR.
+
+    Lo comparten la transcripción (`transcribe_score`) y la reclamación de una transcripción sin
+    cuenta (#278, ADR-0054), que así crean la misma sesión: evalúa las reglas y la capa de
+    sugerencias (en condición asistida), fija la procedencia y guarda la sesión con su dueño.
+    """
+
+    norm_condition = normalize_condition(condition)
+    assisted = norm_condition != "unassisted"
+    rule_findings: Sequence[Finding] = validator.validate(document) if assisted else ()
+    model = suggestion_model if assisted else None
+    suggested = suggest(document, rule_findings, model)
+    findings = [finding for finding, _ in suggested]
 
     document = replace(
         document,
         provenance=replace(
             document.provenance,
-            source_image_hash=actual_image_artifact or document.provenance.source_image_hash,
-            rules_version=validator.rules_version if norm_condition != "unassisted" else None,
+            source_image_hash=image_artifact or document.provenance.source_image_hash,
+            rules_version=validator.rules_version if assisted else None,
+            suggestions_version=None if model is None else model.version,
         ),
     )
 
@@ -85,15 +144,21 @@ def transcribe_score(
         document_id=document.id,
         omr_engine=document.provenance.omr_engine,
         document=document.to_primitive(),
-        image_artifact=actual_image_artifact,
+        image_artifact=image_artifact,
         model_version=document.provenance.model_version,
         status="transcribed",
         owner_id=current_user.id,
         condition=norm_condition,
         test_score_id=test_score_id,
+        metadata=(metadata or ScoreMetadata()).fitted(len(document.score.parts)),
+        source_filename=normalize_source_filename(source_filename),
     )
 
-    session_repository.add(session_data, findings)
+    session_repository.add(
+        session_data,
+        findings,
+        [[NewSuggestion(edit=edit) for edit in edits] for _, edits in suggested],
+    )
 
     return TranscribeResult(
         session_id=actual_session_id,

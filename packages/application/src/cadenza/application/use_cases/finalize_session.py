@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
-from cadenza.domain import (
-    AnchorIndex,
-    Finding,
-    ScoreDocument,
-    ScoreIR,
-    build_anchor_index,
-    materialize,
-)
 from cadenza.validation import ValidationEngine
 
-from ..exceptions import Forbidden, SessionNotFound
+from ..current_validation import store_current_validation
+from ..exceptions import Forbidden, SessionClosed, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
+from ..ports.effort_repository import EffortRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
+from ..ports.suggestion_model import SuggestionModel
 from ..session_status import SessionStatus
 from ..user import Role, User
+from .record_effort_segment import refresh_accumulated_effort
 
 
 @dataclass(frozen=True)
@@ -38,13 +34,22 @@ def finalize_session(
     session_repository: SessionRepository,
     edit_repository: EditEventRepository,
     current_user: User,
+    suggestion_model: SuggestionModel | None = None,
+    effort_repository: EffortRepository | None = None,
 ) -> FinalizeResult:
     """Finaliza una sesión marcándola como cerrada para nuevas ediciones.
 
     1. Comprueba existencia y propiedad según ADR-0012.
-    2. Revalida el documento sobre su estado materializado actual (#11, #34).
-    3. Actualiza el estado a `finalized` (#34).
-    4. Devuelve el estado, el seq final y los hallazgos vigentes.
+    2. Una sesión ya finalizada no se vuelve a finalizar: `SessionClosed` (409). Su validación
+       final no se rehace hasta reabrirla (ADR-0043).
+    3. Valida el estado actual como una revalidación (`store_current_validation`, D65): las
+       reglas y la capa, heredando los descartes y los rechazos de la validación vigente; en
+       `unassisted` no corre nada y se guardan los hallazgos vacíos (ADR-0040 §13).
+    4. Actualiza el estado a `finalized` (#34).
+    5. Con `effort_repository`, vuelve a contar en el registro de esfuerzo de la sesión, si lo
+       hay, las intervenciones del log y las respuestas a las sugerencias hasta esta
+       finalización (#188, ADR-0050 §3).
+    6. Devuelve el estado, el seq final y los hallazgos activos, como `revalidate`.
     """
 
     session_data = session_repository.get(session_id)
@@ -57,55 +62,28 @@ def finalize_session(
     if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
         raise Forbidden("Un investigador solo puede finalizar sus propias sesiones")
 
-    # 1. Recuperar ediciones y determinar secuencia final
-    edits = edit_repository.list_events(session_id)
-    current_seq = edits[-1].seq if edits else 0
+    if session_data.status == SessionStatus.FINALIZED:
+        raise SessionClosed(session_id)
 
-    # 2. Materializar ScoreIR y AnchorIndex
-    raw_score = ScoreIR.from_primitive(session_data.document["score"])
-    raw_anchors = (
-        AnchorIndex.from_primitive(session_data.document["anchors"])
-        if "anchors" in session_data.document
-        else build_anchor_index(raw_score)
+    validation = store_current_validation(
+        session_data,
+        edit_repository.list_events(session_id),
+        validator=validator,
+        session_repository=session_repository,
+        suggestion_model=suggestion_model,
     )
-
-    if edits:
-        current_score_ir = materialize(raw_score, edits)
-        current_anchors = build_anchor_index(
-            current_score_ir,
-            raw_anchors=raw_anchors,
-            edits=edits,
-            at_seq=current_seq,
-        )
-    else:
-        current_score_ir = raw_score
-        current_anchors = raw_anchors
-
-    raw_doc = ScoreDocument.from_primitive(session_data.document)
-    current_doc = ScoreDocument(
-        id=session_data.document_id,
-        score=current_score_ir,
-        anchors=current_anchors,
-        provenance=raw_doc.provenance,
-    )
-
-    # 3. Evaluar reglas sobre el documento materializado
-    evaluated_findings: list[Finding] = validator.validate(current_doc)
-    findings_with_seq = [replace(f, at_seq=current_seq) for f in evaluated_findings]
-
-    # 4. Persistir hallazgos y actualizar validated_at_seq
-    persisted = session_repository.replace_findings(
-        session_id,
-        findings_with_seq,
-        at_seq=current_seq,
-    )
-
-    # 5. Marcar estado como finalizado
     updated = session_repository.update_status(session_id, SessionStatus.FINALIZED)
+    if effort_repository is not None:
+        refresh_accumulated_effort(
+            session_id,
+            session_repository=session_repository,
+            edit_repository=edit_repository,
+            effort_repository=effort_repository,
+        )
 
     return FinalizeResult(
         session_id=session_id,
         status=updated.status,
-        final_seq=current_seq,
-        findings=persisted,
+        final_seq=validation.seq,
+        findings=validation.active,
     )

@@ -15,18 +15,24 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     event,
+    false,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 JsonDocument = JSON().with_variant(JSONB(), "postgresql")
+# Un JSON opcional: None se guarda como NULL de SQL, no como el JSON `null`.
+NullableJsonDocument = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 
 class ImmutableEditEventError(RuntimeError):
@@ -47,6 +53,10 @@ class UserRecord(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
+    # Cuenta del registro público (ADR-0022, migración 0012): fuera de los datos del estudio.
+    self_registered: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -89,6 +99,14 @@ class Session(Base):
         String(32), server_default="assisted", default="assisted", nullable=False
     )
     test_score_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Título, compositor, instrumento de cada parte y nombre del archivo subido (#235,
+    # ADR-0041, migración 0014): de la sesión, fuera del `ScoreIR` y del log.
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    composer: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    part_instruments: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        NullableJsonDocument, nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -192,9 +210,22 @@ class ArtifactRecord(Base):
 
 
 class EffortMetricsRecord(Base):
-    """Métricas de esfuerzo humano en la corrección de una sesión (ADR-0004, #13)."""
+    """Métricas de esfuerzo humano en la corrección de una sesión (ADR-0004, #13).
+
+    `accumulated` marca el único registro que acumula la web por sesión (#188, ADR-0050): lo
+    garantiza un índice único parcial. Los demás son registros sueltos de `POST /effort`.
+    """
 
     __tablename__ = "effort_metrics"
+    __table_args__ = (
+        Index(
+            "uq_effort_metrics_accumulated_session",
+            "session_id",
+            unique=True,
+            sqlite_where=text("accumulated = 1"),
+            postgresql_where=text("accumulated"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     session_id: Mapped[str] = mapped_column(
@@ -209,6 +240,29 @@ class EffortMetricsRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    # Lo que acumula la web (#188, ADR-0050, migración 0015).
+    accumulated: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    segments: Mapped[list[dict[str, Any]]] = mapped_column(
+        JsonDocument, default=list, server_default=text("'[]'"), nullable=False
+    )
+    interventions_by_class: Mapped[dict[str, Any]] = mapped_column(
+        JsonDocument, default=dict, server_default=text("'{}'"), nullable=False
+    )
+    findings_dismissed: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    findings_restored: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    suggestions_applied: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    suggestions_rejected: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     session: Mapped[Session] = relationship(back_populates="effort_metrics")
 
@@ -233,10 +287,115 @@ class ModelVersionRecord(Base):
     ser: Mapped[float] = mapped_column(Float, nullable=False)
     omr_ned: Mapped[float] = mapped_column(Float, nullable=False)
     promoted: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default="0", nullable=False
+        Boolean, default=False, server_default=false(), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     artifact: Mapped[ArtifactRecord] = relationship("ArtifactRecord", foreign_keys=[artifact_hash])
+
+
+class SuggestionRecord(Base):
+    """Sugerencia de la capa: una edición propuesta y la respuesta de la persona (ADR-0036 §4).
+
+    `finding_id` queda en NULL al sustituirse su hallazgo si ya tenía respuesta: las
+    respuestas nunca se pierden. Quién respondió lo fija el servidor (ADR-0012).
+    """
+
+    __tablename__ = "suggestions"
+    # Sin reutilizar ids en SQLite: revalidar cambia los ids y responder a uno viejo es un 404,
+    # nunca otra sugerencia (ADR-0036 §4). PostgreSQL no los reutiliza.
+    __table_args__ = ({"sqlite_autoincrement": True},)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE", name="fk_suggestions_session_id"),
+        index=True,
+        nullable=False,
+    )
+    finding_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("findings.id", ondelete="SET NULL", name="fk_suggestions_finding_id"),
+        index=True,
+        nullable=True,
+    )
+    at_seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    op: Mapped[str] = mapped_column(String(32), nullable=False)
+    anchor: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JsonDocument, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    response: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    responded_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    applied_seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # El rechazo heredado repite la respuesta de esa fila (ADR-0036 §4): no es otra respuesta.
+    inherited_from: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class SuggestionModelVersionRecord(Base):
+    """Versión registrada de la capa de sugerencias: otro tipo de modelo, separado del motor
+    OMR (tabla model_versions), con sus propias métricas medidas (ADR-0036 §8)."""
+
+    __tablename__ = "suggestion_model_versions"
+
+    version: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_hash: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey(
+            "artifacts.sha256",
+            ondelete="RESTRICT",
+            name="fk_suggestion_model_versions_artifact_hash",
+        ),
+        nullable=False,
+    )
+    dataset_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    config_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    model_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    feature_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    promoted: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class PreviewRecord(Base):
+    """Transcripción sin cuenta de la portada, hasta que caduca o se reclama (#278, ADR-0054).
+
+    No es una sesión: no tiene dueño, log ni hallazgos. La imagen va en la propia fila y no en
+    el almacén de artefactos, para que reclamarla (borrar la fila y crear la sesión) sea una sola
+    transacción y caducar no tenga que mirar quién más usa la imagen. Del token solo se guarda su
+    SHA-256 (migración 0016).
+    """
+
+    __tablename__ = "previews"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    document: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    image: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    image_media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    composer: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    part_instruments: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        NullableJsonDocument, nullable=True
+    )
+    source_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=False
+    )

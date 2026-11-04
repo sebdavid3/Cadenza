@@ -1,4 +1,4 @@
-"""Pruebas de la regla de colisión de voces (VoiceCollisionRule)."""
+"""Pruebas de `voice.collision`: acorde mal formado (ADR-0040 §11)."""
 
 from __future__ import annotations
 
@@ -107,9 +107,11 @@ def test_chord_duration_mismatch_reports_error() -> None:
     f = findings[0]
     assert f.rule_id == "voice.collision"
     assert f.severity == Severity.ERROR
-    assert "Desincronización temporal" in f.message
+    assert f.message == "En el acorde del tiempo 1, el Sol es una negra y el Do es una blanca."
     assert f.anchor.event_index == 1
-    assert f.suggested_fix is not None
+    assert f.suggested_fix == (
+        "Si en la partitura suenan juntas, iguala la figura; si el Sol va aparte, es de otra voz."
+    )
 
 
 def test_orphaned_chord_event_without_base_reports_error() -> None:
@@ -130,7 +132,11 @@ def test_orphaned_chord_event_without_base_reports_error() -> None:
     f = findings[0]
     assert f.rule_id == "voice.collision"
     assert f.severity == Severity.ERROR
-    assert "sin una nota base previa" in f.message
+    assert f.message == (
+        "El Mi del tiempo 1 está marcado como nota de un acorde, pero no tiene antes otra nota "
+        "con la que sonar."
+    )
+    assert f.suggested_fix == "Revisa si es una nota suelta."
 
 
 def test_duplicate_pitch_in_same_chord_reports_error() -> None:
@@ -158,7 +164,8 @@ def test_duplicate_pitch_in_same_chord_reports_error() -> None:
     f = findings[0]
     assert f.rule_id == "voice.collision"
     assert f.severity == Severity.ERROR
-    assert "Altura duplicada C4" in f.message
+    assert f.message == "El acorde del tiempo 1 tiene dos veces el mismo Do."
+    assert f.suggested_fix == "Borra uno de los dos."
 
 
 def test_rest_as_chord_reports_error() -> None:
@@ -178,11 +185,13 @@ def test_rest_as_chord_reports_error() -> None:
     f = findings[0]
     assert f.rule_id == "voice.collision"
     assert f.severity == Severity.ERROR
-    assert "Un silencio no puede formar parte de un acorde" in f.message
+    assert f.message == "El silencio del tiempo 1 está dentro de un acorde."
+    assert f.suggested_fix == "Revisa si es una nota del acorde o un silencio de otra voz."
 
 
-def test_non_positive_duration_reports_error() -> None:
-    # Evento con duración 0
+def test_a_note_without_duration_is_a_grace_note_and_not_an_error() -> None:
+    """Se retira la «duración no positiva» de una nota (ADR-0040 §11): una nota de duración 0
+    o nula es una nota de adorno (ADR-0028). En el corpus hay 524 y ninguna se corrigió."""
     doc = _make_document(
         (
             Event(
@@ -194,8 +203,21 @@ def test_non_positive_duration_reports_error() -> None:
             Event(kind=EventKind.NOTE, voice=0, pitch="D4", duration_beats=Fraction(4)),
         )
     )
+    assert ValidationEngine([VoiceCollisionRule()]).validate(doc) == []
+
+
+def test_a_rest_without_duration_is_still_flagged() -> None:
+    doc = _make_document(
+        (
+            Event(kind=EventKind.NOTE, voice=0, pitch="D4", duration_beats=Fraction(2)),
+            Event(kind=EventKind.REST, voice=0, duration_beats=Fraction(0)),
+            Event(kind=EventKind.NOTE, voice=0, pitch="E4", duration_beats=Fraction(1)),
+        )
+    )
     findings = ValidationEngine([VoiceCollisionRule()]).validate(doc)
-    assert any("Duración no positiva" in f.message for f in findings)
+    assert [(f.anchor.event_index, f.message, f.suggested_fix) for f in findings] == [
+        (1, "El silencio del tiempo 3 no dura nada.", "Revisa su figura en la partitura.")
+    ]
 
 
 def test_rule_does_not_mutate_document(tmp_path: Path) -> None:

@@ -82,8 +82,90 @@
               }
             }
           },
+          "401": {
+            "description": "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una contraseña incorrecta y una cuenta desactivada dan el mismo código y cuerpo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
           "429": {
             "description": "Límite de intentos de autenticación superado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Registro de una cuenta por la propia persona",
+        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Solo usuario y contraseña. Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
+        "operationId": "register_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
             "content": {
               "application/json": {
                 "schema": {
@@ -524,6 +606,202 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After (ADR-0024)",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/previews": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Transcribir sin cuenta desde la portada",
+        "description": "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y mapa de tiempos), cuántos posibles errores señalan las reglas y un token para reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054).",
+        "operationId": "create_preview_previews_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_preview_previews_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El archivo excede el tamaño máximo permitido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Tipo de archivo no soportado (se requiere imagen PNG o JPEG)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After (ADR-0024)",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/previews/{preview_id}/claim": {
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Reclamar una transcripción sin cuenta",
+        "description": "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054).",
+        "operationId": "claim_preview_previews__preview_id__claim_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "preview_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Preview Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewClaimRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscribeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
           }
         }
       }
@@ -825,7 +1103,7 @@
           "Sessions"
         ],
         "summary": "Detalle completo de sesión con estado materializado",
-        "description": "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, current_score materializado y anchor_index enriquecido (ADR-0011).",
+        "description": "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, current_score materializado y anchor_index enriquecido (ADR-0011). Con fields=view devuelve SessionViewRead: lo mismo sin document ni anchor_index, que no se calcula (#275, ADR-0037).",
         "operationId": "get_session_sessions__session_id__get",
         "security": [
           {
@@ -841,6 +1119,25 @@
               "type": "string",
               "title": "Session Id"
             }
+          },
+          {
+            "name": "fields",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "view",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "'view': solo lo que necesita la vista (SessionViewRead), sin document ni anchor_index. Sin él, el detalle completo (SessionDetailRead).",
+              "title": "Fields"
+            },
+            "description": "'view': solo lo que necesita la vista (SessionViewRead), sin document ni anchor_index. Sin él, el detalle completo (SessionDetailRead)."
           }
         ],
         "responses": {
@@ -890,6 +1187,92 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Sessions"
+        ],
+        "summary": "Cambiar el título, el compositor o los instrumentos de la sesión",
+        "description": "Solo el dueño (ADR-0012), también con la sesión finalizada. No es una edición del log ni cambia el estado de la sesión; el MusicXML y el MIDI exportados llevan los datos nuevos (#235, ADR-0041).",
+        "operationId": "update_session_metadata_endpoint_sessions__session_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionMetadataUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMetadataRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
                 }
               }
             }
@@ -1304,6 +1687,103 @@
         }
       }
     },
+    "/sessions/{session_id}/suggestions/{suggestion_id}/reject": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Rechazar una sugerencia de la capa",
+        "description": "Guarda que la persona rechaza la sugerencia, con su autoría fijada por el servidor. 409 en una sesión finalizada o si ya se aplicó; rechazar una ya rechazada o de una validación anterior responde 200. No descarta el hallazgo (ADR-0036 §5).",
+        "operationId": "reject_suggestion_endpoint_sessions__session_id__suggestions__suggestion_id__reject_post",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "suggestion_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Suggestion Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/sessions/{session_id}/validate": {
       "post": {
         "tags": [
@@ -1388,7 +1868,7 @@
           "Sessions"
         ],
         "summary": "Finalizar sesión y cerrar corrección",
-        "description": "Ejecuta revalidación final y cierra la sesión contra nuevas ediciones humanas (ADR-0014, #34).",
+        "description": "Ejecuta revalidación final y cierra la sesión contra nuevas ediciones humanas (ADR-0014, #34). Valida como POST /validate: conserva los descartes de la validación vigente si su evento no cambió y devuelve solo los hallazgos activos; en una sesión no asistida no ejecuta las reglas y guarda los hallazgos vacíos. 409 si la sesión ya está finalizada (#187, ADR-0043).",
         "operationId": "finalize_session_endpoint_sessions__session_id__finalize_post",
         "security": [
           {
@@ -1554,7 +2034,7 @@
           "Edits"
         ],
         "summary": "Añadir una edición inmutable al log",
-        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012).",
+        "description": "Añade una corrección humana validada contra el estado actual. Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). El 201 devuelve la edición y el estado que crea: current_seq, current_score, su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037). Con suggestion_id aplica una sugerencia y la marca como aceptada; los errores van en este orden: 409 de base_seq, 409 'stale_suggestion' y 422 si la edición no es la propuesta (ADR-0036 §5).",
         "operationId": "append_edit_sessions__session_id__edits_post",
         "security": [
           {
@@ -1588,7 +2068,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EditEventRead"
+                  "$ref": "#/components/schemas/EditAppliedRead"
                 }
               }
             }
@@ -1652,7 +2132,7 @@
           "Edits"
         ],
         "summary": "Deshacer la última edición activa en el servidor",
-        "description": "Registra un evento compensatorio inverso de la última edición activa en el log append-only sin borrar historia (ADR-0007, #35). Devuelve el nuevo current_seq, el ID de la edición deshecha, la partitura materializada actualizada y su índice de anclas.",
+        "description": "Registra un evento compensatorio inverso de la última edición activa en el log append-only sin borrar historia (ADR-0007, #35). Devuelve el nuevo current_seq, el ID de la edición deshecha, la partitura materializada actualizada y su índice de anclas, y además su MusicXML y su mapa de tiempos si cambia (#275, ADR-0037).",
         "operationId": "undo_session_edit_sessions__session_id__undo_post",
         "security": [
           {
@@ -1918,6 +2398,118 @@
           }
         }
       }
+    },
+    "/sessions/{session_id}/effort/segments/{segment_id}": {
+      "put": {
+        "tags": [
+          "Effort"
+        ],
+        "summary": "Sumar un tramo al registro de esfuerzo de la sesión",
+        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
+        "operationId": "record_effort_segment_endpoint_sessions__session_id__effort_segments__segment_id__put",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "segment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_-]+$",
+              "description": "Identificador del tramo: uno por pestaña, que dura sus recargas",
+              "title": "Segment Id"
+            },
+            "description": "Identificador del tramo: uno por pestaña, que dura sus recargas"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EffortSegmentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffortMetricsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permisos insuficientes para realizar la operación solicitada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2025,6 +2617,85 @@
         "title": "AnchorPayload",
         "description": "Ancla de evento en formato primitivo (contrato compartido del dominio).\n\nEl ancla es posicional y se interpreta respecto al estado `at_seq`\ncorrespondiente: estado 0 para el documento crudo, estado `seq - 1`\n(`base_seq`) para una edición, estado `at_seq` para un hallazgo (ADR-0011)."
       },
+      "Body_create_preview_previews_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título de la partitura (#240)."
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer",
+            "description": "Compositor (#235)."
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Instrument"
+                    },
+                    {
+                      "type": "string",
+                      "const": ""
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments",
+            "description": "Instrumento de cada parte, como en POST /transcribe (ADR-0041)."
+          },
+          "part_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Names",
+            "description": "Nombre de cada parte, alineado con `instruments` (ADR-0041)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_preview_previews_post"
+      },
       "Body_login_auth_login_post": {
         "properties": {
           "grant_type": {
@@ -2112,6 +2783,71 @@
               }
             ],
             "title": "Test Score Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título de la partitura: el nombre de la sesión (#235, #240)."
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer",
+            "description": "Compositor (#235)."
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Instrument"
+                    },
+                    {
+                      "type": "string",
+                      "const": ""
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments",
+            "description": "Instrumento de cada parte, repetido una vez por parte en el orden en que HOMR las detecta; '' deja esa parte sin instrumento. Los de partes que HOMR no detecte se descartan (ADR-0041)."
+          },
+          "part_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Names",
+            "description": "Nombre de cada parte, alineado con `instruments`; '' es sin nombre. Con 'other', el nombre del instrumento (ADR-0041)."
           }
         },
         "type": "object",
@@ -2187,6 +2923,164 @@
         "title": "DismissFindingRequest",
         "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
       },
+      "DynamicPayload": {
+        "properties": {
+          "mark": {
+            "type": "string",
+            "enum": [
+              "ppp",
+              "pp",
+              "p",
+              "mp",
+              "mf",
+              "f",
+              "ff",
+              "fff",
+              "sf",
+              "sfz",
+              "fp",
+              "fz"
+            ],
+            "title": "Mark",
+            "description": "Indicación dinámica"
+          },
+          "offset_beats": {
+            "type": "string",
+            "title": "Offset Beats",
+            "description": "Ataque en negras desde el inicio del compás, como fracción ('0', '3/2')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mark",
+          "offset_beats"
+        ],
+        "title": "DynamicPayload",
+        "description": "Dinámica en una posición del compás; rige su pentagrama (ADR-0031)."
+      },
+      "EditAppliedRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "seq": {
+            "type": "integer",
+            "title": "Seq"
+          },
+          "op": {
+            "type": "string",
+            "title": "Op"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "reverts_edit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverts Edit Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "current_seq": {
+            "type": "integer",
+            "title": "Current Seq",
+            "description": "Estado nuevo de la sesión: el seq de esta edición"
+          },
+          "current_score": {
+            "$ref": "#/components/schemas/ScoreIRPayload",
+            "description": "ScoreIR materializado del estado nuevo"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado del ciclo de vida de la sesión tras la edición"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error)"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimingMapRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "seq",
+          "op",
+          "author",
+          "anchor",
+          "before",
+          "after",
+          "created_at",
+          "current_seq",
+          "current_score",
+          "status",
+          "musicxml",
+          "timing"
+        ],
+        "title": "EditAppliedRead",
+        "description": "201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).\n\nLos campos de `EditEventRead` no cambian; los demás son una ampliación compatible del\ncontrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la\nexportación ni los tiempos."
+      },
       "EditEventCreate": {
         "properties": {
           "base_seq": {
@@ -2224,6 +3118,18 @@
               }
             ],
             "title": "After"
+          },
+          "suggestion_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestion Id",
+            "description": "Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición debe ser la propuesta (si no, 422). Rehacer la reenvía sin él."
           }
         },
         "additionalProperties": false,
@@ -2325,10 +3231,19 @@
           "InsertEvent",
           "DeleteEvent",
           "SetClef",
-          "SetKey"
+          "SetKey",
+          "SetNoteMarks",
+          "SetDynamic",
+          "SetWedge",
+          "SetSlur",
+          "SetTime",
+          "SetTuplet",
+          "SetChordDuration",
+          "SetTie",
+          "SetEventKind"
         ],
         "title": "EditOp",
-        "description": "Operaciones de corrección admitidas sobre un evento anclado.\n\nEsquemas de payload (atributos ``before`` y ``after`` en `EditEvent`):\n\n1. `SET_PITCH` (\"SetPitch\"):\n   - Modifica la altura absoluta de una nota.\n   - ``before``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"C4\"}``).\n   - ``after``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"D4\"}``).\n\n2. `SET_DURATION` (\"SetDuration\"):\n   - Modifica la duración en tiempos (beats) de un evento musical.\n   - ``before``: ``{\"duration_beats\": Fraction | int | float | str}``.\n   - ``after``: ``{\"duration_beats\": Fraction | int | float | str}``.\n\n3. `SET_ACCIDENTAL` (\"SetAccidental\"):\n   - Modifica la alteración de una nota conservando su nombre de nota y octava.\n   - ``before``: ``{\"accidental\": str | None}`` (p. ej. ``{\"accidental\": \"\"}``).\n   - ``after``: ``{\"accidental\": str | None}``\n     (p. ej. ``\"#\"``, ``\"b\"``, ``\"natural\"``, ``\"##\"``, ``\"bb\"``).\n\n4. `INSERT_EVENT` (\"InsertEvent\"):\n   - Inserta un nuevo evento musical antes de la posición anclada.\n   - ``before``: ``None``.\n   - ``after``: ``{\"kind\": str, \"pitch\": str | None, \"duration_beats\": Fraction | str, ...}``.\n\n5. `DELETE_EVENT` (\"DeleteEvent\"):\n   - Elimina el evento musical anclado en la voz del compás.\n   - ``before``: snapshot del evento previo.\n   - ``after``: ``None``.\n\n6. `SET_CLEF` (\"SetClef\"):\n   - Modifica la clave musical del compás al que apunta el ancla.\n   - ``before``: snapshot de clave previa o ``None``.\n   - ``after``: ``{\"clef\": dict | str | Clef}`` o primitivo ``{\"sign\": str, \"line\": int}``.\n\n7. `SET_KEY` (\"SetKey\"):\n   - Modifica la armadura de clave del compás al que apunta el ancla.\n   - ``before``: snapshot de armadura previa o ``None``.\n   - ``after``: ``{\"key_signature\": dict | KeySignature}`` o primitivo ``{\"fifths\": int}``."
+        "description": "Operaciones de corrección admitidas sobre un evento anclado.\n\nEsquemas de payload (atributos ``before`` y ``after`` en `EditEvent`):\n\n1. `SET_PITCH` (\"SetPitch\"):\n   - Modifica la altura absoluta de una nota.\n   - ``before``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"C4\"}``).\n   - ``after``: ``{\"pitch\": str}`` (p. ej. ``{\"pitch\": \"D4\"}``).\n\n2. `SET_DURATION` (\"SetDuration\"):\n   - Modifica la duración en tiempos (beats) de un evento musical.\n   - ``before``: ``{\"duration_beats\": Fraction | int | float | str}``.\n   - ``after``: ``{\"duration_beats\": Fraction | int | float | str}``.\n\n3. `SET_ACCIDENTAL` (\"SetAccidental\"):\n   - Modifica la alteración de una nota conservando su nombre de nota y octava.\n   - ``before``: ``{\"accidental\": str | None}`` (p. ej. ``{\"accidental\": \"\"}``).\n   - ``after``: ``{\"accidental\": str | None}``\n     (p. ej. ``\"#\"``, ``\"b\"``, ``\"natural\"``, ``\"##\"``, ``\"bb\"``).\n\n4. `INSERT_EVENT` (\"InsertEvent\"):\n   - Inserta un nuevo evento musical antes de la posición anclada.\n   - ``before``: ``None``.\n   - ``after``: ``{\"kind\": str, \"pitch\": str | None, \"duration_beats\": Fraction | str, ...}``.\n     Con ``\"is_chord\": true``, una nota más del acorde de la nota anterior (ADR-0055). La\n     compensatoria de borrar la primera nota de un acorde lleva además ``\"next_in_chord\"``.\n\n5. `DELETE_EVENT` (\"DeleteEvent\"):\n   - Elimina el evento musical anclado en la voz del compás.\n   - ``before``: snapshot del evento previo.\n   - ``after``: ``None`` o, en la primera nota de un acorde, ``{\"keep_chord\": true}``: la\n     nota siguiente pasa a ser la primera, con la figura y las marcas del acorde (ADR-0055).\n\n6. `SET_CLEF` (\"SetClef\"):\n   - Modifica la clave musical del compás al que apunta el ancla.\n   - ``before``: snapshot de clave previa o ``None``.\n   - ``after``: ``{\"clef\": dict | str | Clef}`` o primitivo ``{\"sign\": str, \"line\": int}``.\n\n7. `SET_KEY` (\"SetKey\"):\n   - Modifica la armadura de clave del compás al que apunta el ancla.\n   - ``before``: snapshot de armadura previa o ``None``.\n   - ``after``: ``{\"key_signature\": dict | KeySignature}`` o primitivo ``{\"fifths\": int}``.\n\nMarcas de notación (ADR-0031, ADR-0039). Las cuatro son de tipo «fijar»: el servidor guarda\nen ``before`` el estado que sustituyen y la compensatoria intercambia ``before`` y ``after``.\nNo mueven ningún evento (no cambian el ``event_index`` de las anclas).\n\n8. `SET_NOTE_MARKS` (\"SetNoteMarks\"):\n   - Fija las articulaciones y el calderón del evento anclado.\n   - ``before``/``after``: ``{\"articulations\": [str, ...], \"fermata\": bool}``.\n\n9. `SET_DYNAMIC` (\"SetDynamic\"):\n   - Pone, cambia o quita la dinámica de una posición del compás del ancla.\n   - ``before``/``after``: ``{\"offset_beats\": str, \"mark\": str | None}``.\n\n10. `SET_WEDGE` (\"SetWedge\"):\n    - Crea un regulador con su inicio y su fin, o quita los extremos de uno.\n    - ``before``/``after``: ``{\"number\": int, \"start\": {\"staff\", \"measure\",\n      \"offset_beats\", \"type\"} | None, \"stop\": {\"staff\", \"measure\", \"offset_beats\"} | None}``.\n\n11. `SET_SLUR` (\"SetSlur\"):\n    - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.\n    - ``before``/``after``: ``{\"number\": int, \"start\": {\"staff\", \"measure\", \"voice\",\n      \"event_index\"} | None, \"stop\": {...} | None}``.\n\nCompás y tresillos (ADR-0044). También de tipo «fijar», y tampoco mueven ningún evento.\n\n12. `SET_TIME` (\"SetTime\"):\n    - Cambia la indicación de compás desde el compás del ancla hasta el siguiente cambio, en\n      todos los pentagramas de la parte.\n    - ``before``/``after``: ``{\"time_signature\": {\"beats\": int, \"beat_type\": int,\n      \"symbol\": \"common\" | \"cut\" | None} | None, \"measures\": int}`` (``measures``, el\n      número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en\n      ``time_signature`` solo lo escribe la compensatoria).\n    - Con ``\"all_parts\": true`` en el ``after`` (#326), en todas las partes de la partitura,\n      cada una en su tramo: el ``before`` guarda además ``\"all_parts\": true`` y ``\"parts\"``,\n      ``[{\"time_signature\", \"measures\"} | None, ...]``, lo de cada parte (None si no tiene\n      el compás), con lo que la compensatoria devuelve cada parte a lo suyo. Sin él, solo\n      la parte del ancla, como antes de #326.\n\n13. `SET_TUPLET` (\"SetTuplet\"):\n    - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.\n    - ``before``/``after``: ``{\"durations\": [str | None, ...]}``, sus figuras.\n\nFigura de un acorde (ADR-0049). También de tipo «fijar», y tampoco mueve ningún evento.\n\n14. `SET_CHORD_DURATION` (\"SetChordDuration\"):\n    - Fija la figura de todas las notas de un acorde, anclada en su primera nota.\n    - ``before``/``after``: ``{\"durations\": [str | None, ...]}``, una por nota del acorde\n      (en el ``after`` del cliente, todas iguales y con duración).\n\nLigadura de prolongación (ADR-0055). También de tipo «fijar», y tampoco mueve ningún evento.\n\n15. `SET_TIE` (\"SetTie\"):\n    - Pone o quita la ligadura de prolongación entre la nota anclada y la que la sigue (en su\n      voz o, al cruzar la barra, al empezar el compás siguiente), o quita la marca de la\n      nota anclada sola.\n    - ``before``/``after``: ``{\"tie\": str | None, \"next\": {\"measure\": int, \"voice\": int,\n      \"event_index\": int, \"tie\": str | None} | None}``, el valor de cada nota\n      (``\"start\"``, ``\"continue\"``, ``\"stop\"`` o ``None``).\n\nLos huecos de una voz (ADR-0058). También de tipo «fijar», y tampoco mueve ningún evento.\n\n16. `SET_EVENT_KIND` (\"SetEventKind\"):\n    - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una\n      nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.\n    - ``before``/``after``: ``{\"kind\": \"note\" | \"rest\", \"pitch\": str | None,\n      \"hidden\": bool}``."
       },
       "EffortMetricsCreate": {
         "properties": {
@@ -2404,6 +3319,68 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "accumulated": {
+            "type": "boolean",
+            "title": "Accumulated",
+            "description": "Si es el registro que acumula la web (ADR-0050)",
+            "default": false
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/EffortSegmentRead"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "Tramos de tiempo de cada pestaña, en orden de llegada"
+          },
+          "interventions_by_class": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Interventions By Class",
+            "description": "Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla"
+          },
+          "findings_dismissed": {
+            "type": "integer",
+            "title": "Findings Dismissed",
+            "description": "Posibles errores descartados (cambiaron de activo a descartado)",
+            "default": 0
+          },
+          "findings_restored": {
+            "type": "integer",
+            "title": "Findings Restored",
+            "description": "Posibles errores restaurados (de descartado a activo)",
+            "default": 0
+          },
+          "suggestions_applied": {
+            "type": "integer",
+            "title": "Suggestions Applied",
+            "description": "Sugerencias aplicadas",
+            "default": 0
+          },
+          "suggestions_rejected": {
+            "type": "integer",
+            "title": "Suggestions Rejected",
+            "description": "Sugerencias rechazadas (sin contar los rechazos heredados)",
+            "default": 0
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Último cambio del registro acumulado"
           }
         },
         "type": "object",
@@ -2416,7 +3393,92 @@
           "created_at"
         ],
         "title": "EffortMetricsRead",
-        "description": "Métricas de esfuerzo persistidas para una sesión (#13)."
+        "description": "Métricas de esfuerzo persistidas para una sesión (#13, #188).\n\nEl registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás\nson registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero."
+      },
+      "EffortSegmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "active_ms": {
+            "type": "integer",
+            "title": "Active Ms"
+          },
+          "first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Edit Ms"
+          },
+          "idle_threshold_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Threshold Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "active_ms",
+          "first_edit_ms"
+        ],
+        "title": "EffortSegmentRead",
+        "description": "Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2)."
+      },
+      "EffortSegmentUpdate": {
+        "properties": {
+          "active_ms": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Active Ms",
+            "description": "Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas más allá del umbral (protocolo §3.4)"
+          },
+          "first_edit_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Edit Ms",
+            "description": "Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en este tramo; una vez conocido, el servidor lo conserva"
+          },
+          "idle_threshold_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idle Threshold Ms",
+            "description": "Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "active_ms"
+        ],
+        "title": "EffortSegmentUpdate",
+        "description": "Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).\n\nSolo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta\ndos veces."
       },
       "ErrorDetail": {
         "properties": {
@@ -2646,6 +3708,14 @@
               }
             ],
             "title": "Dismissal Reason"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SuggestionRead"
+            },
+            "type": "array",
+            "title": "Suggestions",
+            "description": "De cero a tres sugerencias ordenadas por confianza; vacía sin capa de sugerencias (ADR-0036 §4)"
           }
         },
         "type": "object",
@@ -2697,7 +3767,7 @@
           "omr_engine": {
             "type": "string",
             "title": "Omr Engine",
-            "description": "Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
+            "description": "Nombre del motor OMR configurado ('homr')"
           },
           "device": {
             "type": "string",
@@ -2717,6 +3787,21 @@
         ],
         "title": "HealthStatusResponse",
         "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
+      },
+      "Instrument": {
+        "type": "string",
+        "enum": [
+          "piano",
+          "voice",
+          "violin",
+          "cello",
+          "flute",
+          "clarinet",
+          "guitar",
+          "other"
+        ],
+        "title": "Instrument",
+        "description": "Lista cerrada de instrumentos de una parte (ADR-0041 §2).\n\nEl valor es un identificador estable que viaja en la API y se guarda en la base: la lista\nsolo crece. `other` admite un nombre libre (el de la parte) y suena como el piano."
       },
       "KeySignaturePayload": {
         "properties": {
@@ -2795,6 +3880,22 @@
               }
             ],
             "description": "Armadura de clave activa"
+          },
+          "dynamics": {
+            "items": {
+              "$ref": "#/components/schemas/DynamicPayload"
+            },
+            "type": "array",
+            "title": "Dynamics",
+            "description": "Dinámicas del compás, por su posición (ADR-0031)"
+          },
+          "wedges": {
+            "items": {
+              "$ref": "#/components/schemas/WedgePayload"
+            },
+            "type": "array",
+            "title": "Wedges",
+            "description": "Extremos de regulador del compás, por su posición (ADR-0031)"
           }
         },
         "type": "object",
@@ -2804,6 +3905,64 @@
         ],
         "title": "MeasurePayload",
         "description": "Compás que agrupa eventos musicales y metadatos estructurales."
+      },
+      "PartInstrumentRead": {
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Instrument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "PartInstrumentRead",
+        "description": "El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).\n\nLa posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene\ninstrumento ni nombre. `other` admite un nombre libre y suena como el piano."
+      },
+      "PartInstrumentWrite": {
+        "properties": {
+          "instrument": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Instrument"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "PartInstrumentWrite",
+        "description": "El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041)."
       },
       "PartPayload": {
         "properties": {
@@ -2829,12 +3988,123 @@
         "title": "PartPayload",
         "description": "Parte instrumental o vocal que agrupa uno o varios pentagramas."
       },
+      "PreviewClaimRequest": {
+        "properties": {
+          "claim_token": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Claim Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "claim_token"
+        ],
+        "title": "PreviewClaimRequest",
+        "description": "Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054)."
+      },
+      "PreviewResponse": {
+        "properties": {
+          "preview_id": {
+            "type": "string",
+            "title": "Preview Id"
+          },
+          "claim_token": {
+            "type": "string",
+            "title": "Claim Token",
+            "description": "Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. Solo se devuelve aquí: el servidor guarda su SHA-256."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "Cuándo caduca y se borra con su imagen"
+          },
+          "findings_count": {
+            "type": "integer",
+            "title": "Findings Count",
+            "description": "Posibles errores que señalan las reglas"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML de lo leído; null si no se pudo exportar"
+          },
+          "score": {
+            "$ref": "#/components/schemas/ScoreIRPayload"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/TimingMapRead",
+            "description": "Mapa de tiempos para reproducirla; su session_id es el preview_id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          }
+        },
+        "type": "object",
+        "required": [
+          "preview_id",
+          "claim_token",
+          "expires_at",
+          "findings_count",
+          "score",
+          "timing"
+        ],
+        "title": "PreviewResponse",
+        "description": "Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y\nel token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."
+      },
       "ProvenancePayload": {
         "properties": {
           "omr_engine": {
             "type": "string",
             "title": "Omr Engine",
-            "description": "Nombre del motor OMR utilizado ('fake', 'homr')"
+            "description": "Nombre del motor OMR utilizado ('homr')"
           },
           "model_version": {
             "anyOf": [
@@ -2908,6 +4178,18 @@
             ],
             "title": "Preprocessing",
             "description": "Metadatos y configuración de la etapa de preprocesado aplicada"
+          },
+          "suggestions_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggestions Version",
+            "description": "Versión de la capa de sugerencias activa al transcribir, o null si no corrió (ADR-0036 §11)"
           }
         },
         "type": "object",
@@ -2916,6 +4198,31 @@
         ],
         "title": "ProvenancePayload",
         "description": "Trazabilidad y procedencia de la inferencia OMR y validación."
+      },
+      "RegisterRequest": {
+        "properties": {
+          "username": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Username",
+            "description": "De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo."
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Password"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nSolo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza."
       },
       "ReopenResponse": {
         "properties": {
@@ -3092,6 +4399,41 @@
             ],
             "title": "Ir Handle",
             "description": "Manejador de referencia interna"
+          },
+          "articulations": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "staccato",
+                "staccatissimo",
+                "accent",
+                "marcato",
+                "tenuto"
+              ]
+            },
+            "type": "array",
+            "title": "Articulations",
+            "description": "Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031)"
+          },
+          "fermata": {
+            "type": "boolean",
+            "title": "Fermata",
+            "description": "Indica si el evento lleva calderón",
+            "default": false
+          },
+          "slurs": {
+            "items": {
+              "$ref": "#/components/schemas/SlurPayload"
+            },
+            "type": "array",
+            "title": "Slurs",
+            "description": "Extremos de ligadura de expresión que empiezan o acaban en el evento"
+          },
+          "hidden": {
+            "type": "boolean",
+            "title": "Hidden",
+            "description": "Silencio invisible (ADR-0032): el hueco de una voz que entra a mitad del compás o calla entre dos notas. Ocupa su tiempo, tiene ancla y no se dibuja",
+            "default": false
           }
         },
         "type": "object",
@@ -3228,6 +4570,46 @@
               }
             ],
             "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
           }
         },
         "type": "object",
@@ -3241,6 +4623,107 @@
         ],
         "title": "SessionDetailRead",
         "description": "Documento persistido + findings + correcciones de una sesión (HITL).\n\n`current_seq` indica el estado de secuencia de la partitura actual (`0` para crudo,\n`n` para `n` ediciones). `current_score` es el ScoreIR materializado y\n`anchor_index` contiene el índice de anclas correspondiente al estado actual,\ncon `bbox` y `confidence` heredadas del documento original (ADR-0011)."
+      },
+      "SessionMetadataRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionMetadataRead",
+        "description": "Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041)."
+      },
+      "SessionMetadataUpdate": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PartInstrumentWrite"
+                },
+                "type": "array",
+                "maxItems": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SessionMetadataUpdate",
+        "description": "Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).\n\nUn campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista\nentera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no\npuede tener más entradas que partes la partitura. No es una edición del log."
       },
       "SessionSummaryRead": {
         "properties": {
@@ -3312,6 +4795,46 @@
               }
             ],
             "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "type": "array",
+            "title": "Instruments"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename"
           }
         },
         "type": "object",
@@ -3324,6 +4847,32 @@
         ],
         "title": "SessionSummaryRead",
         "description": "Resumen ligero de una sesión para listados (sin el documento JSONB) (#27)."
+      },
+      "SlurPayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop"
+            ],
+            "title": "Type",
+            "description": "Inicio ('start') o fin ('stop')"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Number",
+            "description": "Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, que no se reutiliza"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "number"
+        ],
+        "title": "SlurPayload",
+        "description": "Extremo de una ligadura de expresión en un evento (ADR-0031)."
       },
       "StaffPayload": {
         "properties": {
@@ -3374,6 +4923,113 @@
         "title": "StatusResponse",
         "description": "Respuesta con mensaje de estado de la operación."
       },
+      "SuggestionRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "op": {
+            "$ref": "#/components/schemas/EditOp"
+          },
+          "anchor": {
+            "$ref": "#/components/schemas/AnchorPayload"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato"
+          },
+          "confidence_level": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium"
+            ],
+            "title": "Confidence Level"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "rule",
+              "learned"
+            ],
+            "title": "Source"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "accepted",
+                  "rejected"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "op",
+          "anchor",
+          "confidence_level",
+          "explanation",
+          "source"
+        ],
+        "title": "SuggestionRead",
+        "description": "Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).\n\n`op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla\nes relativa al `at_seq` de su hallazgo (ADR-0011)."
+      },
       "TimeSignaturePayload": {
         "properties": {
           "beats": {
@@ -3387,6 +5043,22 @@
             "exclusiveMinimum": 0.0,
             "title": "Beat Type",
             "description": "Figura musical que representa un pulso"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "common",
+                  "cut"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol",
+            "description": "Símbolo con que se escribe la indicación (ADR-0044): 'common' (C) en 4/4, 'cut' (¢) en 2/2, o null si se escribe con números"
           }
         },
         "type": "object",
@@ -3564,6 +5236,34 @@
                 "type": "null"
               }
             ]
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Estado del ciclo de vida de la sesión tras deshacer"
+          },
+          "musicxml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Musicxml",
+            "description": "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error)"
+          },
+          "timing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimingMapRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
           }
         },
         "type": "object",
@@ -3571,7 +5271,10 @@
           "session_id",
           "current_seq",
           "undone_edit_id",
-          "current_score"
+          "current_score",
+          "status",
+          "musicxml",
+          "timing"
         ],
         "title": "UndoResponse",
         "description": "Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."
@@ -3633,6 +5336,12 @@
               }
             ],
             "title": "Created At"
+          },
+          "self_registered": {
+            "type": "boolean",
+            "title": "Self Registered",
+            "description": "Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio.",
+            "default": false
           }
         },
         "type": "object",
@@ -3745,6 +5454,196 @@
         "type": "object",
         "title": "VersionResponse",
         "description": "Versión de la API y del servicio."
+      },
+      "WedgePayload": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "crescendo",
+              "diminuendo",
+              "stop"
+            ],
+            "title": "Type",
+            "description": "El inicio dice si es de crescendo o de diminuendo; el fin es 'stop'"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Number",
+            "description": "Identifica el regulador dentro de su parte: su inicio y su fin comparten número, que no se reutiliza"
+          },
+          "offset_beats": {
+            "type": "string",
+            "title": "Offset Beats",
+            "description": "Posición en negras desde el inicio del compás, como fracción ('0', '3/2')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "number",
+          "offset_beats"
+        ],
+        "title": "WedgePayload",
+        "description": "Extremo de un regulador en una posición del compás (ADR-0031)."
+      },
+      "SessionViewRead": {
+        "description": "Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).\n\nLos campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`\n(cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "omr_engine": {
+            "title": "Omr Engine",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingRead"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "edits": {
+            "items": {
+              "$ref": "#/components/schemas/EditEventRead"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "current_score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScoreIRPayload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "current_seq": {
+            "default": 0,
+            "title": "Current Seq",
+            "type": "integer"
+          },
+          "image_artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Image Artifact"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model Version"
+          },
+          "status": {
+            "default": "transcribed",
+            "title": "Status",
+            "type": "string"
+          },
+          "condition": {
+            "default": "assisted",
+            "title": "Condition",
+            "type": "string"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Test Score Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Owner Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Composer"
+          },
+          "instruments": {
+            "items": {
+              "$ref": "#/components/schemas/PartInstrumentRead"
+            },
+            "title": "Instruments",
+            "type": "array"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Filename"
+          }
+        },
+        "required": [
+          "session_id",
+          "document_id",
+          "omr_engine",
+          "findings",
+          "edits"
+        ],
+        "title": "SessionViewRead",
+        "type": "object"
       }
     },
     "securitySchemes": {

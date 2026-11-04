@@ -11,7 +11,7 @@ from cadenza.application import (
     SequenceConflict,
     User,
 )
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,

@@ -1,0 +1,50 @@
+/* Finalizar y reabrir la sesión (#187): bajo la entradilla de la cabecera. */
+.lifecycle {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 62ch;
+}
+
+/* La confirmación se abre debajo del botón, como el formulario del descarte (ADR-0035). */
+.lifecycle__confirm {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: var(--rule);
+}
+
+.lifecycle__note {
+  max-width: 56ch;
+  font-size: var(--text-small);
+}
+
+.lifecycle__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+.lifecycle__actions .link-button[aria-disabled="true"] {
+  color: var(--color-ink-muted);
+  cursor: not-allowed;
+}
+
+.lifecycle__wait {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.lifecycle__status {
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/* Sin nada que decir, la región no deja hueco, pero sigue ahí para anunciar. */
+.lifecycle__status:empty {
+  margin-top: calc(var(--space-3) * -1);
+}

@@ -9,12 +9,20 @@ from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisi
 from .alignment import (
     EditDistribution,
     align_voice_events,
+    classify_pitch_change,
     count_edits_by_op,
     derive_edit_events,
     is_structurally_equal,
     split_pitch,
 )
 from .config import JobConfig, compute_config_hash, load_job_config, load_training_config
+from .correction_corpus import (
+    CORPUS_FORMAT_VERSION,
+    DEFAULT_TEST_FRACTION,
+    assign_split,
+    build_correction_records,
+    key_accidental,
+)
 from .dataset import (
     DatasetBuilder,
     RepositoryDatasetReader,
@@ -36,9 +44,17 @@ from .evaluation import (
     score_to_symbol_sequence,
     score_to_symbols,
     symbol_error_rate,
+    time_symbol_agreement,
+    without_time_symbols,
 )
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
+from .primus import (
+    SemanticMismatch,
+    primus_work_id,
+    semantic_note_pitches,
+    with_sounding_pitches,
+)
 from .registry import (
     EvaluationMetrics,
     ModelRegistry,
@@ -48,12 +64,9 @@ from .registry import (
 )
 from .trainer import (
     FakeTrainer,
-    PyTorchTrainer,
     TrainedArtifact,
     Trainer,
     TrainingConfig,
-    create_trainer,
-    is_torch_available,
 )
 from .validation_metrics import (
     BinaryMetrics,
@@ -65,9 +78,12 @@ from .validation_metrics import (
     compute_binary_metrics,
     evaluate_pair,
     evaluate_score_measures,
+    with_content_candidates,
 )
 
 __all__ = [
+    "CORPUS_FORMAT_VERSION",
+    "DEFAULT_TEST_FRACTION",
     "AcquisitionStrategy",
     "BinaryMetrics",
     "DatasetBuilder",
@@ -86,9 +102,9 @@ __all__ = [
     "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
-    "PyTorchTrainer",
     "RandomAcquisition",
     "RepositoryDatasetReader",
+    "SemanticMismatch",
     "SerResult",
     "TrainedArtifact",
     "Trainer",
@@ -98,12 +114,14 @@ __all__ = [
     "ValidationEvaluationReport",
     "aggregate_validation_metrics",
     "align_voice_events",
+    "assign_split",
+    "build_correction_records",
     "categorize_edit_op",
+    "classify_pitch_change",
     "compute_binary_metrics",
     "compute_config_hash",
     "compute_correction_magnitude",
     "count_edits_by_op",
-    "create_trainer",
     "dataset_hash",
     "derive_edit_events",
     "deserialize_dataset",
@@ -115,19 +133,25 @@ __all__ = [
     "format_key_signature_symbol",
     "format_time_signature_symbol",
     "is_structurally_equal",
-    "is_torch_available",
+    "key_accidental",
     "load_job_config",
     "load_training_config",
     "normalized_edit_distance",
     "omr_ned_batch",
     "omr_ned_pair",
     "pitch_to_midi",
+    "primus_work_id",
     "resolve_pitch_with_key_signature",
     "score_ser_pair",
     "score_to_symbol_sequence",
     "score_to_symbols",
+    "semantic_note_pitches",
     "semitone_distance",
     "serialize_dataset",
     "split_pitch",
     "symbol_error_rate",
+    "time_symbol_agreement",
+    "with_content_candidates",
+    "with_sounding_pitches",
+    "without_time_symbols",
 ]

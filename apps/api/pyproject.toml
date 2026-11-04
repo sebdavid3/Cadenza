@@ -5,10 +5,11 @@ description = "API Gateway de Cadenza: transcripción, hallazgos y eventos de ed
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "fastapi>=0.111",
+    # 0.141: Depends(..., scope="function"), del que depende confirmar antes de responder (#166).
+    "fastapi>=0.141",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
-    "pydantic-settings>=2.2",
+    "pydantic-settings>=2.7",
     "python-multipart>=0.0.9",
     "argon2-cffi>=23.1",
     "pyjwt>=2.8",
@@ -18,6 +19,11 @@ dependencies = [
     "cadenza-validation",
     "cadenza-persistence",
 ]
+
+# HOMR es el único motor OMR (ADR-0018). Es un extra porque la CI y las pruebas usan un
+# doble y no necesitan modelos; el despliegue lo instala con `--extra homr`.
+[project.optional-dependencies]
+homr = ["cadenza-omr[homr]"]
 
 [build-system]
 requires = ["hatchling"]

@@ -3,10 +3,21 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from cadenza.application import EffortMetricsData, PersistedFinding
-from cadenza.domain import Anchor, EditEvent, EditOp
+from cadenza.application import EffortMetricsData, PersistedFinding, PersistedSuggestion, User
+from cadenza.domain import (
+    COMPOSER_MAX_LENGTH,
+    MAX_PARTS,
+    PART_NAME_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    Anchor,
+    EditEvent,
+    EditOp,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+)
 from cadenza.persistence import EditEventRecord, FindingRecord
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +78,13 @@ class TimeSignaturePayload(BaseModel):
 
     beats: int = Field(gt=0, description="Número de pulsos por compás")
     beat_type: int = Field(gt=0, description="Figura musical que representa un pulso")
+    symbol: Literal["common", "cut"] | None = Field(
+        default=None,
+        description=(
+            "Símbolo con que se escribe la indicación (ADR-0044): 'common' (C) en 4/4, 'cut' (¢) "
+            "en 2/2, o null si se escribe con números"
+        ),
+    )
 
 
 class ClefPayload(BaseModel):
@@ -86,6 +104,50 @@ class KeySignaturePayload(BaseModel):
         ge=-7, le=7, description="Número de alteraciones en quintas (-7 bemoles a +7 sostenidos)"
     )
     mode: str | None = Field(default=None, description="Modo armónico opcional ('major', 'minor')")
+
+
+ArticulationName = Literal["staccato", "staccatissimo", "accent", "marcato", "tenuto"]
+DynamicName = Literal["ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "sf", "sfz", "fp", "fz"]
+
+
+class SlurPayload(BaseModel):
+    """Extremo de una ligadura de expresión en un evento (ADR-0031)."""
+
+    type: Literal["start", "stop"] = Field(description="Inicio ('start') o fin ('stop')")
+    number: int = Field(
+        ge=1,
+        description=(
+            "Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, "
+            "que no se reutiliza"
+        ),
+    )
+
+
+class DynamicPayload(BaseModel):
+    """Dinámica en una posición del compás; rige su pentagrama (ADR-0031)."""
+
+    mark: DynamicName = Field(description="Indicación dinámica")
+    offset_beats: str = Field(
+        description="Ataque en negras desde el inicio del compás, como fracción ('0', '3/2')"
+    )
+
+
+class WedgePayload(BaseModel):
+    """Extremo de un regulador en una posición del compás (ADR-0031)."""
+
+    type: Literal["crescendo", "diminuendo", "stop"] = Field(
+        description="El inicio dice si es de crescendo o de diminuendo; el fin es 'stop'"
+    )
+    number: int = Field(
+        ge=1,
+        description=(
+            "Identifica el regulador dentro de su parte: su inicio y su fin comparten número, "
+            "que no se reutiliza"
+        ),
+    )
+    offset_beats: str = Field(
+        description="Posición en negras desde el inicio del compás, como fracción ('0', '3/2')"
+    )
 
 
 class ScoreEventPayload(BaseModel):
@@ -110,6 +172,22 @@ class ScoreEventPayload(BaseModel):
         default=None, description="Puntuación de confianza del reconocimiento"
     )
     ir_handle: str | None = Field(default=None, description="Manejador de referencia interna")
+    articulations: list[ArticulationName] = Field(
+        default_factory=list,
+        description="Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031)",
+    )
+    fermata: bool = Field(default=False, description="Indica si el evento lleva calderón")
+    slurs: list[SlurPayload] = Field(
+        default_factory=list,
+        description="Extremos de ligadura de expresión que empiezan o acaban en el evento",
+    )
+    hidden: bool = Field(
+        default=False,
+        description=(
+            "Silencio invisible (ADR-0032): el hueco de una voz que entra a mitad del compás o "
+            "calla entre dos notas. Ocupa su tiempo, tiene ancla y no se dibuja"
+        ),
+    )
 
 
 class MeasurePayload(BaseModel):
@@ -123,6 +201,13 @@ class MeasurePayload(BaseModel):
     clef: ClefPayload | None = Field(default=None, description="Clave musical activa en el compás")
     key_signature: KeySignaturePayload | None = Field(
         default=None, description="Armadura de clave activa"
+    )
+    dynamics: list[DynamicPayload] = Field(
+        default_factory=list, description="Dinámicas del compás, por su posición (ADR-0031)"
+    )
+    wedges: list[WedgePayload] = Field(
+        default_factory=list,
+        description="Extremos de regulador del compás, por su posición (ADR-0031)",
     )
 
 
@@ -149,7 +234,7 @@ class ScoreIRPayload(BaseModel):
 class ProvenancePayload(BaseModel):
     """Trazabilidad y procedencia de la inferencia OMR y validación."""
 
-    omr_engine: str = Field(description="Nombre del motor OMR utilizado ('fake', 'homr')")
+    omr_engine: str = Field(description="Nombre del motor OMR utilizado ('homr')")
     model_version: str | None = Field(default=None, description="Versión del modelo OMR")
     rules_version: str | None = Field(default=None, description="Versión del catálogo de reglas")
     source_image_hash: str | None = Field(
@@ -162,6 +247,13 @@ class ProvenancePayload(BaseModel):
     preprocessing: dict[str, Any] | None = Field(
         default=None,
         description="Metadatos y configuración de la etapa de preprocesado aplicada",
+    )
+    suggestions_version: str | None = Field(
+        default=None,
+        description=(
+            "Versión de la capa de sugerencias activa al transcribir, o null si no corrió "
+            "(ADR-0036 §11)"
+        ),
     )
 
 
@@ -209,6 +301,70 @@ class EditEventCreate(BaseModel):
     anchor: AnchorPayload
     before: dict[str, Any] | None = None
     after: dict[str, Any] | None = None
+    suggestion_id: int | None = Field(
+        default=None,
+        description=(
+            "Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de "
+            "base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición "
+            "debe ser la propuesta (si no, 422). Rehacer la reenvía sin él."
+        ),
+    )
+
+
+class PartInstrumentRead(BaseModel):
+    """El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).
+
+    La posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene
+    instrumento ni nombre. `other` admite un nombre libre y suena como el piano.
+    """
+
+    instrument: Instrument | None = None
+    name: str | None = None
+
+    @classmethod
+    def from_part(cls, part: PartMetadata) -> PartInstrumentRead:
+        return cls(instrument=part.instrument, name=part.name)
+
+    @classmethod
+    def list_from(cls, metadata: ScoreMetadata) -> list[PartInstrumentRead]:
+        return [cls.from_part(part) for part in metadata.parts]
+
+
+class PartInstrumentWrite(BaseModel):
+    """El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument: Instrument | None = None
+    name: str | None = Field(default=None, max_length=PART_NAME_MAX_LENGTH)
+
+    def to_part(self) -> PartMetadata:
+        return PartMetadata(instrument=self.instrument, name=self.name)
+
+
+class SessionMetadataUpdate(BaseModel):
+    """Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).
+
+    Un campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista
+    entera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no
+    puede tener más entradas que partes la partitura. No es una edición del log.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = Field(default=None, max_length=TITLE_MAX_LENGTH)
+    composer: str | None = Field(default=None, max_length=COMPOSER_MAX_LENGTH)
+    instruments: list[PartInstrumentWrite] | None = Field(default=None, max_length=MAX_PARTS)
+
+
+class SessionMetadataRead(BaseModel):
+    """Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041)."""
+
+    session_id: str
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class TranscribeResponse(BaseModel):
@@ -218,6 +374,91 @@ class TranscribeResponse(BaseModel):
     findings_count: int
     condition: str = "assisted"
     test_score_id: str | None = None
+
+
+class PreviewResponse(BaseModel):
+    """Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
+    el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."""
+
+    preview_id: str
+    claim_token: str = Field(
+        ...,
+        description=(
+            "Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. "
+            "Solo se devuelve aquí: el servidor guarda su SHA-256."
+        ),
+    )
+    expires_at: datetime = Field(..., description="Cuándo caduca y se borra con su imagen")
+    findings_count: int = Field(..., description="Posibles errores que señalan las reglas")
+    musicxml: str | None = Field(
+        default=None,
+        description="MusicXML de lo leído; null si no se pudo exportar",
+    )
+    score: ScoreIRPayload
+    timing: TimingMapRead = Field(
+        ...,
+        description="Mapa de tiempos para reproducirla; su session_id es el preview_id",
+    )
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
+
+
+class PreviewClaimRequest(BaseModel):
+    """Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_token: str = Field(..., min_length=1, max_length=128)
+
+
+class SuggestionRead(BaseModel):
+    """Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).
+
+    `op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla
+    es relativa al `at_seq` de su hallazgo (ADR-0011).
+    """
+
+    id: int
+    op: EditOp
+    anchor: AnchorPayload
+    before: dict[str, Any] | None = None
+    after: dict[str, Any] | None = None
+    confidence: float | None = Field(
+        default=None,
+        description="Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato",
+    )
+    confidence_level: Literal["high", "medium"]
+    explanation: str
+    source: Literal["rule", "learned"]
+    model_version: str | None = None
+    response: Literal["accepted", "rejected"] | None = None
+
+    @classmethod
+    def from_persisted(cls, suggestion: PersistedSuggestion) -> SuggestionRead:
+        level: Literal["high", "medium"] = (
+            "high" if suggestion.confidence_level == "high" else "medium"
+        )
+        source: Literal["rule", "learned"] = "learned" if suggestion.source == "learned" else "rule"
+        response: Literal["accepted", "rejected"] | None = None
+        if suggestion.response == "accepted":
+            response = "accepted"
+        elif suggestion.response == "rejected":
+            response = "rejected"
+        return cls(
+            id=suggestion.id,
+            op=EditOp(suggestion.op),
+            anchor=AnchorPayload.model_validate(suggestion.anchor),
+            before=suggestion.before,
+            after=suggestion.after,
+            confidence=suggestion.confidence,
+            confidence_level=level,
+            explanation=suggestion.explanation,
+            source=source,
+            model_version=suggestion.model_version,
+            response=response,
+        )
 
 
 class FindingRead(BaseModel):
@@ -232,6 +473,13 @@ class FindingRead(BaseModel):
     dismissed_at: datetime | None = None
     dismissed_by: str | None = None
     dismissal_reason: str | None = None
+    suggestions: list[SuggestionRead] = Field(
+        default_factory=list,
+        description=(
+            "De cero a tres sugerencias ordenadas por confianza; vacía sin capa de "
+            "sugerencias (ADR-0036 §4)"
+        ),
+    )
 
     @classmethod
     def from_record(cls, record: FindingRecord) -> FindingRead:
@@ -263,6 +511,7 @@ class FindingRead(BaseModel):
             dismissed_at=finding.dismissed_at,
             dismissed_by=finding.dismissed_by,
             dismissal_reason=finding.dismissal_reason,
+            suggestions=[SuggestionRead.from_persisted(s) for s in finding.suggestions],
         )
 
 
@@ -339,6 +588,36 @@ class SessionDetailRead(BaseModel):
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
+
+
+class SessionViewRead(BaseModel):
+    """Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).
+
+    Los campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`
+    (cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.
+    """
+
+    session_id: str
+    document_id: str
+    omr_engine: str
+    findings: list[FindingRead]
+    edits: list[EditEventRead]
+    current_score: ScoreIRPayload | None = None
+    current_seq: int = 0
+    image_artifact: str | None = None
+    model_version: str | None = None
+    status: str = "transcribed"
+    condition: str = "assisted"
+    test_score_id: str | None = None
+    owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class SessionSummaryRead(BaseModel):
@@ -355,6 +634,10 @@ class SessionSummaryRead(BaseModel):
     condition: str = "assisted"
     test_score_id: str | None = None
     owner_id: str | None = None
+    title: str | None = None
+    composer: str | None = None
+    instruments: list[PartInstrumentRead] = Field(default_factory=list)
+    source_filename: str | None = None
 
 
 class RevalidateResponse(BaseModel):
@@ -408,6 +691,17 @@ class UndoResponse(BaseModel):
     anchor_index: AnchorIndexPayload | None = None
     compensatory_edit_id: str | None = None
     compensatory_edit: EditEventRead | None = None
+    # Ampliación compatible del contrato v1 (#275, ADR-0037): el estado nuevo entero.
+    status: str = Field(description="Estado del ciclo de vida de la sesión tras deshacer")
+    musicxml: str | None = Field(
+        description=(
+            "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da "
+            "el error)"
+        )
+    )
+    timing: TimingMapRead | None = Field(
+        description="Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+    )
 
 
 class TokenResponse(BaseModel):
@@ -425,6 +719,45 @@ class UserRead(BaseModel):
     role: str
     active: bool
     created_at: datetime | None = None
+    self_registered: bool = Field(
+        default=False,
+        description=(
+            "Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y "
+            "no forma parte de los datos del estudio."
+        ),
+    )
+
+    @classmethod
+    def from_user(cls, user: User) -> UserRead:
+        return cls(
+            id=user.id,
+            username=user.username,
+            role=user.role.value,
+            active=user.active,
+            created_at=user.created_at,
+            self_registered=user.self_registered,
+        )
+
+
+class RegisterRequest(BaseModel):
+    """Registro de una cuenta por la propia persona (ADR-0022, #154).
+
+    Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Solo letras ASCII, cifras, punto, guion y guion bajo: sin espacios, mayúsculas que se
+    # confundan con un nombre existente ni caracteres invisibles que imiten a otra cuenta.
+    username: str = Field(
+        min_length=3,
+        max_length=64,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+        description=(
+            "De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo."
+        ),
+    )
+    password: str = Field(min_length=8)
 
 
 class UserCreate(BaseModel):
@@ -471,8 +804,52 @@ class EffortMetricsCreate(BaseModel):
     )
 
 
+class EffortSegmentUpdate(BaseModel):
+    """Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).
+
+    Solo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta
+    dos veces.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    active_ms: int = Field(
+        ge=0,
+        description=(
+            "Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas "
+            "más allá del umbral (protocolo §3.4)"
+        ),
+    )
+    first_edit_ms: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en "
+            "este tramo; una vez conocido, el servidor lo conserva"
+        ),
+    )
+    idle_threshold_ms: int | None = Field(
+        default=None,
+        ge=1,
+        description="Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4)",
+    )
+
+
+class EffortSegmentRead(BaseModel):
+    """Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2)."""
+
+    id: str
+    active_ms: int
+    first_edit_ms: int | None
+    idle_threshold_ms: int | None = None
+
+
 class EffortMetricsRead(BaseModel):
-    """Métricas de esfuerzo persistidas para una sesión (#13)."""
+    """Métricas de esfuerzo persistidas para una sesión (#13, #188).
+
+    El registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás
+    son registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero.
+    """
 
     id: str
     session_id: str
@@ -480,6 +857,31 @@ class EffortMetricsRead(BaseModel):
     time_to_first_edit_ms: int | None
     interventions: dict[str, int]
     created_at: datetime
+    accumulated: bool = Field(
+        default=False, description="Si es el registro que acumula la web (ADR-0050)"
+    )
+    segments: list[EffortSegmentRead] = Field(
+        default_factory=list, description="Tramos de tiempo de cada pestaña, en orden de llegada"
+    )
+    interventions_by_class: dict[str, dict[str, int]] = Field(
+        default_factory=dict,
+        description=(
+            "Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla"
+        ),
+    )
+    findings_dismissed: int = Field(
+        default=0, description="Posibles errores descartados (cambiaron de activo a descartado)"
+    )
+    findings_restored: int = Field(
+        default=0, description="Posibles errores restaurados (de descartado a activo)"
+    )
+    suggestions_applied: int = Field(default=0, description="Sugerencias aplicadas")
+    suggestions_rejected: int = Field(
+        default=0, description="Sugerencias rechazadas (sin contar los rechazos heredados)"
+    )
+    updated_at: datetime | None = Field(
+        default=None, description="Último cambio del registro acumulado"
+    )
 
     @classmethod
     def from_data(cls, data: EffortMetricsData) -> EffortMetricsRead:
@@ -490,6 +892,22 @@ class EffortMetricsRead(BaseModel):
             time_to_first_edit_ms=data.time_to_first_edit_ms,
             interventions=data.interventions,
             created_at=data.created_at,
+            accumulated=data.accumulated,
+            segments=[
+                EffortSegmentRead(
+                    id=segment.id,
+                    active_ms=segment.active_ms,
+                    first_edit_ms=segment.first_edit_ms,
+                    idle_threshold_ms=segment.idle_threshold_ms,
+                )
+                for segment in data.segments
+            ],
+            interventions_by_class=data.interventions_by_class,
+            findings_dismissed=data.findings_dismissed,
+            findings_restored=data.findings_restored,
+            suggestions_applied=data.suggestions_applied,
+            suggestions_rejected=data.suggestions_rejected,
+            updated_at=data.updated_at,
         )
 
 
@@ -528,6 +946,28 @@ class TimingMapRead(BaseModel):
     )
 
 
+class EditAppliedRead(EditEventRead):
+    """201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).
+
+    Los campos de `EditEventRead` no cambian; los demás son una ampliación compatible del
+    contrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la
+    exportación ni los tiempos.
+    """
+
+    current_seq: int = Field(description="Estado nuevo de la sesión: el seq de esta edición")
+    current_score: ScoreIRPayload = Field(description="ScoreIR materializado del estado nuevo")
+    status: str = Field(description="Estado del ciclo de vida de la sesión tras la edición")
+    musicxml: str | None = Field(
+        description=(
+            "MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da "
+            "el error)"
+        )
+    )
+    timing: TimingMapRead | None = Field(
+        description="Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq"
+    )
+
+
 class HealthStatusResponse(BaseModel):
     """Estado de operatividad y salud del sistema backend (#40, D44)."""
 
@@ -544,9 +984,12 @@ class HealthStatusResponse(BaseModel):
         ...,
         description="Accesibilidad del almacenamiento de artefactos ('accessible' o 'error')",
     )
-    omr_engine: str = Field(
-        ..., description="Nombre del motor OMR configurado ('fake', 'homr', 'oemer')"
-    )
+    omr_engine: str = Field(..., description="Nombre del motor OMR configurado ('homr')")
     device: str = Field(
         ..., description="Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.)"
     )
+
+
+# `UndoResponse` y `PreviewResponse` usan `TimingMapRead`, definido después.
+UndoResponse.model_rebuild()
+PreviewResponse.model_rebuild()

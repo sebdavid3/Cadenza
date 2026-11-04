@@ -1,0 +1,136 @@
+# ADR-0044: El compás con su símbolo, cambiar el compás y poner o quitar tresillos
+
+- **Estado:** Aceptado
+- **Fecha:** 2026-11-01
+- **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0007, ADR-0010, ADR-0011, ADR-0017, ADR-0033, ADR-0034, ADR-0036, ADR-0037, ADR-0039 y ADR-0040, CLAUDE.md §9)
+- **Completa:** [ADR-0039](ADR-0039-anadir-y-quitar-marcas-de-notacion.md) §3.7 (operaciones futuras de `EditOp`) y [ADR-0040](ADR-0040-catalogo-de-reglas-y-mensajes-en-lenguaje-musical.md) §1, §5 y su enmienda 1 (el símbolo leído y el candidato de `time.signature`)
+- **Enmendado por:** su enmienda de [#326](https://github.com/sebdavid3/Cadenza/issues/326) (al final): `SetTime` con `all_parts` cambia el compás en todas las partes (§2)
+- **Relacionado:** [ADR-0007](ADR-0007-edit-events-inmutables.md), [ADR-0010](ADR-0010-score-ir-atributos-y-exportacion.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md), [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md), [ADR-0036](ADR-0036-capa-de-sugerencias-aprendida.md), [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), [#236](https://github.com/sebdavid3/Cadenza/issues/236), [#237](https://github.com/sebdavid3/Cadenza/issues/237), [#241](https://github.com/sebdavid3/Cadenza/issues/241), [#244](https://github.com/sebdavid3/Cadenza/issues/244)
+
+---
+
+## Contexto
+
+Hechos comprobados en el código el 2026-10-31:
+
+- `TimeSignature` era `(beats, beat_type)`: no distinguía C de 4/4 ni ¢ de 2/2, y la exportación escribía con números lo que se había importado con símbolo.
+- **La importación da a cada compás su métrica efectiva** (`_measure_signature` toma la del contexto si el compás no tiene la suya), y la exportación solo la escribe donde cambia (#152). Así que en un `ScoreIR` importado todos los compases llevan indicación, y «cambiar el compás desde el compás 5» no es cambiar un atributo del compás 5.
+- El mapa de tiempos (`compute_timing_map`) toma la métrica de un número de compás de cualquier pentagrama que la declare, y el exportador une los pentagramas de una parte (un piano). La validación (ADR-0040 §5) calcula la capacidad de cada compás para toda la parte.
+- Ninguna de las once `EditOp` cambiaba el compás. ADR-0017 ya admite duraciones con denominador 3 y el exportador escribe los `<time-modification>` de esas figuras, pero convertir doce corcheas en cuatro tresillos eran doce `SetDuration` y doce pasos de deshacer.
+- `derive_edit_events` (`cadenza.learning.alignment`) no compara las indicaciones de compás, y un tresillo mal leído sale como un `SetDuration` por figura. La cobertura de `exp_02` es `len(op_counts) / len(CONTENT_EDIT_OPS)` (ADR-0039 §3).
+- HOMR 0.7.0 nunca escribe `symbol` en sus `<time>` (0 de 91 predicciones de `data/primus/predictions`). Las verdades MEI de PrIMuS sí lo traen a menudo (`meter.sym`).
+
+## Decisión
+
+### 1. `TimeSignature.symbol`
+
+`TimeSignature` gana `symbol`: `"common"` (C), `"cut"` (¢) o `None` (con números). C solo vale con 4/4 y ¢ con 2/2.
+
+- **Es grafía, no métrica**: la igualdad y el hash de `TimeSignature` siguen siendo los de `beats` y `beat_type`, y `str()` sigue dando «4/4». C y 4/4 son la misma métrica, como las marcas de notación no son contenido (ADR-0031 §6). Lo que sí distingue la grafía (exportar, el tramo de `SetTime`, el `before` del cliente) usa `same_notation` / `same_time_notation`.
+- **Primitivo**: sin símbolo no se serializa, así que las sesiones guardadas se leen y se exportan igual.
+- **Importación**: se guarda si music21 lo trae y escribe su métrica (otro `symbol`, como `single-number`, o un C sobre 3/4, se queda en los números). **Exportación**: se escribe donde cambia la métrica o su grafía, también de C a 4/4 con números.
+- **Huella de `data/`** (antes y después, en solo lectura, sobre 4 436 archivos: las verdades MEI de los dos manifiestos, las predicciones de HOMR de `data/primus/predictions*` y las tres verdades de referencia): cambian 1 155, todas verdades (72 de las 100 del manifiesto principal, 1 081 del de `exp_12` y dos `.mxl` de referencia), por 3 397 compases con C y 1 346 con ¢; ninguna predicción. Quitando el símbolo, las 1 155 dan exactamente la huella de antes.
+- **Las cifras de `results/` no cambian**: los experimentos comparan métricas con `==` (`time_misread` de `exp_12`, `is_structurally_equal`), que no ve el símbolo; la SER y el corpus usan `str()` o `beats`/`beat_type`; los rasgos de la capa de sugerencias usan `str(time)`, así que `FEATURE_VERSION` no cambia.
+- **El OMR-NED se mide sin el símbolo.** `exp_14` exporta el `ScoreIR` de la verdad y de cada variante para compararlos con musicdiff, que sí cuenta el símbolo: con la exportación de usuario, el OMR-NED medio de HOMR en `exp_14` subía de 0,165 a 0,1775 (de 0,1641 a 0,1766 con las sugerencias de confianza alta; ejecución del responsable en el scratchpad, no en `results/`), porque la verdad lleva C o ¢ y HOMR nunca los escribe. Para que siga siendo comparable con todo el OMR-NED medido y citado (`exp_01`, `exp_03`, `exp_05`, `exp_12`, `exp_14`…) y coherente con que el símbolo es grafía, **las mediciones exportan sin él** (`without_time_symbols`, en `cadenza.learning.evaluation`): dos partituras que solo difieren en el símbolo dan OMR-NED 0, y una con C da el OMR-NED que daba antes de #236. La exportación de usuario (`/export`, la descarga) sí lo lleva. Los experimentos que comparan con musicdiff los archivos de origen (la verdad MEI y el MusicXML de HOMR, sin pasar por el `ScoreIR`) no cambian: leen los mismos archivos que antes.
+- **El acierto del símbolo, aparte**: `time_symbol_agreement(predicted, truth)` cuenta los compases con el símbolo bien o mal leído (los que lo llevan en la lectura o en la verdad). Ningún experimento lo usa todavía: medirlo es de [#237](https://github.com/sebdavid3/Cadenza/issues/237), que reconoce C y ¢.
+- **Contrato**: `TimeSignaturePayload.symbol`, opcional y `null` por defecto.
+
+### 2. `SetTime`: cambiar el compás desde un compás
+
+Anclada al primer evento del compás, como `SetKey` (ADR-0010, ADR-0033 §6). `after`: `{"time_signature": {"beats", "beat_type", "symbol"?}, "measures"?: k}`.
+
+- **Desde el compás del ancla hasta el siguiente cambio**, como la clave y la armadura. Como cada compás importado lleva su métrica, el ámbito es el **tramo**: el compás del ancla y los siguientes que llevan su misma indicación (métrica y grafía) o ninguna, hasta el primero que lleva otra. El compás del ancla pasa a llevar la nueva y los demás del tramo que llevaban una, también; los que no llevaban ninguna siguen sin ella (heredan la nueva). `measures` dice cuántos compases cambia, sin pasar del siguiente cambio; sin él, el tramo entero.
+- **En todos los pentagramas de la parte**, a diferencia de la clave y la armadura: la duración de un compás es la de la parte (el mapa de tiempos, la validación y el exportador la comparten), y cambiarla en un solo pentagrama de un piano dejaría la partitura incoherente. Si los pentagramas no llevan la misma indicación en ese compás o sus tramos no miden lo mismo, 422 (un solo `before` no podría devolverlos; no ocurre con HOMR).
+- **`time_signature: null` se rechaza** (422): la importación da a cada compás su métrica, y un compás sin ella dejaría de comprobarse (`measure.balance`) y de rellenarse al exportar (#152). Para quitar un cambio se pone la del compás anterior. Solo la compensatoria escribe `null`, para devolver un compás que no la llevaba.
+- **Tipo «fijar»** (ADR-0039 §1): el `before` es `{"time_signature": la del compás del ancla o null, "measures": los compases que cambió}` y la compensatoria intercambia `before` y `after`. Deshacer es exacto: devuelve la indicación del compás del ancla y la vigente a los demás de esos compases que la llevaban, y deja sin ella los que no la llevaban. Rehacer reenvía el `after` original, que vuelve a calcular el tramo sobre el mismo estado.
+- Validación: claves exactas, `beats` de 1 a 32, `beat_type` 1, 2, 4, 8, 16 o 32, el símbolo con su métrica; las notas no cambian (como la clave: el validador señala después los compases que no cuadran).
+
+### 3. Tresillos: una operación nueva, `SetTuplet`
+
+El criterio del issue es que convertir en tresillos un compás de doce corcheas cueste como mucho dos acciones y se deshaga de un paso. **Una operación nueva**, no un grupo de ediciones:
+
+- `SetTuplet`, anclada al primer evento del tramo: `{"durations": [d1, ..., dn]}`, las figuras finales de los n eventos seguidos de la voz del ancla en su compás. **Tipo «fijar»**: el `before` son sus figuras de antes y deshacer las intercambia, en un paso. Doce corcheas a cuatro tresillos: **una edición**; en la barra de #241, elegir y pulsar.
+- **Solo tresillos de 3:2**: poner multiplica cada figura por 2/3 y la figura nueva tiene que llevar el tresillo (una figura con puntillo por 2/3 es otra figura sin tresillo, y se rechaza); quitar multiplica por 3/2 las que lo llevan. Todo el tramo hace lo mismo. Las figuras resultantes pasan la validación de duraciones de ADR-0017 (un tresillo dentro de otro, 2/9, no es representable). Quintillos y septillos siguen siendo `SetDuration` por figura.
+- Las notas de adorno del tramo (ADR-0028) llevan `null` y no cambian. El tramo no empieza ni acaba a mitad de un acorde, y las notas de un acorde cambian con él.
+- El exportador ya escribe el tresillo (`<time-modification>` y su corchete) a partir de las figuras.
+
+### 4. Política de `EditOp`: una clase nueva, `METER_EDIT_OPS`
+
+ADR-0039 §3.7 pide clasificar cada operación nueva. `SetTime` y `SetTuplet` forman **`METER_EDIT_OPS`** («compás y tresillos»), aparte de `CONTENT_EDIT_OPS` (que pasa a ser una lista explícita de siete) y de `MARK_EDIT_OPS`:
+
+1. **`derive_edit_events` no las produce**: no alinea las indicaciones de compás, y un tresillo mal leído sale como un `SetDuration` por figura, que es lo que miden la SER y la cobertura. Contarlas en el denominador de la cobertura de `exp_02` bajaría la cifra sin que cambie nada medido, así que **`len(CONTENT_EDIT_OPS)` sigue siendo 7 y la cobertura de `exp_02` no cambia**.
+2. **`DatasetBuilder`** no hace muestras de ellas (una muestra es de un evento y su altura). El corpus de correcciones (#255) y la capa de sugerencias (#256) siguen viendo los tresillos corregidos, porque comparan el estado 0 con el final: salen como `SetDuration`.
+3. **`categorize_edit_op`** las llama `"meter"`.
+4. **Las métricas de esfuerzo del estudio** (#188) las cuentan como intervenciones, como las de marcas (ADR-0039 §3.6).
+5. **Las mediciones de las sugerencias** (`exp_14` y la de #257) cuentan solo los candidatos de contenido (`with_content_candidates`): su verdad es `derive_edit_events`, que no puede juzgar un candidato de cambiar el compás. Así, el candidato nuevo de `time.signature` (§5) no cambia sus cifras (`with_candidates`, `top1`…).
+
+### 5. Validador (completa ADR-0040)
+
+- **El símbolo leído en los mensajes**: la métrica se nombra como se escribe, «C» o «¢» si lleva su símbolo (ADR-0040 §1). Las predicciones de HOMR no lo traen, así que los mensajes medidos en `exp_06` y `exp_14` no cambian.
+- **El candidato de `time.signature`**: un `SetTime` a S desde el compás del ancla, como fija ADR-0040 §5. En el caso «en todo el tramo», hasta el siguiente cambio; en el caso «desde un compás», solo los compases de la racha (`measures`), porque fuera de ella la capacidad vuelve a ser la métrica leída. El candidato es admisible (`validate_after`) y `describe_edit` lo dice («Cambiar la indicación de compás a 4/4 desde este compás.»).
+- **No se muestra en el estudio**: `SetTime` no es de ninguna familia de sugerencias (`SUGGESTION_FAMILIES`), como el `SetKey` de `key.consistency`, así que ninguna política lo muestra. Mostrarlo lo decidiría #244.
+- **`RULES_CATALOG_VERSION` sigue en 2**: lo que miden `exp_06` y `exp_14` (hallazgos, anclas y candidatos de contenido) no cambia. Un catálogo 3 obligaría a medir de nuevo para comparar modelos (`promotion_decision`) sin que cambie ninguna cifra.
+
+### 6. Web
+
+La barra para cambiar el compás y los tresillos es #241. Aquí solo la historia de ediciones dice las operaciones nuevas («compás 3/4», «compás C», «tresillo en 12 figuras», «quitar el tresillo de 3 figuras»), el compás de `SetTime` sin voz, que no mueve la selección, y qué `before` basta para deshacer.
+
+### 7. Contrato y migración
+
+Ampliación compatible del contrato v1: `EditOp` gana `SetTime` y `SetTuplet`, y `TimeSignaturePayload`, `symbol` opcional; `openapi.json` y `types.ts` regenerados. No hay migración: el log guarda `op` como texto y `before`/`after` como JSON, y el `ScoreIR` como JSON.
+
+## Consecuencias
+
+### Positivas
+- Se corrige el compás (números, C o ¢) desde un compás y para toda la parte con una edición, y doce corcheas pasan a cuatro tresillos con una edición; las dos se deshacen de un paso y exactamente.
+- Las verdades con C y ¢ se exportan con su símbolo.
+- Las cifras de `results/` no cambian (§1 y §4; el OMR-NED, porque se mide sin el símbolo), y la caché del estado (ADR-0037) no necesita nada: las dos operaciones pasan por `apply_edit` y un cambio de solo grafía no cambia el mapa de tiempos.
+- `time.signature` trae ya su candidato aplicable, por si #244 decide mostrarlo.
+
+### Negativas / Riesgos
+- La igualdad de `TimeSignature` no ve el símbolo: código nuevo que quiera distinguir C de 4/4 debe usar `same_notation`, y una medición nueva que exporte el `ScoreIR` para compararlo debe pasar por `without_time_symbols`. Las pruebas lo cubren en el exportador, `SetTime` y el `before` del cliente.
+- `SetTime` no admite `null` de un cliente, a diferencia de `SetClef` y `SetKey`: para quitar un cambio hay que poner el compás anterior.
+- Una partitura cuyos pentagramas lleven compases distintos en un mismo compás (no ocurre con HOMR) no se puede cambiar con `SetTime` (422).
+- `SetTime` no toca las notas: cambiar 3/4 por 4/4 deja los compases con las mismas figuras, y el validador los señala si no cuadran.
+- Solo hay tresillos de 3:2 como una edición; un quintillo o un septillo son `SetDuration` por figura. Una figura con puntillo no se convierte en tresillo con `SetTuplet`.
+- El tramo del candidato de `time.signature` «en todo el tramo» se calcula con la métrica (sin grafía) y el de `SetTime`, con la grafía: en un tramo que mezclara C y 4/4 con números (no ocurre con HOMR), el candidato cambiaría solo hasta el cambio de grafía.
+
+## Alternativas consideradas
+
+1. **Tresillos como un grupo de ediciones** (doce `SetDuration` con un identificador de grupo). Descartada: deshacer y rehacer de un paso necesitarían un concepto nuevo en el log (ADR-0034 deshace de una en una) y la historia vería doce ediciones.
+2. **`SetTuplet` con un factor** (`{"count": 12, "factor": "2/3"}`) en vez de las figuras. Descartada: el `before` no sería una instantánea (ADR-0017), deshacer dependería de recalcular y una figura con puntillo no volvería exacta.
+3. **Una operación genérica de figuras** (`SetDurations`, cualquier figura nueva). Descartada: sería otra forma de `SetDuration` que la historia y las métricas no podrían nombrar; `SetTuplet` dice lo que hace y valida que lo hace.
+4. **`SetTime` en el pentagrama del ancla, como `SetKey`.** Descartada: la duración del compás es de la parte, y un piano quedaría con dos métricas a la vez.
+5. **`SetTime` solo en el compás del ancla.** Descartada: como la importación da a cada compás su métrica, el compás siguiente volvería a la anterior; cambiar el compás de una pieza serían tantas ediciones como compases.
+6. **Normalizar la importación para que solo los compases con cambio lleven indicación.** Descartada: cambiaría el `ScoreIR` de todas las verdades y predicciones de `data/` y las sesiones guardadas.
+7. **El símbolo dentro de la igualdad de `TimeSignature`.** Descartada: `time_misread` de `exp_12` compara la métrica leída por HOMR (sin símbolo) con la de la verdad MEI (con él) y su cifra cambiaría sin que cambie la métrica leída; también partiría los tramos de `time.signature` entre C y 4/4.
+8. **`SetTime` y `SetTuplet` en `CONTENT_EDIT_OPS`.** Descartada: la cobertura de `exp_02` pasaría de «de 7» a «de 9» con dos operaciones que `derive_edit_events` nunca produce.
+9. **Subir `RULES_CATALOG_VERSION`.** Descartada (§5).
+
+## Enmienda de #326 (2026-11-02): el compás en todas las partes
+
+**El problema.** La segunda revisión del banco (#247) vio que, en TS-02, «Cambiar compás» ponía 3/4 en la voz y el piano seguía sin compás en el `ScoreIR`, aunque OSMD lo dibujara también en el piano. Nada avisaba de que faltaba ponerlo en la otra parte; al elegir una nota del piano, el desplegable proponía «4/4»; y si no se ponía dos veces, el validador no comprobaba la duración del piano (§5: la capacidad es por parte) y la fidelidad residual contaba un compás que falta. §2 dejaba `SetTime` en la parte del ancla.
+
+**Decisión: `SetTime` se aplica a todas las partes en ese compás, con una edición** (opción a del issue). La otra opción, que la barra enviara un `SetTime` por parte, necesitaría agrupar ediciones en el log para deshacer de un paso, y la alternativa 1 de este ADR ya lo descartó por eso.
+
+1. **`after` gana `"all_parts": true`.** Con él, el compás cambia desde el compás del ancla en todas las partes que tienen ese número de compás, cada una en todos sus pentagramas y hasta su siguiente cambio (su tramo, como en §2); `measures`, si se da, vale para todas y no puede pasar del siguiente cambio de ninguna. Una parte que no tiene ese compás se deja como está. `all_parts` tiene que ser booleano; `false` es lo mismo que no darlo.
+2. **El significado de lo guardado no cambia.** Sin `all_parts`, `SetTime` hace lo de §2: solo la parte del ancla, con la misma instantánea (`{"time_signature", "measures"}`). Por eso un `SetTime` guardado antes de #326 materializa igual, y el log, que es *append-only*, no necesita migración. Lo comprueba `test_set_time_without_all_parts_still_changes_only_the_part_of_the_anchor`.
+3. **Deshacer, de un paso y exacto aunque las partes llevaran compases distintos.** La instantánea de un `SetTime` en todas las partes es `{"time_signature", "measures", "all_parts": true, "parts": [{"time_signature", "measures"} | null, ...]}`: arriba, lo de la parte del ancla (lo que dice la historia y lo que se compara con el `before` del cliente, como antes); en `parts`, lo de cada parte, en su orden, y `null` en la que no tiene el compás. La compensatoria intercambia `before` y `after`, como siempre, y `apply` devuelve cada parte a lo suyo cuando el `after` lleva `parts`. `parts` solo lo escribe la compensatoria: de un cliente se rechaza (422), como `time_signature: null`. Rehacer reenvía el `after` original. `has_complete_before` exige `parts` cuando el `before` lleva `all_parts`.
+4. **Partes con otro compás o poliritmo: se cambian, con aviso.** Si las partes llevan indicaciones distintas en ese compás (un `SetTime` de antes de #326 solo en la voz, o una lectura distinta por parte), `all_parts` las deja todas con la nueva y la vista lo dice al guardar («Las partes no llevaban el mismo compás: ahora todas llevan 3/4.»). No se rechaza: rechazarlo dejaría sin arreglo, desde la vista, justo el caso del problema. Un poliritmo real (partes con métricas distintas a la vez) no se puede escribir desde la barra; deshacer lo devuelve exacto. Ninguna partitura del banco lo tiene. Lo que sigue dando 422 es que los pentagramas de una misma parte no lleven la misma indicación en ese compás o no cambien en los mismos compases (§2), ahora en cualquier parte, con su número en el mensaje.
+5. **El candidato de `time.signature` sigue siendo de una parte.** La regla mide la capacidad por parte (§5, ADR-0040 §5) y su hallazgo es de una parte, así que su candidato sigue sin `all_parts`. `normalize_after` trata `all_parts: false` como su ausencia, de modo que aplicar el candidato tal cual sigue casando con él, y un `SetTime` en todas las partes es otra edición. No se muestra en el estudio (§5), así que nada cambia para quien corrige.
+6. **Contrato.** Ampliación compatible: `after` y `before` son JSON libres en el contrato v1 y solo cambia la descripción de `EditOp` (`openapi.json` y `types.ts` regenerados). Sin migración.
+
+**Lo que no cambia en `results/`.** Ningún experimento produce ni aplica un `SetTime` con `all_parts`: `derive_edit_events` no produce `SetTime` (§4.1) y el candidato no lo lleva. Ejecutados con esta rama en el scratchpad (`--output-dir`, leyendo `data/` y `results/correction_corpus*` en solo lectura), `exp_06` y `exp_14` dan los mismos archivos que `results/rules_catalog_v2/`, salvo las rutas, la fecha, el commit y la duración.
+
+## Enmienda de #329 (2026-11-03): `SetTime` pone la indicación en todos los compases del tramo
+
+**La causa.** La importación da a cada compás su compás vigente (`notation.py`, `getContextByClass`) o `None` si la página no imprime ninguno (como en TS-02, TS-03 y TS-04 del banco del estudio). En cambio, `_apply_time_to_part` (`meter_edits.py`) ponía la indicación en el compás del ancla pero en el resto del tramo solo cambiaba los compases que ya llevaban una (`if bars[index].time_signature is not None`). Tras «Cambiar compás» en el c. 1 de una partitura sin indicación, los cc. 2 a N seguían en `None`. Sus consumidores (`_tramos` y `PartMeter.capacity` en el validador, `position_phrase` en los mensajes y el SER de `evaluation.py`) leen `measure.time_signature` tal cual y con `None` entienden «sin compás»: en la tercera revisión del banco (#247), tras poner 6/8 en TS-03 y pulsar «Revalidar», `measure.balance` solo miraba el c. 1 y devolvía 0 avisos en lugar de los 3 ciertos de la mano derecha (cc. 2, 4 y 8).
+
+**Decisión (opción A): `SetTime` escribe la indicación vigente en todos los compases de su tramo, lleven indicación o no, como hace la importación.** `None` pasa a significar solo «sin compás» en todo el sistema. Se descarta la opción B (dejar el dominio y hacer que el validador, los mensajes y el SER arrastren el compás anterior) porque mantendría dos representaciones distintas de la misma partitura según venga de la importación o de `SetTime` y obligaría a tocar varios consumidores.
+
+1. **Cambio mínimo en el dominio.** En `_apply_time_to_part` (`packages/domain/src/cadenza/domain/meter_edits.py`), se elimina la condición `if bars[index].time_signature is not None` para escribir `vigente` en todos los compases de `range(position + 1, min(position + run, len(bars)))`. La instantánea (`{"time_signature", "measures"}` y `parts` con `all_parts`) no cambia, así que tampoco cambian el `before` que compara el cliente, el contrato OpenAPI ni la web.
+2. **Por qué deshacer sigue siendo exacto.** En cada pentagrama se cumple el invariante de que ningún `None` va detrás de un compás con indicación. Con ese invariante, un `SetTime` hacia delante sobre un tramo en `None` lo rellena entero con la nueva indicación, y su compensatoria (`after["time_signature"] = None`) lo devuelve entero a `None`, porque `_effective_before` da `None`; sobre un tramo que ya llevaba indicación, la compensatoria repone la indicación anterior en todos los compases cambiados. En un estado mixto (`None` detrás de un compás con indicación), deshacer no es exacto: por ejemplo, con `[4/4, None, 4/4, 3/4]` y `SetTime` 2/2 en el c. 1, aplicar da `[2/2, 2/2, 2/2, 3/4]` con `before = {"time_signature": 4/4, "measures": 3}` y deshacer da `[4/4, 4/4, 4/4, 3/4]`, perdiendo el `None` del c. 2 (por eso se retira `test_set_time_keeps_measures_without_signature_inheriting`, mientras que `test_undoing_set_time_on_a_measure_without_signature_leaves_it_without_one`, anclada en el c. 2, sigue pasando porque la compensatoria escribe `None` en el c. 2 y `_effective_before` repone `4/4` en el c. 3). Ese estado mixto ya no se alcanza: la importación no lo produce (`getContextByClass` solo da `None` antes de la primera indicación de compás, comprobado en `test_import_leaves_none_only_before_the_first_time_signature`), `measures` parcial sobre `None` se rechaza (punto 3) y la compensatoria lo respeta.
+3. **`measures` menor que el tramo sobre `None`: rechazado con 422.** El único caso que rompería el invariante es enviar `measures = k` menor que la longitud del tramo sobre compases en `None`, lo que dejaría `k` compases con indicación y `None` detrás (un `SetTime` posterior sobre todo el tramo incluiría esos `None` en `_run_length` y su compensatoria ya no devolvería los últimos a `None`). Ni la web ni el candidato de `time.signature` envían `measures` sobre compases en `None` (`meter_spans` salta los `None`), así que solo puede enviarlo un cliente de la API: `_check_time` lo rechaza con `InvalidEditPayload` (HTTP 422) y un mensaje explícito (`'measures' (k) debe cubrir todo el tramo sin indicación de compás (N compases desde el compás M)`). Sobre un tramo que ya lleva indicación, `measures = k < tramo` sigue funcionando como antes.
+4. **Comprobación sobre el banco del estudio y `results/`.** Sobre la base de datos de la tercera revisión (`rev247/cadenza.db`, leída en modo solo lectura) y en el navegador contra la API local (HOMR 0.7.0 en CPU), al materializar TS-03 tras su primera edición (`SetTime` 6/8 con `all_parts: true` en `seq = 1`) y pulsar «Revalidar», todos los compases de las dos partes quedan en `6/8` y el validador devuelve los 3 avisos ciertos de `measure.balance` en la mano derecha del piano (c. 2: sobra una negra; c. 4: sobra una semicorchea; c. 8: sobra una semicorchea); en TS-02 (3/4) y TS-04 (C) siguen saliendo 0 avisos. Ejecutados en el scratchpad (`--output-dir`), `exp_06` y `exp_14` producen los mismos archivos que `results/rules_catalog_v2/`, salvo rutas, fecha, commit y duración.
+
+**Consecuencia sobre logs guardados.** Un `SetTime` guardado en el log sobre compases en `None` materializa distinto con este cambio (escribe la indicación en todos los compases del tramo en lugar de dejar en `None` los siguientes al ancla). En producción no debería haber ninguno, porque nada posterior al 30 de octubre está desplegado y `SetTime` (#236) entró el 1 de noviembre, pero debe confirmarlo el responsable.

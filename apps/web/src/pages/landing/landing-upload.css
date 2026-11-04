@@ -1,0 +1,260 @@
+/* Recuadro de la portada para transcribir una imagen (#277): la misma retícula de filetes; el
+   violeta solo en la acción y en lo que pide atención. */
+
+.landing-upload {
+  border-bottom: var(--rule);
+  scroll-margin-top: var(--space-4);
+}
+
+/* Las columnas del titular: la explicación a la izquierda y la zona de subida a la derecha;
+   lo demás (avisos, formulario, progreso y resultado) a lo ancho, debajo. */
+.landing-upload__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 480px);
+  gap: var(--space-5) var(--space-7);
+  align-items: start;
+  padding: var(--space-6) var(--gutter) var(--space-7);
+}
+
+.landing-upload__body > * {
+  grid-column: 1 / -1;
+}
+
+.landing-upload__body > .landing-upload__lead {
+  grid-column: 1;
+  max-width: 62ch;
+  font-size: var(--text-lead);
+  line-height: 1.4;
+}
+
+/* La zona de subida de la cola, en la columna de la derecha en lugar de su sitio en
+   /transcripcion. */
+.landing-upload__body > .landing-upload__zone,
+.landing-upload__body > .landing-upload__progress {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+@media (max-width: 900px) {
+  .landing-upload__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landing-upload__body > .landing-upload__zone,
+  .landing-upload__body > .landing-upload__progress {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+.landing-upload__notice,
+.landing-upload__error {
+  max-width: 64rem;
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule-width) solid var(--color-accent);
+}
+
+.landing-upload__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.landing-upload__notice p {
+  flex: 1 1 32ch;
+}
+
+.landing-upload__error {
+  background: var(--color-paper);
+}
+
+.landing-upload__form {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 64rem;
+  padding: var(--space-5);
+  border: var(--rule);
+}
+
+.landing-upload__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+}
+
+.landing-upload__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.landing-upload__size {
+  color: var(--color-ink-muted);
+}
+
+.landing-upload__fields {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.landing-upload__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
+/* Sin sesión: el turno del visitante, sobre la trama violeta. */
+.landing-upload__auth {
+  display: grid;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4);
+  border: var(--rule-width) solid var(--color-accent);
+  background: var(--halftone-accent);
+}
+
+.landing-upload__auth-text {
+  max-width: 62ch;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-paper);
+}
+
+.landing-upload__auth .landing-upload__actions {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-paper);
+  justify-self: start;
+}
+
+/* Mientras HOMR trabaja: el bloque de más tinta, con el barrido de lectura de la cola. */
+.landing-upload__progress {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  overflow: hidden;
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.landing-upload__progress::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--color-accent);
+  animation: queue-reading 2.4s steps(24, end) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-upload__progress::after {
+    animation: none;
+  }
+}
+
+.landing-upload__progress:focus-visible {
+  outline-offset: 3px;
+}
+
+.landing-upload__progress-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.landing-upload__progress-note {
+  max-width: 56ch;
+  font-size: var(--text-small);
+}
+
+/* Resultado: la cabecera con el nombre, el recuento y las acciones; debajo, la partitura. */
+.landing-result {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.landing-result__head {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+
+.landing-result__kicker {
+  color: var(--color-ink-muted);
+}
+
+.landing-result__title {
+  font-family: var(--font-display);
+  font-size: var(--text-heading);
+  font-weight: 700;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.landing-result__findings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.landing-result__caveat {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.landing-result__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-5);
+}
+
+/* Sin barra de descarga: el pie ocupa toda la franja (más específico que el de session.css). */
+.landing-result .landing-result__sheet > .sheet__caption {
+  grid-column: 1 / -1;
+}
+
+.landing-result__loading {
+  padding: var(--space-5) var(--space-3);
+}
+
+/* Sin cuenta (#278): la nota de las acciones, a lo ancho bajo los botones. */
+.landing-result__note {
+  flex-basis: 100%;
+}
+
+.landing-upload__hint {
+  flex-basis: 100%;
+  max-width: 62ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Una transcripción sin cuenta que espera tras una recarga: solo su nombre y sus acciones. */
+.landing-upload__pending {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  max-width: 64rem;
+  padding: var(--space-5);
+  border: var(--rule-width) solid var(--color-accent);
+}

@@ -1,0 +1,104 @@
+/* Zona privada: la misma retícula de filetes que la página pública, más densa. */
+.app-layout {
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+  min-height: 72px;
+  padding: var(--space-3) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.app-header__brand {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.app-header__nav {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.app-header__nav a {
+  padding-block: var(--space-2);
+  text-decoration: none;
+}
+
+.app-header__nav a[aria-current="page"] {
+  text-decoration: underline;
+  text-decoration-thickness: 3px;
+  text-underline-offset: 0.45em;
+}
+
+/* Lleva a «Tu cuenta»: el nombre se subraya como un enlace, y con trazo grueso en su página. */
+.app-header__user {
+  display: grid;
+  justify-items: end;
+  min-width: 0;
+  margin-left: auto;
+  padding-block: var(--space-1);
+  line-height: 1.2;
+  text-align: right;
+  text-decoration: none;
+}
+
+.app-header__name {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.25em;
+}
+
+.app-header__user:hover .app-header__name,
+.app-header__user[aria-current="page"] .app-header__name {
+  text-decoration-thickness: 3px;
+}
+
+.app-header__role {
+  color: var(--color-ink-muted);
+}
+
+.app-header__exit {
+  min-height: 44px;
+  padding-block: var(--space-2);
+}
+
+/* Sin ancho para una fila (unos 620 px): marca y persona arriba; secciones y «Salir» debajo. */
+@media (max-width: 640px) {
+  .app-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "brand user"
+      "nav exit";
+  }
+
+  .app-header__brand {
+    grid-area: brand;
+    justify-self: start;
+  }
+
+  .app-header__user {
+    grid-area: user;
+    justify-self: end;
+    margin-left: 0;
+  }
+
+  .app-header__nav {
+    grid-area: nav;
+  }
+
+  .app-header__exit {
+    grid-area: exit;
+    justify-self: end;
+  }
+}

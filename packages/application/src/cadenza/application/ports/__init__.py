@@ -11,6 +11,8 @@ from .edit_event_repository import EditEventRepository, InMemoryEditEventReposit
 from .effort_repository import (
     EffortMetricsData,
     EffortRepository,
+    EffortSegment,
+    FindingAction,
     InMemoryEffortRepository,
 )
 from .model_registry import (
@@ -21,7 +23,15 @@ from .model_registry import (
     PromotionRejected,
     PromotionThreshold,
 )
+from .preview_repository import InMemoryPreviewRepository, PreviewData, PreviewRepository
+from .recognition_stage import RecognitionStage
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
+from .score_state_cache import (
+    CachedScoreState,
+    InMemoryScoreStateCache,
+    ScoreStateCache,
+    ScoreStateKey,
+)
 from .security import (
     InMemoryPasswordHasher,
     InMemoryTokenService,
@@ -31,38 +41,62 @@ from .security import (
 )
 from .session_repository import (
     InMemorySessionRepository,
+    NewSuggestion,
     PersistedFinding,
+    PersistedSuggestion,
     SessionData,
     SessionRepository,
     SessionSummary,
+)
+from .suggestion_model import (
+    InMemorySuggestionModelRegistry,
+    SuggestionModel,
+    SuggestionModelRegistry,
+    SuggestionModelVersionData,
 )
 from .user_repository import InMemoryUserRepository, UserRepository
 
 __all__ = [
     "ArtifactStore",
+    "CachedScoreState",
     "EditEventRepository",
     "EffortMetricsData",
     "EffortRepository",
+    "EffortSegment",
     "EvaluationMetrics",
+    "FindingAction",
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
     "InMemoryEffortRepository",
     "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
+    "InMemoryPreviewRepository",
     "InMemoryScoreExporter",
+    "InMemoryScoreStateCache",
     "InMemorySessionRepository",
+    "InMemorySuggestionModelRegistry",
     "InMemoryTokenService",
     "InMemoryUserRepository",
     "ModelRegistry",
     "ModelVersionData",
+    "NewSuggestion",
     "PasswordHasher",
     "PersistedFinding",
+    "PersistedSuggestion",
+    "PreviewData",
+    "PreviewRepository",
     "PromotionRejected",
     "PromotionThreshold",
+    "RecognitionStage",
     "ScoreExporter",
+    "ScoreStateCache",
+    "ScoreStateKey",
     "SessionData",
     "SessionRepository",
     "SessionSummary",
+    "SuggestionModel",
+    "SuggestionModelRegistry",
+    "SuggestionModelVersionData",
     "TokenPayload",
     "TokenService",
     "UserRepository",

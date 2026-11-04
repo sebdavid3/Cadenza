@@ -4,18 +4,22 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from cadenza.domain import ScoreIR
+from cadenza.domain import ScoreIR, ScoreMetadata
 
 
 class ScoreExporter(ABC):
-    """Puerto para la exportación de un ScoreIR a formatos estándar (MusicXML, MIDI)."""
+    """Puerto para la exportación de un ScoreIR a formatos estándar (MusicXML, MIDI).
+
+    `metadata` son el título, el compositor y el instrumento de cada parte de la sesión
+    (ADR-0041): no están en el `ScoreIR`. Sin ellos, o vacíos, se exporta como siempre.
+    """
 
     @abstractmethod
-    def to_musicxml(self, score: ScoreIR) -> str:
+    def to_musicxml(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
         """Serializa un ScoreIR a una cadena de texto en formato MusicXML 4.0."""
 
     @abstractmethod
-    def to_midi(self, score: ScoreIR) -> bytes:
+    def to_midi(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> bytes:
         """Serializa un ScoreIR a una secuencia de bytes en formato MIDI 1.0."""
 
 
@@ -36,11 +40,15 @@ class InMemoryScoreExporter(ScoreExporter):
             or b"MThd\x00\x00\x00\x06\x00\x01\x00\x01\x01\xe0MTrk\x00\x00\x00\x04\x00\xff/\x00"
         )
         self.exported_scores: list[tuple[str, ScoreIR]] = []
+        # Los metadatos de cada exportación, en el mismo orden que `exported_scores`.
+        self.exported_metadata: list[ScoreMetadata | None] = []
 
-    def to_musicxml(self, score: ScoreIR) -> str:
+    def to_musicxml(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
         self.exported_scores.append(("musicxml", score))
+        self.exported_metadata.append(metadata)
         return self.musicxml_template
 
-    def to_midi(self, score: ScoreIR) -> bytes:
+    def to_midi(self, score: ScoreIR, metadata: ScoreMetadata | None = None) -> bytes:
         self.exported_scores.append(("midi", score))
+        self.exported_metadata.append(metadata)
         return self.midi_bytes

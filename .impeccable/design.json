@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-22T12:00:00Z",
+  "title": "Design System: Cadenza",
+  "extensions": {
+    "colorMeta": {
+      "accent": {
+        "role": "primary",
+        "displayName": "Violeta Eléctrico",
+        "canonical": "#7a2cf0",
+        "tonalRamp": ["oklch(15% 0.08 293)", "oklch(26% 0.14 293)", "oklch(37% 0.2 293)", "oklch(48% 0.24 293)", "oklch(58% 0.22 293)", "oklch(70% 0.16 293)", "oklch(83% 0.09 293)", "oklch(95% 0.03 293)"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papel Frío",
+        "canonical": "#f0eff2",
+        "tonalRamp": ["oklch(15% 0.004 300)", "oklch(26% 0.004 300)", "oklch(37% 0.004 300)", "oklch(48% 0.004 300)", "oklch(60% 0.004 300)", "oklch(72% 0.004 300)", "oklch(84% 0.004 300)", "oklch(95% 0.004 300)"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta de Imprenta",
+        "canonical": "#0a0a0a",
+        "tonalRamp": ["oklch(15% 0 0)", "oklch(26% 0 0)", "oklch(37% 0 0)", "oklch(48% 0 0)", "oklch(60% 0 0)", "oklch(72% 0 0)", "oklch(84% 0 0)", "oklch(95% 0 0)"]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Tinta Gastada",
+        "canonical": "#4a4950",
+        "tonalRamp": ["oklch(15% 0.01 290)", "oklch(26% 0.01 290)", "oklch(37% 0.01 290)", "oklch(48% 0.01 290)", "oklch(60% 0.01 290)", "oklch(72% 0.01 290)", "oklch(84% 0.01 290)", "oklch(95% 0.01 290)"]
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "Papel sobre Violeta",
+        "canonical": "#f0eff2",
+        "tonalRamp": ["oklch(15% 0.004 300)", "oklch(26% 0.004 300)", "oklch(37% 0.004 300)", "oklch(48% 0.004 300)", "oklch(60% 0.004 300)", "oklch(72% 0.004 300)", "oklch(84% 0.004 300)", "oklch(95% 0.004 300)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display de cartel", "purpose": "Titular de cartel de una página, en mayúsculas; variantes de tamaño para cierre, columnas, números de paso y código 404." },
+      "headline": { "displayName": "Cabecera de sección", "purpose": "Bloque de tinta invertido que abre cada sección." },
+      "heading": { "displayName": "Titular de sistema", "purpose": "Titular de páginas de sistema como la 404." },
+      "title": { "displayName": "Título de elemento", "purpose": "Títulos de los pasos y elementos de lista." },
+      "lead": { "displayName": "Entradilla", "purpose": "Entradillas y listas de alcance, 56-60ch." },
+      "body": { "displayName": "Texto", "purpose": "Texto corrido con cifras tabulares, 48-64ch." },
+      "small": { "displayName": "Nota", "purpose": "Notas bajo acciones y secciones, en tinta gastada." },
+      "label": { "displayName": "Rótulo bitmap", "purpose": "Navegación, metadatos, pies de figura, rótulo del hallazgo; a 700 en botones y conmutadores." }
+    },
+    "shadows": [
+      { "name": "double-rule", "value": "inset 0 0 0 3px var(--color-paper), 0 0 0 3px var(--color-ink)", "purpose": "Doble filete del botón primario; sobre el campo violeta el anillo interior es de tinta." },
+      { "name": "scanline-outline", "value": "0 0 0 2px var(--color-ink)", "purpose": "Ribete de tinta de la línea de lectura violeta." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Salida exponencial de los cambios de estado." },
+      { "name": "duration-quick", "value": "160ms", "purpose": "Cambio de color de botones y avance del icono de flecha." },
+      { "name": "read-sweep", "value": "2400ms steps(56, end)", "purpose": "Lectura de la partitura: único momento animado de la vista; con movimiento reducido se muestra el estado final." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "600px" },
+      { "name": "nav-compact", "value": "860px" },
+      { "name": "single-column", "value": "900px" },
+      { "name": "no-tagline", "value": "1100px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botón primario",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "La acción principal de la vista: bloque violeta de doble filete. Uno por vista.",
+      "html": "<a class=\"ds-btn ds-btn-primary\" href=\"#\">Entrar <svg viewBox=\"0 0 8 8\" width=\"1em\" height=\"1em\" fill=\"currentColor\" shape-rendering=\"crispEdges\" aria-hidden=\"true\"><path d=\"M4 0h1v1h-1zM5 1h1v1h-1zM6 2h1v1h-1zM0 3h8v1h-8zM6 4h1v1h-1zM5 5h1v1h-1zM4 6h1v1h-1z\"/></svg></a>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; padding: 12px 24px; border: 3px solid var(--color-ink, #0a0a0a); border-radius: 0; background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); font-family: var(--font-label, 'Silkscreen', monospace); font-size: 1rem; font-weight: 700; letter-spacing: 0.05em; line-height: 1; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn svg { transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn:hover svg { transform: translateX(2px); } .ds-btn-primary { border-color: var(--color-accent, #7a2cf0); background: var(--color-accent, #7a2cf0); color: var(--color-on-accent, #f0eff2); box-shadow: inset 0 0 0 3px var(--color-paper, #f0eff2), 0 0 0 3px var(--color-ink, #0a0a0a); } .ds-btn-primary:hover { border-color: var(--color-ink, #0a0a0a); background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); } .ds-btn:focus-visible { outline: 3px solid var(--color-accent, #7a2cf0); outline-offset: 3px; }"
+    },
+    {
+      "name": "Botón secundario",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Contorno de tinta sobre papel; se invierte a tinta al pasar.",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Volver al inicio</a>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 24px; border: 3px solid var(--color-ink, #0a0a0a); border-radius: 0; background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); font-family: var(--font-label, 'Silkscreen', monospace); font-size: 1rem; font-weight: 700; letter-spacing: 0.05em; line-height: 1; text-transform: uppercase; text-decoration: none; cursor: pointer; transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-secondary:hover { background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); } .ds-btn-secondary:focus-visible { outline: 3px solid var(--color-accent, #7a2cf0); outline-offset: 3px; } .ds-btn-secondary:disabled { border-style: dashed; color: var(--color-ink-muted, #4a4950); background: var(--color-paper, #f0eff2); cursor: not-allowed; }"
+    },
+    {
+      "name": "Botón sobre el acento",
+      "kind": "button",
+      "refersTo": "button-on-accent",
+      "description": "Bloque de papel con doble filete de tinta para el campo violeta de cierre.",
+      "html": "<div class=\"ds-accent-field\"><a class=\"ds-btn-on-accent\" href=\"#\">Entrar</a></div>",
+      "css": ".ds-accent-field { padding: 32px; background: var(--color-accent, #7a2cf0); } .ds-btn-on-accent { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 24px; border: 3px solid var(--color-paper, #f0eff2); border-radius: 0; background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); box-shadow: inset 0 0 0 3px var(--color-ink, #0a0a0a), 0 0 0 3px var(--color-ink, #0a0a0a); font-family: var(--font-label, 'Silkscreen', monospace); font-size: 1rem; font-weight: 700; letter-spacing: 0.05em; line-height: 1; text-transform: uppercase; text-decoration: none; transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-on-accent:hover { border-color: var(--color-ink, #0a0a0a); background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); } .ds-btn-on-accent:focus-visible { outline: 3px solid var(--color-on-accent, #f0eff2); outline-offset: 3px; }"
+    },
+    {
+      "name": "Conmutador segmentado",
+      "kind": "chip",
+      "refersTo": "toggle",
+      "description": "Botones contiguos con filete solapado; el pulsado es un bloque de tinta macizo.",
+      "html": "<div class=\"ds-toggle\" role=\"group\"><button type=\"button\" aria-pressed=\"false\">Imagen</button><button type=\"button\" aria-pressed=\"true\">Notación</button></div>",
+      "css": ".ds-toggle { display: flex; } .ds-toggle button { min-height: 44px; padding: 8px 16px; border: 3px solid var(--color-ink, #0a0a0a); border-radius: 0; background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); font-family: var(--font-label, 'Silkscreen', monospace); font-size: 0.875rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; cursor: pointer; } .ds-toggle button + button { margin-left: -3px; } .ds-toggle button[aria-pressed=\"true\"] { background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); } .ds-toggle button:focus-visible { outline: 3px solid var(--color-accent, #7a2cf0); outline-offset: 3px; position: relative; }"
+    },
+    {
+      "name": "Cabecera del sitio",
+      "kind": "nav",
+      "refersTo": "site-header",
+      "description": "Marca en display, lema y navegación en rótulo, acceso como botón secundario, filete inferior.",
+      "html": "<header class=\"ds-header\"><a class=\"ds-header__brand\" href=\"#\">Cadenza</a><span class=\"ds-label\">Partituras impresas, notación editable</span><nav class=\"ds-header__nav\"><a class=\"ds-label\" href=\"#\">Cómo funciona</a><a class=\"ds-label\" href=\"#\">Alcance</a><a class=\"ds-label\" href=\"#\">Código</a></nav><a class=\"ds-header__enter\" href=\"#\">Entrar</a></header>",
+      "css": ".ds-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 40px; min-height: 96px; padding: 16px clamp(16px, 2.8vw, 40px); border-bottom: 3px solid var(--color-ink, #0a0a0a); background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); } .ds-header__brand { font-family: var(--font-display, 'Pixelify Sans', monospace); font-size: clamp(1.75rem, 3.2vw, 2.875rem); font-weight: 700; line-height: 1; text-transform: uppercase; text-decoration: none; color: inherit; } .ds-label { font-family: var(--font-label, 'Silkscreen', monospace); font-size: 0.8125rem; letter-spacing: 0.06em; line-height: 1.3; text-transform: uppercase; } .ds-header__nav { display: flex; gap: 12px 40px; margin-left: auto; } .ds-header__nav a { color: inherit; text-decoration: none; } .ds-header__nav a:hover { text-decoration: underline; text-decoration-thickness: 2px; } .ds-header__nav a:focus-visible, .ds-header__enter:focus-visible { outline: 3px solid var(--color-accent, #7a2cf0); outline-offset: 3px; } .ds-header__enter { display: inline-flex; align-items: center; min-height: 44px; padding: 8px 24px; border: 3px solid var(--color-ink, #0a0a0a); background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); font-family: var(--font-label, 'Silkscreen', monospace); font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; text-decoration: none; transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1), color 160ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-header__enter:hover { background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); }"
+    },
+    {
+      "name": "Cabecera de sección",
+      "kind": "custom",
+      "refersTo": "section-title",
+      "description": "Bloque de tinta invertido con display en mayúsculas que abre cada sección.",
+      "html": "<h2 class=\"ds-section-title\">Cómo funciona</h2>",
+      "css": ".ds-section-title { margin: 0; padding: 12px 16px; background: var(--color-ink, #0a0a0a); color: var(--color-paper, #f0eff2); font-family: var(--font-display, 'Pixelify Sans', monospace); font-size: clamp(1.75rem, 3.6vw, 2.5rem); font-weight: 700; line-height: 1; text-transform: uppercase; }"
+    },
+    {
+      "name": "Compás señalado",
+      "kind": "custom",
+      "refersTo": "finding-label",
+      "description": "Región del compás dudoso con trama de puntos violeta y contorno violeta, y su rótulo de hallazgo en bloque violeta.",
+      "html": "<div class=\"ds-flag\"><span class=\"ds-flag__label\">Compás 3 · 4 tiempos en un 3/4</span><div class=\"ds-flag__region\"></div></div>",
+      "css": ".ds-flag { display: grid; justify-items: end; width: 320px; } .ds-flag__label { padding: 4px 8px; background: var(--color-accent, #7a2cf0); color: var(--color-on-accent, #f0eff2); font-family: var(--font-label, 'Silkscreen', monospace); font-size: 0.8125rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; } .ds-flag__region { width: 100%; height: 96px; border: 4px solid var(--color-accent, #7a2cf0); background: radial-gradient(circle, var(--color-accent, #7a2cf0) 1.7px, transparent 2px) 0 0 / 7px 7px; }"
+    },
+    {
+      "name": "Bloque sobre trama",
+      "kind": "card",
+      "description": "Lo no evaluado o secundario: trama de puntos de tinta con un bloque de papel enmarcado encima.",
+      "html": "<div class=\"ds-halftone\"><div class=\"ds-halftone__block\"><h3>Sin evaluar</h3><p>Manuscritos y polifonía densa.</p></div></div>",
+      "css": ".ds-halftone { padding: 24px; background: radial-gradient(circle, var(--color-ink, #0a0a0a) 1.2px, transparent 1.4px) 0 0 / 5px 5px; } .ds-halftone__block { padding: 24px; border: 3px solid var(--color-ink, #0a0a0a); background: var(--color-paper, #f0eff2); color: var(--color-ink, #0a0a0a); font-family: var(--font-text, 'Hanken Grotesk', sans-serif); } .ds-halftone__block h3 { margin: 0 0 16px; font-family: var(--font-display, 'Pixelify Sans', monospace); font-size: 2.5rem; font-weight: 700; line-height: 0.9; text-transform: uppercase; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "El muestrario bitmap",
+    "overview": "Cadenza se presenta como un muestrario tipográfico bitmap, en la tradición de los catálogos de Emigre, impreso sobre papel prensa: papel frío, tinta casi negra y un único acento violeta eléctrico. Todo se organiza en una retícula de filetes de tinta de grosor entero. Las cabeceras de sección son bloques de tinta invertidos y la marca se repite en el pie a varios tamaños rotulados. El grano del píxel es el material del mundo: la tipografía de display y de rótulos es bitmap, los iconos se dibujan en una rejilla de 8×8 y el escaneo de una partitura se pinta en canvas a un bit y se amplía con `image-rendering: pixelated`.\n\nFrente al píxel está la nota: la notación musical se dibuja en vectores nítidos (la clave de sol y las cifras del compás son contornos de Noto Music, OFL, convertidos en rutas SVG). Esa tensión entre el escaneo pixelado y la notación limpia es la firma del sistema. El texto corrido usa un grotesco sobrio (Hanken Grotesk) para que la lectura larga no pague el precio del bitmap.\n\nEl violeta no es decoración: significa «te toca a ti». Marca la acción principal, el compás que el validador señala, el error, el foco del teclado, la selección y el cursor de texto. Los estados se distinguen por patrón (contorno, trama, macizo) antes que por nuevos colores. El sistema es plano: sin esquinas redondeadas, sin sombras difusas, sin degradados. Rechaza, según PRODUCT.md, el aire de startup SaaS, la intranet académica gris, la app lúdica y el pastiche de partitura antigua.",
+    "keyCharacteristics": [
+      "Papel, tinta y un solo acento violeta con significado de turno del usuario.",
+      "Retícula de filetes de tinta de 3 px; nada redondeado, nada difuso.",
+      "Display Pixelify Sans en mayúsculas a escala de cartel; rótulos Silkscreen; texto Hanken Grotesk.",
+      "Estados por patrón: contorno, trama de puntos, bloque macizo.",
+      "Escaneo pixelado en canvas frente a notación vectorial nítida.",
+      "Un solo momento de movimiento por vista; con movimiento reducido, se muestra el estado final."
+    ],
+    "rules": [
+      { "name": "The Te Toca a Ti Rule", "body": "El violeta marca únicamente lo que espera una acción o una decisión del usuario: acción principal, compás dudoso, error, foco. Nunca se usa como adorno, fondo de sección neutra o color de marca suelto.", "section": "colors" },
+      { "name": "The Pattern Before Hue Rule", "body": "Un estado nuevo se expresa con un patrón de la familia existente (contorno de tinta, trama de puntos, bloque macizo, filete discontinuo) antes que con un color nuevo. La paleta no crece.", "section": "colors" },
+      { "name": "The Ink Rule Rule", "body": "Los filetes son siempre de tinta y de grosor entero (3 px); el acento no se usa para bordes estructurales.", "section": "colors" },
+      { "name": "The Bitmap Shouts, Grotesk Reads Rule", "body": "Pixelify Sans y Silkscreen van siempre en mayúsculas y solo en titulares, rótulos y controles; ningún párrafo se compone en bitmap.", "section": "typography" },
+      { "name": "The Single Weight Display Rule", "body": "El display solo existe en 700 (es el único peso cargado); la jerarquía se hace con tamaño e inversión, no con pesos.", "section": "typography" },
+      { "name": "The No Blur Rule", "body": "Ninguna sombra lleva desenfoque ni desplazamiento. Si algo necesita destacar, se invierte, se trama o se enmarca.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do reservar el violeta para la acción principal, el compás dudoso, el error y el foco, y usar un solo botón primario por vista.",
+      "Do separar columnas y secciones con filetes de tinta de 3 px y solapar los filetes de controles contiguos.",
+      "Do expresar estados con patrón: contorno de tinta (reposo o resuelto), trama de puntos (señalado o no evaluado), bloque macizo (pulsado, hover, cabecera) y filete discontinuo (deshabilitado).",
+      "Do componer titulares y rótulos en Pixelify Sans o Silkscreen en mayúsculas, y el texto corrido en Hanken Grotesk con medidas de 48–64ch.",
+      "Do dibujar la notación musical como vectores nítidos y reservar el pixelado para lo que representa una imagen escaneada.",
+      "Do dibujar los iconos en la rejilla de 8×8 de los iconos de píxel, con `currentColor`.",
+      "Do limitar cada vista a un momento animado y dar siempre un estado final completo con movimiento reducido.",
+      "Do servir las tipografías desde el proyecto con `@fontsource`."
+    ],
+    "donts": [
+      "Don't redondear esquinas ni usar sombras con desenfoque o desplazamiento.",
+      "Don't introducir un segundo color de acento, degradados o colores de estado (verde, rojo, ámbar); el error también es violeta.",
+      "Don't usar filetes estructurales de color o de grosor fraccionario; el contorno violeta queda para marcar el compás dudoso.",
+      "Don't componer párrafos en tipografía bitmap ni usar un display de sistema.",
+      "Don't pixelar la notación vectorial ni cargar una fuente musical completa para unos pocos glifos.",
+      "Don't pedir tipografías ni recursos a servidores de terceros.",
+      "Don't caer en el aire de startup SaaS, intranet académica gris, app lúdica o pastiche de partitura antigua (pergamino, caligrafía, ornamentos)."
+    ]
+  }
+}

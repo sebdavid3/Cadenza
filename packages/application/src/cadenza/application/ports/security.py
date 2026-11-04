@@ -21,6 +21,14 @@ class PasswordHasher(ABC):
     def verify(self, password: str, password_hash: str) -> bool:
         """Verifica si una contraseña en texto plano coincide con su hash."""
 
+    @abstractmethod
+    def dummy_hash(self) -> str:
+        """Hash de relleno, con los mismos parámetros que `hash`, que ninguna contraseña verifica.
+
+        `authenticate` verifica contra él cuando el usuario no existe, para que el login tarde lo
+        mismo que con una cuenta real (#226, ADR-0042). Se calcula una vez por adaptador.
+        """
+
 
 @dataclass(frozen=True)
 class TokenPayload:
@@ -56,6 +64,10 @@ class InMemoryPasswordHasher(PasswordHasher):
 
     def verify(self, password: str, password_hash: str) -> bool:
         return password_hash == f"mock-hash:{password}"
+
+    def dummy_hash(self) -> str:
+        # Ningún hash de este doble lleva el prefijo «mock-dummy:»: ninguna contraseña lo verifica.
+        return "mock-dummy:relleno"
 
 
 class InMemoryTokenService(TokenService):

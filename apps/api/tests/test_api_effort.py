@@ -6,7 +6,7 @@ from pathlib import Path
 
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User, compute_interventions_from_edits, contrast_interventions
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,

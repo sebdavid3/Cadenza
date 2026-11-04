@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from cadenza.application import (
     transcribe_score,
 )
 from cadenza.domain import Anchor, EditOp
-from cadenza.omr import FakeOMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyModelRegistry,
@@ -338,6 +339,9 @@ def test_cli_pipeline_run_end_to_end(tmp_path: Path, populated_db_url: str) -> N
         assert "dataset_hash" in content
         assert "config_hash" in content
         assert "seed" in content
+        if filename != "dataset.json" and filename != "selected.json":
+            # Las métricas de `train` no son mediciones (D14): la marca llega a los tres (#139).
+            assert content["simulated"] is True, filename
 
     # Verificar que el modelo quedó activo en la BD
     engine = create_engine_for_url(populated_db_url)
@@ -382,9 +386,9 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
     promoted_path = tmp_path / "promoted.json"
     artifacts_dir = tmp_path / "artifacts"
 
-    # 1. build-dataset & train
+    # 1. build-dataset & train (sin métricas de reserva: train las recibe, como simuladas)
     main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
-    main(
+    rc_tr = main(
         [
             "train",
             "--input",
@@ -395,8 +399,13 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
             str(artifacts_dir),
             "--db-url",
             populated_db_url,
+            "--ser",
+            "0.5",
+            "--omr-ned",
+            "0.5",
         ]
     )
+    assert rc_tr == 0
 
     # 2. evaluate con SER y OMR-NED reales (ej. del baseline HOMR sobre PrIMuS)
     rc_ev = main(
@@ -444,51 +453,425 @@ def test_cli_evaluate_and_promote_with_real_ser(tmp_path: Path, populated_db_url
         assert active.metrics.omr_ned == 0.0850
 
 
-def test_cli_train_with_trainer_options(tmp_path: Path, populated_db_url: str) -> None:
-    dataset_path = tmp_path / "dataset.json"
-    trained_fake = tmp_path / "trained_fake.json"
-    trained_auto = tmp_path / "trained_auto.json"
-    artifacts_dir = tmp_path / "artifacts"
+def _train_args(tmp_path: Path, db_url: str, dataset: Path, output: Path) -> list[str]:
+    return [
+        "train",
+        "--input",
+        str(dataset),
+        "--output",
+        str(output),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db-url",
+        db_url,
+    ]
 
-    # Construir dataset
-    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset_path)])
 
-    # 1. train explícito con --trainer fake
-    rc_fake = main(
+def test_cli_train_without_metrics_fails_with_a_clear_message(
+    tmp_path: Path, populated_db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sin --ser/--omr-ned no hay métricas de reserva: `train` falla y lo explica (#271)."""
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+    capsys.readouterr()
+
+    assert main(_train_args(tmp_path, populated_db_url, dataset, trained)) == 1
+
+    assert not trained.exists()
+    error = capsys.readouterr().err
+    assert "--ser" in error
+    assert "--omr-ned" in error
+    assert "ml suggestions" in error
+
+
+def test_cli_train_uses_the_fake_trainer_with_the_given_metrics(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+
+    args = [*_train_args(tmp_path, populated_db_url, dataset, trained), "--ser", "0.05"]
+    assert main([*args, "--omr-ned", "0.04"]) == 0
+
+    data = json.loads(trained.read_text(encoding="utf-8"))
+    assert data["trainer"] == "FakeTrainer"
+    assert data["metrics"] == {"ser": 0.05, "omr_ned": 0.04}
+    assert data["metrics_source"] == "arguments"
+    assert data["simulated"] is True
+    assert "simulation_warning" in data
+
+
+def test_cli_train_no_longer_offers_a_trainer_backend(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    """`--trainer` elegía `PyTorchTrainer`, retirado en #271."""
+    dataset = tmp_path / "dataset.json"
+    args = _train_args(tmp_path, populated_db_url, dataset, tmp_path / "trained.json")
+    with pytest.raises(SystemExit) as excinfo:
+        main([*args, "--ser", "0.05", "--omr-ned", "0.04", "--trainer", "torch"])
+    assert excinfo.value.code == 2
+
+
+def test_cli_run_without_metrics_stops_at_train(tmp_path: Path, populated_db_url: str) -> None:
+    work_dir = tmp_path / "pipeline_run"
+    rc = main(
         [
-            "train",
-            "--input",
-            str(dataset_path),
-            "--output",
-            str(trained_fake),
-            "--artifacts-dir",
-            str(artifacts_dir),
+            "run",
+            "--work-dir",
+            str(work_dir),
             "--db-url",
             populated_db_url,
-            "--trainer",
-            "fake",
+            "--artifacts-dir",
+            str(tmp_path / "artifacts"),
         ]
     )
-    assert rc_fake == 0
-    fake_data = json.loads(trained_fake.read_text(encoding="utf-8"))
-    assert fake_data["trainer"] == "FakeTrainer"
+    assert rc == 1
+    # Falla antes de construir el dataset: nada a medias en --work-dir.
+    assert not work_dir.exists()
 
-    # 2. train con --trainer auto (fallback a FakeTrainer cuando torch no está)
-    rc_auto = main(
+
+CONFIG_PATH = Path(__file__).resolve().parents[3] / "configs" / "learning" / "default.json"
+
+
+def _artifact(tmp_path: Path, metrics: dict[str, float] | None) -> Path:
+    data: dict[str, object] = {"artifact_hash": "abc", "dataset_hash": "def"}
+    if metrics is not None:
+        data["metrics"] = metrics
+    path = tmp_path / "trained.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def test_cli_evaluate_fails_without_measured_metrics(tmp_path: Path) -> None:
+    """Sin métricas en el artefacto, manifiesto ni argumentos no hay SER/OMR-NED (#139)."""
+    report = tmp_path / "eval.json"
+    rc = main(
         [
-            "train",
+            "evaluate",
             "--input",
-            str(dataset_path),
+            str(_artifact(tmp_path, None)),
+            "--config",
+            str(CONFIG_PATH),
             "--output",
-            str(trained_auto),
-            "--artifacts-dir",
-            str(artifacts_dir),
+            str(report),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def test_cli_evaluate_fails_when_manifest_is_missing(tmp_path: Path) -> None:
+    """Un `--manifest` inexistente es un error, no se ignora en silencio (#139)."""
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(tmp_path / "missing.json"),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def test_cli_evaluate_uses_artifact_metrics(tmp_path: Path) -> None:
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+        ]
+    )
+    assert rc == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["metrics"] == {"ser": 0.05, "omr_ned": 0.04}
+    # Un artefacto sin la marca (anterior a #139) cuenta como no medido.
+    assert data["simulated"] is True
+    assert data["metrics_source"] == {"ser": "artifact", "omr_ned": "artifact"}
+
+
+def test_cli_promote_fails_without_metrics(tmp_path: Path) -> None:
+    """Sin métricas, promote no imputa 0.0 (que superaría cualquier umbral) (#139)."""
+    output = tmp_path / "promoted.json"
+    rc = main(
+        [
+            "promote",
+            "--input",
+            str(_artifact(tmp_path, None)),
+            "--config",
+            str(CONFIG_PATH),
+            "--db-url",
+            f"sqlite:///{(tmp_path / 'registry.db').as_posix()}",
+            "--output",
+            str(output),
+        ]
+    )
+    assert rc == 1
+    assert not output.exists()
+
+
+def test_cli_evaluate_fails_when_manifest_measures_no_success(tmp_path: Path) -> None:
+    """Si el corpus no da ningún éxito, no se usan en su lugar las métricas del artefacto (#139)."""
+    fixture = Path(__file__).parent / "fixtures" / "simple.musicxml"
+    (tmp_path / "mini" / "gt").mkdir(parents=True)
+    (tmp_path / "mini" / "gt" / "s1.musicxml").write_text(
+        fixture.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    predictions = tmp_path / "mini" / "predictions"
+    predictions.mkdir()
+    (predictions / "failures.json").write_text(
+        json.dumps([{"id": "s1", "error": "Exception: No staffs found"}]), encoding="utf-8"
+    )
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {"corpus": "mini", "entries": [{"id": "s1", "ground_truth": "mini/gt/s1.musicxml"}]}
+        ),
+        encoding="utf-8",
+    )
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(manifest),
+        ]
+    )
+    assert rc == 1
+    assert not report.exists()
+
+
+def _identity_corpus(tmp_path: Path) -> tuple[Path, Path]:
+    """Corpus de una partitura cuya predicción es idéntica a la verdad: SER y OMR-NED = 0."""
+    fixture = (Path(__file__).parent / "fixtures" / "simple.musicxml").read_text(encoding="utf-8")
+    (tmp_path / "mini" / "gt").mkdir(parents=True)
+    (tmp_path / "mini" / "gt" / "s1.musicxml").write_text(fixture, encoding="utf-8")
+    predictions = tmp_path / "mini" / "predictions"
+    predictions.mkdir()
+    (predictions / "s1.musicxml").write_text(fixture, encoding="utf-8")
+    manifest = tmp_path / "manifest.json"
+    entries = [{"id": "s1", "ground_truth": "mini/gt/s1.musicxml"}]
+    manifest.write_text(json.dumps({"corpus": "mini", "entries": entries}), encoding="utf-8")
+    return manifest, predictions
+
+
+def test_cli_evaluate_prefers_arguments_then_manifest_over_artifact(tmp_path: Path) -> None:
+    """Prioridad de las métricas: argumentos, medición con --manifest y artefacto (#139)."""
+    manifest, predictions = _identity_corpus(tmp_path)
+    report = tmp_path / "eval.json"
+    rc = main(
+        [
+            "evaluate",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--config",
+            str(CONFIG_PATH),
+            "--output",
+            str(report),
+            "--manifest",
+            str(manifest),
+            "--predictions-dir",
+            str(predictions),
+            "--ser",
+            "0.07",
+        ]
+    )
+    assert rc == 0
+    data = json.loads(report.read_text(encoding="utf-8"))
+    assert data["metrics"] == {"ser": 0.07, "omr_ned": 0.0}
+    assert data["metrics_source"] == {"ser": "arguments", "omr_ned": "manifest"}
+    assert data["simulated"] is False
+
+
+def test_cli_train_metrics_are_never_measurements(tmp_path: Path, populated_db_url: str) -> None:
+    """Con --ser/--omr-ned las métricas del artefacto siguen sin medirse (D14, #139)."""
+    dataset = tmp_path / "dataset.json"
+    trained = tmp_path / "trained.json"
+    main(["build-dataset", "--db-url", populated_db_url, "--output", str(dataset)])
+    common_args = [
+        "train",
+        "--input",
+        str(dataset),
+        "--output",
+        str(trained),
+        "--artifacts-dir",
+        str(tmp_path / "artifacts"),
+        "--db-url",
+        populated_db_url,
+    ]
+    assert main([*common_args, "--ser", "0.05"]) == 1
+    assert not trained.exists()
+
+    assert main([*common_args, "--ser", "0.05", "--omr-ned", "0.04"]) == 0
+    data = json.loads(trained.read_text(encoding="utf-8"))
+    assert data["simulated"] is True
+    assert data["metrics_source"] == "arguments"
+
+    report = tmp_path / "eval.json"
+    assert (
+        main(["evaluate", "--input", str(trained), "--output", str(report), "--ser", "0.01"]) == 0
+    )
+    mixed = json.loads(report.read_text(encoding="utf-8"))
+    assert mixed["metrics_source"] == {"ser": "arguments", "omr_ned": "artifact"}
+    assert mixed["simulated"] is True
+
+
+def test_cli_promote_marks_artifact_without_flag_as_simulated(tmp_path: Path) -> None:
+    """`promote` no da por medidas las métricas de un artefacto sin la marca (#139)."""
+    output = tmp_path / "promoted.json"
+    rc = main(
+        [
+            "promote",
+            "--input",
+            str(_artifact(tmp_path, {"ser": 0.05, "omr_ned": 0.04})),
+            "--version",
+            "v-sin-marca",
+            "--config",
+            str(CONFIG_PATH),
+            "--db-url",
+            f"sqlite:///{(tmp_path / 'registry.db').as_posix()}",
+            "--output",
+            str(output),
+        ]
+    )
+    assert rc == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["simulated"] is True
+    assert "simulation_warning" in result
+
+
+def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
+    """Una cuenta del registro público con una sesión finalizada y una edición (ADR-0022, D55)."""
+    factory = create_session_factory(create_engine_for_url(db_url))
+    visitor = User(
+        id="user-registro",
+        username="visita",
+        password_hash=secrets.token_hex(8),
+        role=Role.TRANSCRIPTOR,
+        self_registered=True,
+    )
+    img_path = tmp_path / "otra.png"
+    img_path.write_bytes(b"\x89PNG\r\n\x1a\notraimagen")
+    with session_scope(factory) as db:
+        SqlAlchemyUserRepository(db).add(visitor)
+        session_repo = SqlAlchemySessionRepository(db)
+        edit_repo = SqlAlchemyEditEventRepository(db)
+        transcribe_score(
+            img_path,
+            omr_engine=FakeOMREngine(),
+            validator=ValidationEngine([]),
+            session_repository=session_repo,
+            current_user=visitor,
+            session_id="sess-registro",
+        )
+        append_edit(
+            session_id="sess-registro",
+            op=EditOp.SET_PITCH,
+            anchor=Anchor(
+                part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="part-0-staff-0"
+            ),
+            before={"pitch": "C4"},
+            after={"pitch": "D4"},
+            base_seq=0,
+            current_user=visitor,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+        )
+        finalize_session(
+            session_id="sess-registro",
+            current_user=visitor,
+            session_repository=session_repo,
+            edit_repository=edit_repo,
+            validator=ValidationEngine([]),
+        )
+
+
+def test_cli_build_dataset_leaves_out_self_registered_accounts(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    _add_self_registered_session(tmp_path, populated_db_url)
+
+    default_path = tmp_path / "sin_registro.json"
+    included_path = tmp_path / "con_registro.json"
+    base = ["build-dataset", "--db-url", populated_db_url, "--output"]
+    assert main([*base, str(default_path)]) == 0
+    assert main([*base, str(included_path), "--include-self-registered"]) == 0
+
+    default = json.loads(default_path.read_text(encoding="utf-8"))
+    included = json.loads(included_path.read_text(encoding="utf-8"))
+    # Solo la sesión del estudio (dos ediciones), salvo que se pida la del registro (una más).
+    assert default["count"] == 2
+    assert default["self_registered_included"] is False
+    assert included["count"] == 3
+    assert included["self_registered_included"] is True
+    assert included["dataset_hash"] != default["dataset_hash"]
+
+
+def test_cli_run_passes_include_self_registered_down_the_pipeline(
+    tmp_path: Path, populated_db_url: str
+) -> None:
+    _add_self_registered_session(tmp_path, populated_db_url)
+    work_dir = tmp_path / "pipeline_registro"
+
+    rc = main(
+        [
+            "run",
+            "--work-dir",
+            str(work_dir),
             "--db-url",
             populated_db_url,
-            "--trainer",
-            "auto",
+            "--artifacts-dir",
+            str(tmp_path / "artifacts"),
+            "--budget",
+            "3",
+            "--version",
+            "v2.1.0-registro",
+            "--ser",
+            "0.02",
+            "--omr-ned",
+            "0.03",
+            "--include-self-registered",
         ]
     )
-    assert rc_auto == 0
-    auto_data = json.loads(trained_auto.read_text(encoding="utf-8"))
-    assert auto_data["trainer"] in ("FakeTrainer", "PyTorchTrainer")
+
+    assert rc == 0
+    dataset = json.loads((work_dir / "dataset.json").read_text(encoding="utf-8"))
+    selected = json.loads((work_dir / "selected.json").read_text(encoding="utf-8"))
+    assert dataset["count"] == 3
+    assert dataset["self_registered_included"] is True
+    assert selected["self_registered_included"] is True
+
+
+def test_cli_build_dataset_rejects_an_owner_outside_the_study(
+    tmp_path: Path, populated_db_url: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Sin la opción, pedir una cuenta del registro daría un dataset vacío sin avisar.
+    _add_self_registered_session(tmp_path, populated_db_url)
+    output = tmp_path / "visita.json"
+    base = ["build-dataset", "--db-url", populated_db_url, "--owner-id", "user-registro"]
+
+    assert main([*base, "--output", str(output)]) == 1
+    assert "no es del estudio" in capsys.readouterr().err
+    assert not output.exists()
+
+    assert main([*base, "--output", str(output), "--include-self-registered"]) == 0
+    assert json.loads(output.read_text(encoding="utf-8"))["count"] == 1

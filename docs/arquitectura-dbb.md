@@ -309,7 +309,7 @@ Los pasos 10–14 se repiten por cada corrección. La reproducción de audio ocu
 ### Motor de Transcripción
 
 1. **`OMREngine` (HOMR):**
-   * **Descripción:** Adaptador del motor de reconocimiento óptico HOMR, ejecutado *in-process* sobre `onnxruntime` (CPU o GPU). `oemer` se integra como adaptador alternativo para la línea base experimental y `FakeOMREngine` para pruebas.
+   * **Descripción:** Adaptador del motor de reconocimiento óptico HOMR, ejecutado *in-process* sobre `onnxruntime` (CPU o GPU). Es el único motor OMR ([ADR-0018](adr/ADR-0018-homr-como-unico-motor-omr.md)); las pruebas usan el doble `cadenza.omr.testing.FakeOMREngine`.
    * **Responsabilidad:** Tomar una imagen y producir el `ScoreDocument` crudo, usando la versión de modelo activa en el *Model Registry*.
 2. **Puente de notación:**
    * **Descripción:** Conversor entre formatos simbólicos y el `ScoreIR` (`packages/interchange`).

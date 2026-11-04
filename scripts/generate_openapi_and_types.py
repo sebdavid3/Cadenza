@@ -146,7 +146,10 @@ def generate_typescript_definitions(openapi: dict[str, Any]) -> str:
                     ts_type = "Severity"
                 elif schema_name in ("UserRead", "UserCreate") and prop_name == "role":
                     ts_type = "UserRole"
-                elif schema_name in ("EditEventRead", "EditEventCreate") and prop_name == "op":
+                elif (
+                    schema_name in ("EditEventRead", "EditEventCreate", "EditAppliedRead")
+                    and prop_name == "op"
+                ):
                     ts_type = "EditOp | string"
                 else:
                     ts_type = schema_to_ts_type(prop_def, schemas, indent_level=1)

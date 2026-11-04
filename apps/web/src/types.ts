@@ -72,6 +72,46 @@ export interface DismissFindingRequest {
 }
 
 /**
+ * Dinámica en una posición del compás; rige su pentagrama (ADR-0031).
+ */
+export interface DynamicPayload {
+  /** Indicación dinámica */
+  mark: "ppp" | "pp" | "p" | "mp" | "mf" | "f" | "ff" | "fff" | "sf" | "sfz" | "fp" | "fz";
+  /** Ataque en negras desde el inicio del compás, como fracción ('0', '3/2') */
+  offset_beats: string;
+}
+
+/**
+ * 201 de `POST /sessions/{id}/edits`: la edición guardada y el estado que crea (#275).
+ * 
+ * Los campos de `EditEventRead` no cambian; los demás son una ampliación compatible del
+ * contrato v1 (ADR-0037), para que el cliente muestre el estado nuevo sin pedir el detalle, la
+ * exportación ni los tiempos.
+ */
+export interface EditAppliedRead {
+  id: string;
+  session_id: string;
+  seq: number;
+  op: EditOp | string;
+  author: string;
+  anchor: AnchorPayload;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  reverts_edit_id?: string | null;
+  created_at: string;
+  /** Estado nuevo de la sesión: el seq de esta edición */
+  current_seq: number;
+  /** ScoreIR materializado del estado nuevo */
+  current_score: ScoreIRPayload;
+  /** Estado del ciclo de vida de la sesión tras la edición */
+  status: string;
+  /** MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error) */
+  musicxml: string | null;
+  /** Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq */
+  timing: TimingMapRead | null;
+}
+
+/**
  * Payload de una corrección humana (el servidor asigna id, seq y fecha).
  * 
  * Exige `base_seq`, que identifica el estado sobre el cual se construyó la
@@ -89,6 +129,8 @@ export interface EditEventCreate {
   anchor: AnchorPayload;
   before?: Record<string, unknown> | null;
   after?: Record<string, unknown> | null;
+  /** Sugerencia que aplica la edición (ADR-0036 §5). Debe ser de la validación de base_seq y sin respuesta (si no, 409 con detail 'stale_suggestion') y la edición debe ser la propuesta (si no, 422). Rehacer la reenvía sin él. */
+  suggestion_id?: number | null;
 }
 
 export interface EditEventRead {
@@ -129,11 +171,14 @@ export interface EditEventRead {
  *    - Inserta un nuevo evento musical antes de la posición anclada.
  *    - ``before``: ``None``.
  *    - ``after``: ``{"kind": str, "pitch": str | None, "duration_beats": Fraction | str, ...}``.
+ *      Con ``"is_chord": true``, una nota más del acorde de la nota anterior (ADR-0055). La
+ *      compensatoria de borrar la primera nota de un acorde lleva además ``"next_in_chord"``.
  * 
  * 5. `DELETE_EVENT` ("DeleteEvent"):
  *    - Elimina el evento musical anclado en la voz del compás.
  *    - ``before``: snapshot del evento previo.
- *    - ``after``: ``None``.
+ *    - ``after``: ``None`` o, en la primera nota de un acorde, ``{"keep_chord": true}``: la
+ *      nota siguiente pasa a ser la primera, con la figura y las marcas del acorde (ADR-0055).
  * 
  * 6. `SET_CLEF` ("SetClef"):
  *    - Modifica la clave musical del compás al que apunta el ancla.
@@ -144,8 +189,74 @@ export interface EditEventRead {
  *    - Modifica la armadura de clave del compás al que apunta el ancla.
  *    - ``before``: snapshot de armadura previa o ``None``.
  *    - ``after``: ``{"key_signature": dict | KeySignature}`` o primitivo ``{"fifths": int}``.
+ * 
+ * Marcas de notación (ADR-0031, ADR-0039). Las cuatro son de tipo «fijar»: el servidor guarda
+ * en ``before`` el estado que sustituyen y la compensatoria intercambia ``before`` y ``after``.
+ * No mueven ningún evento (no cambian el ``event_index`` de las anclas).
+ * 
+ * 8. `SET_NOTE_MARKS` ("SetNoteMarks"):
+ *    - Fija las articulaciones y el calderón del evento anclado.
+ *    - ``before``/``after``: ``{"articulations": [str, ...], "fermata": bool}``.
+ * 
+ * 9. `SET_DYNAMIC` ("SetDynamic"):
+ *    - Pone, cambia o quita la dinámica de una posición del compás del ancla.
+ *    - ``before``/``after``: ``{"offset_beats": str, "mark": str | None}``.
+ * 
+ * 10. `SET_WEDGE` ("SetWedge"):
+ *     - Crea un regulador con su inicio y su fin, o quita los extremos de uno.
+ *     - ``before``/``after``: ``{"number": int, "start": {"staff", "measure",
+ *       "offset_beats", "type"} | None, "stop": {"staff", "measure", "offset_beats"} | None}``.
+ * 
+ * 11. `SET_SLUR` ("SetSlur"):
+ *     - Crea una ligadura de expresión con su inicio y su fin, o quita los extremos de una.
+ *     - ``before``/``after``: ``{"number": int, "start": {"staff", "measure", "voice",
+ *       "event_index"} | None, "stop": {...} | None}``.
+ * 
+ * Compás y tresillos (ADR-0044). También de tipo «fijar», y tampoco mueven ningún evento.
+ * 
+ * 12. `SET_TIME` ("SetTime"):
+ *     - Cambia la indicación de compás desde el compás del ancla hasta el siguiente cambio, en
+ *       todos los pentagramas de la parte.
+ *     - ``before``/``after``: ``{"time_signature": {"beats": int, "beat_type": int,
+ *       "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
+ *       número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
+ *       ``time_signature`` solo lo escribe la compensatoria).
+ *     - Con ``"all_parts": true`` en el ``after`` (#326), en todas las partes de la partitura,
+ *       cada una en su tramo: el ``before`` guarda además ``"all_parts": true`` y ``"parts"``,
+ *       ``[{"time_signature", "measures"} | None, ...]``, lo de cada parte (None si no tiene
+ *       el compás), con lo que la compensatoria devuelve cada parte a lo suyo. Sin él, solo
+ *       la parte del ancla, como antes de #326.
+ * 
+ * 13. `SET_TUPLET` ("SetTuplet"):
+ *     - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
+ *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, sus figuras.
+ * 
+ * Figura de un acorde (ADR-0049). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 14. `SET_CHORD_DURATION` ("SetChordDuration"):
+ *     - Fija la figura de todas las notas de un acorde, anclada en su primera nota.
+ *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, una por nota del acorde
+ *       (en el ``after`` del cliente, todas iguales y con duración).
+ * 
+ * Ligadura de prolongación (ADR-0055). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 15. `SET_TIE` ("SetTie"):
+ *     - Pone o quita la ligadura de prolongación entre la nota anclada y la que la sigue (en su
+ *       voz o, al cruzar la barra, al empezar el compás siguiente), o quita la marca de la
+ *       nota anclada sola.
+ *     - ``before``/``after``: ``{"tie": str | None, "next": {"measure": int, "voice": int,
+ *       "event_index": int, "tie": str | None} | None}``, el valor de cada nota
+ *       (``"start"``, ``"continue"``, ``"stop"`` o ``None``).
+ * 
+ * Los huecos de una voz (ADR-0058). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 16. `SET_EVENT_KIND` ("SetEventKind"):
+ *     - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una
+ *       nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.
+ *     - ``before``/``after``: ``{"kind": "note" | "rest", "pitch": str | None,
+ *       "hidden": bool}``.
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration" | "SetTie" | "SetEventKind";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).
@@ -160,7 +271,10 @@ export interface EffortMetricsCreate {
 }
 
 /**
- * Métricas de esfuerzo persistidas para una sesión (#13).
+ * Métricas de esfuerzo persistidas para una sesión (#13, #188).
+ * 
+ * El registro `accumulated` es el único que acumula la web por sesión (ADR-0050); los demás
+ * son registros sueltos de `POST /effort`, con lo que se envió y los campos nuevos a cero.
  */
 export interface EffortMetricsRead {
   id: string;
@@ -169,6 +283,47 @@ export interface EffortMetricsRead {
   time_to_first_edit_ms: number | null;
   interventions: Record<string, number>;
   created_at: string;
+  /** Si es el registro que acumula la web (ADR-0050) */
+  accumulated?: boolean;
+  /** Tramos de tiempo de cada pestaña, en orden de llegada */
+  segments?: EffortSegmentRead[];
+  /** Ediciones del log por clase (`content`, `mark`, `meter`) y por compás de su ancla */
+  interventions_by_class?: Record<string, Record<string, number>>;
+  /** Posibles errores descartados (cambiaron de activo a descartado) */
+  findings_dismissed?: number;
+  /** Posibles errores restaurados (de descartado a activo) */
+  findings_restored?: number;
+  /** Sugerencias aplicadas */
+  suggestions_applied?: number;
+  /** Sugerencias rechazadas (sin contar los rechazos heredados) */
+  suggestions_rejected?: number;
+  /** Último cambio del registro acumulado */
+  updated_at?: string | null;
+}
+
+/**
+ * Un tramo de la medición guardado en el registro acumulado (ADR-0050 §2).
+ */
+export interface EffortSegmentRead {
+  id: string;
+  active_ms: number;
+  first_edit_ms: number | null;
+  idle_threshold_ms?: number | null;
+}
+
+/**
+ * Lo que midió una pestaña hasta ahora (#188, ADR-0050 §2).
+ * 
+ * Solo crece: repetir la petición, o recibir tarde una anterior con un valor menor, no cuenta
+ * dos veces.
+ */
+export interface EffortSegmentUpdate {
+  /** Tiempo del tramo en ms con la página visible y con actividad, sin las pausas largas más allá del umbral (protocolo §3.4) */
+  active_ms: number;
+  /** Tiempo del tramo en ms al guardarse la primera edición del log (seq 1), si fue en este tramo; una vez conocido, el servidor lo conserva */
+  first_edit_ms?: number | null;
+  /** Umbral de las pausas en ms con que se midió el tramo (protocolo §3.4) */
+  idle_threshold_ms?: number | null;
 }
 
 /**
@@ -235,6 +390,8 @@ export interface FindingRead {
   dismissed_at?: string | null;
   dismissed_by?: string | null;
   dismissal_reason?: string | null;
+  /** De cero a tres sugerencias ordenadas por confianza; vacía sin capa de sugerencias (ADR-0036 §4) */
+  suggestions?: SuggestionRead[];
 }
 
 export interface HTTPValidationError {
@@ -253,11 +410,19 @@ export interface HealthStatusResponse {
   database: string;
   /** Accesibilidad del almacenamiento de artefactos ('accessible' o 'error') */
   artifact_store: string;
-  /** Nombre del motor OMR configurado ('fake', 'homr', 'oemer') */
+  /** Nombre del motor OMR configurado ('homr') */
   omr_engine: string;
   /** Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.) */
   device: string;
 }
+
+/**
+ * Lista cerrada de instrumentos de una parte (ADR-0041 §2).
+ * 
+ * El valor es un identificador estable que viaja en la API y se guarda en la base: la lista
+ * solo crece. `other` admite un nombre libre (el de la parte) y suena como el piano.
+ */
+export type Instrument = "piano" | "voice" | "violin" | "cello" | "flute" | "clarinet" | "guitar" | "other";
 
 /**
  * Armadura de clave expresada en número de quintas respecto a Do mayor.
@@ -283,6 +448,29 @@ export interface MeasurePayload {
   clef?: ClefPayload | null;
   /** Armadura de clave activa */
   key_signature?: KeySignaturePayload | null;
+  /** Dinámicas del compás, por su posición (ADR-0031) */
+  dynamics?: DynamicPayload[];
+  /** Extremos de regulador del compás, por su posición (ADR-0031) */
+  wedges?: WedgePayload[];
+}
+
+/**
+ * El instrumento de una parte y su nombre, si se dio (#235, ADR-0041).
+ * 
+ * La posición en la lista es la de la parte en `current_score`; una parte sin entrada no tiene
+ * instrumento ni nombre. `other` admite un nombre libre y suena como el piano.
+ */
+export interface PartInstrumentRead {
+  instrument?: Instrument | null;
+  name?: string | null;
+}
+
+/**
+ * El instrumento y el nombre de una parte, en `PATCH /sessions/{id}` (#235, ADR-0041).
+ */
+export interface PartInstrumentWrite {
+  instrument?: Instrument | null;
+  name?: string | null;
 }
 
 /**
@@ -296,10 +484,40 @@ export interface PartPayload {
 }
 
 /**
+ * Reclama una transcripción sin cuenta para la cuenta que entra (#278, ADR-0054).
+ */
+export interface PreviewClaimRequest {
+  claim_token: string;
+}
+
+/**
+ * Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
+ * el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca.
+ */
+export interface PreviewResponse {
+  preview_id: string;
+  /** Token para reclamarla con POST /previews/{id}/claim, una sola vez y con sesión. Solo se devuelve aquí: el servidor guarda su SHA-256. */
+  claim_token: string;
+  /** Cuándo caduca y se borra con su imagen */
+  expires_at: string;
+  /** Posibles errores que señalan las reglas */
+  findings_count: number;
+  /** MusicXML de lo leído; null si no se pudo exportar */
+  musicxml?: string | null;
+  score: ScoreIRPayload;
+  /** Mapa de tiempos para reproducirla; su session_id es el preview_id */
+  timing: TimingMapRead;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
  * Trazabilidad y procedencia de la inferencia OMR y validación.
  */
 export interface ProvenancePayload {
-  /** Nombre del motor OMR utilizado ('fake', 'homr') */
+  /** Nombre del motor OMR utilizado ('homr') */
   omr_engine: string;
   /** Versión del modelo OMR */
   model_version?: string | null;
@@ -313,6 +531,19 @@ export interface ProvenancePayload {
   device?: string | null;
   /** Metadatos y configuración de la etapa de preprocesado aplicada */
   preprocessing?: Record<string, unknown> | null;
+  /** Versión de la capa de sugerencias activa al transcribir, o null si no corrió (ADR-0036 §11) */
+  suggestions_version?: string | null;
+}
+
+/**
+ * Registro de una cuenta por la propia persona (ADR-0022, #154).
+ * 
+ * Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+ */
+export interface RegisterRequest {
+  /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
+  username: string;
+  password: string;
 }
 
 /**
@@ -372,6 +603,14 @@ export interface ScoreEventPayload {
   confidence: number | null;
   /** Manejador de referencia interna */
   ir_handle: string | null;
+  /** Articulaciones de la nota, sin repetir y en orden canónico (ADR-0031) */
+  articulations?: ("staccato" | "staccatissimo" | "accent" | "marcato" | "tenuto")[];
+  /** Indica si el evento lleva calderón */
+  fermata?: boolean;
+  /** Extremos de ligadura de expresión que empiezan o acaban en el evento */
+  slurs?: SlurPayload[];
+  /** Silencio invisible (ADR-0032): el hueco de una voz que entra a mitad del compás o calla entre dos notas. Ocupa su tiempo, tiene ancla y no se dibuja */
+  hidden?: boolean;
 }
 
 /**
@@ -406,6 +645,34 @@ export interface SessionDetailRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Los datos de la sesión tras `PATCH /sessions/{id}` (#235, ADR-0041).
+ */
+export interface SessionMetadataRead {
+  session_id: string;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Cambia el título, el compositor o los instrumentos de una sesión (#235, ADR-0041).
+ * 
+ * Un campo que no se envía no cambia; `null` lo borra. `instruments` sustituye la lista
+ * entera, una entrada por parte en el orden de `current_score` (`[]` o `null` los quita), y no
+ * puede tener más entradas que partes la partitura. No es una edición del log.
+ */
+export interface SessionMetadataUpdate {
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentWrite[] | null;
 }
 
 /**
@@ -423,6 +690,46 @@ export interface SessionSummaryRead {
   condition?: string;
   test_score_id?: string | null;
   owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Lo que la vista de una sesión necesita: `GET /sessions/{id}?fields=view` (#275).
+ * 
+ * Los campos de `SessionDetailRead` salvo `document` (el documento crudo) y `anchor_index`
+ * (cuesta eventos por ediciones y la vista no lo usa). Sin `fields`, el detalle no cambia.
+ */
+export interface SessionViewRead {
+  session_id: string;
+  document_id: string;
+  omr_engine: string;
+  findings: FindingRead[];
+  edits: EditEventRead[];
+  current_score?: ScoreIRPayload | null;
+  current_seq?: number;
+  image_artifact?: string | null;
+  model_version?: string | null;
+  status?: string;
+  condition?: string;
+  test_score_id?: string | null;
+  owner_id?: string | null;
+  title?: string | null;
+  composer?: string | null;
+  instruments?: PartInstrumentRead[];
+  source_filename?: string | null;
+}
+
+/**
+ * Extremo de una ligadura de expresión en un evento (ADR-0031).
+ */
+export interface SlurPayload {
+  /** Inicio ('start') o fin ('stop') */
+  type: "start" | "stop";
+  /** Identifica la ligadura dentro de su parte: su inicio y su fin comparten número, que no se reutiliza */
+  number: number;
 }
 
 /**
@@ -444,6 +751,27 @@ export interface StatusResponse {
 }
 
 /**
+ * Una edición propuesta por la capa de sugerencias, no aplicada (ADR-0036 §4).
+ * 
+ * `op`, `anchor`, `before` y `after` son los datos de `POST /sessions/{id}/edits`; el ancla
+ * es relativa al `at_seq` de su hallazgo (ADR-0011).
+ */
+export interface SuggestionRead {
+  id: number;
+  op: EditOp;
+  anchor: AnchorPayload;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  /** Probabilidad de 0 a 1, o null si la capa no pudo puntuar el candidato */
+  confidence?: number | null;
+  confidence_level: "high" | "medium";
+  explanation: string;
+  source: "rule" | "learned";
+  model_version?: string | null;
+  response?: "accepted" | "rejected" | null;
+}
+
+/**
  * Signatura de compás (métrica) de un compás.
  */
 export interface TimeSignaturePayload {
@@ -451,6 +779,8 @@ export interface TimeSignaturePayload {
   beats: number;
   /** Figura musical que representa un pulso */
   beat_type: number;
+  /** Símbolo con que se escribe la indicación (ADR-0044): 'common' (C) en 4/4, 'cut' (¢) en 2/2, o null si se escribe con números */
+  symbol?: "common" | "cut" | null;
 }
 
 /**
@@ -503,6 +833,12 @@ export interface UndoResponse {
   anchor_index?: AnchorIndexPayload | null;
   compensatory_edit_id?: string | null;
   compensatory_edit?: EditEventRead | null;
+  /** Estado del ciclo de vida de la sesión tras deshacer */
+  status: string;
+  /** MusicXML del estado nuevo; null si no se pudo exportar (pedirlo a /export, que da el error) */
+  musicxml: string | null;
+  /** Mapa de tiempos del estado nuevo; null si no cambia respecto de base_seq */
+  timing: TimingMapRead | null;
 }
 
 /**
@@ -523,6 +859,8 @@ export interface UserRead {
   role: UserRole;
   active: boolean;
   created_at?: string | null;
+  /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
+  self_registered?: boolean;
 }
 
 /**
@@ -550,6 +888,18 @@ export interface VersionResponse {
   api_version?: string;
   /** Versión de la aplicación Cadenza */
   app_version?: string;
+}
+
+/**
+ * Extremo de un regulador en una posición del compás (ADR-0031).
+ */
+export interface WedgePayload {
+  /** El inicio dice si es de crescendo o de diminuendo; el fin es 'stop' */
+  type: "crescendo" | "diminuendo" | "stop";
+  /** Identifica el regulador dentro de su parte: su inicio y su fin comparten número, que no se reutiliza */
+  number: number;
+  /** Posición en negras desde el inicio del compás, como fracción ('0', '3/2') */
+  offset_beats: string;
 }
 
 // --- Alias ergonómicos de compatibilidad para el Frontend ---

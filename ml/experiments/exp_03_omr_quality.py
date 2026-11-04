@@ -5,21 +5,23 @@ utilizando dos métricas complementarias:
 1. OMR-NED: distancia de edición normalizada a nivel gráfico (`musicdiff`).
 2. SER: tasa de error simbólico a nivel de secuencia de símbolos (`cadenza.learning`).
 
-A diferencia de las líneas base iniciales que excluían silenciosamente los 9 fallos de detección,
-este experimento informa con rigor:
-1. Métricas sobre los éxitos (91 incipits transcritos):
-   - OMR-NED: media 0.2285, mediana 0.1727.
-   - SER: media 0.1124 (11.24%), mediana 0.0385 (3.85%).
-2. Tasa de fallos (`failure_rate`): 9 de 100 imágenes (9.0%) fallaron con
-   'Exception: No staffs found'.
-3. Métricas penalizadas (`penalized_with_failures`): incluye los 100 incipits imputando
-   OMR-NED = 1.0 y SER = 1.0 (distancia máxima de edición por omisión total de contenido musical).
-   - OMR-NED penalizado: media 0.2979.
-   - SER penalizado: media 0.1923 (19.23%).
-4. Justificación muestral, limitaciones y trazabilidad determinista (`run_info.json`).
+A diferencia de las líneas base iniciales, que excluían en silencio los fallos de detección,
+este experimento informa:
+1. Métricas sobre los éxitos (media, mediana y desviación de OMR-NED y SER).
+2. Tasa de fallos (`failure_rate`): imágenes en las que HOMR no transcribió nada
+   (p. ej. 'Exception: No staffs found'), según `failures.json` de `exp_04`.
+3. Métricas penalizadas (`penalized_with_failures`): todas las entradas, imputando
+   OMR-NED = 1.0 y SER = 1.0 a cada fallo (distancia máxima por omisión total de contenido).
+4. Justificación muestral con los recuentos de la ejecución, limitaciones y trazabilidad
+   determinista (`run_info.json`).
+
+Sin manifiesto, o con alguna entrada sin predicción ni fallo registrado por `exp_04`, el
+experimento falla: no tiene modo de prueba ni imputa fallos que no se observaron (CLAUDE.md
+§8.1, #139). Los valores de una ejecución anterior en `omr_baseline.csv` solo se reutilizan
+si el sha256 de la predicción y el de la verdad de referencia coinciden con los guardados.
 
 Salidas:
-- `results/omr_baseline.csv` (100 filas con estado, métricas OMR-NED/SER y detalle de fallos)
+- `results/omr_baseline.csv` (una fila por entrada con estado, OMR-NED/SER y detalle de fallos)
 - `results/omr_baseline_summary.json`
 - `results/exp_03_run_info.json`
 """
@@ -32,8 +34,6 @@ import csv
 import json
 import statistics
 import sys
-import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -48,13 +48,13 @@ from ml.experiments.common import (  # noqa: E402
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
     get_run_info,
+    sample_size_justification,
+    sha256_of_file,
     write_run_info,
 )
 
 DATA_DIR = REPO_ROOT / "data"
-SMOKE_FIXTURE = REPO_ROOT / "packages" / "interchange" / "tests" / "fixtures" / "simple.musicxml"
 CSV_FIELDS = [
     "id",
     "status",
@@ -69,26 +69,9 @@ CSV_FIELDS = [
     "ser_edit_distance",
     "ser",
     "error",
+    "predicted_sha256",
+    "ground_truth_sha256",
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class Pair:
-    identifier: str
-    predicted: Path
-    ground_truth: Path
-
-
-def _smoke_pair(tmp_path: Path) -> list[Pair]:
-    """Par de prueba en modo smoke."""
-    if not SMOKE_FIXTURE.is_file():
-        return []
-    altered = tmp_path / "smoke_prediction.musicxml"
-    altered.write_text(
-        SMOKE_FIXTURE.read_text(encoding="utf-8").replace("<step>C</step>", "<step>E</step>"),
-        encoding="utf-8",
-    )
-    return [Pair("smoke", altered, SMOKE_FIXTURE)]
 
 
 def _load_cached_successes(csv_path: Path) -> dict[str, dict[str, Any]]:
@@ -119,6 +102,8 @@ def _load_cached_successes(csv_path: Path) -> dict[str, dict[str, Any]]:
                         int(row["ser_edit_distance"]) if row.get("ser_edit_distance") else None
                     ),
                     "ser": float(row["ser"]) if row.get("ser") else None,
+                    "predicted_sha256": row.get("predicted_sha256") or "",
+                    "ground_truth_sha256": row.get("ground_truth_sha256") or "",
                 }
     return cached
 
@@ -145,6 +130,22 @@ def _measure_corpus(
         failures_data = json.loads(failures_file.read_text(encoding="utf-8"))
         for f in failures_data:
             known_failures[f["id"]] = f.get("error", "Unknown error")
+
+    untraced = [
+        entry["id"]
+        for entry in entries
+        if entry["id"] not in known_failures
+        and not (predictions_dir / f"{entry['id']}.musicxml").is_file()
+    ]
+    if untraced:
+        # Una entrada sin predicción ni fallo registrado no se transcribió: contarla como fallo
+        # de HOMR imputaría un fallo que nadie observó (CLAUDE.md §8.1, #139).
+        raise ValueError(
+            f"exp_03: {len(untraced)} de {len(entries)} entradas de {manifest_path} no tienen "
+            f"predicción ni fallo registrado en {predictions_dir} (p. ej. {untraced[:3]}). "
+            "Ejecuta `exp_04` (transcripción con HOMR) sobre esas entradas, usa el mismo "
+            "`--limit` o indica `--predictions`."
+        )
 
     csv_path = RESULTS_DIR / "omr_baseline.csv"
     cached_metrics = {} if force_recompute else _load_cached_successes(csv_path)
@@ -183,6 +184,8 @@ def _measure_corpus(
                 "ser_edit_distance": gt_symbols_len,
                 "ser": 1.0,
                 "error": err_msg,
+                "predicted_sha256": "",
+                "ground_truth_sha256": "",
             }
             rows.append(row)
             penalized_ned_values.append(1.0)
@@ -190,9 +193,17 @@ def _measure_corpus(
             failures_details.append({"id": eid, "error": err_msg})
             continue
 
-        # Caso éxito - OMR-NED
-        if eid in cached_metrics:
-            m = cached_metrics[eid]
+        # Caso éxito - OMR-NED. La caché se indexa por identificador: solo vale si la predicción
+        # y la verdad de referencia tienen el mismo contenido que cuando se midieron (#139).
+        pred_sha256 = sha256_of_file(pred_file)
+        gt_sha256 = sha256_of_file(gt_file)
+        cached_row = cached_metrics.get(eid)
+        if (
+            cached_row is not None
+            and cached_row["predicted_sha256"] == pred_sha256
+            and cached_row["ground_truth_sha256"] == gt_sha256
+        ):
+            m = cached_row
             ned = m["omr_ned"]
             pred_syms = m["predicted_symbols"]
             gt_syms = m["ground_truth_symbols"]
@@ -246,6 +257,8 @@ def _measure_corpus(
             "ser_edit_distance": ser_dist,
             "ser": ser_val,
             "error": "",
+            "predicted_sha256": pred_sha256,
+            "ground_truth_sha256": gt_sha256,
         }
 
         rows.append(row)
@@ -325,7 +338,15 @@ def _measure_corpus(
             ),
         },
         "failures_detail": failures_details,
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
+        "sample_size_justification": sample_size_justification(
+            corpus_name,
+            counts={
+                "entries_considered": total_count,
+                "successful_transcriptions": successes_count,
+                "failed_transcriptions": failures_count,
+            },
+            proportions={"failure_rate": (failures_count, total_count)},
+        ),
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
         "run_info": run_info,
         "csv": str(csv_path),
@@ -337,41 +358,6 @@ def _measure_corpus(
     return summary
 
 
-def _measure_smoke(tmp_path: Path, seed: int = DEFAULT_SEED) -> dict[str, Any]:
-    pairs = _smoke_pair(tmp_path)
-    if not pairs:
-        return {"experiment": "exp_03_omr_quality", "mode": "smoke", "count": 0}
-    pair = pairs[0]
-    res_ned = omr_ned_pair(pair.predicted, pair.ground_truth)
-    ser_res = score_ser_pair(read_score(pair.ground_truth), read_score(pair.predicted))
-    run_info = write_run_info("exp_03", seed=seed)
-    return {
-        "experiment": "exp_03_omr_quality",
-        "mode": "smoke",
-        "corpus": "smoke",
-        "total_evaluated": 1,
-        "successes_count": 1,
-        "failures_count": 0,
-        "failure_rate": 0.0,
-        "metrics_on_successes": {
-            "count": 1,
-            "mean_omr_ned": res_ned.omr_ned,
-            "median_omr_ned": res_ned.omr_ned,
-            "mean_ser": round(ser_res.ser, 4),
-            "median_ser": round(ser_res.ser, 4),
-        },
-        "metrics_penalized_with_failures": {
-            "count": 1,
-            "mean_omr_ned_penalized": res_ned.omr_ned,
-            "median_omr_ned_penalized": res_ned.omr_ned,
-            "mean_ser_penalized": round(ser_res.ser, 4),
-            "median_ser_penalized": round(ser_res.ser, 4),
-        },
-        "failures_detail": [],
-        "run_info": run_info,
-    }
-
-
 def run(
     manifest: Path,
     predictions: Path | None,
@@ -380,6 +366,12 @@ def run(
     seed: int = DEFAULT_SEED,
     write_results: bool | None = None,
 ) -> dict[str, Any]:
+    """Punto de entrada de exp_03: solo predicciones reales, sin modo de prueba (#139)."""
+    if not manifest.is_file():
+        raise FileNotFoundError(
+            f"exp_03 requiere el corpus descargado y su manifiesto ({manifest}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
     if predictions is None:
         corpus_name = str(json.loads(manifest.read_text(encoding="utf-8")).get("corpus", "corpus"))
         predictions = manifest.parent / corpus_name / "predictions"
@@ -406,25 +398,21 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
     args = parser.parse_args()
 
-    if args.manifest.is_file():
-        summary = run(
-            args.manifest,
-            args.predictions,
-            args.limit,
-            force_recompute=args.force,
-            seed=args.seed,
-        )
-    else:
-        with tempfile.TemporaryDirectory(prefix="cadenza-exp03-") as tmp:
-            summary = _measure_smoke(Path(tmp), seed=args.seed)
+    summary = run(
+        args.manifest,
+        args.predictions,
+        args.limit,
+        force_recompute=args.force,
+        seed=args.seed,
+    )
 
     print(
         f"[exp_03] Modo={summary['mode']} Total={summary['total_evaluated']} "
         f"Éxitos={summary['successes_count']} Fallos={summary['failures_count']} "
-        f"Tasa de fallos={summary.get('failure_rate_percent', 0.0)}%"
+        f"Tasa de fallos={summary['failure_rate_percent']}%"
     )
-    success_metrics = summary.get("metrics_on_successes", {})
-    penalized_metrics = summary.get("metrics_penalized_with_failures", {})
+    success_metrics = summary["metrics_on_successes"]
+    penalized_metrics = summary["metrics_penalized_with_failures"]
     print(
         f"[exp_03] OMR-NED sobre éxitos: media={success_metrics.get('mean_omr_ned')} "
         f"mediana={success_metrics.get('median_omr_ned')}"

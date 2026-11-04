@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ipaddress
+import secrets
 import threading
 import time
 from datetime import UTC, datetime, timedelta
@@ -18,9 +20,22 @@ class Argon2PasswordHasher(PasswordHasher):
 
     def __init__(self) -> None:
         self._hasher = argon2.PasswordHasher()
+        self._dummy_hash: str | None = None
+        self._dummy_lock = threading.Lock()
 
     def hash(self, password: str) -> str:
         return self._hasher.hash(password)
+
+    def dummy_hash(self) -> str:
+        # Se calcula con el mismo `argon2.PasswordHasher`, así que sigue sus parámetros si
+        # cambian; con una contraseña aleatoria que nadie conoce. Una sola vez por adaptador, al
+        # primer usuario inexistente: calcularlo al construirlo encarecería cada `create_app`
+        # (#226, ADR-0042).
+        if self._dummy_hash is None:
+            with self._dummy_lock:
+                if self._dummy_hash is None:
+                    self._dummy_hash = self._hasher.hash(secrets.token_urlsafe(32))
+        return self._dummy_hash
 
     def verify(self, password: str, password_hash: str) -> bool:
         try:
@@ -84,14 +99,86 @@ class JwtTokenService(TokenService):
             raise NotAuthenticated("Token inválido") from err
 
 
-class LoginRateLimiter:
-    """Control en memoria de intentos fallidos de inicio de sesión (#40)."""
+def client_network_key(host: str) -> str:
+    """Clave del límite por IP: la dirección IPv4, o la red /64 de una IPv6.
 
-    def __init__(self, max_attempts: int = 5, window_seconds: int = 300) -> None:
+    Un mismo cliente IPv6 suele disponer de todo un /64; contar por dirección dejaría esquivar el
+    límite rotando direcciones (ADR-0022).
+    """
+
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return host
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.ip_network(f"{address}/64", strict=False))
+    return str(address)
+
+
+class LoginRateLimiter:
+    """Control en memoria de intentos por clave en una ventana de tiempo (#40, ADR-0022).
+
+    El inicio de sesión y el registro anotan cada intento con `hit`, que comprueba y anota bajo el
+    mismo cerrojo; el inicio de sesión borra el historial de su clave con `reset` si sale bien, de
+    modo que en la práctica solo cuentan los fallos.
+    """
+
+    # A partir de este número de claves se purgan las que ya no tienen intentos en la ventana. El
+    # umbral siguiente se fija en el doble de las que sobreviven, para que purgar cueste O(1)
+    # amortizado aunque alguien cree claves sin parar (revisión de #156).
+    _PURGE_THRESHOLD = 10_000
+
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        window_seconds: int = 300,
+        *,
+        message: str = "Demasiados intentos fallidos. Reintente en {retry_after} segundos.",
+    ) -> None:
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
+        self.message = message
         self._failures: dict[str, list[float]] = {}
+        self._next_purge = self._PURGE_THRESHOLD
         self._lock = threading.Lock()
+
+    def _recent(self, key: str, now: float) -> list[float]:
+        failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+        if failures:
+            self._failures[key] = failures
+        else:
+            self._failures.pop(key, None)
+        return failures
+
+    def _purge(self, now: float) -> None:
+        if len(self._failures) < self._next_purge:
+            return
+        for key in list(self._failures):
+            self._recent(key, now)
+        self._next_purge = max(self._PURGE_THRESHOLD, 2 * len(self._failures))
+
+    def _raise_limited(self, failures: list[float], now: float) -> None:
+        retry_after = max(1, int(self.window_seconds - (now - failures[0])))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=self.message.format(retry_after=retry_after),
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    def hit(self, key: str) -> None:
+        """Anota un intento y lanza 429 si ya se había alcanzado el límite, de forma atómica."""
+        if self.max_attempts <= 0:
+            return
+        now = time.time()
+        with self._lock:
+            self._purge(now)
+            failures = self._recent(key, now)
+            if len(failures) >= self.max_attempts:
+                self._raise_limited(failures, now)
+            failures.append(now)
+            self._failures[key] = failures
 
     def check(self, key: str) -> None:
         """Verifica si la clave ha superado el límite de intentos permitidos."""
@@ -99,16 +186,9 @@ class LoginRateLimiter:
             return
         now = time.time()
         with self._lock:
-            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
-            self._failures[key] = failures
+            failures = self._recent(key, now)
             if len(failures) >= self.max_attempts:
-                oldest = failures[0]
-                retry_after = max(1, int(self.window_seconds - (now - oldest)))
-                raise HTTPException(
-                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Demasiados intentos fallidos. Reintente en {retry_after} segundos.",
-                    headers={"Retry-After": str(retry_after)},
-                )
+                self._raise_limited(failures, now)
 
     def record_failure(self, key: str) -> None:
         """Registra un intento fallido para la clave especificada."""
@@ -116,7 +196,8 @@ class LoginRateLimiter:
             return
         now = time.time()
         with self._lock:
-            failures = [t for t in self._failures.get(key, []) if now - t < self.window_seconds]
+            self._purge(now)
+            failures = self._recent(key, now)
             failures.append(now)
             self._failures[key] = failures
 

@@ -15,8 +15,11 @@ from typing import Any, Final
 
 from .anchor import Anchor, EventKind
 from .clef import Clef
-from .edit import EditEvent, EditOp
+from .edit import MARK_EDIT_OPS, METER_EDIT_OPS, EditEvent, EditOp
 from .key_signature import KeySignature
+from .mark_edits import apply_mark_edit
+from .meter_edits import apply_meter_edit
+from .notation_marks import Articulation, Slur
 from .score import Event, Measure, ScoreIR
 from .tie import Tie
 
@@ -132,6 +135,74 @@ def _apply_accidental(pitch: str | None, payload: Mapping[str, Any] | None) -> s
     return f"{letter}{normalized_acc}{octave}"
 
 
+def _next_in_voice(events: list[Event], position: int, voice: int) -> int:
+    """La posición en `events` del primer evento de la voz desde `position`; `ValueError` si
+    no es una nota de un acorde (con `is_chord`)."""
+
+    following = next((i for i in range(position, len(events)) if events[i].voice == voice), None)
+    if (
+        following is None
+        or events[following].kind is not EventKind.NOTE
+        or not events[following].is_chord
+    ):
+        raise ValueError("la nota siguiente no es una nota del acorde")
+    return following
+
+
+def _promote_chord_note(events: list[Event], position: int, voice: int, head: Event) -> None:
+    """Borrada la primera nota de un acorde (`keep_chord`, ADR-0055), la siguiente pasa a ser
+    la primera: sin `is_chord` y con la figura y las marcas del acorde."""
+
+    index = _next_in_voice(events, position, voice)
+    events[index] = replace(
+        events[index],
+        is_chord=False,
+        duration_beats=head.duration_beats,
+        articulations=head.articulations,
+        fermata=head.fermata,
+        slurs=head.slurs,
+    )
+
+
+def _restore_chord_note(
+    events: list[Event], inserted: int, voice: int, restored: Mapping[str, Any]
+) -> None:
+    """La nota que sigue a la insertada vuelve a ser una nota del acorde, con su figura y sus
+    marcas de antes (`next_in_chord`, ADR-0055)."""
+
+    following = next(
+        (i for i in range(inserted + 1, len(events)) if events[i].voice == voice), None
+    )
+    if following is None or events[following].kind is not EventKind.NOTE:
+        raise ValueError("no hay una nota tras la insertada que vuelva al acorde")
+    events[following] = replace(
+        events[following],
+        is_chord=True,
+        duration_beats=_fraction(restored.get("duration_beats")),
+        articulations=tuple(Articulation(str(a)) for a in restored.get("articulations") or ()),
+        fermata=restored.get("fermata") is True,
+        slurs=tuple(Slur.from_primitive(s) for s in restored.get("slurs") or ()),
+    )
+
+
+def _with_kind(target: Event, after: Mapping[str, Any] | None) -> Event:
+    """El evento convertido en lo que dice el `after` de `SetEventKind` (ADR-0058): un hueco, un
+    silencio que se ve o una nota, con su misma figura. Un silencio no lleva ligadura de
+    prolongación ni es nota de un acorde."""
+
+    if after is None:
+        raise ValueError("SetEventKind sin 'after' no se puede aplicar")
+    kind = EventKind(after["kind"])
+    pitch = after.get("pitch")
+    if kind is EventKind.NOTE:
+        if not isinstance(pitch, str):
+            raise ValueError(f"una nota requiere su altura: {pitch!r}")
+        return replace(target, kind=kind, pitch=pitch, hidden=False)
+    return replace(
+        target, kind=kind, pitch=None, hidden=after.get("hidden") is True, tie=None, is_chord=False
+    )
+
+
 def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Measure:
     if edit.op is EditOp.SET_CLEF:
         return replace(measure, clef=_extract_clef(edit.after))
@@ -166,6 +237,8 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         tie_val = Tie(str(tie_raw)) if tie_raw is not None else None
         is_chord_val = bool(_value(edit.after, "is_chord") or False)
 
+        # Marcas de la nota (ADR-0031) y silencio invisible (ADR-0032): el inverso de un borrado
+        # los devuelve exactos.
         events.insert(
             insert_pos,
             Event(
@@ -177,8 +250,19 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
                 is_chord=is_chord_val,
                 bbox=bbox,
                 confidence=confidence,
+                articulations=tuple(
+                    Articulation(str(a)) for a in _value(edit.after, "articulations") or ()
+                ),
+                fermata=bool(_value(edit.after, "fermata") or False),
+                slurs=tuple(Slur.from_primitive(s) for s in _value(edit.after, "slurs") or ()),
+                hidden=_value(edit.after, "hidden") is True,
             ),
         )
+        restored = _value(edit.after, "next_in_chord")
+        if restored is not None:
+            # La compensatoria de borrar la primera nota de un acorde (ADR-0055): la nota que
+            # pasó a ser la primera vuelve a ser una nota más del acorde, con lo que tenía.
+            _restore_chord_note(events, insert_pos, anchor.voice, restored)
         return replace(measure, events=tuple(events))
 
     if anchor.event_index >= len(voice_positions):
@@ -198,6 +282,10 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
         )
     elif edit.op is EditOp.DELETE_EVENT:
         del events[position]
+        if _value(edit.after, "keep_chord") is True:
+            _promote_chord_note(events, position, anchor.voice, target)
+    elif edit.op is EditOp.SET_EVENT_KIND:
+        events[position] = _with_kind(target, edit.after)
     else:
         op_label = edit.op.value if hasattr(edit.op, "value") else str(edit.op)
         raise UnsupportedEditOpError(f"operación no proyectable: {op_label}")
@@ -207,6 +295,13 @@ def _apply_to_measure(measure: Measure, anchor: Anchor, edit: EditEvent) -> Meas
 
 def apply_edit(score: ScoreIR, edit: EditEvent) -> ScoreIR:
     """Devuelve un nuevo `ScoreIR` con `edit` aplicado; el original no se muta."""
+
+    # Las marcas (ADR-0039): una ligadura o un regulador fijan extremos en toda la parte.
+    if edit.op in MARK_EDIT_OPS:
+        return apply_mark_edit(score, edit)
+    # El compás (en toda la parte) y los tresillos (ADR-0044).
+    if edit.op in METER_EDIT_OPS:
+        return apply_meter_edit(score, edit)
 
     anchor = edit.anchor
     if anchor.part >= len(score.parts):

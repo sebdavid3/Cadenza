@@ -1,159 +1,177 @@
-/** Cliente HTTP de la API de Cadenza con autenticación JWT (#45, #47, ADR-0012). */
+import type { HealthStatusResponse } from "../types";
+import { DEFAULT_TIMEOUT_MS, resolveBaseUrl } from "./config";
+import { ApiError, kindForStatus } from "./errors";
 
-import type {
-  EditEvent,
-  EditEventCreate,
-  SessionDetail,
-  TokenResponse,
-  TranscribeResponse,
-  UserProfile,
-} from "../types";
+export type QueryValue = string | number | boolean | null | undefined;
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "";
-const TOKEN_KEY = "cadenza_access_token";
+/** Ruta de la API, siempre con la barra inicial (`/health`, `/sessions/…`). */
+export type ApiPath = `/${string}`;
 
-let inMemoryToken: string | null = null;
+export interface ApiClientOptions {
+  /** URL base de la API; por defecto `VITE_API_BASE_URL` o `/api`. */
+  baseUrl?: string;
+  /** Token Bearer vigente, o null si no hay sesión. */
+  getToken?: () => string | null;
+  /**
+   * Se llama cuando una petición autenticada recibe un 401 (token caducado o revocado), con el
+   * token que llevaba la petición, para no cerrar una sesión más reciente.
+   */
+  onUnauthorized?: (token: string) => void;
+  fetch?: typeof fetch;
+  timeoutMs?: number;
+}
 
-function getStorage(): Storage | null {
+export interface RequestOptions {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  query?: Record<string, QueryValue>;
+  /** Cuerpo JSON. */
+  json?: unknown;
+  /** Cuerpo de formulario: `multipart/form-data` o `application/x-www-form-urlencoded`. */
+  body?: FormData | URLSearchParams;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  /** Si es false no se envía el token (rutas públicas como `/health` o `/auth/login`). */
+  auth?: boolean;
+  /** Token para esta petición en lugar del vigente (p. ej. `GET /auth/me` justo tras entrar). */
+  token?: string;
+  /**
+   * Si es false, un 401 no se trata como sesión caducada. Para las rutas cuyo 401 tiene otro
+   * significado, como `POST /auth/password` con la contraseña actual equivocada.
+   */
+  notifyUnauthorized?: boolean;
+  responseType?: "json" | "blob";
+  /**
+   * `X-Request-ID` de la petición; por defecto, uno nuevo. La API lo devuelve y lo registra: así
+   * se relaciona lo que mide la vista con el registro del servidor (#275).
+   */
+  requestId?: string;
+  /**
+   * La petición sigue aunque la página se cierre (`fetch` con `keepalive`): para enviar lo medido
+   * al ocultar o dejar la vista (#188). El cuerpo tiene que ser pequeño (64 KiB como mucho).
+   */
+  keepalive?: boolean;
+}
+
+/** Un identificador de petición: `web-` y 20 cifras hexadecimales, la forma que acepta la API. */
+export function newRequestId(): string {
+  const bytes = new Uint8Array(10);
+  // `getRandomValues` existe también fuera de un contexto seguro, a diferencia de `randomUUID`.
+  crypto.getRandomValues(bytes);
+  return `web-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function buildQuery(query: Record<string, QueryValue> | undefined): string {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null) params.append(key, String(value));
+  }
+  const text = params.toString();
+  return text ? `?${text}` : "";
+}
+
+/** `Retry-After` en segundos (los 429 y el 503 de `/transcribe`), o null si falta o no vale. */
+function retryAfterSeconds(response: Response): number | null {
+  const value = Number(response.headers.get("Retry-After"));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+/** `detail` del cuerpo de error o, si no lo hay (p. ej. el 503 de `/health`), el cuerpo entero. */
+async function readDetail(response: Response): Promise<unknown> {
   try {
-    if (typeof window !== "undefined" && window.sessionStorage) {
-      return window.sessionStorage;
-    }
-    if (typeof globalThis !== "undefined" && (globalThis as unknown as { sessionStorage?: Storage }).sessionStorage) {
-      return (globalThis as unknown as { sessionStorage: Storage }).sessionStorage;
-    }
+    const body = (await response.json()) as unknown;
+    if (body && typeof body === "object" && "detail" in body) return body.detail;
+    return body ?? null;
   } catch {
     return null;
   }
-  return null;
 }
 
-export function getToken(): string | null {
-  const storage = getStorage();
-  if (storage) {
-    try {
-      return storage.getItem(TOKEN_KEY);
-    } catch {
-      return inMemoryToken;
+export function createApiClient(options: ApiClientOptions = {}) {
+  const baseUrl = (options.baseUrl ?? resolveBaseUrl()).replace(/\/+$/, "");
+  const defaultTimeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const doFetch = (input: string, init: RequestInit) => (options.fetch ?? fetch)(input, init);
+
+  async function request<T = unknown>(path: ApiPath, req: RequestOptions = {}): Promise<T> {
+    // La preparación va antes del temporizador: si falla, no deja nada pendiente.
+    const headers = new Headers();
+    const token = req.auth === false ? null : (req.token ?? options.getToken?.() ?? null);
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    headers.set("X-Request-ID", req.requestId ?? newRequestId());
+    let body: BodyInit | undefined;
+    if (req.json !== undefined) {
+      headers.set("Content-Type", "application/json");
+      body = JSON.stringify(req.json);
+    } else if (req.body) {
+      // El navegador fija el Content-Type (con el boundary en multipart).
+      body = req.body;
     }
-  }
-  return inMemoryToken;
-}
+    if (req.responseType !== "blob") headers.set("Accept", "application/json");
+    const url = `${baseUrl}${path}${buildQuery(req.query)}`;
 
-export function setToken(token: string | null): void {
-  inMemoryToken = token;
-  const storage = getStorage();
-  if (storage) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, req.timeoutMs ?? defaultTimeout);
+    const forwardAbort = () => {
+      controller.abort();
+    };
+    if (req.signal?.aborted) controller.abort();
+    req.signal?.addEventListener("abort", forwardAbort, { once: true });
+
+    const failure = () =>
+      new ApiError(timedOut ? "timeout" : controller.signal.aborted ? "aborted" : "network");
+
     try {
-      if (token) {
-        storage.setItem(TOKEN_KEY, token);
-      } else {
-        storage.removeItem(TOKEN_KEY);
+      let response: Response;
+      try {
+        response = await doFetch(url, {
+          method: req.method ?? "GET",
+          headers,
+          body,
+          signal: controller.signal,
+          ...(req.keepalive ? { keepalive: true } : {}),
+        });
+      } catch {
+        throw failure();
       }
-    } catch {
-      // Ignorar fallos de cuota o permisos en storage
+
+      if (!response.ok) {
+        const detail = await readDetail(response);
+        // Cancelado o vencido mientras se leía el cuerpo del error.
+        if (controller.signal.aborted) throw failure();
+        if (response.status === 401 && token && req.notifyUnauthorized !== false) {
+          options.onUnauthorized?.(token);
+        }
+        throw new ApiError(
+          kindForStatus(response.status),
+          response.status,
+          detail,
+          retryAfterSeconds(response),
+        );
+      }
+
+      try {
+        if (req.responseType === "blob") return (await response.blob()) as T;
+        if (response.status === 204) return undefined as T;
+        return (await response.json()) as T;
+      } catch {
+        throw controller.signal.aborted ? failure() : new ApiError("unexpected", response.status);
+      }
+    } finally {
+      clearTimeout(timer);
+      req.signal?.removeEventListener("abort", forwardAbort);
     }
   }
-}
 
-export function clearToken(): void {
-  setToken(null);
-}
-
-type UnauthorizedListener = () => void;
-const unauthorizedListeners = new Set<UnauthorizedListener>();
-
-export function onUnauthorized(listener: UnauthorizedListener): () => void {
-  unauthorizedListeners.add(listener);
-  return () => {
-    unauthorizedListeners.delete(listener);
+  return {
+    request,
+    /** `GET /health`: pública, sin token. Un 503 conserva el diagnóstico en `ApiError.detail`. */
+    health: (signal?: AbortSignal) =>
+      request<HealthStatusResponse>("/health", { auth: false, signal }),
   };
 }
 
-function notifyUnauthorized(): void {
-  clearToken();
-  unauthorizedListeners.forEach((listener) => {
-    try {
-      listener();
-    } catch {
-      // Ignorar errores de listeners
-    }
-  });
-}
-
-export async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  const token = getToken();
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-  });
-
-  if (response.status === 401) {
-    notifyUnauthorized();
-    const detail = await response.text();
-    throw new Error(`API 401: ${detail}`);
-  }
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`API ${response.status}: ${detail}`);
-  }
-  return (await response.json()) as T;
-}
-
-export async function login(username: string, password: string): Promise<TokenResponse> {
-  const body = new URLSearchParams();
-  body.append("username", username);
-  body.append("password", password);
-
-  const response = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(`API ${response.status}: ${detail}`);
-  }
-
-  const tokenResponse = (await response.json()) as TokenResponse;
-  setToken(tokenResponse.access_token);
-  return tokenResponse;
-}
-
-export function fetchMe(): Promise<UserProfile> {
-  return request<UserProfile>("/auth/me");
-}
-
-export function logout(): void {
-  notifyUnauthorized();
-}
-
-export function transcribe(file: File): Promise<TranscribeResponse> {
-  const form = new FormData();
-  form.append("file", file);
-  return request<TranscribeResponse>("/transcribe", { method: "POST", body: form });
-}
-
-export function fetchSession(sessionId: string): Promise<SessionDetail> {
-  return request<SessionDetail>(`/sessions/${sessionId}`);
-}
-
-export function appendEdit(
-  sessionId: string,
-  payload: EditEventCreate,
-): Promise<EditEvent> {
-  return request<EditEvent>(`/sessions/${sessionId}/edits`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-}
+export type ApiClient = ReturnType<typeof createApiClient>;

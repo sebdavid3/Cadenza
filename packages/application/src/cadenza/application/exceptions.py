@@ -109,6 +109,17 @@ class SessionClosed(ApplicationError):
         self.message = msg
 
 
+class InvalidSessionMetadata(ApplicationError):
+    """El título, el compositor o los instrumentos no son válidos (#235, ADR-0041).
+
+    Demasiado largos, o instrumentos para más partes de las que tiene la partitura.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 class UnsupportedExportFormat(ApplicationError):
     """El formato de exportación solicitado no es admitido (Issue #12)."""
 
@@ -140,3 +151,70 @@ class FindingNotFound(ApplicationError):
         super().__init__(msg)
         self.finding_id = finding_id
         self.message = msg
+
+
+class SuggestionNotFound(ApplicationError):
+    """La sugerencia no existe en la sesión (ADR-0036 §5)."""
+
+    def __init__(self, suggestion_id: int) -> None:
+        msg = f"Sugerencia no encontrada: {suggestion_id}"
+        super().__init__(msg)
+        self.suggestion_id = suggestion_id
+        self.message = msg
+
+
+class StaleSuggestion(ApplicationError):
+    """La sugerencia que se quiere aplicar no es de la validación de `base_seq` o ya tiene
+    respuesta: la web la marca como antigua y ofrece revalidar (ADR-0036 §5)."""
+
+    detail = "stale_suggestion"
+
+    def __init__(self, suggestion_id: int) -> None:
+        msg = f"La sugerencia {suggestion_id} es antigua o ya tiene respuesta"
+        super().__init__(msg)
+        self.suggestion_id = suggestion_id
+        self.message = msg
+
+
+class PreviewNotFound(ApplicationError):
+    """La transcripción sin cuenta no existe, caducó o el token no es el suyo (ADR-0054).
+
+    Las tres responden igual: no se puede averiguar cuáles existen.
+    """
+
+    def __init__(self, preview_id: str) -> None:
+        msg = f"Transcripción sin cuenta no encontrada: {preview_id}"
+        super().__init__(msg)
+        self.preview_id = preview_id
+        self.message = msg
+
+
+class PreviewCapacityExceeded(ApplicationError):
+    """Hay ya demasiadas transcripciones sin cuenta guardadas (ADR-0054)."""
+
+    def __init__(self, max_active: int) -> None:
+        msg = f"Hay {max_active} transcripciones sin cuenta guardadas: el máximo"
+        super().__init__(msg)
+        self.max_active = max_active
+        self.message = msg
+
+
+class SuggestionConflict(ApplicationError):
+    """La sugerencia no admite esa respuesta: rechazar una ya aceptada (ADR-0036 §5)."""
+
+    def __init__(self, suggestion_id: int, message: str) -> None:
+        super().__init__(message)
+        self.suggestion_id = suggestion_id
+        self.message = message
+
+
+class InvalidEffortSegment(ApplicationError):
+    """Un tramo de la medición del esfuerzo que no puede ser (#188, ADR-0050 §2).
+
+    Un identificador vacío, largo o con caracteres raros, un tiempo negativo, una primera edición
+    posterior al tiempo del tramo, o un total que no cabe en el registro.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message

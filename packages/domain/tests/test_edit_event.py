@@ -93,4 +93,18 @@ def test_edit_op_members() -> None:
         EditOp.DELETE_EVENT,
         EditOp.SET_CLEF,
         EditOp.SET_KEY,
+        # Marcas de notación (ADR-0039): fuera del dataset y de las métricas (`MARK_EDIT_OPS`).
+        EditOp.SET_NOTE_MARKS,
+        EditOp.SET_DYNAMIC,
+        EditOp.SET_WEDGE,
+        EditOp.SET_SLUR,
+        # Compás y tresillos (ADR-0044): fuera del dataset y de las métricas (`METER_EDIT_OPS`).
+        EditOp.SET_TIME,
+        EditOp.SET_TUPLET,
+        # La figura de un acorde (ADR-0049): también en `METER_EDIT_OPS`.
+        EditOp.SET_CHORD_DURATION,
+        # La ligadura de prolongación (ADR-0055): también en `METER_EDIT_OPS`.
+        EditOp.SET_TIE,
+        # Los huecos de una voz (ADR-0058): `GAP_EDIT_OPS`.
+        EditOp.SET_EVENT_KIND,
     }

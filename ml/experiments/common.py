@@ -5,16 +5,21 @@ Proporciona:
 - `write_run_info`: persiste `run_info.json` en `results/`.
 - `build_real_training_pool`: construye el pool de `TrainingSample`s a partir del diff
   HOMR↔Ground Truth y los hallazgos reales del validador sobre PrIMuS.
-- Constantes de justificación estadística y limitaciones metodológicas.
+- `sample_size_justification`: justificación muestral con los recuentos de cada ejecución.
+- Limitaciones metodológicas comunes, sin cifras de ninguna ejecución concreta (#139).
+- `rules_catalog_info` y `guard_rules_catalog`: la versión de las reglas de cada medición y
+  la guarda que impide sobrescribir la de otra versión del catálogo (ADR-0040 §3, §15.6).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import platform
 import subprocess
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,45 +35,20 @@ from cadenza.learning import (
     TrainingSample,
     derive_edit_events,
 )
-from cadenza.validation import ValidationEngine
+from cadenza.validation import RULES_CATALOG_VERSION, ValidationEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data"
 RESULTS_DIR = REPO_ROOT / "results"
 DEFAULT_SEED = 20260920
 
-# Justificación del tamaño de muestra (Issue #24, Criterio 4)
-SAMPLE_SIZE_JUSTIFICATION: dict[str, Any] = {
-    "corpus": "primus",
-    "subset": "package_aa (primeros 100 incipits estratificados)",
-    "incipits_count": 100,
-    "successful_transcriptions": 91,
-    "failed_transcriptions": 9,
-    "total_measures": 359,
-    "measures_with_errors": 201,
-    "derived_edits_count": 544,
-    "statistical_power": (
-        "Con N=359 compases observados y N=544 ediciones reales, el error estándar del "
-        "estimador de proporciones para una tasa esperada p ≈ 0.40 es "
-        "SE = sqrt(0.40 * 0.60 / 359) ≈ 0.0258 (margen de error de ±5.07% con 95% de confianza). "
-        "Para el lote de 544 ediciones de entrenamiento, el error estándar es "
-        "SE ≈ sqrt(0.50 * 0.50 / 544) ≈ 0.0214 (±4.20% al 95% de confianza). "
-        "Esta muestra aporta suficiente potencia estadística para validar hipótesis "
-        "de reducción de esfuerzo y comparaciones de aprendizaje activo "
-        "sin sobrecargar el tiempo de cómputo."
-    ),
-    "scaling_note": (
-        "El corpus completo descargado cuenta con 43,594 incipits en package_aa y "
-        "19,899 en package_ab. El job offline 'python -m ml build-dataset' implementado "
-        "en el Issue #22 permite procesar lotes adicionales a gran escala según "
-        "la disponibilidad de recursos de cómputo."
-    ),
-}
+Z_95 = 1.96
 
-# Limitaciones metodológicas documentadas (Issue #24, Criterio 6)
+# Limitaciones metodológicas documentadas (Issue #24, Criterio 6). Sin cifras: los
+# recuentos de cada ejecución van en su propio resultado (CLAUDE.md §8.1, #139).
 METHODOLOGICAL_LIMITATIONS: dict[str, str] = {
     "monophonic_printed": (
-        "El corpus PrIMuS está compuesto por incipits impresos monofónicos (1 pentagrama, "
+        "El corpus PrIMuS está compuesto por incipits impresos monofónicos (un pentagrama, "
         "música clásica de los fondos RISM codificada con Verovio). Los resultados no se "
         "extrapolan directamente a polifonía densa de varios pentagramas "
         "(piano/partitura general) ni a manuscritos históricos."
@@ -82,11 +62,86 @@ METHODOLOGICAL_LIMITATIONS: dict[str, str] = {
         "imagen original. Esto fundamenta la necesidad del bucle HITL y el aprendizaje activo."
     ),
     "segmentation_failures": (
-        "9 de los 100 incipits de HOMR fallaron en la etapa de segmentación de pentagramas "
-        "('Exception: No staffs found'). Se reportan explícitamente tanto la métrica sobre "
-        "éxitos (91) como la métrica penalizada que incluye los fallos imputando OMR-NED=1.0."
+        "Cuando HOMR no encuentra pentagramas en una imagen ('Exception: No staffs found'), "
+        "se informan por separado la métrica sobre los éxitos y la métrica penalizada, que "
+        "imputa a cada fallo la distancia máxima; el número de fallos de cada ejecución "
+        "figura en su resultado."
     ),
 }
+
+
+SE_ASSUMPTIONS = (
+    "Errores estándar de Wald bajo independencia de las observaciones. Los compases y las "
+    "ediciones están anidados en partituras, así que el error real puede ser mayor; con una "
+    "proporción observada de cero o uno el SE de Wald es nulo y no es informativo."
+)
+
+
+def _proportion_estimate(cases: int, n: int) -> dict[str, Any] | None:
+    """Proporción observada y su error estándar binomial, SE = sqrt(p̂(1 - p̂) / N)."""
+    if n <= 0:
+        return None
+    proportion = cases / n
+    se = math.sqrt(proportion * (1.0 - proportion) / n)
+    return {
+        "cases": cases,
+        "n": n,
+        "proportion": round(proportion, 4),
+        "standard_error": round(se, 4),
+        "margin_95": round(Z_95 * se, 4),
+    }
+
+
+def sample_size_justification(
+    corpus: str,
+    counts: Mapping[str, int],
+    proportions: Mapping[str, tuple[int, int]] | None = None,
+    worst_case: Mapping[str, int] | None = None,
+) -> dict[str, Any]:
+    """Justificación del tamaño de muestra con los recuentos de esta ejecución (#24, #139).
+
+    `counts` son los N medidos; `proportions` asocia a cada proporción observada su par
+    (casos, N), y `worst_case` a cada población su N, para el error estándar de peor caso
+    de cualquier proporción estimada sobre ella, 0.5 / sqrt(N). Todo se deriva de los
+    recuentos recibidos: nada se escribe a mano (CLAUDE.md §8.1). Son errores estándar de
+    Wald bajo independencia; `SE_ASSUMPTIONS` explica sus límites en la propia salida.
+    """
+    estimates: dict[str, Any] = {}
+    statements: list[str] = []
+    for name, (cases, n) in (proportions or {}).items():
+        estimates[name] = _proportion_estimate(cases, n)
+        if n > 0:
+            p = cases / n
+            se = math.sqrt(p * (1.0 - p) / n)
+            statements.append(
+                f"{name}: p̂ = {cases}/{n} = {p:.4f} con N = {n}, "
+                f"SE = sqrt(p̂(1 - p̂)/N) ≈ {se:.4f} (±{Z_95 * se * 100:.2f} % al 95 %)."
+            )
+    for name, n in (worst_case or {}).items():
+        if n <= 0:
+            estimates[name] = None
+            continue
+        se = 0.5 / math.sqrt(n)
+        estimates[name] = {
+            "n": n,
+            "worst_case_standard_error": round(se, 4),
+            "margin_95": round(Z_95 * se, 4),
+        }
+        statements.append(
+            f"{name}: con N = {n}, el error estándar de cualquier proporción es como mucho "
+            f"0.5/sqrt(N) ≈ {se:.4f} (±{Z_95 * se * 100:.2f} % al 95 %)."
+        )
+    return {
+        "corpus": corpus,
+        **counts,
+        "standard_errors": estimates,
+        "statistical_power": (
+            " ".join(statements)
+            if statements
+            else "Sin observaciones: no se puede estimar ningún error estándar."
+        ),
+        "assumptions": SE_ASSUMPTIONS,
+    }
 
 
 def sha256_of_file(path: Path) -> str:
@@ -132,6 +187,41 @@ def get_git_branch() -> str:
     except Exception:
         pass
     return os.environ.get("GIT_BRANCH", "unknown")
+
+
+def rules_catalog_info(validator: ValidationEngine) -> dict[str, Any]:
+    """La versión de las reglas con que se mide: la lista de identificadores (`rules_version`)
+    y la versión del catálogo (`RULES_CATALOG_VERSION`), que cambia aunque los identificadores
+    no cambien (ADR-0040 §3). Cada cifra de `exp_06` y `exp_14` lleva las dos."""
+    return {
+        "rules_version": validator.rules_version,
+        "rules_catalog_version": RULES_CATALOG_VERSION,
+    }
+
+
+def guard_rules_catalog(summary_path: Path, catalog_version: int = RULES_CATALOG_VERSION) -> None:
+    """No sobrescribe una medición de otra versión del catálogo de reglas (ADR-0040 §15.6).
+
+    Las mediciones con el catálogo nuevo se documentan junto a las anteriores, así que no las
+    reemplazan: si en la salida ya hay un resumen de otra versión (sin `rules_catalog_version`,
+    la 1, anterior a #246), el experimento falla antes de medir y pide otro `--output-dir`.
+    """
+    if not summary_path.is_file():
+        return
+    try:
+        previous = json.loads(summary_path.read_text(encoding="utf-8")).get(
+            "rules_catalog_version", 1
+        )
+    except (OSError, ValueError, AttributeError):
+        raise ValueError(
+            f"No se pudo leer {summary_path} para saber de qué versión del catálogo de reglas es: "
+            "indica otro --output-dir para no sobrescribirlo (ADR-0040 §15.6)"
+        ) from None
+    if previous != catalog_version:
+        raise ValueError(
+            f"{summary_path} es una medición del catálogo de reglas {previous} y esta es del "
+            f"{catalog_version}: indica otro --output-dir para no sobrescribirla (ADR-0040 §15.6)"
+        )
 
 
 def get_run_info(

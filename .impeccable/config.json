@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "apps/web/src/pages/transcription/SessionThumb.tsx"
+        ],
+        "createdAt": "2026-10-23T04:48:22.858Z",
+        "reason": "Claude (revisión #147): el src se asigna en useLayoutEffect antes de pintar desde un Blob autenticado; nunca se muestra sin src"
+      }
+    ]
+  }
+}

@@ -20,6 +20,7 @@ from cadenza.domain import (
     ScoreIR,
     Severity,
     Staff,
+    SuggestedEdit,
     TimeSignature,
 )
 from cadenza.learning import (
@@ -28,6 +29,7 @@ from cadenza.learning import (
     categorize_edit_op,
     compute_binary_metrics,
     evaluate_score_measures,
+    with_content_candidates,
 )
 
 
@@ -97,7 +99,33 @@ def test_categorize_edit_op() -> None:
     assert categorize_edit_op(EditOp.DELETE_EVENT) == "structure"
     assert categorize_edit_op(EditOp.SET_KEY) == "key_clef"
     assert categorize_edit_op(EditOp.SET_CLEF) == "key_clef"
+    assert categorize_edit_op(EditOp.SET_NOTE_MARKS) == "marks"
+    assert categorize_edit_op(EditOp.SET_SLUR) == "marks"
+    assert categorize_edit_op(EditOp.SET_TIME) == "meter"
+    assert categorize_edit_op(EditOp.SET_TUPLET) == "meter"
+    # La figura de un acorde (ADR-0049), en la misma clase que los tresillos.
+    assert categorize_edit_op(EditOp.SET_CHORD_DURATION) == "meter"
+    # Y la ligadura de prolongación (ADR-0055).
+    assert categorize_edit_op(EditOp.SET_TIE) == "meter"
+    # Los huecos de una voz (ADR-0058), su propia categoría.
+    assert categorize_edit_op(EditOp.SET_EVENT_KIND) == "gap"
     assert categorize_edit_op("custom") == "other"
+
+
+def test_measurements_only_count_content_candidates() -> None:
+    """Un candidato de cambiar el compás no se puede juzgar contra `derive_edit_events`: las
+    mediciones de las sugerencias no lo cuentan (ADR-0044)."""
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="s")
+    time = SuggestedEdit(op=EditOp.SET_TIME, anchor=anchor, after={"time_signature": None})
+    duration = SuggestedEdit(op=EditOp.SET_DURATION, anchor=anchor, after={"duration_beats": "1"})
+    only_time = Finding(anchor, "time.signature", Severity.WARNING, "m", candidates=(time,))
+    mixed = Finding(anchor, "measure.balance", Severity.ERROR, "m", candidates=(time, duration))
+    plain = Finding(anchor, "measure.balance", Severity.ERROR, "m", candidates=(duration,))
+
+    kept = with_content_candidates([only_time, mixed, plain])
+
+    assert [f.candidates for f in kept] == [(), (duration,), (duration,)]
+    assert kept[2] is plain
 
 
 # ============================================================================

@@ -1,0 +1,60 @@
+/* Cambiar los datos de la partitura (#240): bajo los datos de la cabecera; el formulario se abre
+   debajo del botón, en un recuadro como la confirmación de finalizar. */
+.score-data-panel {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 48rem;
+}
+
+.score-data-panel__form {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-4);
+  border: var(--rule);
+}
+
+.score-data-panel__note {
+  max-width: 62ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.score-data-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+.score-data-panel__actions [aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+.score-data-panel__actions .link-button[aria-disabled="true"] {
+  color: var(--color-ink-muted);
+}
+
+.score-data-panel__wait {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.score-data-panel__status,
+.score-data-panel__error {
+  font-size: var(--text-small);
+  font-weight: 500;
+}
+
+/* Sin nada que decir, la región no deja hueco, pero sigue ahí para anunciar. */
+.score-data-panel__status:empty {
+  margin-top: calc(var(--space-3) * -1);
+}
+
+.score-data-panel__error {
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-width) solid var(--color-accent);
+}

@@ -3,17 +3,21 @@
 Cumple ADR-0005: nada de `subprocess` ni *scraping* de la terminal. El stack
 pesado (`homr`, `onnxruntime`, `opencv`) está declarado como extra opcional y se
 importa de forma perezosa dentro de `transcribe`, de modo que `cadenza.omr`
-importa sin tenerlo instalado (test/CI usan `FakeOMREngine`).
+importa sin tenerlo instalado (las pruebas y la CI usan el doble
+`cadenza.omr.testing.FakeOMREngine`).
 """
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
+import logging
 import os
 import shutil
 import site
 import tempfile
+import threading
+from concurrent.futures import Future
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -23,8 +27,15 @@ from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from ..engine import OMREngine
 from ..errors import OMRTranscriptionError
 from ..preprocessing import PreprocessingConfig, preprocess_image_file
+from . import homr_grand_staff, homr_piano
+from .homr_grand_staff import PianoReading
 
 ENGINE_ID = "homr"
+_LOGGER = logging.getLogger(__name__)
+# HOMR guarda sus sesiones de ONNX y las salidas preasignadas del decodificador como estado global
+# del proceso: dos hilos a la vez se las pisan y fallan con errores internos de ONNX Runtime. Las
+# llamadas se hacen de una en una en todo el proceso (#165, ADR-0024).
+_HOMR_LOCK = threading.Lock()
 _HOMR_EXTRA_HINT = (
     "HOMREngine requiere el extra opcional 'homr'. "
     'Instálalo con: uv pip install -e "packages/omr[homr]".'
@@ -46,13 +57,50 @@ def get_effective_device(use_gpu: bool = False) -> str:
     return "cpu"
 
 
+def _no_title_detection(*_args: Any, **_kwargs: Any) -> Future[str]:
+    """Sustituto de `homr.main.detect_title` que evita lanzar el OCR.
+
+    Cadenza no utiliza el título en el dominio ni en el ScoreIR. La detección
+    de título de HOMR ejecuta RapidOCR en un ejecutor mono-hilo y espera hasta
+    60 s, provocando picos de latencia de decenas de segundos y TimeoutError
+    en rachas (#106). Devolver un Future resuelto con cadena vacía elimina
+    esa cola sin alterar la transcripción musical.
+    """
+    future: Future[str] = Future()
+    future.set_result("")
+    return future
+
+
 def _import_homr() -> Any:
-    """Importa `homr.main` de forma perezosa, con mensaje de error accionable."""
+    """Importa `homr.main` de forma perezosa, con mensaje de error accionable.
+
+    Desactiva la detección de título sustituyendo `homr_main.detect_title` por un
+    `Future` resuelto con `""` para eliminar la cola de latencia de RapidOCR (#106).
+    La sustitución es idempotente y para todo el proceso. Si `homr.main` no expone
+    `detect_title`, se eleva `RuntimeError` para evitar que una versión futura de
+    HOMR reintroduzca el OCR en silencio.
+
+    Sustituye también la elección del gran pentagrama de un sistema de tres: el piano son los
+    dos de abajo aunque la barra del sistema abarque los tres (#239, ADR-0060).
+    """
 
     try:
         from homr import main as homr_main
+        from homr import model as homr_model
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise RuntimeError(_HOMR_EXTRA_HINT) from exc
+
+    if not hasattr(homr_main, "detect_title"):
+        raise RuntimeError(
+            "homr.main no contiene el atributo 'detect_title'. "
+            "Verifica la versión instalada de HOMR; omitir esta verificación "
+            "podría reintroducir en silencio la cola de latencia por OCR de título (#106)."
+        )
+
+    if homr_main.detect_title is not _no_title_detection:
+        homr_main.detect_title = _no_title_detection
+
+    homr_grand_staff.install(homr_model.MultiStaff)
     return homr_main
 
 
@@ -115,13 +163,40 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _process_image(homr_main: Any, image: Path, config: Any, xml_generator_args: Any) -> str:
+    """Una pasada de HOMR sobre la imagen; devuelve su MusicXML y lo borra del directorio."""
+
+    try:
+        # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
+        homr_main.process_image(str(image), config, xml_generator_args)
+    except Exception as exc:
+        raise OMRTranscriptionError(f"HOMR falló al procesar la imagen: {exc}") from exc
+
+    xml_path = image.with_suffix(".musicxml")
+    if not xml_path.is_file():
+        candidates = sorted(image.parent.glob("*.musicxml"))
+        if not candidates:
+            raise OMRTranscriptionError("HOMR no produjo ningún MusicXML")
+        xml_path = candidates[0]
+    text = xml_path.read_text(encoding="utf-8", errors="replace")
+    # Para que la segunda lectura no encuentre este; si Windows no deja borrarlo, HOMR lo
+    # sobrescribe.
+    with contextlib.suppress(OSError):
+        xml_path.unlink()
+    return text
+
+
 def _run_homr(
     homr_main: Any,
     image_path: Path,
     use_gpu: bool,
     weights_path: Path | None = None,
 ) -> str:
-    """Ejecuta el pipeline de HOMR en un directorio temporal y devuelve el MusicXML."""
+    """Ejecuta el pipeline de HOMR en un directorio temporal y devuelve el MusicXML.
+
+    Si la página tiene sistemas de voz y piano, HOMR la lee dos veces, con las manos del piano
+    emparejadas y solas, y el MusicXML es la combinación de las dos (#325, ADR-0060,
+    `homr_piano`)."""
 
     from homr.music_xml_generator import XmlGeneratorArguments
 
@@ -132,12 +207,6 @@ def _run_homr(
         staged_image = Path(work_dir) / image_path.name
         shutil.copy2(image_path, staged_image)
 
-        if weights_path is None:
-            homr_main.download_weights(
-                segnet_use_gpu=use_gpu,
-                transformer_use_gpu=use_gpu,
-                coreml_encoder=False,
-            )
         config = homr_main.ProcessingConfig(
             enable_debug=False,
             enable_cache=False,
@@ -149,19 +218,26 @@ def _run_homr(
             coreml_encoder=False,
         )
         xml_generator_args = XmlGeneratorArguments(False, None, None)
-        try:
-            # HOMR >=0.7 escribe `<imagen>.musicxml` junto a la imagen y devuelve None.
-            homr_main.process_image(str(staged_image), config, xml_generator_args)
-        except Exception as exc:
-            raise OMRTranscriptionError(f"HOMR falló al procesar la imagen: {exc}") from exc
-
-        xml_path = staged_image.with_suffix(".musicxml")
-        if not xml_path.is_file():
-            candidates = sorted(Path(work_dir).glob("*.musicxml"))
-            if not candidates:
-                raise OMRTranscriptionError("HOMR no produjo ningún MusicXML")
-            xml_path = candidates[0]
-        return xml_path.read_text(encoding="utf-8", errors="replace")
+        with _HOMR_LOCK:
+            if weights_path is None:
+                homr_main.download_weights(
+                    segnet_use_gpu=use_gpu,
+                    transformer_use_gpu=use_gpu,
+                    coreml_encoder=False,
+                )
+            with homr_grand_staff.reading(PianoReading.PAIRED) as paired:
+                paired_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
+            # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
+            if [1, 2] not in paired.piano_pairs:
+                return paired_xml
+            # Cualquier fallo de la segunda lectura deja la emparejada, que con #239 salía.
+            try:
+                with homr_grand_staff.reading(PianoReading.ALONE):
+                    alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
+            except Exception:
+                _LOGGER.exception("Falló la lectura del piano solo; queda la emparejada")
+                return paired_xml
+    return homr_piano.combine_musicxml(paired_xml, alone_xml)
 
 
 class HOMREngine(OMREngine):
@@ -246,7 +322,10 @@ class HOMREngine(OMREngine):
 
         Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
         pérdida de información del `ScoreIR` (que no modela armaduras, claves ni
-        barras de compás).
+        barras de compás). En una página de voz y piano en la que alguna mano
+        sale de la lectura sola es otra cosa: la combinación de las dos lecturas
+        del piano, escrita por el exportador de Cadenza desde el `ScoreIR`
+        (#325), sin los saltos de sistema, las repeticiones ni las voltas de HOMR.
         """
 
         if not image_path.is_file():
@@ -275,7 +354,7 @@ class HOMREngine(OMREngine):
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
-        # se usa el motor real (FakeOMREngine no lo necesita).
+        # se transcribe de verdad (el doble de pruebas no lo necesita).
         from cadenza.interchange import musicxml_to_score_ir
 
         if not image_path.is_file():

@@ -1,0 +1,97 @@
+/* Botones como bloques de doble filete: el primario, en el acento; el secundario, en contorno. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-3) var(--space-5);
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.button:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.button--primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  box-shadow:
+    inset 0 0 0 var(--rule-width) var(--color-paper),
+    0 0 0 var(--rule-width) var(--color-ink);
+}
+
+.button--primary:hover {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Compacto: el tamaño del conmutador (44 px), para las barras de herramientas. */
+.button--compact {
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.button:disabled,
+.button[aria-disabled="true"] {
+  border-style: dashed;
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.button svg {
+  flex: none;
+  transition: transform var(--duration-quick) var(--ease-out);
+}
+
+.button:hover svg {
+  transform: translateX(2px);
+}
+
+/* Un icono que apunta hacia abajo (descargar) baja en vez de avanzar. */
+.button:hover .button__icon--down {
+  transform: translateY(2px);
+}
+
+/* Deshabilitado no responde al paso del ratón. */
+.button:disabled:hover svg,
+.button[aria-disabled="true"]:hover svg {
+  transform: none;
+}
+
+/* Acción secundaria en línea (reintentar, cargar más): rótulo subrayado sin caja. */
+.link-button {
+  min-height: 44px;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
+  text-transform: uppercase;
+  cursor: pointer;
+}

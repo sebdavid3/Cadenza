@@ -3,10 +3,14 @@
 Comandos implementados:
   - build-dataset : extrae muestras de la base de datos y calcula el dataset_hash canónico.
   - select        : aplica una AcquisitionStrategy (hybrid, uncertainty, diversity, etc.).
-  - train         : ajusta el modelo (FakeTrainer/Trainer) y guarda los pesos en ArtifactStore.
+  - train         : guarda en el ArtifactStore los pesos de `FakeTrainer`, con las métricas de
+                    --ser/--omr-ned marcadas como simuladas: ningún entrenador evalúa el modelo.
   - evaluate      : evalúa las métricas simbólicas (SER, OMR-NED) contra el umbral de promoción.
   - promote       : registra y activa la versión en el ModelRegistry persistente.
   - run           : ejecuta el pipeline completo de punta a punta de forma encadenada.
+  - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
+                    (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
+                    red de `PyTorchTrainer`, retirada del código en #271.
 """
 
 from __future__ import annotations
@@ -30,12 +34,12 @@ from cadenza.learning import (
     AcquisitionStrategy,
     DiversityAcquisition,
     ErrorDensityAcquisition,
+    FakeTrainer,
     HybridAcquisition,
     JobConfig,
     RandomAcquisition,
     RepositoryDatasetReader,
     TrainingSample,
-    create_trainer,
     dataset_hash,
     deserialize_dataset,
     load_job_config,
@@ -47,6 +51,7 @@ from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyModelRegistry,
     SqlAlchemySessionRepository,
+    SqlAlchemyUserRepository,
     create_engine_for_url,
     create_schema,
     create_session_factory,
@@ -99,22 +104,31 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     create_schema(engine)
     factory = create_session_factory(engine)
 
+    # Las cuentas del registro público quedan fuera salvo que se pida (ADR-0022, D55).
+    include_self_registered: bool = args.include_self_registered
     with session_scope(factory) as db:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         reader = RepositoryDatasetReader()
 
-        samples = reader.read_dataset(
-            session_repository=session_repo,
-            edit_event_repository=edit_repo,
-            status=args.status,
-            owner_id=args.owner_id,
-        )
+        try:
+            samples = reader.read_dataset(
+                session_repository=session_repo,
+                edit_event_repository=edit_repo,
+                user_repository=SqlAlchemyUserRepository(db),
+                status=args.status,
+                owner_id=args.owner_id,
+                include_self_registered=include_self_registered,
+            )
+        except ValueError as err:
+            print(f"Error: {err}", file=sys.stderr)
+            return 1
 
     serialized = serialize_dataset(samples)
     serialized["config_hash"] = cfg_hash
     serialized["seed"] = seed
     serialized["status_filter"] = args.status
+    serialized["self_registered_included"] = include_self_registered
     serialized["created_at"] = datetime.datetime.now(datetime.UTC).isoformat()
 
     output_path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
@@ -171,6 +185,9 @@ def select_command(args: argparse.Namespace) -> int:
         "budget": budget,
         "seed": seed,
         "config_hash": config.config_hash if config else raw_input.get("config_hash", "none"),
+        # Si el dataset de origen incluía las cuentas del registro público (D55); None si no
+        # lo dice, como los de antes de #191.
+        "self_registered_included": raw_input.get("self_registered_included"),
         "count": len(selected_samples),
         "selected_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "samples": [s.to_primitive() for s in sorted(selected_samples, key=TrainingSample.key)],
@@ -190,8 +207,36 @@ def select_command(args: argparse.Namespace) -> int:
 # COMANDO 3: train
 # =============================================================================
 
+SIMULATED_METRICS_WARNING = (
+    "Métricas no medidas sobre el modelo entrenado: el entrenador no evalúa el modelo, porque "
+    "el ajuste fino real no existe (D14, #103). Son las de --ser/--omr-ned. "
+    "No citar como resultado (CLAUDE.md §8.2)."
+)
+
+MISSING_METRICS_ERROR = (
+    "Error: `train` necesita --ser y --omr-ned. Ningún entrenador evalúa el modelo que produce "
+    "(D14, #103) y no hay métricas de reserva (CLAUDE.md §8.1, #271): las que se indiquen se "
+    "guardan marcadas como simuladas. La capa que aprende de las correcciones se entrena y se "
+    "mide con `ml suggestions train` y `ml suggestions evaluate` (ADR-0036)."
+)
+
+
+def _missing_metrics_error(ser: float | None, omr_ned: float | None) -> str | None:
+    """El error si faltan --ser o --omr-ned: no hay métricas de reserva (#271)."""
+    if ser is not None and omr_ned is not None:
+        return None
+    if (ser is None) != (omr_ned is None):
+        return "Error: --ser y --omr-ned se indican juntos o ninguno de los dos."
+    return MISSING_METRICS_ERROR
+
 
 def train_command(args: argparse.Namespace) -> int:
+    # Las métricas las da quien llama, siempre las dos: se comprueba antes que nada.
+    metrics_error = _missing_metrics_error(args.ser, args.omr_ned)
+    if metrics_error is not None:
+        print(metrics_error, file=sys.stderr)
+        return 1
+
     input_path = Path(args.input)
     if not input_path.is_file():
         print(f"Error: No se encontró el archivo de muestras en '{input_path}'", file=sys.stderr)
@@ -207,16 +252,9 @@ def train_command(args: argparse.Namespace) -> int:
     samples = deserialize_dataset(raw_input)
     d_hash = str(raw_input.get("dataset_hash", dataset_hash(samples)))
 
-    # Métricas simuladas si se configuran o default
-    ser_override = float(args.ser) if args.ser is not None else None
-    omr_ned_override = float(args.omr_ned) if args.omr_ned is not None else None
+    trainer_metrics = EvaluationMetrics(ser=float(args.ser), omr_ned=float(args.omr_ned))
 
-    trainer_metrics = None
-    if ser_override is not None and omr_ned_override is not None:
-        trainer_metrics = EvaluationMetrics(ser=ser_override, omr_ned=omr_ned_override)
-
-    trainer_backend = getattr(args, "trainer", "auto")
-    trainer = create_trainer(backend=trainer_backend, metrics=trainer_metrics)
+    trainer = FakeTrainer(trainer_metrics)
     trained_artifact = trainer.train(samples, config.to_training_config())
 
     # Persistir los pesos binarios en el ArtifactStore
@@ -258,6 +296,10 @@ def train_command(args: argparse.Namespace) -> int:
             "omr_ned": trained_artifact.metrics.omr_ned,
         },
         "samples_count": len(samples),
+        "metrics_source": "arguments",
+        # Ningún entrenador evalúa el modelo que produce (D14): sus métricas nunca son medidas.
+        "simulated": trained_artifact.simulated,
+        "simulation_warning": SIMULATED_METRICS_WARNING,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
 
@@ -292,35 +334,70 @@ def evaluate_command(args: argparse.Namespace) -> int:
     config = load_job_config(config_path)
     artifact_data = json.loads(input_path.read_text(encoding="utf-8"))
 
-    raw_metrics = artifact_data.get("metrics", {})
-    ser = float(args.ser if args.ser is not None else raw_metrics.get("ser", 0.1))
-    omr_ned = float(args.omr_ned if args.omr_ned is not None else raw_metrics.get("omr_ned", 0.08))
+    # Prioridad: argumentos, métricas medidas con --manifest y métricas del artefacto.
+    # Sin ninguna de ellas no hay evaluación: nada de valores de reserva (CLAUDE.md §8.1, #139).
+    metrics: dict[str, float] = {}
+    sources: dict[str, str] = {}
+    for name, value in (("ser", args.ser), ("omr_ned", args.omr_ned)):
+        if value is not None:
+            metrics[name], sources[name] = float(value), "arguments"
 
-    # Si se especifica un manifest de evaluación, computar métricas empíricas reales
-    if getattr(args, "manifest", None) and Path(args.manifest).is_file():
+    if getattr(args, "manifest", None) and len(metrics) < 2:
         from ml.experiments.exp_03_omr_quality import run as run_exp_03
 
         manifest_path = Path(args.manifest)
+        if not manifest_path.is_file():
+            print(
+                f"Error: No se encontró el manifest de evaluación en '{manifest_path}'",
+                file=sys.stderr,
+            )
+            return 1
         preds_dir = Path(args.predictions_dir) if getattr(args, "predictions_dir", None) else None
-        exp_summary = run_exp_03(
-            manifest_path,
-            predictions=preds_dir,
-            limit=None,
-            write_results=False,
-        )
+        try:
+            exp_summary = run_exp_03(
+                manifest_path,
+                predictions=preds_dir,
+                limit=None,
+                write_results=False,
+            )
+        except (FileNotFoundError, ValueError, KeyError, RuntimeError) as exc:
+            print(f"Error: no se pudieron medir las métricas con exp_03: {exc}", file=sys.stderr)
+            return 1
         if getattr(args, "penalized", False):
-            m_block = exp_summary.get("metrics_penalized_with_failures", {})
-            m_ser = m_block.get("mean_ser_penalized")
-            m_ned = m_block.get("mean_omr_ned_penalized")
+            m_block = exp_summary["metrics_penalized_with_failures"]
+            measured = {
+                "ser": m_block["mean_ser_penalized"],
+                "omr_ned": m_block["mean_omr_ned_penalized"],
+            }
         else:
-            m_block = exp_summary.get("metrics_on_successes", {})
-            m_ser = m_block.get("mean_ser")
-            m_ned = m_block.get("mean_omr_ned")
+            m_block = exp_summary["metrics_on_successes"]
+            measured = {"ser": m_block["mean_ser"], "omr_ned": m_block["mean_omr_ned"]}
+        for name, value in measured.items():
+            if name not in metrics and value is not None:
+                metrics[name], sources[name] = float(value), "manifest"
+        if len(metrics) < 2:
+            print(
+                f"Error: '{manifest_path}' no produjo SER y OMR-NED (ninguna transcripción "
+                "con éxito); no se sustituyen por las métricas del artefacto.",
+                file=sys.stderr,
+            )
+            return 1
 
-        if m_ser is not None and args.ser is None:
-            ser = float(m_ser)
-        if m_ned is not None and args.omr_ned is None:
-            omr_ned = float(m_ned)
+    raw_metrics = artifact_data.get("metrics") or {}
+    for name in ("ser", "omr_ned"):
+        if name not in metrics and raw_metrics.get(name) is not None:
+            metrics[name], sources[name] = float(raw_metrics[name]), "artifact"
+    if len(metrics) < 2:
+        print(
+            "Error: Faltan SER u OMR-NED: no vienen en --ser/--omr-ned, no se indicó --manifest "
+            "y el artefacto no las trae.",
+            file=sys.stderr,
+        )
+        return 1
+    ser, omr_ned = metrics["ser"], metrics["omr_ned"]
+    # Las métricas de `train` no son mediciones (D14): la marca se propaga, y un artefacto
+    # sin ella (anterior a #139) también cuenta como no medido.
+    simulated = "artifact" in sources.values() and bool(artifact_data.get("simulated", True))
 
     threshold = config.promotion_threshold
     meets_threshold = bool(ser <= threshold.max_ser and omr_ned <= threshold.max_omr_ned)
@@ -339,8 +416,12 @@ def evaluate_command(args: argparse.Namespace) -> int:
             "max_omr_ned": threshold.max_omr_ned,
         },
         "meets_threshold": meets_threshold,
+        "metrics_source": sources,
+        "simulated": simulated,
         "evaluated_at": datetime.datetime.now(datetime.UTC).isoformat(),
     }
+    if simulated:
+        report["simulation_warning"] = SIMULATED_METRICS_WARNING
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -374,9 +455,16 @@ def promote_command(args: argparse.Namespace) -> int:
         config = load_job_config(config_path)
 
     data = json.loads(input_path.read_text(encoding="utf-8"))
-    raw_metrics = data.get("metrics", {})
-    ser = float(raw_metrics.get("ser", 0.0))
-    omr_ned = float(raw_metrics.get("omr_ned", 0.0))
+    raw_metrics = data.get("metrics") or {}
+    if raw_metrics.get("ser") is None or raw_metrics.get("omr_ned") is None:
+        # Imputar 0.0 superaría cualquier umbral: sin métricas no se promueve (#139).
+        print(
+            f"Error: '{input_path}' no trae las métricas SER y OMR-NED que exige la promoción.",
+            file=sys.stderr,
+        )
+        return 1
+    ser = float(raw_metrics["ser"])
+    omr_ned = float(raw_metrics["omr_ned"])
 
     artifact_hash = str(data.get("artifact_hash", ""))
     dataset_h = str(data.get("dataset_hash", ""))
@@ -459,8 +547,11 @@ def promote_command(args: argparse.Namespace) -> int:
         "metrics": {"ser": ser, "omr_ned": omr_ned},
         "threshold": {"max_ser": max_ser, "max_omr_ned": max_omr_ned},
         "active_model_version": active_ver.version if active_ver else None,
+        "simulated": bool(data.get("simulated", True)),
         "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
     }
+    if result["simulated"]:
+        result["simulation_warning"] = SIMULATED_METRICS_WARNING
     output_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
     if not promoted_ok:
@@ -486,6 +577,12 @@ def run_command(args: argparse.Namespace) -> int:
     print("Cadenza Offline Learning Pipeline — Ejecución de Punta a Punta")
     print("=" * 60)
 
+    # Sin métricas, `train` fallaría: se comprueba antes de escribir nada en --work-dir.
+    metrics_error = _missing_metrics_error(args.ser, args.omr_ned)
+    if metrics_error is not None:
+        print(metrics_error, file=sys.stderr)
+        return 1
+
     work_dir = Path(args.work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -503,6 +600,7 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         status=args.status,
         owner_id=args.owner_id,
+        include_self_registered=args.include_self_registered,
     )
     rc = build_dataset_command(b_args)
     if rc != 0:
@@ -532,7 +630,6 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         ser=args.ser,
         omr_ned=args.omr_ned,
-        trainer=getattr(args, "trainer", "auto"),
     )
     rc = train_command(t_args)
     if rc != 0:
@@ -540,12 +637,14 @@ def run_command(args: argparse.Namespace) -> int:
 
     # 4. evaluate
     print("\n--- PASO 4: evaluate ---")
+    # Las métricas de --ser/--omr-ned ya van en el artefacto de `train`, con su marca de
+    # simuladas; evaluarlas desde él propaga esa marca al informe (#139).
     e_args = argparse.Namespace(
         input=str(trained_path),
         config=args.config,
         output=str(eval_path),
-        ser=args.ser,
-        omr_ned=args.omr_ned,
+        ser=None,
+        omr_ned=None,
     )
     rc = evaluate_command(e_args)
     if rc != 0:
@@ -602,6 +701,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", default="finalized", help="Filtrar por estado de sesión (default: finalized)."
     )
     p_build.add_argument("--owner-id", default=None, help="Filtrar por propietario (opcional).")
+    p_build.add_argument(
+        "--include-self-registered",
+        action="store_true",
+        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
+    )
 
     # 2. select
     p_select = subparsers.add_parser(
@@ -632,7 +736,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # 3. train
     p_train = subparsers.add_parser(
-        "train", help="Entrena un modelo (FakeTrainer) y persiste los pesos."
+        "train",
+        help=(
+            "Persiste los pesos de FakeTrainer con las métricas de --ser/--omr-ned, "
+            "marcadas como simuladas."
+        ),
     )
     p_train.add_argument(
         "--input",
@@ -654,19 +762,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_train.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
     p_train.add_argument(
-        "--ser", type=float, default=None, help="SER para el entrenador simulado (opcional)."
+        "--ser",
+        type=float,
+        default=None,
+        help="SER del artefacto, que se guarda como simulada (obligatoria con --omr-ned).",
     )
     p_train.add_argument(
         "--omr-ned",
         type=float,
         default=None,
-        help="OMR-NED para el entrenador simulado (opcional).",
-    )
-    p_train.add_argument(
-        "--trainer",
-        choices=["auto", "fake", "torch"],
-        default="auto",
-        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
+        help="OMR-NED del artefacto, que se guarda como simulada (obligatoria con --ser).",
     )
 
     # 4. evaluate
@@ -753,13 +858,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--status", default="finalized", help="Filtrar sesiones por estado.")
     p_run.add_argument("--owner-id", default=None, help="Filtrar sesiones por propietario.")
+    p_run.add_argument(
+        "--include-self-registered",
+        action="store_true",
+        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
+    )
     p_run.add_argument("--strategy", default=None, help="Estrategia de adquisición.")
     p_run.add_argument("--budget", type=int, default=None, help="Presupuesto de adquisición.")
     p_run.add_argument("--seed", type=int, default=None, help="Semilla.")
     p_run.add_argument("--version", default=None, help="Identificador de versión para registrar.")
-    p_run.add_argument("--ser", type=float, default=None, help="SER para el modelo entrenado.")
     p_run.add_argument(
-        "--omr-ned", type=float, default=None, help="OMR-NED para el modelo entrenado."
+        "--ser", type=float, default=None, help="SER del modelo entrenado (simulada, obligatoria)."
+    )
+    p_run.add_argument(
+        "--omr-ned",
+        type=float,
+        default=None,
+        help="OMR-NED del modelo entrenado (simulada, obligatoria).",
     )
     p_run.add_argument("--max-ser", type=float, default=None, help="Sobreescribir umbral máx SER.")
     p_run.add_argument(
@@ -768,30 +883,36 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--allow-rejected", action="store_true", help="No fallar si la promoción es rechazada."
     )
-    p_run.add_argument(
-        "--trainer",
-        choices=["auto", "fake", "torch"],
-        default="auto",
-        help="Backend del entrenador (auto, fake o torch). Por defecto auto.",
-    )
 
     # 7. export-effort (#33, D38)
     p_effort = subparsers.add_parser(
         "export-effort",
         help="Exporta métricas del estudio de esfuerzo a formato tabular (#33).",
     )
-    p_effort.add_argument("--db-url", default=None, help="URL de la base de datos relacional.")
+    p_effort.add_argument(
+        "--db-url",
+        default=None,
+        help="URL de la base con las sesiones del estudio (obligatoria salvo con --smoke).",
+    )
     p_effort.add_argument(
         "--output-dir",
-        default="results",
-        help="Directorio de destino para los archivos CSV y JSON.",
+        default=None,
+        help="Directorio de destino para los archivos CSV y JSON (por defecto, results/).",
     )
     p_effort.add_argument(
         "--smoke",
         action="store_true",
-        help="Generar datos sintéticos deterministas para pruebas rápidas.",
+        help=(
+            "Probar la exportación con datos sintéticos, marcados como simulados; exige un "
+            "--output-dir fuera de results/."
+        ),
     )
     p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
+
+    # 8. suggestions (capa de sugerencias, ADR-0036)
+    from ml import suggestions_cli
+
+    suggestions_cli.add_parser(subparsers)
 
     return parser
 
@@ -804,13 +925,17 @@ def export_effort_command(args: argparse.Namespace) -> int:
 
     from ml.experiments.exp_10_effort_study import run_effort_study_export
 
-    summary = run_effort_study_export(
-        db_url=args.db_url,
-        output_dir=args.output_dir,
-        smoke=args.smoke,
-        seed=args.seed,
-    )
-    print(f"Exportación de esfuerzo completada en: {args.output_dir}")
+    try:
+        summary = run_effort_study_export(
+            db_url=args.db_url,
+            output_dir=args.output_dir,
+            smoke=args.smoke,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    print(f"Exportación de esfuerzo completada en: {args.output_dir or 'results/'}")
     print(json.dumps(summary, indent=2, ensure_ascii=False))
     return 0
 
@@ -833,6 +958,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_command(args)
     if args.subcommand == "export-effort":
         return export_effort_command(args)
+    if args.subcommand == "suggestions":
+        from ml import suggestions_cli
+
+        return suggestions_cli.run(args)
 
     parser.print_help()
     return 1

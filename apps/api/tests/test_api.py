@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import replace
+from fractions import Fraction
 from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
 from cadenza.domain import ScoreDocument, build_anchor_index
-from cadenza.omr import FakeOMREngine, OMREngine
+from cadenza.omr import OMREngine
+from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,
@@ -32,7 +34,9 @@ ANCHOR = {
 
 
 class _UnbalancedEngine(OMREngine):
-    """Fake con el primer compás desbalanceado para ejercitar la validación."""
+    """Fake con el primer compás desbalanceado para ejercitar la validación: su silencio de
+    blanca, leído como redonda, hace que se pase (un primer compás corto sería la anacrusa, que
+    no se señala: ADR-0040 §4)."""
 
     def __init__(self) -> None:
         self._fake = FakeOMREngine()
@@ -46,7 +50,9 @@ class _UnbalancedEngine(OMREngine):
         part = document.score.parts[0]
         staff = part.staves[0]
         measures = staff.measures
-        broken = replace(measures[0], events=measures[0].events[:-1])
+        events = measures[0].events
+        longer = replace(events[-1], duration_beats=Fraction(4))
+        broken = replace(measures[0], events=(*events[:-1], longer))
         new_staff = replace(staff, measures=(broken, *measures[1:]))
         score = replace(document.score, parts=(replace(part, staves=(new_staff,)),))
         return replace(document, score=score, anchors=build_anchor_index(score))
@@ -73,7 +79,7 @@ def _client(omr_engine: OMREngine | None = None) -> TestClient:
     settings = Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long")
     app = create_app(
         session_factory,
-        omr_engine=omr_engine,
+        omr_engine=omr_engine if omr_engine is not None else FakeOMREngine(),
         settings=settings,
     )
     token = app.state.token_service.create_access_token(
@@ -176,8 +182,8 @@ def test_get_session_returns_document_anchors_and_findings() -> None:
 
 def test_get_session_includes_appended_edits(client: TestClient) -> None:
     session_id = client.post("/transcribe", files=_upload()).json()["session_id"]
-    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR}
-    client.post(f"/sessions/{session_id}/edits", json=payload)
+    payload = {"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR, "after": {"pitch": "D4"}}
+    assert client.post(f"/sessions/{session_id}/edits", json=payload).status_code == 201
 
     detail = client.get(f"/sessions/{session_id}").json()
     assert len(detail["edits"]) == 1
@@ -257,7 +263,7 @@ def test_ownership_authorization_rules_in_api() -> None:
         db.commit()
 
     settings = Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long")
-    app = create_app(session_factory, settings=settings)
+    app = create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
     token_serv = app.state.token_service
 
     t1_token = token_serv.create_access_token(user_id=u1.id, role=u1.role)

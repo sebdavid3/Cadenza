@@ -9,10 +9,14 @@ de compás tanto globalmente como por regla, y analiza la cobertura por tipo de 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from cadenza.domain import (
+    CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
+    MARK_EDIT_OPS,
+    METER_EDIT_OPS,
     EditEvent,
     EditOp,
     Finding,
@@ -173,7 +177,47 @@ def categorize_edit_op(op: EditOp | str) -> str:
         return "structure"
     if val in (EditOp.SET_KEY.value, EditOp.SET_CLEF.value):
         return "key_clef"
+    # Las marcas de notación (ADR-0039) no se derivan del diff con la verdad.
+    if val in {op.value for op in MARK_EDIT_OPS}:
+        return "marks"
+    # Ni el compás, los tresillos, la figura de un acorde o la ligadura de prolongación como
+    # edición (ADR-0044, ADR-0049, ADR-0055).
+    if val in {op.value for op in METER_EDIT_OPS}:
+        return "meter"
+    # Ni escribir en un hueco de una voz o hacerlo visible (ADR-0058).
+    if val in {op.value for op in GAP_EDIT_OPS}:
+        return "gap"
     return "other"
+
+
+def with_content_candidates(findings: Sequence[Finding]) -> tuple[Finding, ...]:
+    """Los hallazgos con solo los candidatos de contenido (`CONTENT_EDIT_OPS`).
+
+    La verdad de las mediciones es `derive_edit_events`, que solo produce operaciones de
+    contenido: un candidato de otra clase (cambiar el compás, ADR-0044) no se puede juzgar, así
+    que las mediciones de las sugerencias no lo cuentan (ADR-0039 §3, ADR-0044)."""
+
+    return tuple(
+        (
+            finding
+            if all(c.op in CONTENT_EDIT_OPS for c in finding.candidates)
+            else replace(
+                finding,
+                candidates=tuple(c for c in finding.candidates if c.op in CONTENT_EDIT_OPS),
+            )
+        )
+        for finding in findings
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class MeasureError:
+    """Una corrección real dirigida a un compás: su pentagrama, su número y su operación."""
+
+    part: int
+    staff: int
+    measure: int
+    op: str
 
 
 def evaluate_score_measures(
@@ -183,6 +227,29 @@ def evaluate_score_measures(
     edits: Sequence[EditEvent],
 ) -> list[MeasureEvaluationRecord]:
     """Evalúa compás a compás la partitura predicha contra hallazgos y ediciones reales."""
+    errors = [
+        MeasureError(
+            part=e.anchor.part,
+            staff=e.anchor.staff,
+            measure=e.anchor.measure,
+            op=e.op.value if hasattr(e.op, "value") else str(e.op),
+        )
+        for e in edits
+    ]
+    return evaluate_measures(score_id, score_pred, findings, errors)
+
+
+def evaluate_measures(
+    score_id: str,
+    score_pred: ScoreIR,
+    findings: Sequence[Finding],
+    errors: Sequence[MeasureError],
+) -> list[MeasureEvaluationRecord]:
+    """La definición por compás de `exp_06` con las correcciones reales dadas por compás.
+
+    Un compás tiene error si alguna corrección real va a él, y está marcado si algún hallazgo
+    está anclado en él. `exp_14` (#257) la usa con las correcciones del corpus de #255.
+    """
     records: list[MeasureEvaluationRecord] = []
 
     for part_idx, part in enumerate(score_pred.parts):
@@ -190,17 +257,15 @@ def evaluate_score_measures(
             for meas in staff.measures:
                 m_num = meas.number
 
-                # Ediciones reales dirigidas a este compás
-                meas_edits = [
+                # Correcciones reales dirigidas a este compás
+                meas_errors = [
                     e
-                    for e in edits
-                    if e.anchor.part == part_idx
-                    and e.anchor.staff == staff_idx
-                    and e.anchor.measure == m_num
+                    for e in errors
+                    if e.part == part_idx and e.staff == staff_idx and e.measure == m_num
                 ]
-                has_error = len(meas_edits) > 0
-                ops = tuple(e.op.value if hasattr(e.op, "value") else str(e.op) for e in meas_edits)
-                cats = tuple(sorted({categorize_edit_op(e.op) for e in meas_edits}))
+                has_error = len(meas_errors) > 0
+                ops = tuple(e.op for e in meas_errors)
+                cats = tuple(sorted({categorize_edit_op(e.op) for e in meas_errors}))
 
                 # Hallazgos del validador dirigidos a este compás
                 meas_findings = [
@@ -291,11 +356,14 @@ def aggregate_validation_metrics(
     # 4. Análisis cualitativo de la cobertura
     analysis = {
         "what_catalog_covers": (
-            "El catálogo simbólico detecta primordialmente errores que violan la gramática "
-            "musical formal: compases incompletos o excedidos en duración (regla measure.balance), "
-            "inconsistencias entre alteraciones accidentales y armadura tonal (key.consistency), "
-            "alturas que desbordan la tesitura de la clave (pitch.range), solapamientos "
-            "polifónicos temporales (voice.collision) y ligaduras huérfanas (tie.resolution)."
+            "El catálogo de reglas (ADR-0040) señala lo que no puede escribirse tal cual o es "
+            "sospechoso: compases cuyas figuras no llenan su capacidad (measure.balance), una "
+            "indicación de compás que no casa con lo que suman los compases (time.signature), "
+            "tresillos incompletos (tuplet.incomplete), una alteración contra la armadura que "
+            "repite la de la nota anterior de su altura en el compás (accidental.repeated), "
+            "armaduras distintas entre los pentagramas de una parte (key.consistency), alturas "
+            "fuera del registro de su clave (pitch.range), ligaduras de prolongación que no unen "
+            "dos notas iguales (tie.resolution) y acordes mal formados (voice.collision)."
         ),
         "what_catalog_cannot_cover": (
             "El catálogo simbólico no puede detectar errores de sustitución sintácticamente "
@@ -305,10 +373,11 @@ def aggregate_validation_metrics(
             "gramaticales y requieren señal visual del modelo OMR o feedback del corrector humano."
         ),
         "false_positive_nature": (
-            "Los falsos positivos en el corpus musical histórico provienen mayoritariamente de "
-            "convenciones notacionales de incipits: anacrusas iniciales o compases finales "
-            "incompletos no declarados explícitamente como tales en la métrica, que el validador "
-            "señala con razón como desbalance respecto a la armadura formal de 4/4."
+            "Los incipits de PrIMuS se cortan donde sea: un último compás corto sin anacrusa se "
+            "señala (en una página completa suele estar completo), y es la fuente esperada de "
+            "falsos positivos de measure.balance. La anacrusa, el último compás que la completa, "
+            "el silencio de compás y las notas de adorno ya no se señalan; una alteración "
+            "repetida que sí está escrita así es un falso positivo de accidental.repeated."
         ),
     }
 

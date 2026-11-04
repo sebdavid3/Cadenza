@@ -2,26 +2,140 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 from cadenza.application import (
     FindingNotFound,
+    NewSuggestion,
     PersistedFinding,
+    PersistedSuggestion,
     SessionData,
     SessionNotFound,
     SessionRepository,
     SessionSummary,
+    SuggestionConflict,
+    SuggestionNotFound,
 )
-from cadenza.domain import Finding
-from sqlalchemy import delete, func, select
+from cadenza.domain import (
+    PART_NAME_MAX_LENGTH,
+    Finding,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+)
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session as DbSession
 
-from .models import EditEventRecord, FindingRecord
+from .models import EditEventRecord, FindingRecord, SuggestionRecord
 from .models import Session as SessionRecord
 
+logger = logging.getLogger("cadenza.persistence.session_repository")
 
-def _to_persisted_finding(record: FindingRecord) -> PersistedFinding:
+
+def _metadata(
+    title: str | None, composer: str | None, part_instruments: list[dict[str, Any]] | None
+) -> ScoreMetadata:
+    """Los metadatos de una fila; NULL (una sesión anterior a #235) es sin metadatos.
+
+    Un instrumento que este código no conoce (guardado por una versión posterior) se lee como
+    `other` con su identificador por nombre si no tenía otro: una fila así no deja sin
+    respuesta el listado entero.
+    """
+    parts: list[PartMetadata] = []
+    for item in part_instruments or ():
+        try:
+            parts.append(PartMetadata.from_primitive(item))
+        except ValueError:
+            logger.warning("unknown_part_instrument value=%r", item.get("instrument"))
+            raw_name = item.get("name") or item.get("instrument")
+            parts.append(PartMetadata(Instrument.OTHER, name=str(raw_name)[:PART_NAME_MAX_LENGTH]))
+    return ScoreMetadata(title=title, composer=composer, parts=tuple(parts))
+
+
+def _metadata_columns(metadata: ScoreMetadata) -> dict[str, Any]:
+    """Las columnas de los metadatos (ADR-0041 §1): NULL lo que no se dio."""
+    return {
+        "title": metadata.title,
+        "composer": metadata.composer,
+        "part_instruments": metadata.parts_to_primitive() or None,
+    }
+
+
+def _to_session_data(record: SessionRecord) -> SessionData:
+    return SessionData(
+        id=record.id,
+        owner_id=record.owner_id,
+        document_id=record.document_id,
+        omr_engine=record.omr_engine,
+        document=record.document,
+        created_at=record.created_at,
+        image_artifact=record.image_artifact,
+        model_version=record.model_version,
+        status=record.status,
+        validated_at_seq=record.validated_at_seq,
+        condition=record.condition,
+        test_score_id=record.test_score_id,
+        metadata=_metadata(record.title, record.composer, record.part_instruments),
+        source_filename=record.source_filename,
+    )
+
+
+def _to_persisted_suggestion(record: SuggestionRecord) -> PersistedSuggestion:
+    return PersistedSuggestion(
+        id=record.id,
+        session_id=record.session_id,
+        finding_id=record.finding_id,
+        at_seq=record.at_seq,
+        rank=record.rank,
+        op=record.op,
+        anchor=record.anchor,
+        before=record.before,
+        after=record.after,
+        confidence=record.confidence,
+        confidence_level=record.confidence_level,
+        explanation=record.explanation,
+        source=record.source,
+        model_version=record.model_version,
+        response=record.response,
+        responded_by=record.responded_by,
+        responded_at=record.responded_at,
+        applied_seq=record.applied_seq,
+        inherited_from=record.inherited_from,
+    )
+
+
+def _suggestion_record(
+    new: NewSuggestion, *, session_id: str, finding_id: int, at_seq: int, rank: int
+) -> SuggestionRecord:
+    edit = new.edit
+    inherited = new.inherited
+    return SuggestionRecord(
+        session_id=session_id,
+        finding_id=finding_id,
+        at_seq=at_seq,
+        rank=rank,
+        op=edit.op.value,
+        anchor=edit.anchor.to_primitive(),
+        before=None if edit.before is None else dict(edit.before),
+        after=None if edit.after is None else dict(edit.after),
+        confidence=edit.confidence,
+        confidence_level=edit.confidence_level or "medium",
+        explanation=edit.explanation,
+        source=edit.source,
+        model_version=edit.model_version,
+        response=None if inherited is None else inherited.response,
+        responded_by=None if inherited is None else inherited.responded_by,
+        responded_at=None if inherited is None else inherited.responded_at,
+        inherited_from=None if inherited is None else inherited.inherited_from or inherited.id,
+    )
+
+
+def _to_persisted_finding(
+    record: FindingRecord, suggestions: Sequence[PersistedSuggestion] = ()
+) -> PersistedFinding:
     return PersistedFinding(
         id=record.id,
         rule_id=record.rule_id,
@@ -34,6 +148,7 @@ def _to_persisted_finding(record: FindingRecord) -> PersistedFinding:
         dismissed_at=record.dismissed_at,
         dismissed_by=record.dismissed_by,
         dismissal_reason=record.dismissal_reason,
+        suggestions=tuple(suggestions),
     )
 
 
@@ -43,7 +158,51 @@ class SqlAlchemySessionRepository(SessionRepository):
     def __init__(self, session: DbSession) -> None:
         self._session = session
 
-    def add(self, session: SessionData, findings: Sequence[Finding]) -> SessionData:
+    def _store_suggestions(
+        self,
+        session_id: str,
+        records: Sequence[FindingRecord],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None,
+    ) -> None:
+        if not suggestions:
+            return
+        rows = [
+            _suggestion_record(
+                new, session_id=session_id, finding_id=record.id, at_seq=record.at_seq, rank=rank
+            )
+            for record, news in zip(records, suggestions, strict=True)
+            for rank, new in enumerate(news)
+        ]
+        self._session.add_all(rows)
+        self._session.flush()
+
+    def _attach(
+        self, session_id: str, records: Sequence[FindingRecord]
+    ) -> tuple[PersistedFinding, ...]:
+        ids = [record.id for record in records]
+        by_finding: dict[int, list[PersistedSuggestion]] = {}
+        if ids:
+            stmt = (
+                select(SuggestionRecord)
+                .where(
+                    SuggestionRecord.session_id == session_id,
+                    SuggestionRecord.finding_id.in_(ids),
+                )
+                .order_by(SuggestionRecord.finding_id, SuggestionRecord.rank)
+            )
+            for row in self._session.scalars(stmt).all():
+                assert row.finding_id is not None
+                by_finding.setdefault(row.finding_id, []).append(_to_persisted_suggestion(row))
+        return tuple(
+            _to_persisted_finding(record, by_finding.get(record.id, ())) for record in records
+        )
+
+    def add(
+        self,
+        session: SessionData,
+        findings: Sequence[Finding],
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
+    ) -> SessionData:
         record = SessionRecord(
             id=session.id,
             owner_id=session.owner_id,
@@ -56,7 +215,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             document=session.document,
             condition=session.condition,
             test_score_id=session.test_score_id,
+            source_filename=session.source_filename,
             created_at=session.created_at or datetime.now(UTC),
+            **_metadata_columns(session.metadata),
         )
         record.findings = [
             FindingRecord(
@@ -72,26 +233,14 @@ class SqlAlchemySessionRepository(SessionRepository):
         ]
         self._session.add(record)
         self._session.flush()
+        self._store_suggestions(session.id, record.findings, suggestions)
         return session
 
     def get(self, session_id: str) -> SessionData | None:
         record = self._session.get(SessionRecord, session_id)
         if record is None:
             return None
-        return SessionData(
-            id=record.id,
-            owner_id=record.owner_id,
-            document_id=record.document_id,
-            omr_engine=record.omr_engine,
-            document=record.document,
-            created_at=record.created_at,
-            image_artifact=record.image_artifact,
-            model_version=record.model_version,
-            status=record.status,
-            validated_at_seq=record.validated_at_seq,
-            condition=record.condition,
-            test_score_id=record.test_score_id,
-        )
+        return _to_session_data(record)
 
     def update_status(self, session_id: str, status: str) -> SessionData:
         record = self._session.get(SessionRecord, session_id)
@@ -99,20 +248,18 @@ class SqlAlchemySessionRepository(SessionRepository):
             raise SessionNotFound(session_id)
         record.status = status
         self._session.flush()
-        return SessionData(
-            id=record.id,
-            owner_id=record.owner_id,
-            document_id=record.document_id,
-            omr_engine=record.omr_engine,
-            document=record.document,
-            created_at=record.created_at,
-            image_artifact=record.image_artifact,
-            model_version=record.model_version,
-            status=record.status,
-            validated_at_seq=record.validated_at_seq,
-            condition=record.condition,
-            test_score_id=record.test_score_id,
-        )
+        return _to_session_data(record)
+
+    def update_metadata(self, session_id: str, metadata: ScoreMetadata) -> SessionData:
+        record = self._session.get(SessionRecord, session_id)
+        if record is None:
+            raise SessionNotFound(session_id)
+        columns = _metadata_columns(metadata)
+        record.title = columns["title"]
+        record.composer = columns["composer"]
+        record.part_instruments = columns["part_instruments"]
+        self._session.flush()
+        return _to_session_data(record)
 
     def list(
         self,
@@ -126,23 +273,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(SessionRecord.status == status)
         stmt = stmt.order_by(SessionRecord.created_at)
         records = self._session.scalars(stmt).all()
-        return tuple(
-            SessionData(
-                id=record.id,
-                owner_id=record.owner_id,
-                document_id=record.document_id,
-                omr_engine=record.omr_engine,
-                document=record.document,
-                created_at=record.created_at,
-                image_artifact=record.image_artifact,
-                model_version=record.model_version,
-                status=record.status,
-                validated_at_seq=record.validated_at_seq,
-                condition=record.condition,
-                test_score_id=record.test_score_id,
-            )
-            for record in records
-        )
+        return tuple(_to_session_data(record) for record in records)
 
     def replace_findings(
         self,
@@ -151,11 +282,30 @@ class SqlAlchemySessionRepository(SessionRepository):
         *,
         at_seq: int,
         dismissed_statuses: Sequence[PersistedFinding | None] | None = None,
+        suggestions: Sequence[Sequence[NewSuggestion]] | None = None,
     ) -> tuple[PersistedFinding, ...]:
         record = self._session.get(SessionRecord, session_id)
         if record is None:
             raise SessionNotFound(session_id)
         record.validated_at_seq = at_seq
+
+        # Las sugerencias de ese estado: sin respuesta se van con su hallazgo; con respuesta se
+        # conservan desvinculadas (ADR-0036 §4).
+        self._session.execute(
+            delete(SuggestionRecord).where(
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.at_seq == at_seq,
+                SuggestionRecord.response.is_(None),
+            )
+        )
+        self._session.execute(
+            update(SuggestionRecord)
+            .where(
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.at_seq == at_seq,
+            )
+            .values(finding_id=None)
+        )
 
         # Re-evaluar el mismo estado sustituye sus hallazgos (idempotencia por
         # `(session_id, at_seq)`); los de otros estados se conservan (ADR-0013).
@@ -190,8 +340,9 @@ class SqlAlchemySessionRepository(SessionRepository):
             )
         self._session.add_all(new_records)
         self._session.flush()
+        self._store_suggestions(session_id, new_records, suggestions)
 
-        return tuple(_to_persisted_finding(r) for r in new_records)
+        return self._attach(session_id, new_records)
 
     def dismiss_finding(
         self,
@@ -219,7 +370,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         finding_row.dismissal_reason = reason
         self._session.flush()
 
-        return _to_persisted_finding(finding_row)
+        return self._attach(session_id, [finding_row])[0]
 
     def restore_finding(
         self,
@@ -244,7 +395,7 @@ class SqlAlchemySessionRepository(SessionRepository):
         finding_row.dismissal_reason = None
         self._session.flush()
 
-        return _to_persisted_finding(finding_row)
+        return self._attach(session_id, [finding_row])[0]
 
     def list_findings(
         self,
@@ -266,7 +417,7 @@ class SqlAlchemySessionRepository(SessionRepository):
             stmt = stmt.where(FindingRecord.at_seq == record.validated_at_seq)
 
         rows = self._session.scalars(stmt.order_by(FindingRecord.id)).all()
-        return tuple(_to_persisted_finding(row) for row in rows)
+        return self._attach(session_id, rows)
 
     def list_dismissed_findings(
         self,
@@ -284,7 +435,58 @@ class SqlAlchemySessionRepository(SessionRepository):
             .order_by(FindingRecord.id)
         )
         rows = self._session.scalars(stmt).all()
-        return tuple(_to_persisted_finding(row) for row in rows)
+        return self._attach(session_id, rows)
+
+    def get_suggestion(self, session_id: str, suggestion_id: int) -> PersistedSuggestion | None:
+        row = self._session.get(SuggestionRecord, suggestion_id)
+        if row is None or row.session_id != session_id:
+            return None
+        return _to_persisted_suggestion(row)
+
+    def respond_suggestion(
+        self,
+        session_id: str,
+        suggestion_id: int,
+        *,
+        response: str,
+        user: str,
+        applied_seq: int | None = None,
+    ) -> PersistedSuggestion:
+        row = self._session.get(SuggestionRecord, suggestion_id)
+        if row is None or row.session_id != session_id:
+            raise SuggestionNotFound(suggestion_id)
+        # Solo si no tenía respuesta, en la misma sentencia: dos peticiones a la vez no pueden
+        # cambiar una respuesta guardada (ADR-0036 §5).
+        result = self._session.execute(
+            update(SuggestionRecord)
+            .where(
+                SuggestionRecord.id == suggestion_id,
+                SuggestionRecord.session_id == session_id,
+                SuggestionRecord.response.is_(None),
+            )
+            .values(
+                response=response,
+                responded_by=user,
+                responded_at=datetime.now(UTC),
+                applied_seq=applied_seq,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        if getattr(result, "rowcount", 0) != 1:
+            raise SuggestionConflict(
+                suggestion_id, f"La sugerencia {suggestion_id} ya tiene respuesta"
+            )
+        self._session.refresh(row)
+        return _to_persisted_suggestion(row)
+
+    def list_suggestions(
+        self, session_id: str, *, at_seq: int | None = None
+    ) -> tuple[PersistedSuggestion, ...]:
+        stmt = select(SuggestionRecord).where(SuggestionRecord.session_id == session_id)
+        if at_seq is not None:
+            stmt = stmt.where(SuggestionRecord.at_seq == at_seq)
+        rows = self._session.scalars(stmt.order_by(SuggestionRecord.id)).all()
+        return tuple(_to_persisted_suggestion(row) for row in rows)
 
     def list_summaries(
         self,
@@ -323,6 +525,10 @@ class SqlAlchemySessionRepository(SessionRepository):
             SessionRecord.owner_id,
             SessionRecord.condition,
             SessionRecord.test_score_id,
+            SessionRecord.title,
+            SessionRecord.composer,
+            SessionRecord.part_instruments,
+            SessionRecord.source_filename,
             findings_count_sq.label("findings_count"),
             edits_count_sq.label("edits_count"),
         )
@@ -355,6 +561,8 @@ class SqlAlchemySessionRepository(SessionRepository):
                 edits_count=int(row.edits_count or 0),
                 condition=row.condition,
                 test_score_id=row.test_score_id,
+                metadata=_metadata(row.title, row.composer, row.part_instruments),
+                source_filename=row.source_filename,
             )
             for row in rows
         )

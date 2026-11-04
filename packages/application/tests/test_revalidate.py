@@ -209,7 +209,7 @@ def test_revalidate_detects_new_error_introduced_by_edit(
     store = InMemoryArtifactStore()
 
     # Empezamos con un documento balanceado (FakeOMREngine)
-    from cadenza.omr import FakeOMREngine
+    from cadenza.omr.testing import FakeOMREngine
 
     session_id = _transcribe_initial(
         FakeOMREngine(),

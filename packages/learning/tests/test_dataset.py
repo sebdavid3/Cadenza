@@ -215,3 +215,51 @@ def test_build_excludes_undone_edits_and_compensatory_reversions() -> None:
     assert samples[0].before_pitch == "D4"
     assert samples[0].after_pitch == "E4"
     assert samples[0].anchor.event_index == 1
+
+
+def test_mark_edits_are_not_samples() -> None:
+    """Las ediciones de marcas de notación no son muestras del dataset (ADR-0031 §6,
+    ADR-0039), ni cambian el ancla de origen de las demás."""
+    document = make_document()
+    marks = make_edit(1, make_anchor(0), None, None, op=EditOp.SET_NOTE_MARKS)
+    object.__setattr__(marks, "before", {"articulations": [], "fermata": False})
+    object.__setattr__(marks, "after", {"articulations": ["accent"], "fermata": False})
+    slur = make_edit(2, make_anchor(0), None, None, op=EditOp.SET_SLUR)
+    object.__setattr__(slur, "before", {"number": 1, "start": None, "stop": None})
+    pitch = make_edit(3, make_anchor(1), "D4", "E4")
+
+    samples = DatasetBuilder().build(document, [marks, slur, pitch])
+
+    assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
+    assert samples[0].anchor.event_index == 1
+    assert samples == DatasetBuilder().build(document, [pitch])
+
+
+def test_meter_edits_are_not_samples() -> None:
+    """Las ediciones del compás y de los tresillos no son muestras del dataset (ADR-0044): la
+    muestra es de un evento y su altura, y `derive_edit_events` no las produce."""
+    document = make_document()
+    time = make_edit(1, make_anchor(0), None, None, op=EditOp.SET_TIME)
+    object.__setattr__(time, "before", {"time_signature": None, "measures": 1})
+    object.__setattr__(time, "after", {"time_signature": {"beats": 3, "beat_type": 4}})
+    tuplet = make_edit(2, make_anchor(0), None, None, op=EditOp.SET_TUPLET)
+    object.__setattr__(tuplet, "before", {"durations": ["1/2"]})
+    object.__setattr__(tuplet, "after", {"durations": ["1/3"]})
+    # Ni la figura de un acorde (ADR-0049).
+    chord = make_edit(4, make_anchor(0), None, None, op=EditOp.SET_CHORD_DURATION)
+    object.__setattr__(chord, "before", {"durations": ["1", "1"]})
+    object.__setattr__(chord, "after", {"durations": ["2", "2"]})
+    # Ni la ligadura de prolongación (ADR-0055).
+    tie = make_edit(5, make_anchor(0), None, None, op=EditOp.SET_TIE)
+    object.__setattr__(tie, "before", {"tie": None, "next": None})
+    object.__setattr__(tie, "after", {"tie": "start", "next": None})
+    # Ni escribir en un hueco de una voz (ADR-0058).
+    gap = make_edit(6, make_anchor(0), None, None, op=EditOp.SET_EVENT_KIND)
+    object.__setattr__(gap, "before", {"kind": "rest", "pitch": None, "hidden": True})
+    object.__setattr__(gap, "after", {"kind": "note", "pitch": "E4", "hidden": False})
+    pitch = make_edit(3, make_anchor(1), "D4", "E4")
+
+    samples = DatasetBuilder().build(document, [time, tuplet, chord, tie, gap, pitch])
+
+    assert [sample.op for sample in samples] == [EditOp.SET_PITCH]
+    assert samples == DatasetBuilder().build(document, [pitch])

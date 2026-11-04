@@ -1,0 +1,54 @@
+/* Tu cuenta: la cabecera de las vistas privadas y un panel con el formulario del acceso. */
+
+.account__head {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.account__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.account__lead {
+  max-width: 62ch;
+  color: var(--color-ink-muted);
+}
+
+.account__lead strong {
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.account__panel {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 36rem;
+  padding: var(--space-6) var(--gutter) var(--space-8);
+}
+
+.account__subtitle {
+  justify-self: start;
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.account__form {
+  display: grid;
+  gap: var(--space-5);
+}
+
+/* El foco llega aquí por programa, para anunciar el resultado; el anillo, como en el acceso. */
+.account__done:focus-visible {
+  outline-offset: 2px;
+}

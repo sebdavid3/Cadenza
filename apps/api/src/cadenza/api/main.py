@@ -8,45 +8,72 @@ PasswordHasher, TokenService) y delega la orquestación a la capa de aplicación
 
 from __future__ import annotations
 
-import asyncio
+import json
 import logging
+import os
+import re
+import sys
 import tempfile
+import threading
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from cadenza.application import (
     ArtifactStore,
     DuplicateUsername,
     FindingNotFound,
     Forbidden,
+    InMemoryScoreStateCache,
     InvalidEdit,
+    InvalidEffortSegment,
+    InvalidSessionMetadata,
     NoEditsToUndo,
     NotAuthenticated,
     PasswordHasher,
+    PreviewCapacityExceeded,
+    PreviewNotFound,
     Role,
     ScoreExporter,
+    ScoreStateCache,
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
+    StaleSuggestion,
+    SuggestionConflict,
+    SuggestionModel,
+    SuggestionNotFound,
     TokenService,
+    TranscribeResult,
+    Unchanged,
     UnsupportedExportFormat,
     User,
     UserNotFound,
     WeakPassword,
+    collect_stage_timings,
+    detect_image_media_type,
+    ensure_preview_capacity,
     is_image_content,
     normalize_condition,
+    timed_stage,
 )
 from cadenza.application import (
-    append_edit as append_edit_use_case,
+    append_edit_with_state as append_edit_use_case,
 )
 from cadenza.application import (
     authenticate as authenticate_use_case,
 )
 from cadenza.application import (
     change_password as change_password_use_case,
+)
+from cadenza.application import (
+    claim_preview as claim_preview_use_case,
+)
+from cadenza.application import (
+    create_preview as create_preview_use_case,
 )
 from cadenza.application import (
     create_user as create_user_use_case,
@@ -85,6 +112,15 @@ from cadenza.application import (
     record_effort as record_effort_use_case,
 )
 from cadenza.application import (
+    record_effort_segment as record_effort_segment_use_case,
+)
+from cadenza.application import (
+    register_user as register_user_use_case,
+)
+from cadenza.application import (
+    reject_suggestion as reject_suggestion_use_case,
+)
+from cadenza.application import (
     reopen_session as reopen_session_use_case,
 )
 from cadenza.application import (
@@ -100,23 +136,37 @@ from cadenza.application import (
     undo_edit as undo_edit_use_case,
 )
 from cadenza.application import (
+    update_session_metadata as update_session_metadata_use_case,
+)
+from cadenza.application import (
     update_user as update_user_use_case,
+)
+from cadenza.domain import (
+    COMPOSER_MAX_LENGTH,
+    PART_NAME_MAX_LENGTH,
+    TITLE_MAX_LENGTH,
+    Instrument,
+    PartMetadata,
+    ScoreMetadata,
+    TimingMap,
+    compute_timing_map,
 )
 from cadenza.interchange import Music21ScoreExporter
 from cadenza.omr import (
-    FakeOMREngine,
     HOMREngine,
-    OemerEngine,
+    MeterStage,
     OMREngine,
     OMRTranscriptionError,
     get_effective_device,
 )
+from cadenza.omr.power import disable_power_throttling
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemyEffortRepository,
     SqlAlchemyModelRegistry,
+    SqlAlchemyPreviewRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -124,11 +174,25 @@ from cadenza.persistence import (
     create_session_factory,
 )
 from cadenza.validation import ValidationEngine, ValidationRule, get_default_rules
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi import Path as PathParam
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
@@ -137,22 +201,32 @@ from .schemas import (
     AnchorPayload,
     ChangePasswordRequest,
     DismissFindingRequest,
+    EditAppliedRead,
     EditEventCreate,
     EditEventRead,
     EffortMetricsCreate,
     EffortMetricsRead,
+    EffortSegmentUpdate,
     ErrorDetail,
     EventTimingRead,
     FinalizeResponse,
     FindingRead,
     HealthStatusResponse,
+    PartInstrumentRead,
+    PreviewClaimRequest,
+    PreviewResponse,
+    RegisterRequest,
     ReopenResponse,
     RevalidateResponse,
     ScoreDocumentPayload,
     ScoreIRPayload,
     SessionDetailRead,
+    SessionMetadataRead,
+    SessionMetadataUpdate,
     SessionSummaryRead,
+    SessionViewRead,
     StatusResponse,
+    SuggestionRead,
     TimingMapRead,
     TokenResponse,
     TranscribeResponse,
@@ -163,8 +237,19 @@ from .schemas import (
     UserUpdate,
     VersionResponse,
 )
-from .security import Argon2PasswordHasher, JwtTokenService, LoginRateLimiter
+from .security import (
+    Argon2PasswordHasher,
+    JwtTokenService,
+    LoginRateLimiter,
+    client_network_key,
+)
 from .settings import Settings
+from .suggestions import load_suggestion_model
+from .transcription_slots import (
+    RETRY_AFTER_SECONDS,
+    TranscriptionSlots,
+    run_in_transcription_slot,
+)
 
 logger = logging.getLogger("cadenza.api")
 API_VERSION = "1.0.0"
@@ -200,6 +285,27 @@ UNPROCESSABLE_422: dict[int | str, dict[str, Any]] = {
         "description": "Entidad no procesable o violación de validación de negocio",
     }
 }
+RATE_LIMITED_429: dict[int | str, dict[str, Any]] = {
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": ErrorDetail,
+        "description": "Demasiados intentos desde la misma IP; ver la cabecera Retry-After",
+    }
+}
+TRANSCRIBE_BUSY_503: dict[int | str, dict[str, Any]] = {
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": ErrorDetail,
+        "description": (
+            "Demasiadas transcripciones en curso: reintentar tras la cabecera Retry-After "
+            "(ADR-0024)"
+        ),
+        "headers": {
+            "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {"type": "integer"},
+            }
+        },
+    }
+}
 UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
     status.HTTP_413_CONTENT_TOO_LARGE: {
         "model": ErrorDetail,
@@ -213,6 +319,174 @@ UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+# Un X-Request-ID del cliente se acepta si tiene esta forma; si no, se genera otro: va al
+# registro tal cual (#275).
+_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
+# Orden de las etapas en `Server-Timing` (ADR-0037); las demás, detrás.
+_STAGE_ORDER = ("db", "materialize", "export", "timing", "serialize")
+
+
+def _server_timing(stages: dict[str, float], total_ms: float) -> str:
+    """`db;dur=1.20, materialize;dur=0.40, …, total;dur=3.10` (milisegundos)."""
+    names = [n for n in _STAGE_ORDER if n in stages] + sorted(
+        n for n in stages if n not in _STAGE_ORDER
+    )
+    items = [f"{name};dur={stages[name]:.2f}" for name in names]
+    items.append(f"total;dur={total_ms:.2f}")
+    return ", ".join(items)
+
+
+def _json_response(model: BaseModel, status_code: int = status.HTTP_200_OK) -> Response:
+    """Serializa el modelo una sola vez, medido como etapa `serialize` (#275).
+
+    FastAPI validaría y serializaría de nuevo lo que ya es un modelo del contrato; con una
+    partitura entera, eso es la mayor parte de la serialización.
+    """
+    with timed_stage("serialize"):
+        body = model.model_dump_json()
+    return Response(content=body, status_code=status_code, media_type="application/json")
+
+
+# Extensiones admitidas para el archivo temporal según el tipo real de la imagen; la primera es
+# la que se usa si la subida no trae una que corresponda (#295).
+_IMAGE_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "image/png": (".png",),
+    "image/jpeg": (".jpg", ".jpeg", ".jpe"),
+    "image/gif": (".gif",),
+    "image/bmp": (".bmp",),
+    "image/tiff": (".tif", ".tiff"),
+    "image/webp": (".webp",),
+}
+
+
+def _upload_temp_name(filename: str | None, content: bytes) -> str:
+    """Nombre propio del archivo temporal de una subida, con solo su extensión comprobada (#295).
+
+    El nombre subido no llega al disco: HOMR lee con `cv2.imread`, que en Windows no abre una
+    ruta con caracteres fuera de ASCII, y un nombre de solo espacios no es un archivo en Windows.
+    """
+    suffixes = _IMAGE_SUFFIXES.get(detect_image_media_type(content), (".png",))
+    suffix = Path(filename or "").suffix.lower()
+    return "upload" + (suffix if suffix in suffixes else suffixes[0])
+
+
+class _SurrogateSafeJSONResponse(JSONResponse):
+    """`JSONResponse` que, si UTF-8 no puede codificar un sustituto suelto, lo escapa (#295).
+
+    Sin sustitutos, el cuerpo es el de `JSONResponse`, byte a byte.
+    """
+
+    def render(self, content: Any) -> bytes:
+        try:
+            return super().render(content)
+        except UnicodeEncodeError:
+            return json.dumps(
+                content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+            ).encode("ascii")
+
+
+def _timing_read(session_id: str, timing_map: TimingMap) -> TimingMapRead:
+    return TimingMapRead(
+        session_id=session_id,
+        total_beats=str(timing_map.total_beats),
+        measure_offsets={str(k): str(v) for k, v in timing_map.measure_offsets.items()},
+        events=[
+            EventTimingRead(
+                anchor=AnchorPayload.model_validate(ev.anchor.to_primitive()),
+                kind=ev.kind.value,
+                measure_number=ev.measure_number,
+                voice=ev.voice,
+                offset_beats=str(ev.offset_beats),
+                duration_beats=str(ev.duration_beats),
+                measure_offset_beats=str(ev.measure_offset_beats),
+            )
+            for ev in timing_map.events
+        ],
+    )
+
+
+def _transcribe_metadata(
+    title: str | None,
+    composer: str | None,
+    instruments: Sequence[Instrument | Literal[""]] | None,
+    part_names: Sequence[str] | None,
+) -> ScoreMetadata:
+    """Los metadatos de `POST /transcribe`, o 422 antes de transcribir (#235, ADR-0041)."""
+
+    instrument_list = list(instruments or ())
+    name_list = list(part_names or ())
+    count = max(len(instrument_list), len(name_list))
+    try:
+        return ScoreMetadata(
+            title=title,
+            composer=composer,
+            parts=tuple(
+                PartMetadata(
+                    instrument=(
+                        Instrument(instrument_list[i])
+                        if i < len(instrument_list) and instrument_list[i]
+                        else None
+                    ),
+                    name=name_list[i] if i < len(name_list) else None,
+                )
+                for i in range(count)
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
+async def _read_image_upload(file: UploadFile, max_bytes: int) -> bytes:
+    """Lee la imagen subida con las comprobaciones de `POST /transcribe`: 415 si no es una
+    imagen (por el tipo declarado o por sus primeros bytes) y 413 si pasa de `max_bytes`."""
+
+    declared_type = (file.content_type or "").lower()
+    if declared_type == "application/pdf" or (
+        declared_type
+        and not (declared_type.startswith("image/") or declared_type == "application/octet-stream")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no soportado. Se requiere una imagen.",
+        )
+    content = await file.read()
+    if len(content) > max_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"El archivo excede el tamaño máximo permitido ({max_bytes} bytes).",
+        )
+    if not is_image_content(content):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
+        )
+    return content
+
+
+def _effective_engine(request: Request, db: DbSession, artifact_store: ArtifactStore) -> OMREngine:
+    """El motor OMR de la petición: el de la app o, si hay una versión activa en el registro,
+    el construido con ella (#21)."""
+
+    app_settings: Settings = request.app.state.settings
+    model_registry = getattr(request.app.state, "model_registry", None) or SqlAlchemyModelRegistry(
+        db
+    )
+    active_version = model_registry.active()
+    engine: OMREngine = request.app.state.omr_engine
+    if active_version is None or not hasattr(type(engine), "from_active_model"):
+        return engine
+    # Solo HOMR sabe construirse con una versión del registro; los dobles de las pruebas, no.
+    engine_type: Any = type(engine)
+    built: OMREngine = engine_type.from_active_model(
+        model_registry,
+        artifact_store,
+        use_gpu=app_settings.omr_use_gpu,
+        preprocessing=getattr(engine, "_preprocessing", None),
+    )
+    return built
+
 
 def get_db(request: Request) -> Iterator[DbSession]:
     """Dependencia de base de datos: una sesión por request, con commit/rollback."""
@@ -221,7 +495,8 @@ def get_db(request: Request) -> Iterator[DbSession]:
     session = factory()
     try:
         yield session
-        session.commit()
+        with timed_stage("db"):
+            session.commit()
     except Exception:
         session.rollback()
         raise
@@ -229,7 +504,11 @@ def get_db(request: Request) -> Iterator[DbSession]:
         session.close()
 
 
-DbDep = Annotated[DbSession, Depends(get_db)]
+# scope="function": la transacción se confirma (o se deshace) al terminar la ruta y antes de
+# enviar la respuesta. Con el ámbito por defecto de FastAPI («request»), el commit corría después
+# de enviarla: el cliente recibía un 2xx aunque el commit fallase, y una petición inmediata podía
+# no ver lo que acababa de crear (#166).
+DbDep = Annotated[DbSession, Depends(get_db, scope="function")]
 
 
 def get_current_user(
@@ -250,7 +529,8 @@ def get_current_user(
         ) from err
 
     user_repo = SqlAlchemyUserRepository(db)
-    user = user_repo.get(payload.sub)
+    with timed_stage("db"):
+        user = user_repo.get(payload.sub)
     if user is None or not user.active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -273,6 +553,30 @@ def get_artifact_store(request: Request, db: DbSession) -> ArtifactStore:
     return FilesystemArtifactStore(settings.artifacts_dir, session=db)
 
 
+def configure_logging() -> None:
+    """Configura el manejador para los registradores 'cadenza.*' si no existe ninguno.
+
+    Garantiza que bajo el arranque documentado (uvicorn cadenza.api.main:create_default_app
+    --factory) los registros de cadenza.* sean visibles en la salida de error estándar (stderr)
+    con formato unificado, sin líneas duplicadas y sin alterar la configuración de quienes ya
+    traigan la suya.
+    """
+    cadenza_logger = logging.getLogger("cadenza")
+    if not cadenza_logger.hasHandlers():
+        handler = logging.StreamHandler(sys.stderr)
+        formatter: logging.Formatter
+        try:
+            from uvicorn.logging import DefaultFormatter
+
+            formatter = DefaultFormatter("%(levelprefix)s %(message)s")
+        except ImportError:
+            formatter = logging.Formatter("%(levelname)s:     %(message)s")
+        handler.setFormatter(formatter)
+        cadenza_logger.addHandler(handler)
+        if cadenza_logger.level == logging.NOTSET:
+            cadenza_logger.setLevel(logging.INFO)
+
+
 def create_app(
     session_factory: SessionFactory,
     *,
@@ -284,14 +588,41 @@ def create_app(
     artifact_store: ArtifactStore | None = None,
     score_exporter: ScoreExporter | None = None,
     model_registry: Any | None = None,
+    score_cache: ScoreStateCache | None = None,
+    suggestion_model: SuggestionModel | None = None,
+    meter_stage: MeterStage | None = None,
 ) -> FastAPI:
-    """Construye la aplicación con dependencias inyectadas (raíz de composición)."""
+    """Construye la aplicación con dependencias inyectadas (raíz de composición).
 
+    La capa de sugerencias (ADR-0036) solo corre con `Settings.suggestions_enabled`: la
+    versión promovida del registro se carga aquí, al arrancar, envuelta en la política de qué
+    se muestra (ADR-0036, enmienda 19), salvo que se inyecte otra: la inyectada se usa tal
+    cual, sin política.
+
+    La etapa del compás (ADR-0059) corre tras HOMR con los rasgos de
+    `Settings.omr_meter_features`. Con un motor inyectado solo corre la etapa que se inyecte:
+    el doble de pruebas da su partitura tal cual.
+    """
+
+    configure_logging()
     app_settings = settings or Settings()
     if not app_settings.auth_secret_key and token_service is None:
         raise RuntimeError(
             "CADENZA_AUTH_SECRET_KEY no configurada: "
             "la aplicación no puede iniciar sin clave de firma."
+        )
+
+    if app_settings.disable_power_throttling:
+        throttling_applied = disable_power_throttling()
+        logger.info(
+            "power_throttling_disabled requested=True applied=%s platform=%s",
+            throttling_applied,
+            sys.platform,
+        )
+    else:
+        logger.info(
+            "power_throttling_disabled requested=False applied=False platform=%s",
+            sys.platform,
         )
 
     app = FastAPI(
@@ -328,22 +659,32 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=app_settings.cors_origins,
-            allow_credentials=True,
+            # Con `*` no se envían credenciales: Starlette devolvería como permitido cualquier
+            # origen junto con `Allow-Credentials` (#123). La API usa tokens Bearer, no cookies.
+            allow_credentials="*" not in app_settings.cors_origins,
             allow_methods=["*"],
             allow_headers=["*"],
-            expose_headers=["X-Request-ID", "X-API-Version"],
+            expose_headers=["X-Request-ID", "X-API-Version", "Server-Timing"],
         )
 
     @app.middleware("http")
     async def request_id_and_access_log_middleware(request: Request, call_next: Any) -> Response:
-        req_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex
+        # El que envía la web (#275) relaciona su medida de una orden con este registro.
+        incoming = request.headers.get("X-Request-ID") or ""
+        req_id = (
+            incoming if _REQUEST_ID_PATTERN.fullmatch(incoming) is not None else uuid.uuid4().hex
+        )
         request.state.request_id = req_id
         start_time = time.perf_counter()
 
-        response: Response = await call_next(request)
+        # Las etapas que marcan la ruta y los casos de uso, para `Server-Timing` (ADR-0037).
+        with collect_stage_timings() as stages:
+            response: Response = await call_next(request)
 
-        duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        duration_ms = round(elapsed_ms, 2)
         response.headers["X-Request-ID"] = req_id
+        response.headers["Server-Timing"] = _server_timing(stages, elapsed_ms)
 
         session_id = request.headers.get("X-Session-ID")
         if not session_id and "/sessions/" in request.url.path:
@@ -407,26 +748,25 @@ def create_app(
 
         store_status = "accessible"
         store = request.app.state.artifact_store
+        # Sin almacén inyectado, como en producción, cada petición crea uno sobre
+        # `artifacts_dir` (get_artifact_store): esa es la carpeta que se comprueba.
+        root = app_settings.artifacts_dir if store is None else getattr(store, "_root_dir", None)
         try:
-            if store is not None and hasattr(store, "_root_dir"):
-                Path(store._root_dir).mkdir(parents=True, exist_ok=True)
+            if root is not None:
+                root_dir = Path(root)
+                root_dir.mkdir(parents=True, exist_ok=True)
+                # La API corre sin root (D57): la carpeta puede existir y no admitir escritura,
+                # como un volumen de root sin migrar. Se mira también `sha256`, la primera
+                # carpeta del almacén; las de prefijo, debajo, no se recorren en cada sondeo.
+                for folder in (root_dir, root_dir / "sha256"):
+                    if folder.exists() and not os.access(folder, os.W_OK | os.X_OK):
+                        raise PermissionError(f"la API no puede escribir en {folder}")
         except Exception as err:
             logger.error("Health check artifact store error: %s", err)
             store_status = "error"
 
         engine = request.app.state.omr_engine
-        if isinstance(engine, FakeOMREngine):
-            engine_name = "fake"
-        elif isinstance(engine, HOMREngine):
-            engine_name = "homr"
-        elif isinstance(engine, OemerEngine):
-            engine_name = "oemer"
-        else:
-            engine_name = getattr(
-                engine,
-                "name",
-                getattr(request.app.state.settings, "omr_engine", "unknown"),
-            )
+        engine_name = engine.engine_id
         try:
             device = getattr(engine, "device", None) or get_effective_device()
         except Exception:
@@ -452,22 +792,54 @@ def create_app(
         max_attempts=app_settings.login_rate_limit_max_attempts,
         window_seconds=app_settings.login_rate_limit_window_seconds,
     )
+    # El registro cuenta todos los intentos por IP, también los que acaban en 409 (ADR-0022).
+    app.state.registration_rate_limiter = LoginRateLimiter(
+        max_attempts=app_settings.registration_rate_limit_max_attempts,
+        window_seconds=app_settings.registration_rate_limit_window_seconds,
+        message="Demasiados registros desde esta conexión. Reintente en {retry_after} segundos.",
+    )
+    # Huecos de transcripción: los libera el cálculo al terminar, no la petición (ADR-0024).
+    app.state.transcription_slots = TranscriptionSlots(app_settings.transcribe_max_concurrency)
+    # Transcripción sin cuenta (#278, ADR-0054): una a la vez como mucho, sin esperar nunca un
+    # hueco de HOMR; un límite por IP como el del registro, y el reloj, que las pruebas cambian.
+    app.state.preview_gate = threading.BoundedSemaphore(1)
+    app.state.preview_rate_limiter = LoginRateLimiter(
+        max_attempts=app_settings.anonymous_preview_rate_limit_max_attempts,
+        window_seconds=app_settings.anonymous_preview_rate_limit_window_seconds,
+        message=(
+            "Demasiadas transcripciones sin cuenta desde esta conexión. "
+            "Reintente en {retry_after} segundos."
+        ),
+    )
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC)  # noqa: E731
+    app.state.clock = clock
+    # Las transcripciones sin cuenta caducadas se borran también al arrancar: con el
+    # interruptor apagado (el estudio), ninguna transcripción nueva las borraría (ADR-0054 §3).
+    try:
+        with session_factory() as purge_db:
+            purged = SqlAlchemyPreviewRepository(purge_db).purge_expired(clock())
+            purge_db.commit()
+        if purged:
+            logger.info("previews_purged count=%d", purged)
+    except Exception:
+        # Sin la tabla (una base sin migrar) la API arranca igual: lo dice el registro.
+        logger.warning("previews_purge_skipped", exc_info=True)
 
-    if omr_engine is not None:
-        resolved_engine = omr_engine
-    elif app_settings.omr_engine == "homr":
-        resolved_engine = HOMREngine(
+    # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
+    resolved_engine = (
+        omr_engine
+        if omr_engine is not None
+        else HOMREngine(
             use_gpu=app_settings.omr_use_gpu,
             preprocessing=app_settings.build_preprocessing_config(),
         )
-    elif app_settings.omr_engine == "oemer":
-        resolved_engine = OemerEngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=app_settings.build_preprocessing_config(),
-        )
-    else:
-        resolved_engine = FakeOMREngine(preprocessing=app_settings.build_preprocessing_config())
+    )
     app.state.omr_engine = resolved_engine
+    app.state.meter_stage = (
+        meter_stage
+        if meter_stage is not None
+        else (app_settings.build_meter_stage() if omr_engine is None else None)
+    )
     app.state.validator = ValidationEngine(
         list(rules) if rules is not None else get_default_rules()
     )
@@ -487,6 +859,47 @@ def create_app(
         score_exporter if score_exporter is not None else Music21ScoreExporter()
     )
     app.state.model_registry = model_registry
+    # Capa de sugerencias: global, apagada por defecto y cargada al arrancar (ADR-0036 §8, §12).
+    app.state.suggestion_model = (
+        (
+            suggestion_model
+            if suggestion_model is not None
+            else load_suggestion_model(session_factory, app_settings, artifact_store)
+        )
+        if app_settings.suggestions_enabled
+        else None
+    )
+    # Estados materializados por (sesión, seq): el log no cambia (ADR-0007, ADR-0037).
+    app.state.score_cache = (
+        score_cache
+        if score_cache is not None
+        else InMemoryScoreStateCache(app_settings.score_cache_max_entries)
+    )
+
+    @app.exception_handler(InvalidSessionMetadata)
+    def invalid_session_metadata_handler(
+        request: Request, exc: InvalidSessionMetadata
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content={"detail": exc.message},
+        )
+
+    @app.exception_handler(InvalidEffortSegment)
+    def invalid_effort_segment_handler(request: Request, exc: InvalidEffortSegment) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={"detail": exc.message},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    def request_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # El de FastAPI, salvo que un sustituto suelto en la entrada que repite ya no da 500
+        # al codificarla (#295).
+        return _SurrogateSafeJSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content={"detail": jsonable_encoder(exc.errors())},
+        )
 
     @app.exception_handler(UnsupportedExportFormat)
     def unsupported_export_format_handler(
@@ -504,6 +917,27 @@ def create_app(
             content={"detail": "session not found"},
         )
 
+    @app.exception_handler(PreviewNotFound)
+    def preview_not_found_handler(request: Request, exc: PreviewNotFound) -> JSONResponse:
+        # La misma respuesta si no existe, caducó o el token no es el suyo (ADR-0054).
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "preview not found"},
+        )
+
+    @app.exception_handler(PreviewCapacityExceeded)
+    def preview_capacity_handler(request: Request, exc: PreviewCapacityExceeded) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "detail": (
+                    "Hay demasiadas transcripciones sin cuenta guardadas. "
+                    "Inténtalo de nuevo más tarde o entra con tu cuenta."
+                )
+            },
+            headers={"Retry-After": "60"},
+        )
+
     @app.exception_handler(FindingNotFound)
     def finding_not_found_handler(request: Request, exc: FindingNotFound) -> JSONResponse:
         return JSONResponse(
@@ -511,9 +945,32 @@ def create_app(
             content={"detail": "finding not found"},
         )
 
+    @app.exception_handler(SuggestionNotFound)
+    def suggestion_not_found_handler(request: Request, exc: SuggestionNotFound) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={"detail": "suggestion not found"},
+        )
+
+    @app.exception_handler(StaleSuggestion)
+    def stale_suggestion_handler(request: Request, exc: StaleSuggestion) -> JSONResponse:
+        # La web la marca como antigua y ofrece revalidar (ADR-0036 §5).
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": StaleSuggestion.detail},
+        )
+
+    @app.exception_handler(SuggestionConflict)
+    def suggestion_conflict_handler(request: Request, exc: SuggestionConflict) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": exc.message},
+        )
+
     @app.exception_handler(InvalidEdit)
     def invalid_edit_handler(request: Request, exc: InvalidEdit) -> JSONResponse:
-        return JSONResponse(
+        # El mensaje puede repetir `before` o `after`, que admiten cualquier valor (#295).
+        return _SurrogateSafeJSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content={"detail": exc.message},
         )
@@ -577,6 +1034,12 @@ def create_app(
             content={"detail": str(exc)},
         )
 
+    def require_registration_enabled(request: Request) -> None:
+        """Con el registro apagado, la ruta responde 404 antes de leer el cuerpo (ADR-0022)."""
+        app_settings: Settings = request.app.state.settings
+        if not app_settings.registration_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
     @app.exception_handler(WeakPassword)
     def weak_password_handler(request: Request, exc: WeakPassword) -> JSONResponse:
         return JSONResponse(
@@ -594,6 +1057,15 @@ def create_app(
             "y emite un token de acceso Bearer JWT (#40)."
         ),
         responses={
+            # No es AUTH_401: aquí el 401 no es un token caducado, y el cliente no debe tratarlo
+            # como el fin de una sesión (#143).
+            status.HTTP_401_UNAUTHORIZED: {
+                "model": ErrorDetail,
+                "description": (
+                    "Credenciales inválidas o cuenta desactivada: un usuario inexistente, una "
+                    "contraseña incorrecta y una cuenta desactivada dan el mismo código y cuerpo"
+                ),
+            },
             status.HTTP_429_TOO_MANY_REQUESTS: {
                 "model": ErrorDetail,
                 "description": "Límite de intentos de autenticación superado",
@@ -608,28 +1080,63 @@ def create_app(
     ) -> TokenResponse:
         """Autentica credenciales y emite un token JWT con rate limiting (#40)."""
         client_host = request.client.host if request.client else "unknown"
-        rate_key = f"{client_host}:{form_data.username}"
+        # Ningún nombre válido pasa de 64 caracteres (users.username): con más, la clave del límite
+        # crecería con lo que mande el cliente y se guardaría toda la ventana (revisión de #156).
+        rate_key = f"{client_network_key(client_host)}:{form_data.username[:64]}"
         rate_limiter: LoginRateLimiter = request.app.state.login_rate_limiter
-        rate_limiter.check(rate_key)
+        # El intento se anota antes de comprobar las credenciales, de forma atómica: peticiones
+        # simultáneas no pasan todas el límite. Si sale bien, se borra el historial.
+        rate_limiter.hit(rate_key)
 
         user_repo = SqlAlchemyUserRepository(db)
         hasher: PasswordHasher = request.app.state.password_hasher
         token_serv: TokenService = request.app.state.token_service
 
-        try:
-            user = authenticate_use_case(
-                form_data.username,
-                form_data.password,
-                user_repository=user_repo,
-                password_hasher=hasher,
-            )
-        except NotAuthenticated:
-            rate_limiter.record_failure(rate_key)
-            raise
-
+        user = authenticate_use_case(
+            form_data.username,
+            form_data.password,
+            user_repository=user_repo,
+            password_hasher=hasher,
+        )
         rate_limiter.reset(rate_key)
         token = token_serv.create_access_token(user_id=user.id, role=user.role)
         return TokenResponse(access_token=token, token_type="bearer")
+
+    @app.post(
+        "/auth/register",
+        response_model=UserRead,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Auth"],
+        summary="Registro de una cuenta por la propia persona",
+        description=(
+            "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede "
+            "iniciar sesión en el momento, y un investigador puede desactivarla con "
+            "PATCH /users/{id} (ADR-0022, ADR-0025). Solo usuario y contraseña. Limitado por IP "
+            "(red /64 en IPv6); si el registro está desactivado en la configuración, responde 404."
+        ),
+        responses={
+            **NOT_FOUND_404,
+            **CONFLICT_409,
+            **RATE_LIMITED_429,
+            **UNPROCESSABLE_422,
+        },
+        dependencies=[Depends(require_registration_enabled)],
+    )
+    def register(payload: RegisterRequest, request: Request, db: DbDep) -> UserRead:
+        """Registra una cuenta activa de transcriptor (ADR-0022, ADR-0025)."""
+        client_host = request.client.host if request.client else "unknown"
+        rate_limiter: LoginRateLimiter = request.app.state.registration_rate_limiter
+        # Todo intento que llega aquí cuenta, también el que acaba en 409: así no se pueden
+        # sondear nombres ocupados sin límite. Comprobar y anotar es una sola operación.
+        rate_limiter.hit(client_network_key(client_host))
+
+        user = register_user_use_case(
+            payload.username,
+            payload.password,
+            user_repository=SqlAlchemyUserRepository(db),
+            password_hasher=request.app.state.password_hasher,
+        )
+        return UserRead.from_user(user)
 
     @app.get(
         "/auth/me",
@@ -643,13 +1150,7 @@ def create_app(
     )
     def get_me(current_user: CurrentUserDep) -> UserRead:
         """Devuelve el perfil del usuario autenticado."""
-        return UserRead(
-            id=current_user.id,
-            username=current_user.username,
-            role=current_user.role.value,
-            active=current_user.active,
-            created_at=current_user.created_at,
-        )
+        return UserRead.from_user(current_user)
 
     @app.post(
         "/auth/password",
@@ -701,16 +1202,7 @@ def create_app(
             current_user=current_user,
             user_repository=user_repo,
         )
-        return [
-            UserRead(
-                id=u.id,
-                username=u.username,
-                role=u.role.value,
-                active=u.active,
-                created_at=u.created_at,
-            )
-            for u in users
-        ]
+        return [UserRead.from_user(u) for u in users]
 
     @app.post(
         "/users",
@@ -741,13 +1233,7 @@ def create_app(
             user_repository=user_repo,
             password_hasher=hasher,
         )
-        return UserRead(
-            id=new_user.id,
-            username=new_user.username,
-            role=new_user.role.value,
-            active=new_user.active,
-            created_at=new_user.created_at,
-        )
+        return UserRead.from_user(new_user)
 
     @app.patch(
         "/users/{user_id}",
@@ -779,13 +1265,7 @@ def create_app(
             new_password=payload.password,
             password_hasher=hasher,
         )
-        return UserRead(
-            id=updated.id,
-            username=updated.username,
-            role=updated.role.value,
-            active=updated.active,
-            created_at=updated.created_at,
-        )
+        return UserRead.from_user(updated)
 
     @app.post(
         "/transcribe",
@@ -797,7 +1277,7 @@ def create_app(
             "Sube una imagen de partitura, ejecuta inferencia OMR asíncrona, "
             "valida reglas y crea la sesión inicial."
         ),
-        responses={**AUTH_401, **UPLOAD_ERRORS, **UNPROCESSABLE_422},
+        responses={**AUTH_401, **UPLOAD_ERRORS, **UNPROCESSABLE_422, **TRANSCRIBE_BUSY_503},
     )
     async def transcribe(
         request: Request,
@@ -820,8 +1300,39 @@ def create_app(
             str | None,
             Form(alias="test_score_id"),
         ] = None,
+        title: Annotated[
+            str | None,
+            Form(
+                max_length=TITLE_MAX_LENGTH,
+                description="Título de la partitura: el nombre de la sesión (#235, #240).",
+            ),
+        ] = None,
+        composer: Annotated[
+            str | None,
+            Form(max_length=COMPOSER_MAX_LENGTH, description="Compositor (#235)."),
+        ] = None,
+        instruments: Annotated[
+            list[Instrument | Literal[""]] | None,
+            Form(
+                description=(
+                    "Instrumento de cada parte, repetido una vez por parte en el orden en que "
+                    "HOMR las detecta; '' deja esa parte sin instrumento. Los de partes que HOMR "
+                    "no detecte se descartan (ADR-0041)."
+                ),
+            ),
+        ] = None,
+        part_names: Annotated[
+            list[Annotated[str, Field(max_length=PART_NAME_MAX_LENGTH)]] | None,
+            Form(
+                description=(
+                    "Nombre de cada parte, alineado con `instruments`; '' es sin nombre. Con "
+                    "'other', el nombre del instrumento (ADR-0041)."
+                ),
+            ),
+        ] = None,
     ) -> TranscribeResponse:
         app_settings: Settings = request.app.state.settings
+        metadata = _transcribe_metadata(title, composer, instruments, part_names)
 
         raw_condition = condition_form or condition or "assisted"
         effective_score_id = test_score_id_form or test_score_id
@@ -833,67 +1344,243 @@ def create_app(
                 detail=str(exc),
             ) from exc
 
-        # 1. Validar Content-Type declarado
-        declared_type = (file.content_type or "").lower()
-        if declared_type == "application/pdf" or (
-            declared_type
-            and not (
-                declared_type.startswith("image/") or declared_type == "application/octet-stream"
-            )
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Tipo de archivo no soportado. Se requiere una imagen.",
-            )
-
-        # 2. Leer contenido y validar tamaño máximo
-        content = await file.read()
-        if len(content) > app_settings.max_upload_size_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                detail=(
-                    f"El archivo excede el tamaño máximo permitido "
-                    f"({app_settings.max_upload_size_bytes} bytes)."
-                ),
-            )
-
-        # 3. Validar tipo real por magic bytes
-        if not is_image_content(content):
-            raise HTTPException(
-                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-                detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
-            )
-
-        session_repo = SqlAlchemySessionRepository(db)
+        content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
         artifact_store = get_artifact_store(request, db)
+        effective_engine = _effective_engine(request, db, artifact_store)
 
-        # Resolver versión activa del modelo OMR si existe en el registry (#21)
-        model_registry = getattr(
-            request.app.state, "model_registry", None
-        ) or SqlAlchemyModelRegistry(db)
-        active_version = model_registry.active()
-        effective_engine = request.app.state.omr_engine
-        if active_version is not None and hasattr(type(effective_engine), "from_active_model"):
-            preproc_config = getattr(effective_engine, "_preprocessing", None)
-            effective_engine = type(effective_engine).from_active_model(
-                model_registry, artifact_store, preprocessing=preproc_config
+        upload_name = _upload_temp_name(file.filename, content)
+        factory: SessionFactory = request.app.state.session_factory
+
+        # La transcripción usa su propia sesión de base de datos y su propio directorio temporal, y
+        # confirma antes de devolver: si la petición se cancela (el cliente se va) mientras HOMR
+        # calcula, el trabajo termina y se guarda igualmente, sin tocar una sesión ya cerrada
+        # (ADR-0024). Con un 2xx, la sesión ya está confirmada (#166).
+        def transcribe_and_commit() -> TranscribeResult:
+            with (
+                factory() as work_db,
+                tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir,
+            ):
+                upload_path = Path(work_dir) / upload_name
+                upload_path.write_bytes(content)
+                outcome = transcribe_score_use_case(
+                    upload_path,
+                    omr_engine=effective_engine,
+                    validator=request.app.state.validator,
+                    session_repository=SqlAlchemySessionRepository(work_db),
+                    current_user=current_user,
+                    artifact_store=get_artifact_store(request, work_db),
+                    condition=effective_condition,
+                    test_score_id=effective_score_id,
+                    suggestion_model=request.app.state.suggestion_model,
+                    metadata=metadata,
+                    source_filename=file.filename,
+                    meter_stage=request.app.state.meter_stage,
+                )
+                work_db.commit()
+                return outcome
+
+        # La sesión de la petición solo ha leído: se cierra su transacción para no retener una
+        # conexión del pool, «idle in transaction» en PostgreSQL, mientras HOMR calcula.
+        db.rollback()
+        result = await run_in_transcription_slot(
+            request.app.state.transcription_slots, transcribe_and_commit
+        )
+
+        return TranscribeResponse(
+            session_id=result.session_id,
+            document_id=result.document_id,
+            omr_engine=result.omr_engine,
+            findings_count=result.findings_count,
+            condition=result.condition,
+            test_score_id=result.test_score_id,
+        )
+
+    def require_anonymous_preview_enabled(request: Request) -> None:
+        """Con la transcripción sin cuenta apagada, sus rutas responden 404 (ADR-0054)."""
+        app_settings: Settings = request.app.state.settings
+        if not app_settings.anonymous_preview_enabled:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    @app.post(
+        "/previews",
+        response_model=PreviewResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Transcription"],
+        summary="Transcribir sin cuenta desde la portada",
+        description=(
+            "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y "
+            "mapa de tiempos), cuántos posibles errores señalan las reglas y un token para "
+            "reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda "
+            "sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, "
+            "con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay "
+            "uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054)."
+        ),
+        responses={
+            **NOT_FOUND_404,
+            **UPLOAD_ERRORS,
+            **RATE_LIMITED_429,
+            **UNPROCESSABLE_422,
+            **TRANSCRIBE_BUSY_503,
+        },
+        dependencies=[Depends(require_anonymous_preview_enabled)],
+    )
+    async def create_preview(
+        request: Request,
+        db: DbDep,
+        file: Annotated[UploadFile, File()],
+        title: Annotated[
+            str | None,
+            Form(max_length=TITLE_MAX_LENGTH, description="Título de la partitura (#240)."),
+        ] = None,
+        composer: Annotated[
+            str | None,
+            Form(max_length=COMPOSER_MAX_LENGTH, description="Compositor (#235)."),
+        ] = None,
+        instruments: Annotated[
+            list[Instrument | Literal[""]] | None,
+            Form(description="Instrumento de cada parte, como en POST /transcribe (ADR-0041)."),
+        ] = None,
+        part_names: Annotated[
+            list[Annotated[str, Field(max_length=PART_NAME_MAX_LENGTH)]] | None,
+            Form(description="Nombre de cada parte, alineado con `instruments` (ADR-0041)."),
+        ] = None,
+    ) -> Response:
+        app_settings: Settings = request.app.state.settings
+        client_host = request.client.host if request.client else "unknown"
+        # Todo intento cuenta, también el que falla: comprobar y anotar es una sola operación.
+        rate_limiter: LoginRateLimiter = request.app.state.preview_rate_limiter
+        rate_limiter.hit(client_network_key(client_host))
+        metadata = _transcribe_metadata(title, composer, instruments, part_names)
+        content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
+
+        gate: threading.BoundedSemaphore = request.app.state.preview_gate
+        if not gate.acquire(blocking=False):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "El servidor está ocupado con otras transcripciones. "
+                    "Inténtalo de nuevo en unos segundos."
+                ),
+                headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+            )
+        # El semáforo lo suelta una sola vez quien acabe teniéndolo: el trabajo, si llega a
+        # empezar, o la petición, si falla o se cancela antes (también si el cliente se va).
+        handoff = threading.Lock()
+        progress = {"started": False, "abandoned": False}
+
+        def release_if_not_started() -> None:
+            with handoff:
+                if not progress["started"]:
+                    progress["abandoned"] = True
+                    gate.release()
+
+        upload_name = _upload_temp_name(file.filename, content)
+        factory: SessionFactory = request.app.state.session_factory
+        exporter: ScoreExporter = request.app.state.score_exporter
+        now: datetime = request.app.state.clock()
+
+        def preview_and_commit() -> PreviewResponse | None:
+            with handoff:
+                if progress["abandoned"]:
+                    return None
+                progress["started"] = True
+            try:
+                with (
+                    factory() as work_db,
+                    tempfile.TemporaryDirectory(prefix="cadenza-preview-") as work_dir,
+                ):
+                    upload_path = Path(work_dir) / upload_name
+                    upload_path.write_bytes(content)
+                    outcome = create_preview_use_case(
+                        upload_path,
+                        omr_engine=engine,
+                        validator=request.app.state.validator,
+                        preview_repository=SqlAlchemyPreviewRepository(work_db),
+                        now=now,
+                        ttl=timedelta(seconds=app_settings.anonymous_preview_ttl_seconds),
+                        metadata=metadata,
+                        source_filename=file.filename,
+                        meter_stage=request.app.state.meter_stage,
+                    )
+                    work_db.commit()
+            finally:
+                gate.release()
+            # La exportación con music21 y los tiempos, también fuera del bucle de eventos.
+            score = outcome.document.score
+            try:
+                musicxml: str | None = exporter.to_musicxml(score, outcome.metadata)
+            except Exception:
+                logger.exception("preview_export_failed preview_id=%s", outcome.preview_id)
+                musicxml = None
+            return PreviewResponse(
+                preview_id=outcome.preview_id,
+                claim_token=outcome.claim_token,
+                expires_at=outcome.expires_at,
+                findings_count=outcome.findings_count,
+                musicxml=musicxml,
+                score=ScoreIRPayload.model_validate(score.to_primitive()),
+                timing=_timing_read(outcome.preview_id, compute_timing_map(score)),
+                title=outcome.metadata.title,
+                composer=outcome.metadata.composer,
+                instruments=PartInstrumentRead.list_from(outcome.metadata),
+                source_filename=outcome.source_filename,
             )
 
-        with tempfile.TemporaryDirectory(prefix="cadenza-upload-") as work_dir:
-            upload_path = Path(work_dir) / Path(file.filename or "upload.png").name
-            upload_path.write_bytes(content)
-            result = await asyncio.to_thread(
-                transcribe_score_use_case,
-                upload_path,
-                omr_engine=effective_engine,
-                validator=request.app.state.validator,
-                session_repository=session_repo,
-                current_user=current_user,
-                artifact_store=artifact_store,
-                condition=effective_condition,
-                test_score_id=effective_score_id,
+        try:
+            # Con el semáforo ya tomado, el tope no se puede rebasar entre la comprobación y el
+            # alta: se borran las caducadas y se cuentan las guardadas antes de calcular.
+            ensure_preview_capacity(
+                SqlAlchemyPreviewRepository(db),
+                now=now,
+                max_active=app_settings.anonymous_preview_max_active,
             )
+            engine = _effective_engine(request, db, get_artifact_store(request, db))
+            db.commit()
+            # Sin espera: si los huecos están ocupados (por el estudio o por quien entró), 503.
+            response = await run_in_transcription_slot(
+                request.app.state.transcription_slots, preview_and_commit, wait_seconds=0
+            )
+        except BaseException:
+            release_if_not_started()
+            raise
+        if response is None:  # pragma: no cover - solo si se abandonó, y entonces ya se lanzó
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _json_response(response, status_code=status.HTTP_201_CREATED)
 
+    @app.post(
+        "/previews/{preview_id}/claim",
+        response_model=TranscribeResponse,
+        status_code=status.HTTP_201_CREATED,
+        tags=["Transcription"],
+        summary="Reclamar una transcripción sin cuenta",
+        description=(
+            "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el "
+            "mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija "
+            "el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la "
+            "transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token "
+            "responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054)."
+        ),
+        responses={**AUTH_401, **NOT_FOUND_404, **UNPROCESSABLE_422},
+        dependencies=[Depends(require_anonymous_preview_enabled)],
+    )
+    def claim_preview(
+        preview_id: str,
+        payload: PreviewClaimRequest,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> TranscribeResponse:
+        result = claim_preview_use_case(
+            preview_id,
+            payload.claim_token,
+            preview_repository=SqlAlchemyPreviewRepository(db),
+            session_repository=SqlAlchemySessionRepository(db),
+            artifact_store=get_artifact_store(request, db),
+            validator=request.app.state.validator,
+            current_user=current_user,
+            now=request.app.state.clock(),
+            suggestion_model=request.app.state.suggestion_model,
+        )
         return TranscribeResponse(
             session_id=result.session_id,
             document_id=result.document_id,
@@ -956,6 +1643,10 @@ def create_app(
                 condition=s.condition,
                 test_score_id=s.test_score_id,
                 owner_id=s.owner_id,
+                title=s.metadata.title,
+                composer=s.metadata.composer,
+                instruments=PartInstrumentRead.list_from(s.metadata),
+                source_filename=s.source_filename,
             )
             for s in summaries
         ]
@@ -1016,6 +1707,7 @@ def create_app(
             session_id=session_id,
             format=format,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
         )
         content_bytes = (
             exported.content.encode("utf-8")
@@ -1030,53 +1722,126 @@ def create_app(
 
     @app.get(
         "/sessions/{session_id}",
+        # El contrato por defecto no cambia; `fields=view` responde SessionViewRead, que se
+        # declara en los componentes (custom_openapi) y en la descripción del parámetro.
         response_model=SessionDetailRead,
         tags=["Sessions"],
         summary="Detalle completo de sesión con estado materializado",
         description=(
             "Devuelve el ScoreDocument crudo, hallazgos, log de ediciones, "
-            "current_score materializado y anchor_index enriquecido (ADR-0011)."
+            "current_score materializado y anchor_index enriquecido (ADR-0011). "
+            "Con fields=view devuelve SessionViewRead: lo mismo sin document ni anchor_index, "
+            "que no se calcula (#275, ADR-0037)."
         ),
         responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
     )
-    def get_session(session_id: str, db: DbDep, current_user: CurrentUserDep) -> SessionDetailRead:
+    def get_session(
+        session_id: str,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        fields: Annotated[
+            Literal["view"] | None,
+            Query(
+                description=(
+                    "'view': solo lo que necesita la vista (SessionViewRead), sin document ni "
+                    "anchor_index. Sin él, el detalle completo (SessionDetailRead)."
+                )
+            ),
+        ] = None,
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
+        view = fields == "view"
         detail = get_session_use_case(
             session_id,
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            include_anchor_index=not view,
+            score_cache=request.app.state.score_cache,
         )
 
-        score_doc = ScoreDocumentPayload.model_validate(detail.document)
-        curr_score = (
-            ScoreIRPayload.model_validate(detail.current_score)
-            if detail.current_score is not None
-            else None
-        )
-        anchor_idx = (
-            AnchorIndexPayload.model_validate(detail.anchor_index)
-            if detail.anchor_index is not None
-            else None
-        )
+        with timed_stage("serialize"):
+            curr_score = (
+                ScoreIRPayload.model_validate(detail.current_score)
+                if detail.current_score is not None
+                else None
+            )
+            common: dict[str, Any] = {
+                "session_id": detail.session_id,
+                "document_id": detail.document_id,
+                "omr_engine": detail.omr_engine,
+                "findings": [FindingRead.from_persisted(f) for f in detail.findings],
+                "edits": [EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
+                "current_score": curr_score,
+                "current_seq": detail.current_seq,
+                "image_artifact": detail.image_artifact,
+                "model_version": detail.model_version,
+                "status": detail.status,
+                "condition": detail.condition,
+                "test_score_id": detail.test_score_id,
+                "owner_id": detail.owner_id,
+                "title": detail.metadata.title,
+                "composer": detail.metadata.composer,
+                "instruments": PartInstrumentRead.list_from(detail.metadata),
+                "source_filename": detail.source_filename,
+            }
+            body: BaseModel
+            if view:
+                body = SessionViewRead(**common)
+            else:
+                body = SessionDetailRead(
+                    **common,
+                    document=ScoreDocumentPayload.model_validate(detail.document),
+                    anchor_index=(
+                        AnchorIndexPayload.model_validate(detail.anchor_index)
+                        if detail.anchor_index is not None
+                        else None
+                    ),
+                )
+        return _json_response(body)
 
-        return SessionDetailRead(
-            session_id=detail.session_id,
-            document_id=detail.document_id,
-            omr_engine=detail.omr_engine,
-            document=score_doc,
-            findings=[FindingRead.from_persisted(f) for f in detail.findings],
-            edits=[EditEventRead.from_edit(e, detail.session_id) for e in detail.edits],
-            current_score=curr_score,
-            current_seq=detail.current_seq,
-            anchor_index=anchor_idx,
-            image_artifact=detail.image_artifact,
-            model_version=detail.model_version,
-            status=detail.status,
-            condition=detail.condition,
-            test_score_id=detail.test_score_id,
-            owner_id=detail.owner_id,
+    @app.patch(
+        "/sessions/{session_id}",
+        response_model=SessionMetadataRead,
+        tags=["Sessions"],
+        summary="Cambiar el título, el compositor o los instrumentos de la sesión",
+        description=(
+            "Solo el dueño (ADR-0012), también con la sesión finalizada. No es una edición del "
+            "log ni cambia el estado de la sesión; el MusicXML y el MIDI exportados llevan los "
+            "datos nuevos (#235, ADR-0041)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **UNPROCESSABLE_422},
+    )
+    def update_session_metadata_endpoint(
+        session_id: str,
+        payload: SessionMetadataUpdate,
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> SessionMetadataRead:
+        sent = payload.model_fields_set
+        unchanged = Unchanged.UNCHANGED
+        updated = update_session_metadata_use_case(
+            session_id,
+            session_repository=SqlAlchemySessionRepository(db),
+            current_user=current_user,
+            title=payload.title if "title" in sent else unchanged,
+            composer=payload.composer if "composer" in sent else unchanged,
+            parts=(
+                tuple(item.to_part() for item in payload.instruments or ())
+                if "instruments" in sent
+                else unchanged
+            ),
+            score_cache=request.app.state.score_cache,
+        )
+        return SessionMetadataRead(
+            session_id=updated.id,
+            title=updated.metadata.title,
+            composer=updated.metadata.composer,
+            instruments=PartInstrumentRead.list_from(updated.metadata),
+            source_filename=updated.source_filename,
         )
 
     @app.get(
@@ -1092,9 +1857,10 @@ def create_app(
     )
     def get_session_timing(
         session_id: str,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
-    ) -> TimingMapRead:
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         timing_map = get_timing_use_case(
@@ -1102,25 +1868,11 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
         )
-
-        return TimingMapRead(
-            session_id=session_id,
-            total_beats=str(timing_map.total_beats),
-            measure_offsets={str(k): str(v) for k, v in timing_map.measure_offsets.items()},
-            events=[
-                EventTimingRead(
-                    anchor=AnchorPayload.model_validate(ev.anchor.to_primitive()),
-                    kind=ev.kind.value,
-                    measure_number=ev.measure_number,
-                    voice=ev.voice,
-                    offset_beats=str(ev.offset_beats),
-                    duration_beats=str(ev.duration_beats),
-                    measure_offset_beats=str(ev.measure_offset_beats),
-                )
-                for ev in timing_map.events
-            ],
-        )
+        with timed_stage("serialize"):
+            body = _timing_read(session_id, timing_map)
+        return _json_response(body)
 
     @app.get(
         "/sessions/{session_id}/findings",
@@ -1179,6 +1931,7 @@ def create_app(
             session_repository=session_repo,
             current_user=current_user,
             reason=reason,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FindingRead.from_persisted(dismissed)
 
@@ -1206,8 +1959,37 @@ def create_app(
             finding_id,
             session_repository=session_repo,
             current_user=current_user,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FindingRead.from_persisted(restored)
+
+    @app.post(
+        "/sessions/{session_id}/suggestions/{suggestion_id}/reject",
+        response_model=SuggestionRead,
+        tags=["Validation"],
+        summary="Rechazar una sugerencia de la capa",
+        description=(
+            "Guarda que la persona rechaza la sugerencia, con su autoría fijada por el "
+            "servidor. 409 en una sesión finalizada o si ya se aplicó; rechazar una ya "
+            "rechazada o de una validación anterior responde 200. No descarta el hallazgo "
+            "(ADR-0036 §5)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+    )
+    def reject_suggestion_endpoint(
+        session_id: str,
+        suggestion_id: int,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> SuggestionRead:
+        """Rechaza una sugerencia (ADR-0036 §5)."""
+        rejected = reject_suggestion_use_case(
+            session_id,
+            suggestion_id,
+            session_repository=SqlAlchemySessionRepository(db),
+            current_user=current_user,
+        )
+        return SuggestionRead.from_persisted(rejected)
 
     @app.post(
         "/sessions/{session_id}/validate",
@@ -1236,6 +2018,7 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            suggestion_model=request.app.state.suggestion_model,
         )
         return RevalidateResponse(
             session_id=result.session_id,
@@ -1250,7 +2033,11 @@ def create_app(
         summary="Finalizar sesión y cerrar corrección",
         description=(
             "Ejecuta revalidación final y cierra la sesión "
-            "contra nuevas ediciones humanas (ADR-0014, #34)."
+            "contra nuevas ediciones humanas (ADR-0014, #34). Valida como POST /validate: "
+            "conserva los descartes de la validación vigente si su evento no cambió y "
+            "devuelve solo los hallazgos activos; en una sesión no asistida no ejecuta las "
+            "reglas y guarda los hallazgos vacíos. 409 si la sesión ya está finalizada "
+            "(#187, ADR-0043)."
         ),
         responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
     )
@@ -1272,6 +2059,8 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            suggestion_model=request.app.state.suggestion_model,
+            effort_repository=SqlAlchemyEffortRepository(db),
         )
         return FinalizeResponse(
             session_id=result.session_id,
@@ -1313,13 +2102,18 @@ def create_app(
 
     @app.post(
         "/sessions/{session_id}/edits",
-        response_model=EditEventRead,
+        response_model=EditAppliedRead,
         status_code=status.HTTP_201_CREATED,
         tags=["Edits"],
         summary="Añadir una edición inmutable al log",
         description=(
             "Añade una corrección humana validada contra el estado actual. "
-            "Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012)."
+            "Exige base_seq, verifica before y fija autor por el servidor (ADR-0011, ADR-0012). "
+            "El 201 devuelve la edición y el estado que crea: current_seq, current_score, su "
+            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037). Con suggestion_id "
+            "aplica una sugerencia y la marca como aceptada; los errores van en este orden: "
+            "409 de base_seq, 409 'stale_suggestion' y 422 si la edición no es la propuesta "
+            "(ADR-0036 §5)."
         ),
         responses={
             **AUTH_401,
@@ -1332,24 +2126,40 @@ def create_app(
     def append_edit(
         session_id: str,
         payload: EditEventCreate,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
-    ) -> EditEventRead:
-        """Añade una edición inmutable al log de la sesión."""
+    ) -> Response:
+        """Añade una edición inmutable al log de la sesión y devuelve el estado que crea."""
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
-        edit = append_edit_use_case(
+        applied = append_edit_use_case(
             session_id,
             base_seq=payload.base_seq,
             anchor=payload.anchor.to_anchor(),
             op=payload.op,
             session_repository=session_repo,
             edit_repository=edit_repo,
+            exporter=request.app.state.score_exporter,
             current_user=current_user,
             before=payload.before,
             after=payload.after,
+            score_cache=request.app.state.score_cache,
+            suggestion_id=payload.suggestion_id,
         )
-        return EditEventRead.from_edit(edit, session_id)
+        with timed_stage("serialize"):
+            edit = EditEventRead.from_edit(applied.edit, session_id)
+            body = EditAppliedRead(
+                **edit.model_dump(),
+                current_seq=applied.current_seq,
+                current_score=ScoreIRPayload.model_validate(applied.current_score.to_primitive()),
+                status=applied.status,
+                musicxml=applied.musicxml,
+                timing=(
+                    _timing_read(session_id, applied.timing) if applied.timing is not None else None
+                ),
+            )
+        return _json_response(body, status.HTTP_201_CREATED)
 
     @app.post(
         "/sessions/{session_id}/undo",
@@ -1360,7 +2170,8 @@ def create_app(
             "Registra un evento compensatorio inverso de la última edición activa "
             "en el log append-only sin borrar historia (ADR-0007, #35). "
             "Devuelve el nuevo current_seq, el ID de la edición deshecha, "
-            "la partitura materializada actualizada y su índice de anclas."
+            "la partitura materializada actualizada y su índice de anclas, y además su "
+            "MusicXML y su mapa de tiempos si cambia (#275, ADR-0037)."
         ),
         responses={
             **AUTH_401,
@@ -1372,10 +2183,11 @@ def create_app(
     )
     def undo_session_edit(
         session_id: str,
+        request: Request,
         db: DbDep,
         current_user: CurrentUserDep,
         payload: UndoRequest | None = None,
-    ) -> UndoResponse:
+    ) -> Response:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
         base_seq = payload.base_seq if payload is not None else None
@@ -1385,22 +2197,31 @@ def create_app(
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=current_user,
+            score_cache=request.app.state.score_cache,
+            exporter=request.app.state.score_exporter,
         )
-        curr_score = ScoreIRPayload.model_validate(result.current_score)
-        anchor_idx = (
-            AnchorIndexPayload.model_validate(result.anchor_index)
-            if result.anchor_index is not None
-            else None
-        )
-        return UndoResponse(
-            session_id=result.session_id,
-            current_seq=result.current_seq,
-            undone_edit_id=result.undone_edit_id,
-            current_score=curr_score,
-            anchor_index=anchor_idx,
-            compensatory_edit_id=result.compensatory_edit.id,
-            compensatory_edit=EditEventRead.from_edit(result.compensatory_edit, session_id),
-        )
+        with timed_stage("serialize"):
+            curr_score = ScoreIRPayload.model_validate(result.current_score)
+            anchor_idx = (
+                AnchorIndexPayload.model_validate(result.anchor_index)
+                if result.anchor_index is not None
+                else None
+            )
+            body = UndoResponse(
+                session_id=result.session_id,
+                current_seq=result.current_seq,
+                undone_edit_id=result.undone_edit_id,
+                current_score=curr_score,
+                anchor_index=anchor_idx,
+                compensatory_edit_id=result.compensatory_edit.id,
+                compensatory_edit=EditEventRead.from_edit(result.compensatory_edit, session_id),
+                status=result.status,
+                musicxml=result.musicxml,
+                timing=(
+                    _timing_read(session_id, result.timing) if result.timing is not None else None
+                ),
+            )
+        return _json_response(body)
 
     @app.post(
         "/sessions/{session_id}/effort",
@@ -1430,6 +2251,52 @@ def create_app(
             duration_ms=payload.duration_ms,
             time_to_first_edit_ms=payload.time_to_first_edit_ms,
             interventions=payload.interventions,
+            current_user=current_user,
+        )
+        return EffortMetricsRead.from_data(data)
+
+    @app.put(
+        "/sessions/{session_id}/effort/segments/{segment_id}",
+        response_model=EffortMetricsRead,
+        tags=["Effort"],
+        summary="Sumar un tramo al registro de esfuerzo de la sesión",
+        description=(
+            "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página "
+            "visible y con actividad y, si en ella se guardó la primera edición, el tiempo en "
+            "ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), "
+            "suma los tramos, cuenta las ediciones del log por compás y por clase, y las "
+            "respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta "
+            "dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador "
+            "ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser "
+            "(#188, ADR-0050)."
+        ),
+        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+    )
+    def record_effort_segment_endpoint(
+        session_id: str,
+        segment_id: Annotated[
+            str,
+            PathParam(
+                min_length=1,
+                max_length=64,
+                pattern=r"^[A-Za-z0-9_-]+$",
+                description="Identificador del tramo: uno por pestaña, que dura sus recargas",
+            ),
+        ],
+        payload: EffortSegmentUpdate,
+        db: DbDep,
+        current_user: CurrentUserDep,
+    ) -> EffortMetricsRead:
+        """Suma un tramo al registro de esfuerzo acumulado de la sesión (#188, ADR-0050)."""
+        data = record_effort_segment_use_case(
+            session_id,
+            segment_id,
+            active_ms=payload.active_ms,
+            first_edit_ms=payload.first_edit_ms,
+            idle_threshold_ms=payload.idle_threshold_ms,
+            session_repository=SqlAlchemySessionRepository(db),
+            edit_repository=SqlAlchemyEditEventRepository(db),
+            effort_repository=SqlAlchemyEffortRepository(db),
             current_user=current_user,
         )
         return EffortMetricsRead.from_data(data)
@@ -1473,6 +2340,16 @@ def create_app(
             tags=app.openapi_tags,
         )
         components = openapi_schema.setdefault("components", {})
+        # `GET /sessions/{id}?fields=view` (#275, ADR-0037): su esquema, para los clientes.
+        schemas = components.setdefault("schemas", {})
+        if "SessionViewRead" not in schemas:
+            view_schema = SessionViewRead.model_json_schema(
+                ref_template="#/components/schemas/{model}"
+            )
+            # Sus modelos anidados son los del detalle, ya en los componentes.
+            for name, definition in view_schema.pop("$defs", {}).items():
+                schemas.setdefault(name, definition)
+            schemas["SessionViewRead"] = view_schema
         security_schemes = components.setdefault("securitySchemes", {})
         security_schemes["BearerAuth"] = {
             "type": "http",
@@ -1496,7 +2373,7 @@ def create_default_app(
     *,
     model_registry: Any | None = None,
 ) -> FastAPI:
-    """Factory para uvicorn: carga Settings tipada de entorno y conecta el motor OMR."""
+    """Factory para uvicorn: carga Settings tipada de entorno y conecta HOMR (ADR-0018)."""
 
     app_settings = settings or Settings()
     engine = create_engine_for_url(app_settings.database_url)
@@ -1506,24 +2383,8 @@ def create_default_app(
     ):
         create_schema(engine)
 
-    preproc_config = app_settings.build_preprocessing_config()
-    omr_engine: OMREngine
-    if app_settings.omr_engine == "homr":
-        omr_engine = HOMREngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=preproc_config,
-        )
-    elif app_settings.omr_engine == "oemer":
-        omr_engine = OemerEngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=preproc_config,
-        )
-    else:
-        omr_engine = FakeOMREngine(preprocessing=preproc_config)
-
     return create_app(
         create_session_factory(engine),
-        omr_engine=omr_engine,
         settings=app_settings,
         model_registry=model_registry,
     )

@@ -1,12 +1,24 @@
-"""Configuración tipada del plano online de Cadenza (ADR-0005, #8, #44)."""
+"""Configuración tipada del plano online de Cadenza (ADR-0005, ADR-0018, #8, #44)."""
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from cadenza.omr import MeterStage
+
+# Origen web tal como lo envía el navegador: esquema://host[:puerto], sin ruta.
+_ORIGIN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^/\s?#]+")
+
+# Longitud mínima de la clave de firma de los JWT, en bytes. El despliegue usa
+# `openssl rand -hex 32`, que da 64.
+MIN_AUTH_SECRET_KEY_BYTES = 32
 
 
 class Settings(BaseSettings):
@@ -15,19 +27,17 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="CADENZA_",
         case_sensitive=False,
+        # Un error de validación no repite el valor recibido: puede ser un secreto (D58).
+        hide_input_in_errors=True,
     )
 
     database_url: str = Field(
         default="sqlite+pysqlite:///./cadenza.db",
         description="URL de conexión SQLAlchemy para la base de datos.",
     )
-    omr_engine: Literal["fake", "homr", "oemer"] = Field(
-        default="fake",
-        description="Motor OMR seleccionado para inferencia ('fake', 'homr' o 'oemer').",
-    )
     omr_use_gpu: bool = Field(
         default=False,
-        description="Indica si el motor OMR debe intentar usar GPU (CUDA/ROCm).",
+        description="Indica si HOMR debe intentar usar GPU (CUDA/ROCm).",
     )
     artifacts_dir: Path = Field(
         default=Path("./data/artifacts"),
@@ -54,10 +64,95 @@ class Settings(BaseSettings):
             "En producción permanece en False, dependiendo de migraciones Alembic (#6)."
         ),
     )
-    cors_origins: list[str] = Field(
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["*"],
-        description="Lista de orígenes permitidos para peticiones CORS (CADENZA_CORS_ORIGINS).",
+        description=(
+            "Orígenes permitidos para peticiones CORS (CADENZA_CORS_ORIGINS): `*` o "
+            "`esquema://host[:puerto]`, uno o varios separados por comas o en una lista JSON. "
+            "Una lista vacía desactiva CORS."
+        ),
     )
+
+    @field_validator("auth_secret_key")
+    @classmethod
+    def _check_auth_secret_key(cls, value: str) -> str:
+        """Rechaza una clave de firma corta, que se adivinaría por fuerza bruta (D58, #193).
+
+        Una clave vacía se acepta aquí: es «sin configurar», y `create_app` la rechaza salvo que
+        reciba un `token_service` propio. El mensaje dice la longitud, nunca la clave.
+        """
+
+        size = len(value.encode("utf-8"))
+        if value and size < MIN_AUTH_SECRET_KEY_BYTES:
+            raise ValueError(
+                f"CADENZA_AUTH_SECRET_KEY debe tener al menos {MIN_AUTH_SECRET_KEY_BYTES} bytes "
+                f"y tiene {size}: genera una con `openssl rand -hex 32`"
+            )
+        return value
+
+    @field_validator("omr_meter_features")
+    @classmethod
+    def _check_meter_features(cls, value: str) -> str:
+        """Un rasgo desconocido impide arrancar: una errata no debe apagarlo en silencio."""
+
+        from cadenza.omr import parse_meter_features
+
+        parse_meter_features(value)
+        return value
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value: Any) -> Any:
+        """Admite en la variable de entorno texto separado por comas además de JSON (#123)."""
+
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if text.startswith("["):
+            return json.loads(text)
+        return [origin.strip() for origin in text.split(",") if origin.strip()]
+
+    @field_validator("cors_origins")
+    @classmethod
+    def _check_cors_origins(cls, origins: list[str]) -> list[str]:
+        """Rechaza al arrancar los orígenes que el navegador nunca enviaría (#123).
+
+        Un origen es `esquema://host[:puerto]`, sin ruta ni barra final; `*` va solo, porque
+        junto a otros orígenes CORS los ignoraría y permitiría cualquiera.
+        """
+
+        if "*" in origins and len(origins) > 1:
+            raise ValueError("'*' no se combina con otros orígenes en CADENZA_CORS_ORIGINS")
+        for origin in origins:
+            if origin != "*" and not _ORIGIN_RE.fullmatch(origin):
+                raise ValueError(
+                    f"origen CORS no válido: {origin!r} (forma esperada: "
+                    "esquema://host[:puerto], sin ruta ni barra final)"
+                )
+        return origins
+
+    @model_validator(mode="after")
+    def _registration_needs_closed_cors(self) -> Settings:
+        """Con el registro abierto, CORS no puede ser `*` (ADR-0022).
+
+        Si lo fuera, cualquier web podría registrar cuentas desde el navegador de sus visitantes,
+        repartiendo el límite por IP entre todas sus direcciones.
+        """
+
+        if self.registration_enabled and "*" in self.cors_origins:
+            raise ValueError(
+                "CADENZA_REGISTRATION_ENABLED exige CADENZA_CORS_ORIGINS con el origen público "
+                "de la interfaz, no '*'"
+            )
+        # Lo mismo con la transcripción sin cuenta (ADR-0054): cualquier web podría gastar los
+        # huecos de HOMR desde el navegador de sus visitantes.
+        if self.anonymous_preview_enabled and "*" in self.cors_origins:
+            raise ValueError(
+                "CADENZA_ANONYMOUS_PREVIEW_ENABLED exige CADENZA_CORS_ORIGINS con el origen "
+                "público de la interfaz, no '*'"
+            )
+        return self
+
     login_rate_limit_max_attempts: int = Field(
         default=5,
         description="Máximo de intentos fallidos antes de bloquear temporalmente el login (#40).",
@@ -65,6 +160,84 @@ class Settings(BaseSettings):
     login_rate_limit_window_seconds: int = Field(
         default=300,
         description="Ventana de tiempo en segundos para el límite de intentos de login (#40).",
+    )
+    registration_enabled: bool = Field(
+        default=False,
+        description=(
+            "Abre POST /auth/register (ADR-0022). Apagado, la ruta responde 404 "
+            "como si no existiera."
+        ),
+    )
+    registration_rate_limit_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Intentos de registro por IP (o red /64 en IPv6) en la ventana, también los que acaban "
+            "en 409 (ADR-0022)."
+        ),
+    )
+    registration_rate_limit_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Ventana en segundos del límite de intentos de registro por IP (ADR-0022).",
+    )
+    anonymous_preview_enabled: bool = Field(
+        default=False,
+        description=(
+            "Abre la transcripción sin cuenta de la portada: POST /previews y POST "
+            "/previews/{id}/claim (#278, ADR-0054). Apagado, las dos responden 404 como si no "
+            "existieran. Apagado también durante el estudio, como el registro (#248)."
+        ),
+    )
+    anonymous_preview_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description=(
+            "Cuánto se guarda una transcripción sin cuenta antes de caducar y borrarse con su "
+            "imagen, en segundos (ADR-0054)."
+        ),
+    )
+    anonymous_preview_rate_limit_max_attempts: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "Transcripciones sin cuenta por IP (o red /64 en IPv6) en la ventana, también las que "
+            "fallan (ADR-0054)."
+        ),
+    )
+    anonymous_preview_rate_limit_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        description="Ventana en segundos del límite de transcripciones sin cuenta por IP.",
+    )
+    anonymous_preview_max_active: int = Field(
+        default=20,
+        ge=1,
+        le=1000,
+        description=(
+            "Transcripciones sin cuenta guardadas a la vez, de todas las IP; con el tope, "
+            "POST /previews responde 503 hasta que caduque alguna (ADR-0054)."
+        ),
+    )
+    transcribe_max_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=8,
+        description=(
+            "Transcripciones que la API admite a la vez, con un hilo cada una; HOMR calcula de una "
+            "en una y el resto espera su turno. Sin hueco, POST /transcribe responde 503 "
+            "(ADR-0024)."
+        ),
+    )
+    score_cache_max_entries: int = Field(
+        default=32,
+        ge=0,
+        le=1024,
+        description=(
+            "Estados materializados de sesión (ScoreIR, MusicXML y tiempos) que la API guarda en "
+            "memoria por (sesión, seq); 0 los desactiva (#275, ADR-0037)."
+        ),
     )
     omr_preprocess_enabled: bool = Field(
         default=False,
@@ -89,6 +262,58 @@ class Settings(BaseSettings):
             "omr_preprocess_rescale está activo."
         ),
     )
+    omr_meter_features: str = Field(
+        default="numerator,symbol,implicit_tuplets",
+        description=(
+            "Rasgos de la etapa del compás que corre tras HOMR (CADENZA_OMR_METER_FEATURES, "
+            "ADR-0059), separados por comas: numerator (el numerador de cada tramo), symbol (C "
+            "y ¢) e implicit_tuplets (los tresillos sin marcar); 'all' o 'none'. Por defecto, "
+            "los que mejoran la medición de exp_15 sin empeorar el resto."
+        ),
+    )
+    suggestions_enabled: bool = Field(
+        default=False,
+        description=(
+            "Activa la capa de sugerencias que aprende de las correcciones "
+            "(CADENZA_SUGGESTIONS_ENABLED, ADR-0036): la API carga al arrancar la versión "
+            "promovida y, si no hay o no se puede usar, valida sin capa. Global y apagada por "
+            "defecto; si el estudio la usa lo decide el responsable (#244)."
+        ),
+    )
+    # Texto libre a propósito: una política inválida no impide arrancar, sino que la API
+    # arranca sin capa y lo registra, como con un artefacto inválido (ADR-0036, enmienda 19).
+    suggestions_min_level: str = Field(
+        default="high",
+        description=(
+            "Nivel de confianza mínimo de las sugerencias que se muestran "
+            "(CADENZA_SUGGESTIONS_MIN_LEVEL): `high` o `medium` (ADR-0036, enmienda 19). Por "
+            "defecto `high`, la decisión del responsable en #244."
+        ),
+    )
+    suggestions_families: str = Field(
+        default="accidental",
+        description=(
+            "Familias de las sugerencias que se muestran, separadas por comas "
+            "(CADENZA_SUGGESTIONS_FAMILIES): `accidental`, `duration`, `pitch`, `delete` e "
+            "`insertion` (ADR-0036, enmienda 19). Por defecto solo `accidental`, la decisión "
+            "del responsable en #244."
+        ),
+    )
+    disable_power_throttling: bool = Field(
+        default=True,
+        description=(
+            "Si es True, solicita desactivar la limitación de energía (EcoQoS/Power Throttling) "
+            "del proceso en Windows al arrancar (#106)."
+        ),
+    )
+
+    def build_meter_stage(self) -> MeterStage | None:
+        """La etapa del compás con los rasgos configurados, o None si no hay ninguno (ADR-0059)."""
+
+        from cadenza.omr import MeterStage, parse_meter_features
+
+        features = parse_meter_features(self.omr_meter_features)
+        return MeterStage(features) if features else None
 
     def build_preprocessing_config(self) -> Any | None:
         """Construye un PreprocessingConfig si el preprocesado está habilitado."""

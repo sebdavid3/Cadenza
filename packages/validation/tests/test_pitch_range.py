@@ -1,4 +1,4 @@
-"""Pruebas de la regla de rango tonal (PitchRangeRule)."""
+"""Pruebas de `pitch.range`: altura fuera de registro (ADR-0040 §9)."""
 
 from __future__ import annotations
 
@@ -77,9 +77,16 @@ def test_extreme_low_note_in_treble_reports_warning() -> None:
     f = findings[0]
     assert f.rule_id == "pitch.range"
     assert f.severity == Severity.WARNING
-    assert "C2" in f.message
+    assert f.message == (
+        "El Do2 del tiempo 1 está muy por debajo de lo que se escribe en clave de sol (de Sol2 "
+        "a Do7)."
+    )
     assert f.anchor.event_index == 0
-    assert f.suggested_fix is not None
+    assert f.suggested_fix == (
+        "Revisa la octava de la nota o la clave del pentagrama: puede que sea Do3."
+    )
+    (candidate,) = f.candidates
+    assert dict(candidate.after or {}) == {"pitch": "C3"}
 
 
 def test_extreme_high_note_in_treble_reports_warning() -> None:
@@ -91,7 +98,7 @@ def test_extreme_high_note_in_treble_reports_warning() -> None:
     engine = ValidationEngine([PitchRangeRule()])
     findings = engine.validate(doc)
     assert len(findings) == 1
-    assert "C8" in findings[0].message
+    assert findings[0].message.startswith("El Do8 del tiempo 1 está muy por encima de ")
     assert findings[0].severity == Severity.WARNING
 
 
@@ -108,8 +115,10 @@ def test_bass_clef_notes_range() -> None:
     engine = ValidationEngine([PitchRangeRule()])
     findings = engine.validate(doc)
     assert len(findings) == 1
-    assert "C6" in findings[0].message
-    assert "Fa en 4ª" in findings[0].message
+    assert findings[0].message == (
+        "El Do6 del tiempo 3 está muy por encima de lo que se escribe en clave de fa (de Do1 "
+        "a Do5)."
+    )
 
 
 def test_clef_octave_change_shifts_range() -> None:
@@ -121,7 +130,13 @@ def test_clef_octave_change_shifts_range() -> None:
     )
     findings = ValidationEngine([PitchRangeRule()]).validate(doc)
     assert len(findings) == 1
-    assert "G6" in findings[0].message
+    assert findings[0].message == (
+        "El Sol6 del tiempo 1 está muy por encima de lo que se escribe en clave de sol "
+        "octavada baja (de Sol1 a Do6)."
+    )
+    assert findings[0].suggested_fix == (
+        "Revisa la octava de la nota o la clave del pentagrama: puede que sea Sol5."
+    )
 
 
 def test_rests_and_unparseable_pitches_are_ignored() -> None:
@@ -133,6 +148,41 @@ def test_rests_and_unparseable_pitches_are_ignored() -> None:
         clef=Clef.treble(),
     )
     assert ValidationEngine([PitchRangeRule()]).validate(doc) == []
+
+
+def test_grace_notes_are_not_checked() -> None:
+    """ADR-0040 §9: las notas de adorno (duración 0 o nula, ADR-0028) no cuentan."""
+    doc = _make_document(
+        (
+            Event(kind=EventKind.NOTE, voice=0, pitch="C1", duration_beats=None),
+            Event(kind=EventKind.NOTE, voice=0, pitch="C1", duration_beats=Fraction(0)),
+            Event(kind=EventKind.NOTE, voice=0, pitch="C4", duration_beats=Fraction(4)),
+        ),
+        clef=Clef.treble(),
+    )
+    assert ValidationEngine([PitchRangeRule()]).validate(doc) == []
+
+
+def test_a_clef_without_a_table_uses_the_piano_range() -> None:
+    doc = _make_document(
+        (Event(kind=EventKind.NOTE, voice=0, pitch="C8", duration_beats=Fraction(4)),),
+        clef=Clef(sign="C", line=1),
+    )
+    assert ValidationEngine([PitchRangeRule()]).validate(doc) == []
+
+
+def test_the_candidate_moves_by_octaves_into_the_range_and_is_a_valid_edit() -> None:
+    from cadenza.domain import EditOp, validate_after
+
+    doc = _make_document(
+        (Event(kind=EventKind.NOTE, voice=0, pitch="F#0", duration_beats=Fraction(4)),),
+        clef=Clef.treble(),
+    )
+    (finding,) = PitchRangeRule().evaluate(doc)
+    (candidate,) = finding.candidates
+    assert candidate.op is EditOp.SET_PITCH
+    assert dict(candidate.after or {}) == {"pitch": "F#3"}
+    validate_after(doc.score, candidate.anchor, candidate.op, candidate.after)
 
 
 def test_rule_does_not_mutate_document(tmp_path: Path) -> None:

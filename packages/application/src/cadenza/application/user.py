@@ -24,3 +24,5 @@ class User:
     role: Role
     active: bool = True
     created_at: datetime | None = None
+    # Cuenta creada desde el registro público (ADR-0022): queda fuera del estudio.
+    self_registered: bool = False

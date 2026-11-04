@@ -29,25 +29,15 @@ import csv
 import json
 import sys
 from dataclasses import dataclass
-from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from cadenza.domain import (
-    Measure,
-    Part,
-    Provenance,
-    ScoreDocument,
-    ScoreIR,
-    Staff,
-    build_anchor_index,
-)
 from cadenza.interchange import read_score
 from cadenza.learning import (
     MeasureEvaluationRecord,
     evaluate_pair,
 )
-from cadenza.validation import MeasureBalanceRule, ValidationEngine
+from cadenza.validation import ValidationEngine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -57,7 +47,7 @@ from ml.experiments.common import (  # noqa: E402
     DEFAULT_SEED,
     METHODOLOGICAL_LIMITATIONS,
     RESULTS_DIR,
-    SAMPLE_SIZE_JUSTIFICATION,
+    sample_size_justification,
     write_run_info,
 )
 
@@ -92,6 +82,46 @@ class ScoreEffortSummary:
             "effort_reduction_percent": round(self.effort_reduction_ratio * 100, 2),
             "missed_errors_count": self.missed_errors_count,
         }
+
+
+def _missed_errors_interpretation(
+    *,
+    missed_operations: dict[str, int],
+    fn_missed: int,
+    measures_with_real_errors: int,
+    baseline_inspections: int,
+    assisted_inspections: int,
+) -> str:
+    """Resume los errores que escapan al validador solo con lo medido (CLAUDE.md §8.1, #139)."""
+    if baseline_inspections == 0:
+        return "No se evaluó ningún compás: no hay esfuerzo ni errores que resumir."
+    reduction = 1.0 - assisted_inspections / baseline_inspections
+    if measures_with_real_errors == 0:
+        return (
+            f"Ningún compás tiene error real en esta muestra, así que la tasa de errores sin "
+            f"revisar no está definida. El validador ahorra el {reduction * 100:.2f}% de las "
+            f"inspecciones ({baseline_inspections} manuales frente a {assisted_inspections} "
+            "asistidas)."
+        )
+    missed_rate = fn_missed / measures_with_real_errors
+    text = (
+        f"El {missed_rate * 100:.2f}% de los compases con error real escapan al validador "
+        f"({fn_missed} de {measures_with_real_errors})."
+    )
+    total_ops = sum(missed_operations.values())
+    if total_ops:
+        ranked = sorted(missed_operations.items(), key=lambda item: (-item[1], item[0]))
+        shares = ", ".join(f"{op} {count} ({count / total_ops * 100:.2f}%)" for op, count in ranked)
+        text += f" Operaciones de corrección en esos compases: {shares}."
+    text += (
+        f" El validador ahorra el {reduction * 100:.2f}% de las inspecciones "
+        f"({baseline_inspections} manuales frente a {assisted_inspections} asistidas)."
+    )
+    if fn_missed:
+        text += " Los compases que no señala solo se corrigen con inspección humana (HITL)."
+    else:
+        text += " En esta muestra señala todos los compases con error real."
+    return text
 
 
 def _run_real_primus(
@@ -161,6 +191,14 @@ def _run_real_primus(
                 effort_reduction_ratio=s_reduction,
                 missed_errors_count=s_fn,
             )
+        )
+
+    if not score_summaries:
+        # Sin predicciones no hay medición: nada de resultados con ceros (CLAUDE.md §8.1).
+        raise ValueError(
+            f"exp_01 no encontró ninguna predicción utilizable en {predictions_dir} para las "
+            f"{len(entries)} entradas de {manifest_path}: ejecuta antes `exp_04` "
+            "(transcripción con HOMR) o indica `--predictions`."
         )
 
     # Agregados globales
@@ -251,120 +289,35 @@ def _run_real_primus(
         "missed_errors_breakdown": {
             "by_operation": missed_operations,
             "by_category": missed_categories,
-            "scientific_interpretation": (
-                f"El {missed_error_rate * 100:.2f}% de los compases con error real escapan al "
-                f"validador ({fn_missed} de {measures_with_real_errors}). "
-                "La inmensa mayoría corresponden a errores de altura (SetPitch) y "
-                "alteración (SetAccidental) que se encuentran dentro de tesitura y "
-                "tonalidad sin violar ninguna regla gramatical. Esto demuestra que el "
-                "validador es un filtro de esfuerzo eficiente "
-                f"(ahorra {effort_reduction_ratio * 100:.2f}% de inspecciones: "
-                f"{baseline_inspections} manuales vs {assisted_inspections} asistidos), "
-                "pero requiere necesariamente la inspección humana (HITL) asistida por "
-                "aprendizaje activo para alcanzar fidelidad perfecta."
+            "scientific_interpretation": _missed_errors_interpretation(
+                missed_operations=missed_operations,
+                fn_missed=fn_missed,
+                measures_with_real_errors=measures_with_real_errors,
+                baseline_inspections=baseline_inspections,
+                assisted_inspections=assisted_inspections,
             ),
         },
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
+        "sample_size_justification": sample_size_justification(
+            corpus_name,
+            counts={
+                "entries_considered": len(entries),
+                "transcribed_scores": len(score_summaries),
+                "skipped_scores": len(skipped_no_pred),
+                "total_measures": total_measures,
+                "measures_with_errors": measures_with_real_errors,
+            },
+            proportions={
+                "measures_with_real_errors": (measures_with_real_errors, total_measures),
+                "assisted_inspections": (assisted_inspections, total_measures),
+                "missed_errors": (fn_missed, measures_with_real_errors),
+            },
+        ),
         "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
         "run_info": run_info,
         "csv_by_score": str(csv_path),
     }
 
     return result_payload
-
-
-def _run_synthetic_fallback(
-    measures: int = 40,
-    broken_ratio: float = 0.25,
-    seed: int = DEFAULT_SEED,
-) -> dict[str, Any]:
-    """Modo fallback determinista si no está descargado el corpus PrIMuS."""
-    from cadenza.omr import FakeOMREngine
-
-    omr = FakeOMREngine()
-    doc_raw = omr.transcribe(Path("synthetic.png"))
-    motif = doc_raw.score.parts[0].staves[0].measures
-
-    import random
-    from dataclasses import replace
-
-    rng = random.Random(seed)
-    generated: list[Measure] = []
-    error_measures: set[int] = set()
-
-    for num in range(1, measures + 1):
-        tpl = motif[(num - 1) % len(motif)]
-        if rng.random() < broken_ratio:
-            events = list(tpl.events)
-            last = events[-1]
-            dur = last.duration_beats or Fraction(1)
-            wrong = dur - 1 if dur > 1 else dur + 1
-            events[-1] = replace(last, duration_beats=wrong)
-            generated.append(replace(tpl, number=num, events=tuple(events)))
-            error_measures.add(num)
-        else:
-            generated.append(replace(tpl, number=num))
-
-    staff = Staff(id="part-0-staff-0", measures=tuple(generated))
-    score = ScoreIR(parts=(Part(id="part-0", staves=(staff,)),))
-    doc = ScoreDocument(
-        id="exp-01-doc-synth",
-        score=score,
-        anchors=build_anchor_index(score),
-        provenance=Provenance(omr_engine="fake", rules_version="measure.balance"),
-    )
-
-    validator = ValidationEngine([MeasureBalanceRule()])
-    findings = validator.validate(doc)
-    flagged = {f.anchor.measure for f in findings}
-
-    tp = len(error_measures & flagged)
-    fp = len(flagged - error_measures)
-    fn = len(error_measures - flagged)
-    tn = measures - len(error_measures | flagged)
-
-    baseline = measures
-    assisted = len(flagged)
-    reduction = 0.0 if baseline == 0 else 1.0 - (assisted / baseline)
-
-    run_info = write_run_info("exp_01", seed=seed)
-
-    return {
-        "experiment": "exp_01_effort",
-        "mode": "synthetic_fallback",
-        "seed": seed,
-        "omr_engine": "fake",
-        "inspection_effort": {
-            "total_measures": measures,
-            "baseline_inspections_manual": baseline,
-            "assisted_inspections_validator": assisted,
-            "effort_reduction_ratio": round(reduction, 4),
-            "effort_reduction_percent": round(reduction * 100, 2),
-            "measures_saved": baseline - assisted,
-        },
-        "error_detection_and_tradeoff": {
-            "measures_with_real_errors": len(error_measures),
-            "clean_measures": measures - len(error_measures),
-            "true_positives_detected": tp,
-            "false_positives_alarms": fp,
-            "false_negatives_missed": fn,
-            "true_negatives_passed": tn,
-            "precision": round(tp / assisted if assisted else 0.0, 4),
-            "recall_coverage": round(tp / len(error_measures) if error_measures else 0.0, 4),
-            "missed_errors_rate": round(fn / len(error_measures) if error_measures else 0.0, 4),
-            "missed_errors_percent": round(
-                (fn / len(error_measures) * 100) if error_measures else 0.0, 2
-            ),
-        },
-        "missed_errors_breakdown": {
-            "by_operation": {"SetDuration": fn},
-            "by_category": {"duration": fn},
-            "scientific_interpretation": "Modo sintético ejecutado como fallback.",
-        },
-        "sample_size_justification": SAMPLE_SIZE_JUSTIFICATION,
-        "methodological_limitations": METHODOLOGICAL_LIMITATIONS,
-        "run_info": run_info,
-    }
 
 
 def run(
@@ -375,9 +328,13 @@ def run(
 ) -> dict[str, Any]:
     """Punto de entrada de exp_01."""
     manifest = manifest_path or (DATA_DIR / "manifest.json")
-    if manifest.is_file():
-        return _run_real_primus(manifest, predictions_dir=predictions_dir, limit=limit, seed=seed)
-    return _run_synthetic_fallback(seed=seed)
+    if not manifest.is_file():
+        # Sin corpus no hay resultado: nada de valores de reserva (CLAUDE.md §8.1).
+        raise FileNotFoundError(
+            f"exp_01 requiere el corpus PrIMuS descargado y su manifiesto ({manifest}). "
+            "Genéralo con `ml/experiments/corpus.py fetch` y `manifest` (ver ml/README.md)."
+        )
+    return _run_real_primus(manifest, predictions_dir=predictions_dir, limit=limit, seed=seed)
 
 
 def main() -> None:

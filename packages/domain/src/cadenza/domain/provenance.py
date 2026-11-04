@@ -23,13 +23,19 @@ class Provenance:
     created_at: datetime | None = None
     device: str | None = None
     preprocessing: Mapping[str, Any] | None = None
+    # Versión de la capa de sugerencias activa al transcribir (ADR-0036 §11). Opcional y, sin
+    # ella, no se serializa: los documentos guardados antes se leen y se guardan igual.
+    suggestions_version: str | None = None
+    # Etapas de Cadenza que corrieron tras el motor OMR y qué decidieron, por etapa (ADR-0059 §5):
+    # `{"meter": {...}}`. Opcional y, sin ellas, no se serializa, como `suggestions_version`.
+    omr_stages: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.omr_engine:
             raise ValueError("omr_engine must be non-empty")
 
     def to_primitive(self) -> dict[str, Any]:
-        return {
+        primitive: dict[str, Any] = {
             "omr_engine": self.omr_engine,
             "model_version": self.model_version,
             "rules_version": self.rules_version,
@@ -38,11 +44,17 @@ class Provenance:
             "device": self.device,
             "preprocessing": (dict(self.preprocessing) if self.preprocessing is not None else None),
         }
+        if self.suggestions_version is not None:
+            primitive["suggestions_version"] = self.suggestions_version
+        if self.omr_stages is not None:
+            primitive["omr_stages"] = dict(self.omr_stages)
+        return primitive
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> Provenance:
         created = data.get("created_at")
         raw_preproc = data.get("preprocessing")
+        raw_stages = data.get("omr_stages")
         return cls(
             omr_engine=str(data["omr_engine"]),
             model_version=None if data.get("model_version") is None else str(data["model_version"]),
@@ -53,4 +65,10 @@ class Provenance:
             created_at=None if created is None else datetime.fromisoformat(str(created)),
             device=None if data.get("device") is None else str(data["device"]),
             preprocessing=None if raw_preproc is None else dict(raw_preproc),
+            suggestions_version=(
+                None
+                if data.get("suggestions_version") is None
+                else str(data["suggestions_version"])
+            ),
+            omr_stages=None if raw_stages is None else dict(raw_stages),
         )

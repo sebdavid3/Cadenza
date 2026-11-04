@@ -1,6 +1,6 @@
 # ADR-0014: Ciclo de vida de la sesión (estados, finalización y reapertura)
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0043](ADR-0043-finalizar-y-reabrir-desde-la-vista.md): finalizar valida como una revalidación, conservando los descartes de la validación vigente y sin reglas en una sesión no asistida, devuelve solo los hallazgos activos y responde 409 si la sesión ya está finalizada)
 - **Fecha:** 2026-10-07
 - **Decisores:** Arquitecto de Software, Equipo de Desarrollo de Cadenza
 - **Relacionado:** [ADR-0007](ADR-0007-edit-events-inmutables.md), [ADR-0008](ADR-0008-active-learning-model-registry.md), [ADR-0009](ADR-0009-capa-de-aplicacion.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md)
