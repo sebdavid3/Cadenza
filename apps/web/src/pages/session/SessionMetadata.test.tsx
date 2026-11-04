@@ -3,7 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../router";
-import { ANA, deferred, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import {
+  ANA,
+  deferred,
+  jsonResponse,
+  mockApi,
+  resetAuth,
+  signInAs,
+  type Route,
+} from "../../test/auth-helpers";
 import type {
   EditEventRead,
   SessionDetailRead,
@@ -86,7 +94,7 @@ const png = () =>
 function api(
   start: SessionDetailRead,
   patch?: (body: SessionMetadataUpdate) => Response | Promise<Response>,
-  extra: Record<string, (init: RequestInit | undefined) => Response | Promise<Response>> = {},
+  extra: Record<string, Route> = {},
 ) {
   let exports = 0;
   return mockApi({
@@ -265,6 +273,70 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Descargar MusicXML" }));
     expect(saved).toEqual(["cadenza-3e951fef.musicxml"]);
     expect(calls.some((call) => call.key.endsWith("/edits"))).toBe(false);
+  });
+
+  it("tras guardar los datos, «Descargar MIDI» pide el MIDI otra vez: lleva el programa de cada parte", async () => {
+    // Cada MIDI lleva su número en el último byte: el primero, con los datos de antes.
+    let midis = 0;
+    const midiRoute: Route = (_init, url) => {
+      if (url.searchParams.get("format") !== "midi") {
+        return new Response("<score-partwise/>", {
+          headers: { "Content-Type": "application/vnd.recordare.musicxml+xml" },
+        });
+      }
+      midis += 1;
+      return new Response(new Uint8Array([0x4d, 0x54, 0x68, 0x64, midis]), {
+        headers: { "Content-Type": "audio/midi" },
+      });
+    };
+    api(
+      detail({ instruments: [{ instrument: "piano", name: null }] }),
+      () =>
+        jsonResponse({
+          session_id: ID,
+          title: null,
+          composer: null,
+          instruments: [{ instrument: "violin", name: null }],
+          source_filename: null,
+        } satisfies SessionMetadataRead),
+      { [`GET /sessions/${ID}/export`]: midiRoute },
+    );
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, "createObjectURL").mockImplementation((value) => {
+      if (value instanceof Blob && value.type === "audio/midi") blobs.push(value);
+      return "blob:archivo";
+    });
+    const saved: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved.push(this.download);
+    });
+    renderPage();
+    const download = await screen.findByRole("button", { name: "Descargar MIDI" });
+    await waitFor(() => {
+      expect(download).not.toHaveAttribute("aria-disabled", "true");
+    });
+    await userEvent.click(download);
+    await waitFor(() => {
+      expect(saved).toEqual(["cadenza-3e951fef.mid"]);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cambiar los datos" }));
+    const form = screen.getByRole("form", { name: "Datos de la partitura" });
+    await userEvent.selectOptions(within(form).getByLabelText("Parte 1 · 1 pentagrama"), "violin");
+    await userEvent.click(within(form).getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("Datos guardados.")).toBeVisible();
+
+    // Mismo estado, datos nuevos: el MIDI de antes ya no vale y se vuelve a pedir.
+    await userEvent.click(download);
+    await waitFor(() => {
+      expect(saved).toEqual(["cadenza-3e951fef.mid", "cadenza-3e951fef.mid"]);
+    });
+    expect(midis).toBe(2);
+    const last = blobs.at(-1);
+    if (!last) throw new Error("no se guardó ningún MIDI");
+    expect(new Uint8Array(await last.arrayBuffer()).at(-1)).toBe(2);
   });
 
   it("también con la sesión finalizada, sin reabrirla", async () => {

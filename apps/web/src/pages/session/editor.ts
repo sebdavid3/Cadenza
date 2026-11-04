@@ -380,8 +380,9 @@ export function useEditor(
       queryClient.query(sessionTimingQuery(api, sessionId, seq)).catch(ignore),
     ]);
     // Una recarga del detalle que siguiera en curso (al recuperar la red, por ejemplo) traería
-    // un estado anterior y lo pondría encima de este.
-    await queryClient.cancelQueries({ queryKey: detailKey });
+    // un estado anterior y lo pondría encima de este. Solo el detalle: un MIDI que se esté
+    // preparando (#189) cuelga del mismo prefijo y no debe abortarse.
+    await queryClient.cancelQueries({ queryKey: detailKey, exact: true });
     if (signal.aborted) return null;
     setKnownSeq(seq);
     beforeShow?.();
