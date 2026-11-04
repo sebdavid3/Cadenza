@@ -72,7 +72,7 @@ El recuadro de ADR-0053 cambia solo sin sesión, y solo si el build lo abre:
 - Apagado (el valor por defecto y el del estudio), el sistema se comporta exactamente como antes.
 
 ### Negativas / Riesgos
-- Gasta HOMR en visitantes sin cuenta. Por eso se despliega después del estudio y nunca espera un hueco. Aun así, con un hueco ocupado por una transcripción sin cuenta, quien entra tiene uno menos durante unos segundos.
+- Gasta HOMR en visitantes sin cuenta. Por eso va apagada durante el estudio (se fusionó el 2026-11-04 con el interruptor apagado) y nunca espera un hueco. Aun así, con un hueco ocupado por una transcripción sin cuenta, quien entra tiene uno menos durante unos segundos.
 - Las imágenes sin cuenta ocupan la base hasta caducar (el tope acota cuánto) y entran en las copias de seguridad de esa hora.
 - El límite por IP vive en la memoria de la API, como el del registro: se reinicia con ella, y varias personas tras una misma IP lo comparten.
 - Las caducadas se borran al arrancar, al transcribir otra y al reclamar; con la API en marcha y sin tráfico, pueden quedarse más de una hora (como mucho, las del tope).
