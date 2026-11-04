@@ -233,7 +233,8 @@ Comparte el interruptor del estudio con el registro: **apagado por defecto y dur
 ```bash
 DC="docker compose -f docker-compose.prod.yml --env-file .env"
 
-# Encender (al acabar el estudio): la variable a true, la web reconstruida y las dos recreadas
+# Encender (al acabar el estudio, y solo con los dos fallos de #278 resueltos): la variable a true,
+# la web reconstruida y las dos recreadas
 sed -i 's/^CADENZA_ANONYMOUS_PREVIEW_ENABLED=.*/CADENZA_ANONYMOUS_PREVIEW_ENABLED=true/' .env
 grep '^CADENZA_ANONYMOUS_PREVIEW_ENABLED=' .env    # una sola línea; si no sale nada, añadirla
 $DC build web
@@ -246,7 +247,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/previ
 ```
 
 - **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade una por minuto por visitante (no admite tasas por hora), con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
-- **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al arrancar la API, al llegar la siguiente o al reclamar una: tras apagar el interruptor, reiniciar la API (el `up -d api web` de arriba) las borra. Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
+- **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al llegar la siguiente o al reclamar una; al arrancar, la API borra solo las caducadas, así que las vigentes al apagar el interruptor se quedan hasta un reinicio posterior a su caducidad (anotado en #278). Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
 - **Al reclamarla** pasa a ser una sesión de la cuenta que entra, como cualquier otra: si es una cuenta del registro, queda fuera del dataset como las demás autorregistradas.
 
 #### Activar la capa de sugerencias (congelado, [#252](https://github.com/sebdavid3/Cadenza/issues/252), [#333](https://github.com/sebdavid3/Cadenza/issues/333))
