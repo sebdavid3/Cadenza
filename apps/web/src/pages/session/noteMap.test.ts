@@ -77,6 +77,7 @@ function figure(
     return {
       rest: true,
       grace: false,
+      hidden: false,
       beats,
       notes: [{ midi: null, step: null, box: { left: x, top: 0, width: 8, height: 20 } }],
       ...extra,
@@ -85,6 +86,7 @@ function figure(
   return {
     rest: false,
     grace: false,
+    hidden: false,
     beats,
     notes: pitches.map((pitch, index) => drawnNote(pitch, x, index * 10)),
     ...extra,
@@ -304,7 +306,7 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     expect(events[1]?.slot).toEqual({ staff: 1, measure: 0 });
   });
 
-  it("salta el silencio invisible de una voz: no se dibuja ni se elige, pero cuenta en el ancla y en el instante (ADR-0032)", () => {
+  it("si OSMD no guarda el silencio invisible (un <forward>), el hueco no se ofrece, pero cuenta en el ancla y en el instante (ADR-0032)", () => {
     const hiddenRest = (duration: string, voice: number) =>
       event({ kind: "rest", pitch: null, duration_beats: duration, voice, hidden: true });
     const events = complete(
@@ -333,7 +335,7 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     expect(moveSelection(events, "0:0:1:1:1", "measure-start")?.key).toBe("0:0:1:1:1");
   });
 
-  it("una voz hecha solo de silencios invisibles no es una voz dibujada", () => {
+  it("una voz hecha solo de silencios invisibles que OSMD no guarda no es una voz dibujada", () => {
     const events = complete(
       buildNoteMap(
         score([
@@ -348,6 +350,114 @@ describe("emparejamiento del ScoreIR con lo dibujado", () => {
     );
 
     expect(events.map((selectable) => selectable.key)).toEqual(["0:0:1:1:0", "0:0:1:1:1"]);
+  });
+
+  it("ofrece el hueco de una voz con la caja del silencio transparente de OSMD (ADR-0058)", () => {
+    const gap = (duration: string, voice = 0) =>
+      event({ kind: "rest", pitch: null, duration_beats: duration, voice, hidden: true });
+    const hidden = (beats: [number, number], x: number) =>
+      figure("rest", beats, x, { hidden: true });
+    const events = complete(
+      buildNoteMap(
+        score([[note("G4", "3/4"), gap("1/4"), note("F4", "1/2"), gap("5/2"), note("A4", "1/2")]]),
+        drawing([
+          [
+            [
+              figure(["G4"], [3, 4], 10),
+              hidden([1, 4], 30),
+              figure(["F4"], [1, 2], 40),
+              // music21 parte en dos figuras el silencio que no cabe en una.
+              hidden([2, 1], 60),
+              hidden([1, 2], 80),
+              figure(["A4"], [1, 2], 100),
+            ],
+          ],
+        ]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.key, selectable.gap, selectable.onset])).toEqual([
+      ["0:0:1:0:0", false, 0],
+      ["0:0:1:0:1", true, 0.75],
+      ["0:0:1:0:2", false, 1],
+      ["0:0:1:0:3", true, 1.5],
+      ["0:0:1:0:4", false, 4],
+    ]);
+    expect(events[3]?.boxes.map((box) => box.left)).toEqual([60, 80]);
+    // Se llega a él con las flechas y con el toque.
+    expect(moveSelection(events, "0:0:1:0:0", "next")?.key).toBe("0:0:1:0:1");
+    expect(nearestEvent(events, 31, 5, () => null)?.key).toBe("0:0:1:0:1");
+  });
+
+  it("una voz que se queda solo con huecos se elige si OSMD la guarda (ADR-0058)", () => {
+    const gap = (duration: string, voice: number) =>
+      event({ kind: "rest", pitch: null, duration_beats: duration, voice, hidden: true });
+    const events = complete(
+      buildNoteMap(
+        score([[note("C5", "2"), note("D5", "2"), gap("1", 1)]]),
+        drawing([
+          [
+            [figure(["C5"], [2, 1], 10), figure(["D5"], [2, 1], 50)],
+            [figure("rest", [1, 1], 10, { hidden: true })],
+          ],
+        ]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.key, selectable.gap])).toEqual([
+      ["0:0:1:0:0", false],
+      ["0:0:1:0:1", false],
+      ["0:0:1:1:0", true],
+    ]);
+    expect(moveSelection(events, "0:0:1:0:0", "down")?.key).toBe("0:0:1:1:0");
+  });
+
+  it("si los silencios transparentes no suman el hueco, no lo ofrece y el compás sigue cuadrando", () => {
+    const events = complete(
+      buildNoteMap(
+        score([
+          [
+            event({ kind: "rest", pitch: null, duration_beats: "1", hidden: true }),
+            note("C4", "3"),
+          ],
+        ]),
+        drawing([[[figure("rest", [1, 2], 0, { hidden: true }), figure(["C4"], [3, 1], 20)]]]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.key, selectable.gap])).toEqual([
+      ["0:0:1:0:1", false],
+    ]);
+  });
+
+  it("un silencio transparente sin hueco tampoco deja el compás sin elegir", () => {
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "3"), note("D4", "1")]]),
+        drawing([
+          [
+            [
+              figure(["C4"], [3, 1], 0),
+              figure("rest", [1, 1], 20, { hidden: true }),
+              figure(["D4"], [1, 1], 30),
+            ],
+          ],
+        ]),
+      ),
+    );
+    expect(events.map((selectable) => selectable.key)).toEqual(["0:0:1:0:0", "0:0:1:0:1"]);
+  });
+
+  it("dos huecos seguidos: se ofrece el que tiene silencio transparente", () => {
+    const gap = (duration: string) =>
+      event({ kind: "rest", pitch: null, duration_beats: duration, hidden: true });
+    const events = complete(
+      buildNoteMap(
+        score([[note("C4", "2"), gap("1"), gap("1")]]),
+        drawing([[[figure(["C4"], [2, 1], 0), figure("rest", [1, 1], 20, { hidden: true })]]]),
+      ),
+    );
+    expect(events.map((selectable) => [selectable.key, selectable.onset])).toEqual([
+      ["0:0:1:0:0", 0],
+      ["0:0:1:0:1", 2],
+    ]);
   });
 
   it("acepta un compás vacío si OSMD tampoco dibuja nada en él", () => {

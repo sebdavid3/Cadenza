@@ -11,6 +11,7 @@ from .anchor import Anchor, AnchorIndex, BBox, EventKind, EventRef
 from .clef import Clef
 from .edit import (
     CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     EditEvent,
@@ -80,6 +81,7 @@ __all__ = [
     "COMPOSER_MAX_LENGTH",
     "CONFIDENCE_LEVELS",
     "CONTENT_EDIT_OPS",
+    "GAP_EDIT_OPS",
     "MARK_EDIT_OPS",
     "MAX_PARTS",
     "METER_EDIT_OPS",

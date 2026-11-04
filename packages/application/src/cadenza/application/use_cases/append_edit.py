@@ -10,6 +10,7 @@ from fractions import Fraction
 from typing import Any
 
 from cadenza.domain import (
+    GAP_EDIT_OPS,
     MARK_EDIT_OPS,
     METER_EDIT_OPS,
     Anchor,
@@ -209,19 +210,26 @@ def _check_before(
 
 
 # Operaciones cuyo `before` del cliente se compara con la instantánea del servidor.
-_SNAPSHOT_COMPARED_OPS = MARK_EDIT_OPS | METER_EDIT_OPS
+_SNAPSHOT_COMPARED_OPS = MARK_EDIT_OPS | METER_EDIT_OPS | GAP_EDIT_OPS
 
 
 def _meter_state(op: EditOp, state: Mapping[str, Any]) -> Any:
     """Forma comparable del estado de un compás o de un tresillo (ADR-0044): la indicación con su
     símbolo y, si el cliente la da, la longitud del tramo; las figuras como fracciones, sin
-    depender de su grafía («1/2», «0.5»)."""
+    depender de su grafía («1/2», «0.5»); y las ligaduras de las dos notas de `SetTie`."""
 
     if op is EditOp.SET_TIME:
         raw = state["time_signature"]
         signature = None if raw is None else TimeSignature.from_primitive(raw)
         notation = None if signature is None else (signature, signature.symbol)
         return (notation, state.get("measures"))
+    if op is EditOp.SET_TIE:
+        # La ligadura de prolongación (ADR-0055): el valor de cada nota y dónde está la otra.
+        following = state["next"]
+        return (
+            state["tie"],
+            None if following is None else tuple(sorted(dict(following).items())),
+        )
     return tuple(None if d is None else Fraction(str(d)) for d in state["durations"])
 
 
@@ -231,6 +239,11 @@ def _mark_state(op: EditOp, state: Mapping[str, Any]) -> Any:
 
     if op in METER_EDIT_OPS:
         return _meter_state(op, state)
+    if op is EditOp.SET_EVENT_KIND:
+        # Lo que es el evento (ADR-0058): su clase, su altura y si es un hueco.
+        if not isinstance(state["hidden"], bool):
+            raise TypeError(f"'hidden' debe ser booleano: {state['hidden']!r}")
+        return (state["kind"], state["pitch"], state["hidden"])
 
     def offset(value: Any) -> Fraction:
         return Fraction(str(value))

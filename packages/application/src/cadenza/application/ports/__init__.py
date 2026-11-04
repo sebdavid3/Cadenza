@@ -24,6 +24,7 @@ from .model_registry import (
     PromotionThreshold,
 )
 from .preview_repository import InMemoryPreviewRepository, PreviewData, PreviewRepository
+from .recognition_stage import RecognitionStage
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .score_state_cache import (
     CachedScoreState,
@@ -86,6 +87,7 @@ __all__ = [
     "PreviewRepository",
     "PromotionRejected",
     "PromotionThreshold",
+    "RecognitionStage",
     "ScoreExporter",
     "ScoreStateCache",
     "ScoreStateKey",

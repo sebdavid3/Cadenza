@@ -69,6 +69,11 @@ services:
       CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE: ${CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE:-20}
       # Transcripciones en curso a la vez; sin hueco, 503 (ADR-0024).
       CADENZA_TRANSCRIBE_MAX_CONCURRENCY: ${CADENZA_TRANSCRIBE_MAX_CONCURRENCY:-2}
+      # Capa de sugerencias que aprende de las correcciones (ADR-0036, enmienda 19). Apagada por
+      # defecto; al encenderla muestra solo las sugerencias de alteración de confianza alta (#244).
+      CADENZA_SUGGESTIONS_ENABLED: ${CADENZA_SUGGESTIONS_ENABLED:-false}
+      CADENZA_SUGGESTIONS_MIN_LEVEL: ${CADENZA_SUGGESTIONS_MIN_LEVEL:-high}
+      CADENZA_SUGGESTIONS_FAMILIES: ${CADENZA_SUGGESTIONS_FAMILIES:-accidental}
       # Uvicorn solo cree X-Forwarded-For si la petición viene del servicio web, el único cliente
       # que la reescribe con la IP real (dirección fija más abajo).
       CADENZA_FORWARDED_ALLOW_IPS: 10.77.0.10

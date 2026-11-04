@@ -7,7 +7,14 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any, Final
 
-from cadenza.domain import CONTENT_EDIT_OPS, MARK_EDIT_OPS, METER_EDIT_OPS, EditEvent, EditOp
+from cadenza.domain import (
+    CONTENT_EDIT_OPS,
+    GAP_EDIT_OPS,
+    MARK_EDIT_OPS,
+    METER_EDIT_OPS,
+    EditEvent,
+    EditOp,
+)
 
 from .ports.effort_repository import EffortMetricsData, EffortSegment
 from .ports.session_repository import PersistedSuggestion
@@ -15,7 +22,7 @@ from .suggestions import ACCEPTED, REJECTED
 
 EFFORT_CLASSES: Final[tuple[str, ...]] = ("content", "mark", "meter")
 """Las clases de las intervenciones (ADR-0039, ADR-0044): el contenido, las marcas de notación y
-el compás con los tresillos y la figura de un acorde."""
+el compás con los tresillos, la figura de un acorde y la ligadura de prolongación (ADR-0055)."""
 
 
 def effort_class(op: EditOp) -> str:
@@ -24,7 +31,9 @@ def effort_class(op: EditOp) -> str:
         return "mark"
     if op in METER_EDIT_OPS:
         return "meter"
-    if op in CONTENT_EDIT_OPS:
+    # Escribir en un hueco o hacerlo visible es contenido, como insertar o borrar (ADR-0058):
+    # las clases siguen siendo tres.
+    if op in CONTENT_EDIT_OPS or op in GAP_EDIT_OPS:
         return "content"
     raise ValueError(f"Operación sin clase de esfuerzo: {op}")
 

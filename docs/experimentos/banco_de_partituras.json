@@ -1,0 +1,221 @@
+{
+  "descripcion": "Banco de partituras del estudio con participantes (#247, protocolo §2.3): TS-01 a TS-04 y la del calentamiento (§5.2), aprobado por el responsable el 2026-11-01. Las imágenes y las verdades no se versionan: las regenera scripts/build_study_bank.py en la carpeta de salida, que comprueba estos sha256.",
+  "salida": "banco_estudio",
+  "regenerar": "uv run --no-sync python -P scripts/build_study_bank.py",
+  "herramientas": {
+    "pdftoppm": "24.04.0",
+    "pillow": "12.3.0",
+    "music21": "10.5.0",
+    "converter21": "4.0.1"
+  },
+  "fuentes": {
+    "schubert-serie-xx-band-9": {
+      "archivo": "data/reference/scans/IMSLP60822-PMLP02203-Schubert_Werke_Breitkopf_Serie_XX_Band_9_F.S.878-904.pdf",
+      "sha256": "7e1d7e1b9456f1f8576078ba72cec03934d36c229d5c50dc1dee073babbd0799",
+      "descripcion": "Franz Schuberts Werke, Serie XX, Band 9 (F.S. 878-904), Leipzig, Breitkopf & Härtel, 1895; IMSLP #60822. Escaneo de 81 páginas; la página del PDF es la impresa + 4.",
+      "licencia": "Dominio público (IMSLP)",
+      "obtencion": "Se descarga a mano desde su página de IMSLP (#60822), la misma de #234."
+    }
+  },
+  "partituras": [
+    {
+      "id": "TS-01",
+      "papel": "TS-01",
+      "obra": "Íncipit de RISM en PrIMuS 000106106-1_1_1",
+      "contenido": "Melodía monofónica en clave de sol, sol mayor, compás C, 4 compases de negras y corcheas.",
+      "compases": 4,
+      "licencia": "CC BY (RISM). La imagen es un render de Verovio de PrIMuS, no un escaneo.",
+      "imagen": {
+        "origen": "primus",
+        "archivo": "data/primus/package_aa/000106106-1_1_1/000106106-1_1_1.png",
+        "sha256_origen": "34dff62c39f86ecdf82c3ca1ded42c0e74b4ebeabd043d4d2266d2e64a4af6cf"
+      },
+      "verdad": {
+        "tipo": "primus",
+        "archivo": "data/primus/package_aa/000106106-1_1_1/000106106-1_1_1.mei",
+        "sha256_origen": "bffb6a372bbe55bb1eef5dd862214ac10b61824be4431339e2191001da829b38",
+        "semantic": "data/primus/package_aa/000106106-1_1_1/000106106-1_1_1.semantic",
+        "sha256_semantic": "afe4de5c543af645908043afeeb7a7c0d2ddd648ba21c64f54367e128f87aca7",
+        "nota": "Altura que suena de cada nota tomada del .semantic: el MEI de PrIMuS no escribe la alteración de la armadura (cadenza.learning.primus)."
+      },
+      "salida": {
+        "imagen": "TS-01.png",
+        "verdad": "TS-01.musicxml"
+      },
+      "sha256": {
+        "imagen": "34dff62c39f86ecdf82c3ca1ded42c0e74b4ebeabd043d4d2266d2e64a4af6cf",
+        "verdad": "ef2fe63392658e0c42c4b805739b3c06140134a0469352bd22313f4b8a61953c"
+      }
+    },
+    {
+      "id": "calentamiento",
+      "papel": "calentamiento (§5.2), no se evalúa",
+      "obra": "Íncipit de RISM en PrIMuS 190009364-1_1_1",
+      "contenido": "Melodía monofónica en clave de sol, fa mayor, compás C, anacrusa de una negra y 2 compases.",
+      "compases": 3,
+      "licencia": "CC BY (RISM). La imagen es un render de Verovio de PrIMuS, no un escaneo.",
+      "imagen": {
+        "origen": "primus",
+        "archivo": "data/primus/package_ab/190009364-1_1_1/190009364-1_1_1.png",
+        "sha256_origen": "47b9fcf6a6e6d0601c6387ad0246324cf0f2da850039a8a2ace0f163708b0933"
+      },
+      "verdad": {
+        "tipo": "primus",
+        "archivo": "data/primus/package_ab/190009364-1_1_1/190009364-1_1_1.mei",
+        "sha256_origen": "ec049e3bf11fee20018d50982d13e243e68b1aba0e87a0318110cfe508520faf",
+        "semantic": "data/primus/package_ab/190009364-1_1_1/190009364-1_1_1.semantic",
+        "sha256_semantic": "f2f4c38517c71f889751419ff22b143690275302caabfca3fd7a912b4e2a38b1",
+        "nota": "Altura que suena de cada nota tomada del .semantic: el MEI de PrIMuS no escribe la alteración de la armadura (cadenza.learning.primus)."
+      },
+      "salida": {
+        "imagen": "calentamiento.png",
+        "verdad": "calentamiento.musicxml"
+      },
+      "sha256": {
+        "imagen": "47b9fcf6a6e6d0601c6387ad0246324cf0f2da850039a8a2ace0f163708b0933",
+        "verdad": "dfa22fa7e92e95488b7fa9f79a6f257dc1de0cb56e78cf8bdf3f328d7a269531"
+      }
+    },
+    {
+      "id": "TS-02",
+      "papel": "TS-02",
+      "obra": "Schubert, Winterreise D 911 n.º 16, Letzte Hoffnung, cc. 6-13",
+      "contenido": "Voz y piano (tres pentagramas), mi bemol mayor (tres bemoles), 3/4, 8 compases: accidentes, acordes, dos voces en la mano derecha y cambios de clave a mitad de compás en la izquierda.",
+      "compases": 8,
+      "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
+      "imagen": {
+        "origen": "pdf",
+        "fuente": "schubert-serie-xx-band-9",
+        "pagina_pdf": 57,
+        "pagina_impresa": 53,
+        "ppp": 300,
+        "recorte": [
+          0,
+          1270,
+          2745,
+          2585
+        ],
+        "nota": "Sistemas 2 y 3 de la página, a todo el ancho; sin la indicación de compás impresa, que está en el sistema 1."
+      },
+      "verdad": {
+        "tipo": "openscore",
+        "archivo": "data/reference/truth/lc5007180.mxl",
+        "sha256_origen": "62a06d23305ee464b184fa3c113c9b5fd30b91069b815486b88f79d0d70e851b",
+        "compases": [
+          6,
+          13
+        ],
+        "compases_en_la_fuente": [
+          5,
+          12
+        ],
+        "nota": "Compases ordinales: la anacrusa es el 1 (OpenScore la numera 0). La ligadura de expresión del Fa#4 del último compás (mano derecha) sigue en el sistema siguiente: queda abierta, como en la página."
+      },
+      "salida": {
+        "imagen": "TS-02.png",
+        "verdad": "TS-02.musicxml"
+      },
+      "sha256": {
+        "imagen": "c0c1273e0fe33525fef8b75393a466d1d4f07d9e430ecaa4b4f99cd46622aa5f",
+        "verdad": "dafd9353d85e5ac43adbaa46fe150801d06e19df43274971e0a04f6b4e349090"
+      }
+    },
+    {
+      "id": "TS-03",
+      "papel": "TS-03",
+      "obra": "Schubert, Winterreise D 911 n.º 11, Frühlingstraum, cc. 14-21",
+      "contenido": "Voz y piano (tres pentagramas), la mayor (tres sostenidos), 6/8, 8 compases: tresillos de semicorcheas, ligaduras de prolongación, silencios, acordes y cambios de clave a mitad de compás en la izquierda.",
+      "compases": 8,
+      "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
+      "imagen": {
+        "origen": "pdf",
+        "fuente": "schubert-serie-xx-band-9",
+        "pagina_pdf": 40,
+        "pagina_impresa": 36,
+        "ppp": 300,
+        "recorte": [
+          0,
+          2138,
+          2745,
+          3334
+        ],
+        "nota": "Sistemas 4 y 5 de la página, a todo el ancho, con «Schnell.» y el calderón de encima; sin el pie de imprenta ni la indicación de compás impresa, que está en el sistema 1."
+      },
+      "verdad": {
+        "tipo": "openscore",
+        "archivo": "data/reference/truth/lc5023603.mxl",
+        "sha256_origen": "a4a9cf7031385889659aa88bab88e46674f346dcf8e8154d46ea4ed63d7d3f00",
+        "compases": [
+          14,
+          21
+        ],
+        "compases_en_la_fuente": [
+          13,
+          20
+        ],
+        "nota": "Compases ordinales: la anacrusa es el 1 (OpenScore la numera 0).",
+        "erratas": [
+          {
+            "cambio": "ligadura_de_expresion_a_prolongacion",
+            "parte": 2,
+            "compas": 2,
+            "pentagrama": 1,
+            "voz": "2",
+            "motivo": "En el grabado, el do sostenido 4 de la voz inferior de la mano derecha (negra con puntillo y corchea) va unido con una ligadura de prolongación, como el acorde de la mano izquierda del mismo compás; OpenScore la codifica como ligadura de expresión."
+          }
+        ]
+      },
+      "salida": {
+        "imagen": "TS-03.png",
+        "verdad": "TS-03.musicxml"
+      },
+      "sha256": {
+        "imagen": "5ac34fcc079181de01f85b56ffc90c467a27f7e892a747056a65f4a4a38cd210",
+        "verdad": "1bbe050374722e1a11700a92a8c8aa751579133a31aaff4e5da07470a72d1f28"
+      }
+    },
+    {
+      "id": "TS-04",
+      "papel": "TS-04",
+      "obra": "Schubert, Winterreise D 911 n.º 21, Das Wirthshaus, cc. 8-13",
+      "contenido": "Voz y piano (tres pentagramas), fa mayor (un bemol), 4/4 (el C está en el sistema 1), 6 compases: acordes en las dos manos, varias voces en un pentagrama, una nota de adorno y un silencio de redonda en la voz.",
+      "compases": 6,
+      "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
+      "imagen": {
+        "origen": "pdf",
+        "fuente": "schubert-serie-xx-band-9",
+        "pagina_pdf": 72,
+        "pagina_impresa": 68,
+        "ppp": 300,
+        "recorte": [
+          0,
+          1940,
+          2745,
+          3320
+        ],
+        "nota": "Sistemas 3 y 4 de la página, a todo el ancho; sin el título, el pie de imprenta ni la indicación de compás impresa. Decidido por el responsable el 2026-11-02: con la página entera, HOMR mezcla los pentagramas del sistema 2 y la vista no puede corregirlo."
+      },
+      "verdad": {
+        "tipo": "openscore",
+        "archivo": "data/reference/truth/lc5013945.mxl",
+        "sha256_origen": "ca18046b969cbf51fc7e3681750bccde2bfc0c8687b2fcd06e63c60d36bd07c2",
+        "compases": [
+          8,
+          13
+        ],
+        "compases_en_la_fuente": [
+          8,
+          13
+        ]
+      },
+      "salida": {
+        "imagen": "TS-04.png",
+        "verdad": "TS-04.musicxml"
+      },
+      "sha256": {
+        "imagen": "eb2f3c76d9d143121b19314ea85b117f8c8f1a89f7b5764be95cce68971b64e2",
+        "verdad": "7586ecc188008cc8503114dca7fa9e64a9d61414b39f697b370dbc28cf98dc90"
+      }
+    }
+  ]
+}

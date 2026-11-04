@@ -171,11 +171,14 @@ export interface EditEventRead {
  *    - Inserta un nuevo evento musical antes de la posición anclada.
  *    - ``before``: ``None``.
  *    - ``after``: ``{"kind": str, "pitch": str | None, "duration_beats": Fraction | str, ...}``.
+ *      Con ``"is_chord": true``, una nota más del acorde de la nota anterior (ADR-0055). La
+ *      compensatoria de borrar la primera nota de un acorde lleva además ``"next_in_chord"``.
  * 
  * 5. `DELETE_EVENT` ("DeleteEvent"):
  *    - Elimina el evento musical anclado en la voz del compás.
  *    - ``before``: snapshot del evento previo.
- *    - ``after``: ``None``.
+ *    - ``after``: ``None`` o, en la primera nota de un acorde, ``{"keep_chord": true}``: la
+ *      nota siguiente pasa a ser la primera, con la figura y las marcas del acorde (ADR-0055).
  * 
  * 6. `SET_CLEF` ("SetClef"):
  *    - Modifica la clave musical del compás al que apunta el ancla.
@@ -218,6 +221,11 @@ export interface EditEventRead {
  *       "symbol": "common" | "cut" | None} | None, "measures": int}`` (``measures``, el
  *       número de compases que cambia, es opcional en el ``after`` del cliente; ``None`` en
  *       ``time_signature`` solo lo escribe la compensatoria).
+ *     - Con ``"all_parts": true`` en el ``after`` (#326), en todas las partes de la partitura,
+ *       cada una en su tramo: el ``before`` guarda además ``"all_parts": true`` y ``"parts"``,
+ *       ``[{"time_signature", "measures"} | None, ...]``, lo de cada parte (None si no tiene
+ *       el compás), con lo que la compensatoria devuelve cada parte a lo suyo. Sin él, solo
+ *       la parte del ancla, como antes de #326.
  * 
  * 13. `SET_TUPLET` ("SetTuplet"):
  *     - Pone o quita el tresillo (3:2) a los eventos seguidos de una voz desde el ancla.
@@ -229,8 +237,26 @@ export interface EditEventRead {
  *     - Fija la figura de todas las notas de un acorde, anclada en su primera nota.
  *     - ``before``/``after``: ``{"durations": [str | None, ...]}``, una por nota del acorde
  *       (en el ``after`` del cliente, todas iguales y con duración).
+ * 
+ * Ligadura de prolongación (ADR-0055). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 15. `SET_TIE` ("SetTie"):
+ *     - Pone o quita la ligadura de prolongación entre la nota anclada y la que la sigue (en su
+ *       voz o, al cruzar la barra, al empezar el compás siguiente), o quita la marca de la
+ *       nota anclada sola.
+ *     - ``before``/``after``: ``{"tie": str | None, "next": {"measure": int, "voice": int,
+ *       "event_index": int, "tie": str | None} | None}``, el valor de cada nota
+ *       (``"start"``, ``"continue"``, ``"stop"`` o ``None``).
+ * 
+ * Los huecos de una voz (ADR-0058). También de tipo «fijar», y tampoco mueve ningún evento.
+ * 
+ * 16. `SET_EVENT_KIND` ("SetEventKind"):
+ *     - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una
+ *       nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.
+ *     - ``before``/``after``: ``{"kind": "note" | "rest", "pitch": str | None,
+ *       "hidden": bool}``.
  */
-export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration";
+export type EditOp = "SetPitch" | "SetDuration" | "SetAccidental" | "InsertEvent" | "DeleteEvent" | "SetClef" | "SetKey" | "SetNoteMarks" | "SetDynamic" | "SetWedge" | "SetSlur" | "SetTime" | "SetTuplet" | "SetChordDuration" | "SetTie" | "SetEventKind";
 
 /**
  * Payload para registrar métricas de esfuerzo de corrección (#13).

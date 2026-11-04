@@ -198,4 +198,8 @@ def test_a_suggestion_of_set_time_or_set_tuplet_matches_its_equivalent_edit() ->
     assert same_after(EditOp.SET_TIME, proposed, sent)
     common = {"time_signature": {"beats": 4, "beat_type": 4, "symbol": "common"}}
     assert not same_after(EditOp.SET_TIME, proposed, common)
+    # El candidato de time.signature es de una parte (#326): `all_parts: false` es lo mismo, y
+    # todas las partes, otra edición.
+    assert same_after(EditOp.SET_TIME, proposed, {**sent, "all_parts": False})
+    assert not same_after(EditOp.SET_TIME, proposed, {**sent, "all_parts": True})
     assert same_after(EditOp.SET_TUPLET, {"durations": ["1/3", None]}, {"durations": ["2/6", None]})

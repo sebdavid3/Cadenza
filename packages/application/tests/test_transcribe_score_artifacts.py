@@ -17,6 +17,7 @@ from cadenza.application import (
     is_image_content,
     transcribe_score,
 )
+from cadenza.omr import MeterFeature, MeterStage
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.validation import ValidationEngine
 
@@ -157,3 +158,51 @@ def test_get_session_image_success_and_permissions() -> None:
     finally:
         if img_path.is_file():
             img_path.unlink()
+
+
+@pytest.mark.parametrize("condition", ["assisted", "unassisted"])
+def test_the_meter_stage_runs_after_the_engine_in_both_conditions(condition: str) -> None:
+    """La etapa del compás corre tras el motor y antes de validar, también sin validador: las
+    dos condiciones del estudio parten de la misma lectura (ADR-0059 §4)."""
+
+    session_repo = InMemorySessionRepository()
+    owner = User(id="u", username="t", password_hash="h", role=Role.TRANSCRIPTOR, active=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        image = Path(tmp) / "page.png"
+        image.write_bytes(PNG_SAMPLE)
+        result = transcribe_score(
+            image,
+            omr_engine=FakeOMREngine(),
+            validator=ValidationEngine([]),
+            session_repository=session_repo,
+            current_user=owner,
+            condition=condition,
+            meter_stage=MeterStage({MeterFeature.SYMBOL}),
+        )
+
+    session = session_repo.get(result.session_id)
+    assert session is not None
+    measures = session.document["score"]["parts"][0]["staves"][0]["measures"]
+    assert {m["time_signature"]["symbol"] for m in measures} == {"common"}
+    stage = session.document["provenance"]["omr_stages"]["meter"]
+    assert stage["features"] == ["symbol"]
+    assert session.document["provenance"]["omr_engine"] == "fake"
+
+
+def test_without_a_meter_stage_the_engine_reading_is_kept() -> None:
+    session_repo = InMemorySessionRepository()
+    owner = User(id="u", username="t", password_hash="h", role=Role.TRANSCRIPTOR, active=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        image = Path(tmp) / "page.png"
+        image.write_bytes(PNG_SAMPLE)
+        result = transcribe_score(
+            image,
+            omr_engine=FakeOMREngine(),
+            validator=ValidationEngine([]),
+            session_repository=session_repo,
+            current_user=owner,
+        )
+
+    session = session_repo.get(result.session_id)
+    assert session is not None
+    assert "omr_stages" not in session.document["provenance"]

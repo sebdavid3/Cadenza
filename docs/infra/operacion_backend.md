@@ -14,6 +14,7 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_AUTH_SECRET_KEY` | `str` | *(vacío)* | Clave secreta para la firma de los tokens JWT, de 32 bytes como mínimo ([#193](https://github.com/sebdavid3/Cadenza/issues/193)). Con una más corta, la API no arranca y el error dice su longitud, nunca la clave; vacía, tampoco arranca. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `int` | `30` | Minutos de expiración para tokens de acceso. |
 | `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para la inferencia de HOMR, único motor OMR (ADR-0018), en el plano online. |
+| `CADENZA_OMR_METER_FEATURES` | `str` | `numerator,symbol,implicit_tuplets` | Rasgos de la etapa del compás que corre tras HOMR ([ADR-0059](../adr/ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md)), separados por comas: `numerator` (el numerador de cada tramo, de lo que suman sus compases), `symbol` (4/4 como C y 2/2 como ¢) e `implicit_tuplets` (los tresillos sin marcar), o `all` / `none`. Un nombre desconocido impide arrancar. Lo que decidió queda en la procedencia de la sesión (`provenance.omr_stages`). |
 | `CADENZA_ARTIFACTS_DIR` | `path` | `./data/artifacts` | Ruta raíz para el almacenamiento de archivos del `ArtifactStore`. |
 | `CADENZA_AUTO_CREATE_SCHEMA` | `bool` | `false` | Si es `true`, crea DDL al arrancar (solo tests/dev). En producción usar Alembic. |
 | `CADENZA_CORS_ORIGINS` | `list[str]` | `*` | Orígenes permitidos para peticiones cruzadas: `*` o `esquema://host[:puerto]` (sin ruta ni barra final), uno o varios separados por comas o en una lista JSON. `*` va solo y no envía credenciales; `[]` desactiva CORS (con Docker Compose, un valor vacío se convierte en `*`). Un valor mal escrito impide arrancar la API. |
@@ -247,6 +248,93 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/previ
 - **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade seis por hora por visitante, con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
 - **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al arrancar la API, al llegar la siguiente o al reclamar una: tras apagar el interruptor, reiniciar la API (el `up -d api web` de arriba) las borra. Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
 - **Al reclamarla** pasa a ser una sesión de la cuenta que entra, como cualquier otra: si es una cuenta del registro, queda fuera del dataset como las demás autorregistradas.
+
+#### Activar la capa de sugerencias (congelado, [#252](https://github.com/sebdavid3/Cadenza/issues/252), [#333](https://github.com/sebdavid3/Cadenza/issues/333))
+
+En la condición asistida del estudio ([#244](https://github.com/sebdavid3/Cadenza/issues/244); [ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md), enmienda 19), la capa de sugerencias muestra solo las sugerencias de alteración de confianza alta (`CADENZA_SUGGESTIONS_MIN_LEVEL=high`, `CADENZA_SUGGESTIONS_FAMILIES=accidental`, que son los valores por defecto del compose y de la API). En la condición `unassisted` no corren ni las reglas ni la capa (D38). Entre el congelado ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y el final del estudio no se promueve ninguna versión (ADR-0036 §8, enmienda 14).
+
+El corpus de entrenamiento (`results/correction_corpus.jsonl`, de `exp_12`, [#255](https://github.com/sebdavid3/Cadenza/issues/255)) vive en el portátil y solo se lee. En el servidor, PostgreSQL no publica su puerto, el volumen `cadenza-prod_artifacts_data` pertenece al usuario `cadenza` (UID y GID 10001, [ADR-0029](../adr/ADR-0029-api-con-usuario-sin-privilegios.md)) y la imagen `cadenza-api:prod` incluye los paquetes del workspace en `/app/packages/` (con `cadenza.learning` ya compilado a bytecode, sin dependencias externas), pero no instala el `.pth` editable de `cadenza-learning` ni copia `ml/` ni `configs/`. Por eso la promoción se ejecuta con un contenedor efímero del propio servicio `api` (`run --rm --no-deps`), que ya corre en la red del compose con el UID 10001, recibe `CADENZA_DATABASE_URL` del `.env` sin exponerla en la lista de procesos del host y monta el volumen de artefactos en `/app/data/artifacts`: basta con montar en solo lectura `ml/` y `configs/` del clon de `/opt/docker/cadenza`, montar la carpeta con el modelo y el informe fuera del repositorio y añadir `/app:/app/packages/learning/src` a `PYTHONPATH`.
+
+1. **En el portátil (PowerShell): entrenar, evaluar y enviar al servidor.** El entrenamiento es determinista (`seed: 42` en `configs/learning/suggestions.json`): con el corpus `a57817f105efd68968f459cc9cf7850a5438ed85e744f8476ca6fd12f44f0687` y la configuración `deae5234c038916d240008ed228e4e9738bb9df99eb86474b85a237a5593090e`, el artefacto tiene siempre `sha256` `dac502e33667a15fb42cba30f147735f14328e4f3a6089221b372c5c89c46bd4`. Las salidas se escriben fuera de `results/` y de `data/` y se copian a `/opt/docker/cadenza-capa` en el servidor (fuera de `/opt/docker/cadenza`, para que el árbol de `git` siga limpio):
+
+```powershell
+$capa = Join-Path $env:TEMP "cadenza-capa"
+New-Item -ItemType Directory -Force -Path $capa | Out-Null
+
+uv run --no-sync python -m ml suggestions train `
+  --corpus results/correction_corpus.jsonl `
+  --config configs/learning/suggestions.json `
+  --output "$capa\modelo.json"
+
+uv run --no-sync python -m ml suggestions evaluate `
+  --model "$capa\modelo.json" `
+  --corpus results/correction_corpus.jsonl `
+  --output "$capa\informe.json"
+
+Get-FileHash "$capa\modelo.json","$capa\informe.json" -Algorithm SHA256
+# modelo.json ha de dar DAC502E33667A15FB42CBA30F147735F14328E4F3A6089221B372C5C89C46BD4
+
+ssh papoi@r2d2 "mkdir -p /opt/docker/cadenza-capa"
+scp "$capa\modelo.json" "$capa\informe.json" papoi@r2d2:/opt/docker/cadenza-capa/
+```
+
+2. **En el servidor (`/opt/docker/cadenza`): copia previa, promoción y encendido.** Si el `.env` se creó antes de [#333](https://github.com/sebdavid3/Cadenza/issues/333) y aún no tiene la línea `CADENZA_SUGGESTIONS_ENABLED=...`, el `sed` no cambiaría nada: el comando comprueba si existe y, si no, la añade. Recrear `api` (`$DC up -d api`) corta las transcripciones en curso y `/api` responde 502 hasta que carga HOMR (hasta 2 minutos), así que se hace sin nadie trabajando:
+
+```bash
+cd /opt/docker/cadenza
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+
+# 1. Comprobar el sha256 recibido y hacer copia de seguridad verificada antes de tocar la base
+sha256sum /opt/docker/cadenza-capa/modelo.json /opt/docker/cadenza-capa/informe.json
+# modelo.json: dac502e33667a15fb42cba30f147735f14328e4f3a6089221b372c5c89c46bd4
+BACKUP="/backups/cadenza-$(date +%F-%H%M).tar.gz"
+$DC --profile backup run --rm backup backup --output "$BACKUP"
+$DC --profile backup run --rm backup verify --archive "$BACKUP"
+
+# 2. Promover la versión con el usuario cadenza (UID 10001) en la red y el volumen de la API
+$DC run --rm --no-deps   -v "$PWD/ml:/app/ml:ro"   -v "$PWD/configs:/app/configs:ro"   -v "/opt/docker/cadenza-capa:/capa:ro"   -e PYTHONPATH=/app:/app/packages/learning/src   api python -m ml suggestions promote   --model /capa/modelo.json   --report /capa/informe.json   --artifacts-dir /app/data/artifacts   --version sug-estudio-20261108
+
+# 3. Encender el interruptor en .env (la política por defecto ya es high y accidental) y recrear api
+if grep -q '^CADENZA_SUGGESTIONS_ENABLED=' .env; then
+  sed -i 's/^CADENZA_SUGGESTIONS_ENABLED=.*/CADENZA_SUGGESTIONS_ENABLED=true/' .env
+else
+  printf '
+CADENZA_SUGGESTIONS_ENABLED=true
+' >> .env
+fi
+grep '^CADENZA_SUGGESTIONS_' .env     # ha de salir CADENZA_SUGGESTIONS_ENABLED=true
+$DC up -d api
+```
+
+3. **Comprobar en el registro de la API.** Al terminar de arrancar `api` (`$DC ps`), el registro ha de mostrar la línea `suggestion_layer loaded` con la versión promovida y la política del estudio:
+
+```bash
+$DC logs --no-color --tail=50 api | grep suggestion_layer
+# INFO:     suggestion_layer loaded version=sug-estudio-20261108 feature_version=1 families=accidental policy_min_level=high policy_families=accidental
+```
+
+Si la capa no pudiera cargarse (por ejemplo, `CADENZA_SUGGESTIONS_ENABLED=true` sin versión promovida, un `sha256` que no coincide en `/app/data/artifacts`, otra `feature_version` o una política inválida), la API arranca igualmente sana (`GET /api/health` responde 200), valida solo con las reglas y deja en el registro `WARNING:  suggestion_layer unavailable reason=…` (`no_promoted_version`, `invalid_artifact`, `feature_version` o `invalid_policy`).
+
+4. **Cómo apagarla si hiciera falta** (sin borrar la versión promovida ni tocar la base de datos):
+
+```bash
+sed -i 's/^CADENZA_SUGGESTIONS_ENABLED=.*/CADENZA_SUGGESTIONS_ENABLED=false/' .env
+grep '^CADENZA_SUGGESTIONS_ENABLED=' .env    # una sola línea, con false
+$DC up -d api
+```
+
+5. **Qué se anota en el congelado** ([#252](https://github.com/sebdavid3/Cadenza/issues/252)):
+   - el nombre de la versión promovida (`sug-estudio-20261108`);
+   - el `sha256` del artefacto (`dac502e33667a15fb42cba30f147735f14328e4f3a6089221b372c5c89c46bd4`), el del corpus (`a57817f105efd68968f459cc9cf7850a5438ed85e744f8476ca6fd12f44f0687`) y el del informe de evaluación;
+   - la línea `suggestion_layer loaded … policy_min_level=high policy_families=accidental` del registro de `api`;
+   - y que en una sesión de prueba en condición `assisted` la procedencia trae `"suggestions_version": "sug-estudio-20261108"`.
+
+Ensayado de punta a punta en el portátil el 2026-11-03 ([#333](https://github.com/sebdavid3/Cadenza/issues/333)) con `docker compose -f docker-compose.prod.yml -p cadenza-ensayo` en `127.0.0.1:18380` (retirado después con `down -v`):
+- Dos entrenamientos seguidos sobre `results/correction_corpus.jsonl` dan el mismo `sha256` (`dac502e33667a15fb42cba30f147735f14328e4f3a6089221b372c5c89c46bd4`), idéntico al de `results/rules_catalog_v2/exp_14_politica_alteraciones_alta/suggestion_layer_artifact.json`; el informe (`933e97ac815b1893b5efc8fe52366b807ba2bfa2d28a2c2196fceedc6b3172af`, 352 incipits) coincide en todas sus métricas con `promotion_metrics` de `exp_14_politica_alteraciones_alta/suggestion_layer_summary.json` (`learned.f1 = 0,0856` frente a `0,0`, `rule_findings.top1_accuracy = 0,8608` —68 de 79— frente a `0,6709` —53 de 79—; en `test.rule_suggestions` de ese resumen salen 40 de 79 porque `exp_14` filtra además la prueba por la política `min_level=high, families=accidental`, dejando las 45 sugerencias de alteración de confianza alta con 40 aciertos, mientras que `evaluate` mide el modelo sin la política de visualización, ADR-0036 enmienda 19).
+- Con `CADENZA_SUGGESTIONS_ENABLED=true` antes de promover, la API arranca en `healthy` y registra `WARNING:  suggestion_layer unavailable reason=no_promoted_version`. Un intento de `promote` con un modelo cuyo `sha256` no coincide con `model_sha256` del informe termina con código 1 (`Error: el informe no es de este artefacto (model_sha256 distinto)`).
+- Al promover con `$DC run --rm --no-deps` (`sug-20261103`), el artefacto queda en `/app/data/artifacts/sha256/da/c5/dac502e3…` con dueño `cadenza:cadenza` (`10001:10001`). Al recrear `api`, registra `INFO:     suggestion_layer loaded version=sug-20261103 feature_version=1 families=accidental policy_min_level=high policy_families=accidental`.
+- Transcrito el incipit `000100471-1_1_1` por `http://127.0.0.1:18380/api/transcribe`: en `assisted`, `GET /api/sessions/{id}` devuelve `provenance.suggestions_version = "sug-20261103"` y el hallazgo `accidental.repeated` del c. 3 con su sugerencia (`SetAccidental`, `b` → `""`, `confidence: 0.85`, `confidence_level: "high"`, `source: "learned"`); en `unassisted`, `provenance.suggestions_version = null` y `findings: []`.
+- Alterado el archivo del artefacto en el volumen y reiniciada `api`, el servicio arranca en `healthy` (200 en `/api/health`) y registra `WARNING:  suggestion_layer unavailable reason=invalid_artifact version=sug-20261103 error=el sha256 del artefacto (…) no es el registrado (dac502e3…)`.
 
 #### Espacio en disco de Docker ([#205](https://github.com/sebdavid3/Cadenza/issues/205))
 
