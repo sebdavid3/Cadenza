@@ -29,6 +29,8 @@ export function LandingPage() {
     <>
       <SiteHeader />
       <main className="landing">
+        <LandingUpload />
+
         <section className="hero" aria-labelledby="hero-title">
           <h1 id="hero-title" className="hero__title">
             De píxel <span>a nota.</span>
@@ -59,8 +61,6 @@ export function LandingPage() {
             </p>
           </div>
         </section>
-
-        <LandingUpload />
 
         <IncipitDemo />
 

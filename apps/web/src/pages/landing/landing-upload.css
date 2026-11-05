@@ -2,7 +2,9 @@
    violeta solo en la acción y en lo que pide atención. */
 
 .landing-upload {
-  border-bottom: var(--rule);
+  width: min(calc(100% - var(--gutter) - var(--gutter)), 76rem);
+  margin: var(--space-5) auto var(--space-7);
+  border: var(--rule);
   scroll-margin-top: var(--space-4);
 }
 
@@ -10,10 +12,10 @@
    lo demás (avisos, formulario, progreso y resultado) a lo ancho, debajo. */
 .landing-upload__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 480px);
+  grid-template-columns: minmax(0, 1fr) minmax(min(100%, 300px), 480px);
   gap: var(--space-5) var(--space-7);
   align-items: start;
-  padding: var(--space-6) var(--gutter) var(--space-7);
+  padding: var(--space-5);
 }
 
 .landing-upload__body > * {
@@ -44,6 +46,34 @@
   .landing-upload__body > .landing-upload__progress {
     grid-column: 1;
     grid-row: auto;
+  }
+}
+
+@media (max-width: 600px) {
+  .landing-upload {
+    margin-top: var(--space-3);
+    margin-bottom: var(--space-5);
+  }
+
+  .landing-upload > .section-title {
+    padding: var(--space-3) var(--space-4);
+    font-size: clamp(1.5rem, 7vw, 2rem);
+  }
+
+  .landing-upload__body {
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+
+  .landing-upload__form,
+  .landing-upload__pending {
+    width: 100%;
+    padding: var(--space-4);
+  }
+
+  .landing-upload__zone {
+    width: 100%;
+    min-width: 0;
   }
 }
 
