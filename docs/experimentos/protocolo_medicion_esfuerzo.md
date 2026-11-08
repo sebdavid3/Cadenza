@@ -98,7 +98,7 @@ Con una muestra mínima de $N=8$ transcriptores musicales:
 | **P07** | TS-04 (`assisted`) | TS-03 (`unassisted`) | TS-02 (`assisted`) | TS-01 (`unassisted`) |
 | **P08** | TS-04 (`unassisted`) | TS-03 (`assisted`) | TS-02 (`unassisted`) | TS-01 (`assisted`) |
 
-La misma matriz está en `estudio.matriz` de `docs/experimentos/banco_de_partituras.json`, que es la que usa la preparación de cada participante (§5); una prueba comprueba que coinciden y que es un cuadrado latino equilibrado (#249).
+La misma matriz está en `estudio.matriz` de `docs/experimentos/banco_de_partituras.json`, que es la que usa la preparación de cada participante (§5); una prueba comprueba que coinciden y que es un cuadrado latino: cada participante hace las cuatro partituras, dos en cada condición, cada partitura va dos veces en cada posición, y cada posición tiene cuatro sesiones asistidas y cuatro no asistidas (#249). No es un cuadrado de Williams: no equilibra qué partitura sigue a cuál (las transiciones 1→3, 3→1, 2→4 y 4→2 no aparecen nunca, y 1→2, 2→1, 3→4 y 4→3 aparecen dos veces), así que equilibra el orden de las condiciones y de las partituras, pero no el arrastre entre una partitura concreta y la siguiente.
 
 ---
 
@@ -167,9 +167,10 @@ Antes de iniciar la prueba, cada participante recibe un documento de informació
    * Asignación del código seudónimo y credenciales temporales.
    * **Antes de que llegue (#249),** el investigador prepara su cuenta y sus sesiones desde el repositorio, con el banco regenerado (§2.3):
      ```bash
-     uv run --no-sync python -P scripts/prepare_study_participant.py P01 --api-url https://cadenza.sebdavid.dev/api --investigator <su usuario>
+     uv run --no-sync python -P scripts/prepare_study_participant.py P01 --api-url https://r2d2.tailcacb19.ts.net/api --investigator <su usuario>
      ```
-     Pide sin eco la contraseña del investigador y la de la cuenta nueva (dos veces), y no las imprime. Usa solo la API v1, como la web: da de alta `P01` como transcriptor (no del registro, para que entre en `exp_10`) y, a su nombre, transcribe con HOMR el calentamiento y sus cuatro bloques con su condición y su `test_score_id`. El participante ve en su listado «Calentamiento» y «Partitura 1» a «Partitura 4», en ese orden y con un nombre de archivo neutro, sin nada de la condición ni de la partitura de prueba. Es idempotente: lo que ya existe no se repite, y tras un corte basta con volver a ejecutarla. Se niega a seguir si una sesión que ya existe tiene otra condición que la de la matriz, si la cuenta es del registro, de investigador o está desactivada, o si el banco no tiene los sha256 del manifiesto.
+     En Windows, desde PowerShell: en Git Bash, la petición de contraseña sin eco (`getpass`) puede quedarse colgada.
+     Pide sin eco la contraseña del investigador y la de la cuenta nueva (dos veces), y no las imprime. Usa solo la API v1, como la web: da de alta `P01` como transcriptor (no del registro, para que entre en `exp_10`) y, a su nombre, transcribe con HOMR el calentamiento y sus cuatro bloques con su condición y su `test_score_id`. El participante ve en su listado «Calentamiento» y «Partitura 1» a «Partitura 4», en ese orden y con un nombre de archivo neutro, sin nada de la condición ni de la partitura de prueba. Es idempotente: lo que ya existe no se repite, y tras un corte basta con volver a ejecutarla. Si Nginx corta una transcripción larga (a los 60 s), la API la termina igualmente: la orden espera a que aparezca en el listado en vez de repetirla. Se niega a seguir si una sesión que ya existe tiene otra condición que la de la matriz, si hay dos de la misma partitura, si lo que falta no se puede crear en el orden de los bloques, si la cuenta es del registro, de investigador o está desactivada, o si el banco no tiene los sha256 del manifiesto, y avisa si una sesión que ya existía tiene ediciones. Como las sesiones se crean del último bloque al primero, el bloque de cada una sale de la matriz, no de su fecha de creación; el calentamiento no entra en el análisis (#250).
 2. **Familiarización y Calentamiento (10 min):**
    * Breve recorrido por la interfaz web de Cadenza: herramientas de navegación, cursor, edición de notas, alteraciones y panel de hallazgos.
    * Ejercicio guiado de corrección sobre una partitura de prueba neutra no evaluada (`calentamiento`, §2.3).

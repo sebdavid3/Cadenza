@@ -4,7 +4,7 @@ Antes de cada participante, el investigador ejecuta, desde la carpeta del reposi
 banco ya regenerado (`scripts/build_study_bank.py`):
 
     uv run --no-sync python -P scripts/prepare_study_participant.py P01 \\
-        --api-url https://cadenza.sebdavid.dev/api --investigator <su usuario>
+        --api-url https://r2d2.tailcacb19.ts.net/api --investigator <su usuario>
 
 La orden usa solo el contrato v1, como la web:
 
@@ -17,7 +17,10 @@ La orden usa solo el contrato v1, como la web:
    orden, con un nombre de archivo neutro: nada de la condición ni de la partitura de prueba.
 
 Es idempotente: una sesión que ya existe con su `test_score_id` y su condición no se repite, y
-tras un corte basta con volver a ejecutarla. Las contraseñas se piden sin eco y no se imprimen.
+tras un corte basta con volver a ejecutarla. Si el proxy corta una transcripción larga (Nginx
+espera 60 s), la API la termina y la guarda igualmente (ADR-0024): la orden espera a que aparezca
+en el listado antes de seguir, para no transcribir dos veces el mismo bloque. Las contraseñas se
+piden sin eco y no se imprimen, tampoco en los mensajes de error.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import getpass
 import hashlib
 import json
 import sys
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,8 +41,13 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = REPO_ROOT / "docs" / "experimentos" / "banco_de_partituras.json"
 REGENERATE = "uv run --no-sync python -P scripts/build_study_bank.py"
-# HOMR en CPU tarda hasta un minuto en una página completa; el servidor no corta antes.
+# Lo que espera el cliente a una transcripción. Por la URL pública, Nginx corta antes (60 s,
+# `deploy/nginx/cadenza-proxy.conf`), pero la API la termina y la guarda (ADR-0024).
 TRANSCRIBE_TIMEOUT_S = 600.0
+# Tras un corte del proxy, cuánto se espera a que la sesión aparezca y cada cuánto se mira.
+CUT_WAIT_S = 600.0
+CUT_POLL_S = 10.0
+MIN_PASSWORD_LENGTH = 8
 
 
 class PrepareError(Exception):
@@ -121,18 +130,37 @@ def plan_sessions(
 
 
 def _detail(response: httpx.Response) -> str:
+    """El código y el motivo de un error de la API, sin lo que se envió.
+
+    Un 422 de FastAPI repite en `input` el valor rechazado, que puede ser una contraseña: de cada
+    error solo se muestran el campo y el mensaje.
+    """
     try:
         body = response.json()
     except ValueError:
         return f"HTTP {response.status_code}"
     detail = body.get("detail") if isinstance(body, dict) else None
+    if isinstance(detail, list):
+        reasons = []
+        for item in detail:
+            if isinstance(item, dict):
+                field = ".".join(str(part) for part in item.get("loc", ())[1:])
+                message = str(item.get("msg", ""))
+                reasons.append(f"{field}: {message}" if field else message)
+        detail = "; ".join(reasons)
+    elif not isinstance(detail, str):
+        detail = None
     return f"HTTP {response.status_code}: {detail}" if detail else f"HTTP {response.status_code}"
 
 
-def _login(client: httpx.Client, username: str, password: str, who: str) -> dict[str, str]:
+def _login(
+    client: httpx.Client, username: str, password: str, wrong_credentials: str
+) -> dict[str, str]:
     response = client.post("/auth/login", data={"username": username, "password": password})
+    if response.status_code == 401:
+        raise PrepareError(wrong_credentials)
     if response.status_code != 200:
-        raise PrepareError(f"No se pudo entrar como {who} ({_detail(response)}).")
+        raise PrepareError(f"No se pudo entrar como {username} ({_detail(response)}).")
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
 
 
@@ -154,6 +182,11 @@ def _ensure_account(
 
     if existing is None:
         password = participant_password(True)
+        if len(password) < MIN_PASSWORD_LENGTH:
+            raise PrepareError(
+                f"La contraseña de {participant} debe tener al menos {MIN_PASSWORD_LENGTH} "
+                "caracteres: no se crea la cuenta."
+            )
         created = client.post(
             "/users",
             json={"username": participant, "password": password, "role": "transcriptor"},
@@ -175,6 +208,27 @@ def _ensure_account(
         )
     report(f"Cuenta {participant}: ya existía.")
     return participant_password(False)
+
+
+def _study_sessions(client: httpx.Client, headers: dict[str, str]) -> list[dict[str, Any]]:
+    """Las sesiones del participante con partitura de prueba, como las ve: la más reciente
+    primero."""
+    response = client.get("/sessions", params={"limit": 100}, headers=headers)
+    if response.status_code != 200:
+        raise PrepareError(f"No se pudieron listar las sesiones ({_detail(response)}).")
+    return [s for s in response.json() if s.get("test_score_id")]
+
+
+def _by_score(listed: Sequence[dict[str, Any]], participant: str) -> dict[str, dict[str, Any]]:
+    existing: dict[str, dict[str, Any]] = {}
+    for session in listed:
+        if session["test_score_id"] in existing:
+            raise PrepareError(
+                f"{participant} tiene más de una sesión de {session['test_score_id']}: "
+                "revísalas antes de seguir."
+            )
+        existing[session["test_score_id"]] = session
+    return existing
 
 
 def _check_existing(
@@ -201,11 +255,88 @@ def _check_existing(
         )
 
 
-def _study_sessions(client: httpx.Client, headers: dict[str, str]) -> list[dict[str, Any]]:
-    response = client.get("/sessions", params={"limit": 100}, headers=headers)
-    if response.status_code != 200:
-        raise PrepareError(f"No se pudieron listar las sesiones ({_detail(response)}).")
-    return [s for s in response.json() if s.get("test_score_id")]
+def _verify(
+    listed: Sequence[dict[str, Any]], plan: Sequence[PlannedSession], participant: str
+) -> None:
+    """Al acabar: una sesión por partitura, con su condición y su título, y en el listado en el
+    orden de los bloques (el calentamiento arriba)."""
+
+    existing = _by_score(listed, participant)
+    for planned in plan:
+        session = existing.get(planned.test_score_id)
+        if session is None:
+            raise PrepareError(f"Falta la sesión de {planned.test_score_id} de {participant}.")
+        if (session["condition"], session["title"]) != (planned.condition, planned.title):
+            raise PrepareError(
+                f"La sesión de {planned.test_score_id} de {participant} no tiene la condición o "
+                "el título de la matriz."
+            )
+    wanted = {planned.test_score_id for planned in plan}
+    order = [s["test_score_id"] for s in listed if s["test_score_id"] in wanted]
+    if order != [planned.test_score_id for planned in plan]:
+        raise PrepareError(f"El listado de {participant} no queda en el orden de sus bloques.")
+
+
+def _transcribe(
+    client: httpx.Client,
+    headers: dict[str, str],
+    planned: PlannedSession,
+    *,
+    wait_s: float,
+    poll_s: float,
+    sleep: Callable[[float], None],
+) -> tuple[dict[str, Any], bool]:
+    """Transcribe una sesión; devuelve su resumen y si llegó tras un corte del proxy.
+
+    Un 502 o un 504 del proxy, o una respuesta que no llega, no dicen que la transcripción
+    fallara: la API la termina y la guarda aunque el cliente se haya ido (ADR-0024). Se espera a
+    que aparezca en el listado, en vez de pedirla otra vez y crear dos.
+    """
+
+    data: dict[str, Any] = {
+        "condition": planned.condition,
+        "test_score_id": planned.test_score_id,
+        "title": planned.title,
+    }
+    if planned.instruments:
+        data["instruments"] = list(planned.instruments)
+    response: httpx.Response | None
+    try:
+        response = client.post(
+            "/transcribe",
+            files={"file": (planned.filename, planned.image.read_bytes(), "image/png")},
+            data=data,
+            headers=headers,
+        )
+    except httpx.TransportError:
+        response = None
+    if response is not None and response.status_code == 201:
+        created: dict[str, Any] = response.json()
+        return created, False
+    if response is not None and response.status_code not in (502, 504):
+        raise PrepareError(
+            f"{planned.title} ({planned.test_score_id}): la transcripción falló "
+            f"({_detail(response)}). Vuelve a ejecutar la orden: las sesiones ya creadas no se "
+            "repiten."
+        )
+
+    waited = 0.0
+    while waited < wait_s:
+        sleep(poll_s)
+        waited += poll_s
+        found = client.get(
+            "/sessions",
+            params={"test_score_id": planned.test_score_id, "limit": 100},
+            headers=headers,
+        )
+        if found.status_code == 200 and found.json():
+            session: dict[str, Any] = found.json()[0]
+            return session, True
+    raise PrepareError(
+        f"{planned.title} ({planned.test_score_id}): el proxy cortó la transcripción y no "
+        f"apareció en {wait_s:.0f} s. Puede seguir en curso: espera unos minutos y vuelve a "
+        "ejecutar la orden, que no repite lo que ya exista."
+    )
 
 
 def prepare_participant(
@@ -218,14 +349,23 @@ def prepare_participant(
     plan: Sequence[PlannedSession],
     report: Callable[[str], None],
     limit: int | None = None,
+    wait_s: float = CUT_WAIT_S,
+    poll_s: float = CUT_POLL_S,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> None:
     """Prepara la cuenta y las sesiones de `participant` (ver el docstring del módulo).
 
     `participant_password(nueva)` da la contraseña de la cuenta; `nueva` dice si la cuenta se va
-    a crear, para pedirla dos veces. `limit` corta tras ese número de transcripciones (pruebas).
+    a crear, para pedirla dos veces. `limit` corta tras ese número de transcripciones (pruebas);
+    `wait_s`, `poll_s` y `sleep` gobiernan la espera tras un corte del proxy.
     """
 
-    investigator_headers = _login(client, investigator, investigator_password, investigator)
+    investigator_headers = _login(
+        client,
+        investigator,
+        investigator_password,
+        f"No se pudo entrar como {investigator}: usuario o contraseña incorrectos.",
+    )
     password = _ensure_account(
         client, investigator_headers, participant, participant_password, report
     )
@@ -233,18 +373,11 @@ def prepare_participant(
         client,
         participant,
         password,
-        f"{participant}: la contraseña no es la de la cuenta (restablécela en /cuentas)",
+        f"No se pudo entrar como {participant}: la contraseña no es la de la cuenta "
+        "(restablécela en /cuentas).",
     )
 
-    listed = _study_sessions(client, headers)
-    existing: dict[str, dict[str, Any]] = {}
-    for session in listed:
-        if session["test_score_id"] in existing:
-            raise PrepareError(
-                f"{participant} tiene más de una sesión de {session['test_score_id']}: "
-                "revísalas antes de seguir."
-            )
-        existing[session["test_score_id"]] = session
+    existing = _by_score(_study_sessions(client, headers), participant)
     _check_existing(plan, existing, participant)
 
     transcribed = 0
@@ -254,38 +387,27 @@ def prepare_participant(
             f"{planned.condition}"
         )
         if planned.test_score_id in existing:
-            report(f"{label}: ya existía ({existing[planned.test_score_id]['session_id']}).")
+            session = existing[planned.test_score_id]
+            line = (
+                f"{label}: ya existía ({session['session_id']}, {session['status']}, "
+                f"{session['edits_count']} ediciones)."
+            )
+            if session["edits_count"]:
+                line += " Ojo: ya tiene ediciones; si no son del participante, revísala."
+            report(line)
             continue
         if limit is not None and transcribed >= limit:
             return
-        data: dict[str, Any] = {
-            "condition": planned.condition,
-            "test_score_id": planned.test_score_id,
-            "title": planned.title,
-        }
-        if planned.instruments:
-            data["instruments"] = list(planned.instruments)
-        response = client.post(
-            "/transcribe",
-            files={"file": (planned.filename, planned.image.read_bytes(), "image/png")},
-            data=data,
-            headers=headers,
+        result, after_cut = _transcribe(
+            client, headers, planned, wait_s=wait_s, poll_s=poll_s, sleep=sleep
         )
-        if response.status_code != 201:
-            raise PrepareError(
-                f"{label}: la transcripción falló ({_detail(response)}). Vuelve a ejecutar la "
-                "orden: las sesiones ya creadas no se repiten."
-            )
-        result = response.json()
         transcribed += 1
         report(
             f"{label}: creada ({result['session_id']}, {result['findings_count']} posibles "
-            "errores)."
+            f"errores){' tras un corte del proxy' if after_cut else ''}."
         )
 
-    final = {s["test_score_id"]: s for s in _study_sessions(client, headers)}
-    if any(planned.test_score_id not in final for planned in plan):
-        raise PrepareError(f"Faltan sesiones de {participant} tras prepararlas.")
+    _verify(_study_sessions(client, headers), plan, participant)
     report(f"{participant}: listo, con el calentamiento y sus cuatro bloques.")
 
 
@@ -293,10 +415,17 @@ def _ask_password(participant: str) -> Callable[[bool], str]:
     def ask(new_account: bool) -> str:
         if not new_account:
             return getpass.getpass(f"Contraseña de {participant}: ")
-        password = getpass.getpass(f"Contraseña nueva para {participant} (mínimo 8 caracteres): ")
-        if getpass.getpass("Repítela: ") != password:
-            raise PrepareError("Las dos contraseñas no coinciden.")
-        return password
+        for _attempt in range(3):
+            password = getpass.getpass(
+                f"Contraseña nueva para {participant} (mínimo {MIN_PASSWORD_LENGTH} caracteres): "
+            )
+            if len(password) < MIN_PASSWORD_LENGTH:
+                print(f"Tiene menos de {MIN_PASSWORD_LENGTH} caracteres.", file=sys.stderr)
+                continue
+            if getpass.getpass("Repítela: ") != password:
+                raise PrepareError("Las dos contraseñas no coinciden.")
+            return password
+        raise PrepareError("No se dio una contraseña válida.")
 
     return ask
 
@@ -312,7 +441,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--api-url",
         required=True,
-        help="URL base de la API, por ejemplo https://cadenza.sebdavid.dev/api",
+        help="URL base de la API, por ejemplo https://r2d2.tailcacb19.ts.net/api",
     )
     parser.add_argument("--investigator", required=True, help="Usuario investigador")
     parser.add_argument(

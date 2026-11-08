@@ -12,14 +12,17 @@ import copy
 import hashlib
 import re
 import secrets
+import time
 from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import Role, User
+from cadenza.domain import ScoreDocument
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -31,7 +34,9 @@ from fastapi.testclient import TestClient
 
 from scripts.prepare_study_participant import (
     PrepareError,
+    _detail,
     load_manifest,
+    main,
     plan_sessions,
     prepare_participant,
 )
@@ -64,6 +69,15 @@ def _bank(tmp_path: Path) -> tuple[dict[str, Any], Path]:
     return manifest, bank_dir
 
 
+class _SlowFakeOMR(FakeOMREngine):
+    """El doble de OMR, que tarda un poco como HOMR: dos sesiones seguidas no comparten la
+    misma marca de tiempo, y el listado (por `created_at`) tiene un orden determinista."""
+
+    def transcribe(self, image_path: Path) -> ScoreDocument:
+        time.sleep(0.02)
+        return super().transcribe(image_path)
+
+
 def _client(tmp_path: Path) -> TestClient:
     engine = create_memory_engine()
     create_schema(engine)
@@ -72,7 +86,7 @@ def _client(tmp_path: Path) -> TestClient:
         auth_secret_key="secret-key-at-least-32-bytes-long-for-testing",
         artifacts_dir=tmp_path / "artifacts",
     )
-    app = create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
+    app = create_app(session_factory, omr_engine=_SlowFakeOMR(), settings=settings)
     with session_factory() as db:
         SqlAlchemyUserRepository(db).add(
             User(
@@ -168,7 +182,10 @@ def test_the_manifest_matrix_is_the_protocol_matrix() -> None:
     assert _manifest_matrix() == protocol
 
 
-def test_the_matrix_is_a_balanced_latin_square() -> None:
+def test_the_matrix_is_a_latin_square_with_balanced_conditions() -> None:
+    """Cada participante hace las cuatro partituras, dos en cada condición; cada partitura va
+    dos veces en cada posición, y cada posición tiene tantas asistidas como no asistidas. No es
+    un cuadrado de Williams: no equilibra qué partitura sigue a cuál."""
     matrix = _manifest_matrix()
     scores = ["TS-01", "TS-02", "TS-03", "TS-04"]
 
@@ -179,6 +196,10 @@ def test_the_matrix_is_a_balanced_latin_square() -> None:
     assert set(pairs.values()) == {4}
     for position in range(4):
         assert set(Counter(blocks[position][0] for blocks in matrix.values()).values()) == {2}
+        assert Counter(blocks[position][1] for blocks in matrix.values()) == {
+            "assisted": 4,
+            "unassisted": 4,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +296,14 @@ def test_prepare_creates_the_account_and_the_sessions_in_block_order(tmp_path: P
     for session in listed:
         assert "TS" not in (session["source_filename"] or "")
         assert session["status"] == "transcribed"
+    # El doble de OMR lee una sola parte: de voz y piano queda la voz (ADR-0041).
+    assert [[i["instrument"] for i in s["instruments"]] for s in listed] == [
+        [],
+        [],
+        ["voice"],
+        ["voice"],
+        ["voice"],
+    ]
     assert all(password not in line for line in lines)
     assert any("creada" in line for line in lines)
 
@@ -427,3 +456,235 @@ def test_an_account_without_the_investigator_role_cannot_prepare(tmp_path: Path)
             plan=plan_sessions(manifest, "P01", bank_dir),
             report=lambda line: None,
         )
+
+
+# ---------------------------------------------------------------------------
+# Revisión: contraseñas en los errores, cortes del proxy, fallos y huecos en el orden.
+# ---------------------------------------------------------------------------
+
+
+def test_a_short_password_is_refused_without_showing_it(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    short = secrets.token_urlsafe(5)
+    assert len(short) == 7
+
+    with pytest.raises(PrepareError) as excinfo:
+        _prepare(client, manifest, bank_dir, "P01", short)
+
+    assert "8 caracteres" in str(excinfo.value)
+    assert short not in str(excinfo.value)
+
+
+def test_the_error_detail_never_repeats_what_was_sent() -> None:
+    secret = secrets.token_urlsafe(12)
+    response = httpx.Response(
+        422,
+        json={
+            "detail": [
+                {
+                    "type": "string_too_short",
+                    "loc": ["body", "password"],
+                    "msg": "String should have at least 8 characters",
+                    "input": secret,
+                }
+            ]
+        },
+    )
+
+    detail = _detail(response)
+
+    assert secret not in detail
+    assert detail == "HTTP 422: password: String should have at least 8 characters"
+
+
+class _Proxy:
+    """El cliente de prueba detrás de un proxy que puede cortar `POST /transcribe`.
+
+    `mode` decide qué pasa con la transcripción número `at` (desde 1): `cut` la deja llegar a la
+    API y devuelve un 504, como Nginx a los 60 s; `timeout` la deja llegar y lanza un error de
+    red; `lost` devuelve el 504 sin que llegue; `busy` responde 503 sin que llegue.
+    """
+
+    def __init__(self, client: TestClient, mode: str, at: int = 1) -> None:
+        self._client = client
+        self._mode = mode
+        self._at = at
+        self._count = 0
+
+    def get(self, url: str, **kwargs: Any) -> httpx.Response:
+        response: httpx.Response = self._client.get(url, **kwargs)
+        return response
+
+    def post(self, url: str, **kwargs: Any) -> httpx.Response:
+        if url != "/transcribe":
+            passed: httpx.Response = self._client.post(url, **kwargs)
+            return passed
+        self._count += 1
+        if self._count != self._at:
+            through: httpx.Response = self._client.post(url, **kwargs)
+            return through
+        if self._mode in ("cut", "timeout"):
+            assert self._client.post(url, **kwargs).status_code == 201
+            if self._mode == "timeout":
+                raise httpx.ReadTimeout("sin respuesta")
+            return httpx.Response(504)
+        return httpx.Response(504 if self._mode == "lost" else 503, json={"detail": "ocupado"})
+
+
+def _prepare_through(
+    proxy: _Proxy,
+    manifest: dict[str, Any],
+    bank_dir: Path,
+    participant: str,
+    password: str,
+    lines: list[str],
+    sleeps: list[float],
+) -> None:
+    source, _ = _password_source(password)
+    prepare_participant(
+        proxy,  # type: ignore[arg-type]  # un doble con get y post, como httpx.Client
+        participant=participant,
+        investigator=INVESTIGATOR,
+        investigator_password=INVESTIGATOR_PASSWORD,
+        participant_password=source,
+        plan=plan_sessions(manifest, participant, bank_dir),
+        report=lines.append,
+        wait_s=30,
+        poll_s=10,
+        sleep=sleeps.append,
+    )
+
+
+@pytest.mark.parametrize("mode", ["cut", "timeout"])
+def test_a_proxy_cut_waits_for_the_session_instead_of_repeating_it(
+    tmp_path: Path, mode: str
+) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+    lines: list[str] = []
+    sleeps: list[float] = []
+
+    _prepare_through(_Proxy(client, mode, at=2), manifest, bank_dir, "P03", password, lines, sleeps)
+
+    listed = _sessions(client, _login(client, "P03", password))
+    assert [s["title"] for s in listed] == [
+        "Calentamiento",
+        "Partitura 1",
+        "Partitura 2",
+        "Partitura 3",
+        "Partitura 4",
+    ]
+    assert sleeps == [10]
+    assert sum("tras un corte del proxy" in line for line in lines) == 1
+
+
+def test_a_cut_transcription_that_never_appears_stops_and_says_to_wait(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+    sleeps: list[float] = []
+
+    with pytest.raises(PrepareError, match="espera"):
+        _prepare_through(
+            _Proxy(client, "lost", at=1), manifest, bank_dir, "P03", password, [], sleeps
+        )
+
+    assert sleeps == [10, 10, 10]
+    assert _sessions(client, _login(client, "P03", password)) == []
+
+
+def test_a_failed_transcription_stops_and_a_new_run_resumes_in_order(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+
+    with pytest.raises(PrepareError, match="Vuelve a ejecutar"):
+        _prepare_through(_Proxy(client, "busy", at=3), manifest, bank_dir, "P06", password, [], [])
+    headers = _login(client, "P06", password)
+    assert [s["title"] for s in _sessions(client, headers)] == ["Partitura 3", "Partitura 4"]
+
+    _prepare(client, manifest, bank_dir, "P06", password)
+
+    assert [s["title"] for s in _sessions(client, headers)] == [
+        "Calentamiento",
+        "Partitura 1",
+        "Partitura 2",
+        "Partitura 3",
+        "Partitura 4",
+    ]
+
+
+def _participant_with(
+    client: TestClient, participant: str, password: str, sessions: list[tuple[str, str]]
+) -> dict[str, str]:
+    inv = _login(client, INVESTIGATOR, INVESTIGATOR_PASSWORD)
+    created = client.post(
+        "/users",
+        json={"username": participant, "password": password, "role": "transcriptor"},
+        headers=inv,
+    )
+    assert created.status_code == 201
+    headers = _login(client, participant, password)
+    for score_id, condition in sessions:
+        response = client.post(
+            "/transcribe",
+            files={"file": ("x.png", PNG_BYTES, "image/png")},
+            data={"condition": condition, "test_score_id": score_id},
+            headers=headers,
+        )
+        assert response.status_code == 201
+    return headers
+
+
+def test_two_sessions_of_the_same_score_stop_everything(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+    # P01 hace TS-04 sin asistencia en el bloque 4.
+    headers = _participant_with(
+        client, "P01", password, [("TS-04", "unassisted"), ("TS-04", "unassisted")]
+    )
+
+    with pytest.raises(PrepareError, match="más de una sesión de TS-04"):
+        _prepare(client, manifest, bank_dir, "P01", password)
+
+    assert len(_sessions(client, headers)) == 2
+
+
+def test_a_gap_in_the_middle_of_the_blocks_stops_everything(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+    # P01: bloque 4 TS-04 y bloque 2 TS-02, sin asistencia; falta el bloque 3 (TS-03).
+    headers = _participant_with(
+        client, "P01", password, [("TS-04", "unassisted"), ("TS-02", "unassisted")]
+    )
+
+    with pytest.raises(PrepareError, match="orden"):
+        _prepare(client, manifest, bank_dir, "P01", password)
+
+    assert len(_sessions(client, headers)) == 2
+
+
+def test_main_fails_clearly_without_the_bank(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    empty = tmp_path / "vacio"
+    empty.mkdir()
+
+    code = main(
+        [
+            "P01",
+            "--api-url",
+            "http://127.0.0.1:9",
+            "--investigator",
+            INVESTIGATOR,
+            "--bank-dir",
+            str(empty),
+        ]
+    )
+
+    assert code == 1
+    assert "build_study_bank.py" in capsys.readouterr().err
