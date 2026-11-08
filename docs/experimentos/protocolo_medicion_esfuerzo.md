@@ -98,6 +98,8 @@ Con una muestra mínima de $N=8$ transcriptores musicales:
 | **P07** | TS-04 (`assisted`) | TS-03 (`unassisted`) | TS-02 (`assisted`) | TS-01 (`unassisted`) |
 | **P08** | TS-04 (`unassisted`) | TS-03 (`assisted`) | TS-02 (`unassisted`) | TS-01 (`assisted`) |
 
+La misma matriz está en `estudio.matriz` de `docs/experimentos/banco_de_partituras.json`, que es la que usa la preparación de cada participante (§5); una prueba comprueba que coinciden y que es un cuadrado latino equilibrado (#249).
+
 ---
 
 ## 3. Variables y Métricas de Medición
@@ -163,6 +165,11 @@ Antes de iniciar la prueba, cada participante recibe un documento de informació
 1. **Recepción y Bienvenida (10 min):**
    * Entrega de la hoja informativa y firma del consentimiento informado.
    * Asignación del código seudónimo y credenciales temporales.
+   * **Antes de que llegue (#249),** el investigador prepara su cuenta y sus sesiones desde el repositorio, con el banco regenerado (§2.3):
+     ```bash
+     uv run --no-sync python -P scripts/prepare_study_participant.py P01 --api-url https://cadenza.sebdavid.dev/api --investigator <su usuario>
+     ```
+     Pide sin eco la contraseña del investigador y la de la cuenta nueva (dos veces), y no las imprime. Usa solo la API v1, como la web: da de alta `P01` como transcriptor (no del registro, para que entre en `exp_10`) y, a su nombre, transcribe con HOMR el calentamiento y sus cuatro bloques con su condición y su `test_score_id`. El participante ve en su listado «Calentamiento» y «Partitura 1» a «Partitura 4», en ese orden y con un nombre de archivo neutro, sin nada de la condición ni de la partitura de prueba. Es idempotente: lo que ya existe no se repite, y tras un corte basta con volver a ejecutarla. Se niega a seguir si una sesión que ya existe tiene otra condición que la de la matriz, si la cuenta es del registro, de investigador o está desactivada, o si el banco no tiene los sha256 del manifiesto.
 2. **Familiarización y Calentamiento (10 min):**
    * Breve recorrido por la interfaz web de Cadenza: herramientas de navegación, cursor, edición de notas, alteraciones y panel de hallazgos.
    * Ejercicio guiado de corrección sobre una partitura de prueba neutra no evaluada (`calentamiento`, §2.3).

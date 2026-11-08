@@ -106,6 +106,12 @@ Repetida sobre `dev` (`6ba625f`), con [#326](https://github.com/sebdavid3/Cadenz
 - **Un cambio de clave a mitad de compás** (mano izquierda de TS-02, cc. 1, 2, 5 y 6, y de TS-03, cc. 4 y 6) sigue en el inicio del compás o sin ponerse (TS-02, c. 1), con las alturas bien pero dibujado en la otra clave.
 - **El calentamiento sigue sin tener nada que corregir** (0 errores de HOMR), y **cambiar una figura con puntillo a otra sin él** sigue pidiendo dos ediciones (TS-03, c. 2).
 
+## Enmienda: la matriz y la preparación de cada participante (#249, 2026-11-08)
+
+- El manifiesto lleva también la matriz del cuadrado latino del protocolo §2.4 (`estudio.matriz`), la condición, el título y el nombre de archivo del calentamiento, y la plantilla del título y del archivo de cada bloque («Partitura {bloque}», `partitura-{bloque}.png`), además de los instrumentos de cada partitura (`instrumentos`: voz y piano en TS-02 a TS-04; ninguno en los íncipits). Los sha256 no cambian.
+- `scripts/prepare_study_participant.py` prepara un participante usando solo el contrato v1: entra como investigador, da de alta la cuenta (`POST /users`, transcriptor), entra como el participante y transcribe con `POST /transcribe` el calentamiento y sus cuatro bloques, con su condición, su `test_score_id`, el título neutro y los instrumentos. Se crean del último bloque al calentamiento, porque el listado va del más reciente al más antiguo. No hace falta copiar el banco al servidor ni abrir la base: corre en el portátil del investigador contra la URL pública, con el mismo camino (huecos de HOMR, etapa del compás, reglas y capa de sugerencias) que una transcripción desde la web.
+- Comprobado en local el 2026-11-08 con HOMR 0.7.0 en CPU y el banco real: P03 queda con sus cinco sesiones en 41 s, y la segunda ejecución no repite ninguna (0,2 s).
+
 ## Alternativas consideradas
 
 - **Escribir la verdad con el exportador del sistema (`read_score` y `score_ir_to_musicxml`) también para OpenScore.** Descartada: el `ScoreIR` pone cada clave al principio de su compás, así que el primer compás de TS-02 en la mano izquierda empezaría en clave de sol, y la verdad dejaría de ser lo grabado.
