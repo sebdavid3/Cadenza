@@ -908,6 +908,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
+    # Las mismas que `add_study_arguments` de exp_10, sin importar music21 al construir la CLI.
+    p_effort.add_argument(
+        "--bank-dir",
+        default=None,
+        help="Carpeta del banco del estudio con la verdad de cada partitura (por defecto, "
+        "banco_estudio/).",
+    )
+    p_effort.add_argument(
+        "--nasa-tlx",
+        default=None,
+        help="CSV del NASA-TLX por participante y bloque (protocolo §6.2).",
+    )
 
     # 8. suggestions (capa de sugerencias, ADR-0036)
     from ml import suggestions_cli
@@ -931,6 +943,8 @@ def export_effort_command(args: argparse.Namespace) -> int:
             output_dir=args.output_dir,
             smoke=args.smoke,
             seed=args.seed,
+            bank_dir=args.bank_dir,
+            nasa_tlx_csv=args.nasa_tlx,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
