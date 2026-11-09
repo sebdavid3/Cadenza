@@ -1,6 +1,7 @@
-/* Vista de una sesión: el escaneo sobre la notación, como en la demostración de la landing, y
-   los posibles errores al lado. El violeta marca lo que pide acción: el compás dudoso, la nota
-   elegida y lo que no se pudo guardar. */
+/* Vista de una sesión: una mesa de corrección (#341) con la imagen original y la partitura lado
+   a lado, separadas por un divisor que se arrastra, y los posibles errores en un panel plegable.
+   El violeta marca lo que pide acción: el compás dudoso, la nota elegida y lo que no se pudo
+   guardar. */
 
 .session__head {
   display: grid;
@@ -58,6 +59,34 @@
   color: var(--color-ink-muted);
 }
 
+/* La vuelta, el título y sus datos en un bloque; a la derecha, en escritorio, lo que se hace con
+   la sesión. */
+.session__titling {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.session__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.session__actions > .score-data-panel,
+.session__actions > .lifecycle {
+  width: auto;
+}
+
+.session__downloads {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
 .session--missing {
   display: grid;
   justify-items: start;
@@ -72,74 +101,182 @@
   max-width: 62ch;
 }
 
-/* El escaneo y la notación ocupan dos tercios; los posibles errores, el tercio restante. */
+/* En una columna: la imagen, la partitura y el panel, uno tras otro. En escritorio, la mesa. */
 .session__body {
   display: grid;
-  grid-template-columns: minmax(0, 8fr) minmax(20rem, 4fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .session__sheets {
+  position: relative;
   display: grid;
   align-content: start;
   gap: var(--space-5);
-  padding: var(--space-6) var(--gutter) var(--space-8);
+  padding: var(--space-5) var(--gutter) var(--space-8);
 }
 
-/* En escritorio, el escaneo encima de la notación (en el DOM y en móvil va después). */
-.sheet--scan {
-  order: -1;
+/* «Ir a la partitura»: la imagen, su zoom y el divisor van antes en el orden del teclado. Fuera de
+   la rejilla; se ve solo con el foco. */
+.session__skip {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 6;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  background: var(--color-paper);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  clip-path: inset(50%);
+}
+
+.session__skip:focus,
+.session__skip:focus-visible {
+  clip-path: none;
+}
+
+.sheet--notation:focus {
+  outline: none;
 }
 
 .sheet {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   border: var(--rule);
   background: var(--color-paper);
 }
 
+/* Cabecera de un panel: su rótulo a la izquierda y sus controles a la derecha, sobre un filete. */
+.sheet__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-height: 60px;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+/* Rótulo de un panel: en su propia franja (el resultado de la portada) o, en la cabecera de un
+   panel de la mesa, a la izquierda de sus controles. */
 .sheet__caption {
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--rule);
 }
 
-/* La partitura lleva su barra en la misma franja que el pie: rótulo a la izquierda y acciones a
-   la derecha, sobre un único filete. Lo demás ocupa el ancho entero. */
+.sheet__head > .sheet__caption {
+  margin-right: auto;
+  padding: 0;
+  border-bottom: 0;
+}
+
+/* La partitura: la selección y la barra de corrección encima, el transporte al pie. */
 .sheet--notation {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
   container: sheet / inline-size;
 }
 
-.sheet--notation > * {
-  grid-column: 1 / -1;
-}
-
-.sheet--notation > .sheet__caption {
-  grid-column: 1;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-}
-
-.sheet--notation > .sheet__bar {
-  grid-column: 2;
-}
-
-.sheet__bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2) var(--space-4);
-  padding: var(--space-2) var(--space-3);
-  border-bottom: var(--rule);
-}
-
-/* Transporte: en su propia franja, bajo el pie y la barra. */
+/* Transporte: en su franja sobre la partitura (el resultado de la portada) o, en la mesa, al pie
+   de la partitura, como el de un reproductor. */
 .sheet__transport {
   display: flex;
   align-items: center;
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--rule);
+}
+
+.session .sheet--notation > .sheet__transport:last-child {
+  border-top: var(--rule);
+  border-bottom: 0;
+}
+
+/* Divisor entre la imagen y la partitura (#341): una franja con su trama que se arrastra; al
+   pasar o arrastrar, bloque de tinta. Solo en la mesa de escritorio. */
+.desk-divider {
+  position: relative;
+  z-index: 2;
+  display: none;
+  place-items: center;
+  border-inline: var(--rule);
+  background: var(--color-paper);
+  cursor: col-resize;
+  touch-action: none;
+  transition: background-color var(--duration-quick) var(--ease-out);
+}
+
+.desk-divider__grip {
+  width: 5px;
+  height: 3.5rem;
+  background: var(--halftone-ink);
+}
+
+.desk-divider[data-dragging="true"] {
+  background: var(--color-ink);
+}
+
+.desk-divider[data-dragging="true"] .desk-divider__grip {
+  background: radial-gradient(circle, var(--color-paper) 1.2px, transparent 1.4px) 0 0 / 5px 5px;
+}
+
+@media (hover: hover) {
+  .desk-divider:hover {
+    background: var(--color-ink);
+  }
+
+  .desk-divider:hover .desk-divider__grip {
+    background: radial-gradient(circle, var(--color-paper) 1.2px, transparent 1.4px) 0 0 / 5px 5px;
+  }
+}
+
+/* Panel lateral: posibles errores e historial, plegable a un raíl con su nombre. */
+.session__aside {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: var(--rule);
+}
+
+.aside-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--gutter);
+  border: 0;
+  border-bottom: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .aside-toggle:hover {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+}
+
+.session__aside-body {
+  display: grid;
+  align-content: start;
+  min-height: 0;
+}
+
+.session__aside-body[hidden] {
+  display: none;
 }
 
 .playback {
@@ -161,7 +298,12 @@
 .playback__button,
 .playback__step,
 .selection__button,
-.editor__button {
+.editor__button,
+.editor__tab,
+.editor__keys-toggle,
+.editor__write,
+.scan__tool,
+.scan__toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -191,12 +333,19 @@
 
 .playback__button + .playback__button,
 .selection__button + .selection__button,
-.editor__button + .editor__button {
+.editor__button + .editor__button,
+.editor__tab + .editor__tab,
+.scan__tool + .scan__tool,
+.scan__zoom + .scan__tool {
   margin-left: calc(var(--rule-width) * -1);
 }
 
 .playback__button[data-active="true"],
-.editor__button[aria-pressed="true"] {
+.editor__button[aria-pressed="true"],
+.editor__tab[aria-selected="true"],
+.editor__keys-toggle[aria-expanded="true"],
+.editor__write[aria-pressed="true"],
+.scan__tool[aria-pressed="true"] {
   background: var(--color-ink);
   color: var(--color-paper);
 }
@@ -207,7 +356,12 @@
   .playback__button:hover,
   .playback__step:hover,
   .selection__button:hover,
-  .editor__button:hover {
+  .editor__button:hover,
+  .editor__tab:hover,
+  .editor__keys-toggle:hover,
+  .editor__write:hover,
+  .scan__tool:hover,
+  .scan__toggle:hover {
     background: var(--color-ink);
     color: var(--color-paper);
   }
@@ -216,7 +370,8 @@
 .playback__button[aria-disabled="true"],
 .playback__step[aria-disabled="true"],
 .selection__button[aria-disabled="true"],
-.editor__button[aria-disabled="true"] {
+.editor__button[aria-disabled="true"],
+.scan__tool[aria-disabled="true"] {
   border-style: dashed;
   background: var(--color-paper);
   color: var(--color-ink-muted);
@@ -227,7 +382,10 @@
 .playback__button:focus-visible,
 .playback__step:focus-visible,
 .selection__button:focus-visible,
-.editor__button:focus-visible {
+.editor__button:focus-visible,
+.editor__tab:focus-visible,
+.editor__write:focus-visible,
+.scan__tool:focus-visible {
   position: relative;
   z-index: 1;
 }
@@ -253,7 +411,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Selección de notas: su propia franja entre el transporte y la partitura. A la izquierda, dónde
+/* Selección de notas: su propia franja encima de la partitura. A la izquierda, dónde
    está y qué es el evento elegido; a la derecha, los pasos, que en una pantalla táctil afinan lo
    que el dedo no alcanza (las notas distan menos de 44 px). Debajo, las teclas. */
 .selection {
@@ -321,9 +479,14 @@
 
 .selection__keys > span {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  white-space: nowrap;
+  max-width: 100%;
+}
+
+.selection__keys[hidden] {
+  display: none;
 }
 
 /* Teclas como bloques de tinta macizos, del grano de los rótulos. */
@@ -359,11 +522,52 @@
   border-bottom: var(--rule);
 }
 
+/* Deshacer y rehacer, las pestañas y «Atajos», en una fila; debajo, en pequeño, qué desharía y
+   qué reharía (ADR-0034 §4). */
+.editor__bar {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+}
+
+.editor__bar .editor__group--history > .editor__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.editor__tabs {
+  display: flex;
+}
+
+.editor__tab {
+  padding-inline: var(--space-4);
+}
+
+.editor__keys-toggle {
+  margin-left: auto;
+}
+
+.editor__bar > .editor__history {
+  flex-basis: 100%;
+  order: 1;
+  max-width: none;
+}
+
 .editor__groups {
   display: flex;
   flex-basis: 100%;
   flex-wrap: wrap;
   gap: var(--space-3) var(--space-5);
+}
+
+.editor__groups[hidden] {
+  display: none;
 }
 
 .editor__group {
@@ -522,18 +726,36 @@
   font-size: var(--text-small);
 }
 
+/* Un atajo largo («< / > empezar o terminar regulador») parte línea en vez de ensanchar la barra
+   (#331). */
 .editor__keys > span {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  white-space: nowrap;
+  max-width: 100%;
+}
+
+.editor__keys[hidden] {
+  display: none;
+}
+
+/* La indicación del modo «Escribir» (#350): con el ratón o con el dedo. */
+.editor__hint-touch {
+  display: none;
 }
 
 /* Sin teclado físico las leyendas solo estorban: quedan el toque y los botones. */
 @media (hover: none) and (pointer: coarse) {
   .selection__keys,
-  .editor__keys {
+  .editor__keys,
+  .editor__keys-toggle,
+  .editor__hint-pointer {
     display: none;
+  }
+
+  .editor__hint-touch {
+    display: inline;
   }
 }
 
@@ -552,18 +774,25 @@
   text-align: right;
 }
 
+/* Los pasos de la selección se quedan en flechas en cuanto la partitura no es ancha: la lectura
+   de la nota elegida y los pasos caben en una fila. */
+@container sheet (max-width: 56rem) {
+  .selection__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .selection__readout {
+    flex-basis: 12rem;
+  }
+}
+
 /* En una partitura estrecha, la barra baja a su propia franja, bajo el pie. */
 @container sheet (max-width: 34rem) {
-  .sheet--notation > .sheet__caption,
-  .sheet--notation > .sheet__bar {
-    grid-column: 1 / -1;
-  }
-
-  .sheet__bar,
-  .score-download {
-    justify-content: flex-start;
-  }
-
   .playback__readout {
     flex-basis: 100%;
     margin-left: 0;
@@ -607,11 +836,66 @@
   }
 }
 
-/* Escaneo: la imagen tal cual, sin marcas (HOMR no da coordenadas). */
+/* La imagen original: tal cual, sin marcas (HOMR no da coordenadas). Ajustada al ancho, a
+   página entera o acercada; se mueve arrastrándola o con las flechas. */
+.scan {
+  position: relative;
+  overflow: auto;
+  max-height: 80vh;
+  overscroll-behavior: contain;
+}
+
 .scan img {
+  display: block;
   width: 100%;
-  max-height: 70vh;
+  height: auto;
+  user-select: none;
+}
+
+.scan[data-zoom="page"] img {
+  height: 100%;
   object-fit: contain;
+}
+
+.scan[data-zoom="zoom"] {
+  cursor: grab;
+}
+
+.scan[data-zoom="zoom"] img {
+  width: calc(var(--scan-zoom, 1) * 100%);
+  max-width: none;
+}
+
+.scan[data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.scan__tools {
+  display: flex;
+  align-items: center;
+}
+
+.scan__tool {
+  padding: var(--space-2);
+}
+
+.scan__tool-word {
+  padding-inline: var(--space-1);
+}
+
+.scan__zoom {
+  display: inline-grid;
+  place-items: center;
+  min-width: 4.5rem;
+  min-height: 44px;
+  margin-left: calc(var(--rule-width) * -1);
+  border-block: var(--rule);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ocultar la imagen solo tiene sentido en una columna, donde va fija sobre la partitura. */
+.scan__toggle {
+  display: none;
 }
 
 .scan--empty {
@@ -724,6 +1008,77 @@
   user-select: none;
 }
 
+/* Escribir con el ratón (#350): sobre la partitura, una cruz; la nota fantasma en violeta
+   translúcido (pide una acción) y por encima de las notas, sin recibir el puntero; una línea de
+   inserción discontinua entre dos figuras y su nombre en un rótulo violeta. Mientras se guarda
+   otra corrección o el editor está parado, todo en filete discontinuo: el clic no escribe. */
+.notation__stage[data-writing="true"] {
+  cursor: crosshair;
+}
+
+.notation__ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.notation__ghost-head {
+  fill: var(--color-accent);
+  fill-opacity: 0.75;
+}
+
+.notation__ghost-head[data-hollow="true"] {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.notation__ghost-stem,
+.notation__ghost-ledger {
+  stroke: var(--color-accent);
+  stroke-linecap: square;
+  stroke-width: 2;
+  stroke-opacity: 0.8;
+}
+
+.notation__ghost-caret {
+  stroke: var(--color-accent);
+  stroke-dasharray: 4 3;
+  stroke-width: 3;
+}
+
+.notation__ghost-dot {
+  fill: var(--color-accent);
+}
+
+.notation__ghost[data-waiting="true"] .notation__ghost-head {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-dasharray: 3 2;
+  stroke-width: 2;
+}
+
+.notation__ghost-tag {
+  position: absolute;
+  z-index: 3;
+  padding: 2px var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.notation__ghost-tag[data-waiting="true"] {
+  border: var(--rule-width) dashed var(--color-accent);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
 /* Hueco de una voz (ADR-0058): un silencio invisible que OSMD guarda transparente en su sitio. Una
    trama de puntos de tinta, la de lo secundario, por detrás de las notas: se ve dónde está sin
    dibujar en la partitura un signo que no tiene. */
@@ -809,12 +1164,6 @@
 }
 
 /* Columna de al lado: los posibles errores y, debajo, la historia de ediciones. */
-.session__aside {
-  display: grid;
-  align-content: start;
-  border-left: var(--rule);
-}
-
 /* Posibles errores */
 .findings {
   display: grid;
@@ -1273,30 +1622,248 @@ button.findings__item:hover {
   text-decoration: line-through;
 }
 
-@media (max-width: 960px) {
-  .session__body {
-    grid-template-columns: minmax(0, 1fr);
+/* La mesa de corrección (#341): a partir de 960 px, la vista ocupa el alto de la ventana. La
+   imagen, el divisor y la partitura se reparten el ancho (el divisor fija la proporción) y cada
+   panel se desplaza por su lado; la selección y la barra de corrección quedan fijas encima de la
+   partitura, y el transporte, al pie. */
+@media (min-width: 960px) {
+  .app-layout:has(> .session--desk) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
   }
 
-  .session__aside {
-    border-top: var(--rule);
-    border-left: 0;
+  .app-layout:has(> .session--desk) > .app-header {
+    flex: none;
   }
 
-  /* En una columna, el orden del DOM: partitura, imagen y lista. */
+  .session--desk {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* Una franja: a la izquierda la vuelta, el título y sus datos; a la derecha, las acciones,
+     que se reparten en dos filas antes que apretar el título. */
+  .session--desk .session__head {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2) var(--space-6);
+    padding: var(--space-2) var(--gutter) var(--space-3);
+  }
+
+  .session--desk .session__titling {
+    flex: 1 1 22rem;
+    gap: var(--space-1);
+  }
+
+  .session--desk .session__back {
+    min-height: 32px;
+  }
+
+  .session--desk .session__title {
+    font-size: clamp(1.5rem, 2.2vw, 2.25rem);
+  }
+
+  .session--desk .session__meta {
+    gap: var(--space-1) var(--space-5);
+    font-size: var(--text-small);
+  }
+
+  .session--desk .session__actions {
+    flex: 0 1 auto;
+    justify-content: flex-end;
+    max-width: 62%;
+    padding-top: var(--space-2);
+  }
+
+  .session--desk .session__lead {
+    flex-basis: 100%;
+    font-size: var(--text-small);
+  }
+
+  /* Una sola fila del alto de la mesa: así cada panel tiene su alto y se desplaza por dentro. */
+  .session--desk .session__body {
+    flex: 1 1 0;
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    min-height: 28rem;
+  }
+
+  .session--desk .session__sheets {
+    grid-template-columns:
+      minmax(12rem, var(--scan-fr, 40fr))
+      14px
+      minmax(22rem, var(--score-fr, 60fr));
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    min-height: 0;
+    padding: 0;
+  }
+
+  .session--desk .session__sheets > .sheet {
+    min-height: 0;
+    border: 0;
+  }
+
+  .session--desk .desk-divider {
+    display: grid;
+  }
+
+  .session--desk .scan {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .session--desk .sheet--notation .notation {
+    flex: 1 1 0;
+    min-height: 12rem;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* Si la barra y la partitura no caben (una pantalla baja, las leyendas abiertas), el panel de la
+     partitura se desplaza entero en vez de dejarla sin alto. */
+  .session--desk .session__sheets > .sheet--notation {
+    overflow-y: auto;
+  }
+
+  /* El hueco de las barras de desplazamiento (la del panel y la de la partitura) se reserva desde
+     el principio: si una apareciera después del dibujo (al abrir una leyenda o el modo «Escribir»,
+     que alargan la barra), la partitura perdería ancho y se volvería a maquetar, con su parpadeo y,
+     mientras tanto, las cajas medidas (la nota elegida, la nota fantasma, #350) desplazadas. */
+  .session--desk .session__sheets > .sheet--notation,
+  .session--desk .sheet--notation .notation {
+    scrollbar-gutter: stable;
+  }
+
+  .session--desk .sheet--notation .notation__failed {
+    margin: var(--space-4) var(--space-3);
+  }
+
+  .session--desk .session__aside {
+    border-top: 0;
+    border-left: var(--rule);
+    min-height: 0;
+  }
+
+  .session--desk .session__body[data-aside="open"] .session__aside {
+    width: clamp(20rem, 24vw, 26rem);
+  }
+
+  .session--desk .session__aside-body {
+    flex: 1 1 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  /* En el panel, más estrecho que la columna de antes, los títulos y el aire se ajustan. */
+  .session--desk .session__aside .findings,
+  .session--desk .session__aside .history {
+    padding: var(--space-4) var(--space-4) var(--space-6);
+  }
+
+  .session--desk .session__aside .findings__title,
+  .session--desk .session__aside .history__title {
+    font-size: 1.25rem;
+  }
+
+  /* Plegado, el panel es un raíl del alto de la mesa con su nombre en vertical. */
+  .session--desk .session__body[data-aside="closed"] .aside-toggle {
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: flex-start;
+    width: 3.25rem;
+    padding: var(--space-4) 0;
+    border-bottom: 0;
+  }
+
+  .session--desk .session__body[data-aside="closed"] .aside-toggle__text {
+    writing-mode: vertical-rl;
+  }
+}
+
+/* En una columna, la imagen va fija arriba con un alto que deja ver la partitura, y se puede
+   ocultar; el panel lateral, después. */
+@media (max-width: 959.98px) {
   .sheet--scan {
-    order: 0;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+  }
+
+  /* Lo que se trae a la vista (el posible error elegido, la nota, el compás que suena) queda
+     bajo la imagen fija, no tapado por ella. */
+  .session {
+    --scan-pinned: calc(30dvh + 8rem);
+  }
+
+  .session:has(.sheet--scan[data-collapsed="true"]) {
+    --scan-pinned: 5rem;
+  }
+
+  .notation__mark,
+  .notation__selection,
+  .notation__playhead {
+    scroll-margin-top: var(--scan-pinned);
+  }
+
+  /* El transporte, a la vista al pie de la pantalla mientras se recorre la partitura. */
+  .session .sheet--notation > .sheet__transport:last-child {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    background: var(--color-paper);
+  }
+
+  .session__downloads .score-download {
+    justify-content: flex-start;
+  }
+
+  .session__downloads .score-download__hint {
+    text-align: left;
+  }
+
+  .sheet--scan .scan {
+    height: 30vh;
+    height: 30dvh;
+    max-height: none;
+  }
+
+  .sheet--scan[data-collapsed="true"] .scan {
+    display: none;
+  }
+
+  .sheet--scan[data-collapsed="true"] .scan__tools {
+    display: none;
+  }
+
+  .scan__toggle {
+    display: inline-flex;
+  }
+}
+
+/* En un móvil, el zoom sin su lectura: los botones pulsados ya dicen dónde está. */
+@media (max-width: 479.98px) {
+  .scan__zoom {
+    display: none;
+  }
+
+  .scan__tools .scan__tool + .scan__tool,
+  .scan__zoom + .scan__tool {
+    margin-left: calc(var(--rule-width) * -1);
   }
 }
 
 /* Un incipit de un solo pentagrama no se encoge hasta ser ilegible: se desplaza en horizontal. */
 @media (max-width: 760px) {
-  .scan[data-wide="true"] {
-    overflow-x: auto;
-  }
-
-  .scan[data-wide="true"] img {
+  .scan[data-wide="true"][data-zoom="width"] img {
     min-width: 720px;
-    max-height: none;
   }
 }

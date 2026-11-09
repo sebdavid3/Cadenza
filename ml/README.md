@@ -472,8 +472,13 @@ escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
   su `exp_10_run_info.json`, y se niega a escribir en `results/`: exige un `--output-dir`
   fuera de él. Los `effort_study_*` y `exp_10_run_info.json` que hay en `results/` (del
   2026-10-12) son de una ejecución sintética anterior y no se citan; el estudio real llega
-  con [#250](https://github.com/sebdavid3/Cadenza/issues/250) y
-  [#253](https://github.com/sebdavid3/Cadenza/issues/253).
+  con [#253](https://github.com/sebdavid3/Cadenza/issues/253).
+- **`exp_10` mide la fidelidad residual y une el NASA-TLX**
+  ([#250](https://github.com/sebdavid3/Cadenza/issues/250)): solo toma TS-01 a TS-04 de
+  cuentas de transcriptor, compara el estado final de cada sesión con la verdad del banco del
+  estudio (`--bank-dir`, comprobada con su sha256; sin ella falla) y lee el NASA-TLX de un CSV
+  por participante y bloque (`--nasa-tlx`). Formato y columnas, en el §3.3 y el §6.2 del
+  protocolo.
 
 Archivar o borrar esas salidas de `results/` lo decide el responsable (`CLAUDE.md` §9).
 

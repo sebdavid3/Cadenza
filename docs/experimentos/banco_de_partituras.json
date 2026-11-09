@@ -24,6 +24,7 @@
       "obra": "Íncipit de RISM en PrIMuS 000106106-1_1_1",
       "contenido": "Melodía monofónica en clave de sol, sol mayor, compás C, 4 compases de negras y corcheas.",
       "compases": 4,
+      "instrumentos": [],
       "licencia": "CC BY (RISM). La imagen es un render de Verovio de PrIMuS, no un escaneo.",
       "imagen": {
         "origen": "primus",
@@ -53,6 +54,7 @@
       "obra": "Íncipit de RISM en PrIMuS 190009364-1_1_1",
       "contenido": "Melodía monofónica en clave de sol, fa mayor, compás C, anacrusa de una negra y 2 compases.",
       "compases": 3,
+      "instrumentos": [],
       "licencia": "CC BY (RISM). La imagen es un render de Verovio de PrIMuS, no un escaneo.",
       "imagen": {
         "origen": "primus",
@@ -82,6 +84,10 @@
       "obra": "Schubert, Winterreise D 911 n.º 16, Letzte Hoffnung, cc. 6-13",
       "contenido": "Voz y piano (tres pentagramas), mi bemol mayor (tres bemoles), 3/4, 8 compases: accidentes, acordes, dos voces en la mano derecha y cambios de clave a mitad de compás en la izquierda.",
       "compases": 8,
+      "instrumentos": [
+        "voice",
+        "piano"
+      ],
       "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
       "imagen": {
         "origen": "pdf",
@@ -126,6 +132,10 @@
       "obra": "Schubert, Winterreise D 911 n.º 11, Frühlingstraum, cc. 14-21",
       "contenido": "Voz y piano (tres pentagramas), la mayor (tres sostenidos), 6/8, 8 compases: tresillos de semicorcheas, ligaduras de prolongación, silencios, acordes y cambios de clave a mitad de compás en la izquierda.",
       "compases": 8,
+      "instrumentos": [
+        "voice",
+        "piano"
+      ],
       "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
       "imagen": {
         "origen": "pdf",
@@ -180,6 +190,10 @@
       "obra": "Schubert, Winterreise D 911 n.º 21, Das Wirthshaus, cc. 8-13",
       "contenido": "Voz y piano (tres pentagramas), fa mayor (un bemol), 4/4 (el C está en el sistema 1), 6 compases: acordes en las dos manos, varias voces en un pentagrama, una nota de adorno y un silencio de redonda en la voz.",
       "compases": 6,
+      "instrumentos": [
+        "voice",
+        "piano"
+      ],
       "licencia": "Imagen: dominio público (IMSLP). Verdad: CC0 (OpenScore Lieder).",
       "imagen": {
         "origen": "pdf",
@@ -217,5 +231,162 @@
         "verdad": "7586ecc188008cc8503114dca7fa9e64a9d61414b39f697b370dbc28cf98dc90"
       }
     }
-  ]
+  ],
+  "estudio": {
+    "descripcion": "Matriz del cuadrado latino del protocolo §2.4 y sesiones que prepara scripts/prepare_study_participant.py para cada participante (#249): el calentamiento (§5.2) y los cuatro bloques. El participante ve solo el título y el nombre del archivo, neutros; la condición y el test_score_id quedan en la sesión, para exp_10.",
+    "calentamiento": {
+      "partitura": "calentamiento",
+      "condicion": "assisted",
+      "titulo": "Calentamiento",
+      "archivo": "calentamiento.png"
+    },
+    "titulo_bloque": "Partitura {bloque}",
+    "archivo_bloque": "partitura-{bloque}.png",
+    "matriz": {
+      "P01": [
+        {
+          "partitura": "TS-01",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "unassisted"
+        }
+      ],
+      "P02": [
+        {
+          "partitura": "TS-01",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "assisted"
+        }
+      ],
+      "P03": [
+        {
+          "partitura": "TS-02",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "unassisted"
+        }
+      ],
+      "P04": [
+        {
+          "partitura": "TS-02",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "assisted"
+        }
+      ],
+      "P05": [
+        {
+          "partitura": "TS-03",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "unassisted"
+        }
+      ],
+      "P06": [
+        {
+          "partitura": "TS-03",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-04",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "assisted"
+        }
+      ],
+      "P07": [
+        {
+          "partitura": "TS-04",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "unassisted"
+        }
+      ],
+      "P08": [
+        {
+          "partitura": "TS-04",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-03",
+          "condicion": "assisted"
+        },
+        {
+          "partitura": "TS-02",
+          "condicion": "unassisted"
+        },
+        {
+          "partitura": "TS-01",
+          "condicion": "assisted"
+        }
+      ]
+    }
+  }
 }

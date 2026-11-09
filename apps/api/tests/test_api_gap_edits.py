@@ -229,7 +229,13 @@ def test_a_voice_that_starts_with_a_gap_is_written_from_it(tmp_path: Path) -> No
     ]
     note = {"kind": "note", "pitch": "C#4", "hidden": False}
     res = _edit(client, headers, sid, "SetEventKind", _anchor(0, 2, voice=1), note, 1)
-    # Ya no es un hueco: un silencio que se ve se corrige con las demás operaciones.
+    # Ya no es un hueco, pero un silencio que se ve también pasa a ser una nota (#350).
+    assert res.status_code == 201, res.text
+    lower = [e for e in _events(res.json(), 2) if e["voice"] == 1]
+    assert (lower[0]["kind"], lower[0]["pitch"]) == ("note", "C#4")
+    # Una nota no cambia de clase con `SetEventKind`: se corrige con las demás operaciones.
+    rest = {"kind": "rest", "pitch": None, "hidden": False}
+    res = _edit(client, headers, sid, "SetEventKind", _anchor(0, 2, voice=1), rest, 2)
     assert res.status_code == 422, res.text
 
 

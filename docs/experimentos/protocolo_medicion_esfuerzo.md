@@ -82,7 +82,7 @@ En TS-02, TS-03 y TS-04 la voz va arriba, en su parte, y el piano debajo, con su
 - **Añadir un silencio al final de una voz** cuesta siete ediciones (la barra solo inserta antes del evento elegido): TS-04, c. 6 (en TS-03, c. 6 ya no hace falta tras #325).
 - **Un cambio de clave a mitad de compás** (mano izquierda de TS-02 y TS-03) no se puede poner desde la vista: las alturas están bien, pero esas notas se dibujan distintas de la imagen.
 - **El calentamiento no tiene nada que corregir**: el ejercicio guiado (§5) necesita otra tarea o tocar algo a propósito.
-- **La fidelidad residual (#250)**: la verdad y la sesión tienen ya los pentagramas en el mismo orden, pero el número de voz y el orden de las notas de un acorde cambian el SER aunque lo que se ve sea igual (0,162 en TS-02 y 0,369 en TS-04, corregidas sin nada que falte ni sobre). #250 debe normalizarlos antes de medir.
+- **La fidelidad residual (#250)**: la verdad y la sesión tienen ya los pentagramas en el mismo orden, pero el número de voz y el orden de las notas de un acorde cambian el SER aunque lo que se ve sea igual (0,162 en TS-02 y 0,369 en TS-04, corregidas sin nada que falte ni sobre). #250 los normaliza antes de medir (§6.2): con las verdades del banco, la misma partitura con las voces renumeradas y las notas de cada acorde al revés da una SER sin normalizar de 0,192 en TS-02, 0,263 en TS-03 y 0,483 en TS-04, y normalizada de 0 en las tres (comprobación de la medida con un script de la revisión, no un resultado).
 
 ### 2.4 Matriz de Contrabalanceo y Asignación de Bloques
 Con una muestra mínima de $N=8$ transcriptores musicales:
@@ -97,6 +97,8 @@ Con una muestra mínima de $N=8$ transcriptores musicales:
 | **P06** | TS-03 (`unassisted`) | TS-04 (`assisted`) | TS-01 (`unassisted`) | TS-02 (`assisted`) |
 | **P07** | TS-04 (`assisted`) | TS-03 (`unassisted`) | TS-02 (`assisted`) | TS-01 (`unassisted`) |
 | **P08** | TS-04 (`unassisted`) | TS-03 (`assisted`) | TS-02 (`unassisted`) | TS-01 (`assisted`) |
+
+La misma matriz está en `estudio.matriz` de `docs/experimentos/banco_de_partituras.json`, que es la que usa la preparación de cada participante (§5); una prueba comprueba que coinciden y que es un cuadrado latino: cada participante hace las cuatro partituras, dos en cada condición, cada partitura va dos veces en cada posición, y cada posición tiene cuatro sesiones asistidas y cuatro no asistidas (#249). No es un cuadrado de Williams: no equilibra qué partitura sigue a cuál (las transiciones 1→3, 3→1, 2→4 y 4→2 no aparecen nunca, y 1→2, 2→1, 3→4 y 4→3 aparecen dos veces), así que equilibra el orden de las condiciones y de las partituras, pero no el arrastre entre una partitura concreta y la siguiente.
 
 ---
 
@@ -128,6 +130,8 @@ Al concluir cada condición, el participante diligencia el cuestionario multidim
 * **Puntaje Global TLX:** promedio directo (*Raw TLX*) y ponderado por parejas.
 
 **Recogida (#244, decisión del responsable del 2026-11-01):** el cuestionario se rellena fuera de la web (en papel o en un formulario en línea) y se pasa a un CSV con una fila por participante y bloque, que `exp_10` une por esas dos columnas (#250). Sin dato, la celda queda vacía, nunca a 0.
+
+**Formato del CSV (#250).** Columnas `participant_id` (`P01` a `P08`), `block` (1 a 4, el de la matriz del §2.4) y las seis subescalas de 0 a 100: `mental`, `physical`, `temporal`, `performance`, `effort` y `frustration`. En todas, más es más carga: el rendimiento se anota como en el formulario original del NASA-TLX, 0 = perfecto y 100 = fracaso (si el formulario en papel pregunta «cuán exitoso», hay que invertir la escala al pasarlo). Si se hacen las 15 comparaciones por parejas, `weight_mental` … `weight_frustration` llevan las veces que se eligió cada subescala (suman 15) y `exp_10` calcula también el TLX ponderado; si no, esas columnas faltan o van vacías. Un cuestionario que no se recogió no lleva fila. Una subescala vacía, fuera de 0-100 o una fila repetida es un error: la exportación falla y dice la línea.
 
 ### 3.4 Definiciones operativas (#244)
 Decididas por el responsable el 2026-11-01 para que #188 registre el esfuerzo sin ambigüedad:
@@ -163,6 +167,12 @@ Antes de iniciar la prueba, cada participante recibe un documento de informació
 1. **Recepción y Bienvenida (10 min):**
    * Entrega de la hoja informativa y firma del consentimiento informado.
    * Asignación del código seudónimo y credenciales temporales.
+   * **Antes de que llegue (#249),** el investigador prepara su cuenta y sus sesiones desde el repositorio, con el banco regenerado (§2.3):
+     ```bash
+     uv run --no-sync python -P scripts/prepare_study_participant.py P01 --api-url https://r2d2.tailcacb19.ts.net/api --investigator <su usuario>
+     ```
+     En Windows, desde PowerShell: en Git Bash, la petición de contraseña sin eco (`getpass`) puede quedarse colgada.
+     Pide sin eco la contraseña del investigador y la de la cuenta nueva (dos veces), y no las imprime. Usa solo la API v1, como la web: da de alta `P01` como transcriptor (no del registro, para que entre en `exp_10`) y, a su nombre, transcribe con HOMR el calentamiento y sus cuatro bloques con su condición y su `test_score_id`. El participante ve en su listado «Calentamiento» y «Partitura 1» a «Partitura 4», en ese orden y con un nombre de archivo neutro, sin nada de la condición ni de la partitura de prueba. Es idempotente: lo que ya existe no se repite, y tras un corte basta con volver a ejecutarla. Si Nginx corta una transcripción larga (a los 60 s), la API la termina igualmente: la orden espera a que aparezca en el listado en vez de repetirla. Se niega a seguir si una sesión que ya existe tiene otra condición que la de la matriz, si hay dos de la misma partitura, si lo que falta no se puede crear en el orden de los bloques, si la cuenta es del registro, de investigador o está desactivada, o si el banco no tiene los sha256 del manifiesto, y avisa si una sesión que ya existía tiene ediciones. Como las sesiones se crean del último bloque al primero, el bloque de cada una sale de la matriz, no de su fecha de creación; el calentamiento no entra en el análisis (#250).
 2. **Familiarización y Calentamiento (10 min):**
    * Breve recorrido por la interfaz web de Cadenza: herramientas de navegación, cursor, edición de notas, alteraciones y panel de hallazgos.
    * Ejercicio guiado de corrección sobre una partitura de prueba neutra no evaluada (`calentamiento`, §2.3).
@@ -186,14 +196,23 @@ Antes de iniciar la prueba, cada participante recibe un documento de informació
 ### 6.1 Herramientas y Comandos de Extracción
 Cadenza provee un módulo de exportación y CLI automatizado para extraer la telemetría del estudio a formatos tabulares limpios:
 ```bash
-# Exportación directa desde la base de datos de producción / local:
-uv run python ml/cli.py export-effort --db-url sqlite:///cadenza.db --output-dir results/
+# Exportación desde una copia de la base de producción (#254), con el banco regenerado
+# (§2.3) y el CSV del NASA-TLX (§3.3):
+uv run --no-sync python ml/cli.py export-effort --db-url <url de la copia> \
+    --bank-dir banco_estudio --nasa-tlx <nasa_tlx.csv> --output-dir results/
 
 # O mediante ejecución del módulo de experimento:
-uv run python -m ml.experiments.exp_10_effort_study --db-url sqlite:///cadenza.db --output-dir results/
+uv run --no-sync python -m ml.experiments.exp_10_effort_study --db-url <url de la copia> \
+    --bank-dir banco_estudio --nasa-tlx <nasa_tlx.csv> --output-dir results/
 ```
 Sin `--db-url`, o con una base sin sesiones del estudio, la exportación falla: no rellena con
-datos sintéticos ([#271](https://github.com/sebdavid3/Cadenza/issues/271)). Para probar la
+datos sintéticos ([#271](https://github.com/sebdavid3/Cadenza/issues/271)). También falla sin el
+banco del estudio, o si una verdad no tiene el sha256 del manifiesto: sin ella no hay fidelidad
+residual (#250). Sin `--nasa-tlx`, las columnas del NASA-TLX quedan vacías.
+
+**Qué sesiones entran (#250):** las finalizadas, con un registro de esfuerzo, de las partituras
+TS-01 a TS-04 y de cuentas de transcriptor que no son del registro público. El calentamiento, las
+sesiones sin partitura de prueba y las pruebas de una cuenta de investigador quedan fuera. Para probar la
 exportación sin base de datos, `--smoke` genera datos sintéticos, marcados con
 `"simulated": true` en el resumen y en el `run_info`, y exige una carpeta fuera de `results/`:
 ```bash
@@ -203,7 +222,11 @@ uv run python ml/cli.py export-effort --smoke --output-dir <carpeta temporal>
 ### 6.2 Archivos de Datos Generados
 1. **`results/effort_study_sessions.csv`:**
    * Detalle a nivel de sesión individual.
-   * Columnas: `session_id`, `participant_id`, `condition`, `test_score_id`, `duration_ms`, `duration_s`, `time_to_first_edit_ms`, `total_measures`, `total_interventions`, `edits_count`, `findings_count`, `time_per_measure_s`, `interventions_per_measure`, `nasa_tlx_mental`, `nasa_tlx_effort`, `nasa_tlx_frustration`, `nasa_tlx_global`, `status`, `created_at`.
+   * Columnas: `session_id`, `participant_id`, `condition`, `test_score_id`, `block`, `duration_ms`, `duration_s`, `time_to_first_edit_ms`, `total_measures`, `total_interventions`, `edits_count`, `findings_count`, `time_per_measure_s`, `interventions_per_measure`, `nasa_tlx_mental`, `nasa_tlx_physical`, `nasa_tlx_temporal`, `nasa_tlx_performance`, `nasa_tlx_effort`, `nasa_tlx_frustration`, `nasa_tlx_raw`, `nasa_tlx_weighted`, `status`, `created_at`, `residual_ser`, `residual_omr_ned`, `residual_omr_ned_error` y las de #188 (intervenciones por clase, descartes, restauraciones y sugerencias aplicadas y rechazadas).
+   * `block` es el de la matriz (§2.4) por el participante y la partitura, no el orden de creación: la preparación (#249) crea las sesiones del último bloque al primero. Vacío si el participante no está en la matriz.
+   * `total_measures` son los compases de la partitura entera: los del pentagrama que más tiene, en todas las partes, en el estado final de la sesión.
+   * **Fidelidad residual (§3.2.7):** `residual_ser` y `residual_omr_ned` comparan el estado final de la sesión (su documento con todo el log aplicado) con la verdad de su `test_score_id` en el banco. La SER ordena antes los eventos de cada compás por dónde empiezan, el nombre de la altura que suena (un orden fijo, no de grave a agudo) y la figura, para que el número de voz y el orden de las notas de un acorde no cuenten como errores (§2.3, riesgos), y se calcula sin aplicar la armadura, como `exp_14`: las alturas son las que suenan, y aplicándola un becuadro perdido no contaría. Al mezclar las voces de un pentagrama por su inicio, una figura mal en una voz puede mover de sitio los eventos de la otra y contar como más de un error: la SER residual es una cota superior, coherente con el OMR-NED, que tampoco distingue voces. El OMR-NED compara con musicdiff la notación tal cual, sin el símbolo del compás, como `exp_14` y `exp_15`; si musicdiff no puede leer el par, la celda queda vacía y el error va en `residual_omr_ned_error`.
+   * **NASA-TLX:** las seis subescalas, `nasa_tlx_raw` (su media) y `nasa_tlx_weighted` (con los pesos de las parejas, si se recogieron). Sin cuestionario, vacías.
 2. **`results/effort_study_by_measure.csv`:**
    * Datos longitudinales desagregados compás por compás para modelos lineales jerárquicos.
    * Columnas: `session_id`, `participant_id`, `condition`, `test_score_id`, `measure_number`, `interventions_count`.
@@ -211,7 +234,10 @@ uv run python ml/cli.py export-effort --smoke --output-dir <carpeta temporal>
    * Resumen analítico con medias por condición y tasas relativas de reducción de esfuerzo:
      * Reducción porcentual de tiempo por compás: $\Delta T\% = (1 - T_{\text{asistido}} / T_{\text{no\_asistido}}) \times 100$.
      * Reducción porcentual de intervenciones: $\Delta I\% = (1 - I_{\text{asistido}} / I_{\text{no\_asistido}}) \times 100$.
-     * Reducción porcentual de carga cognitiva global: $\Delta \text{TLX}\% = (1 - \text{TLX}_{\text{asistido}} / \text{TLX}_{\text{no\_asistido}}) \times 100$.
+     * Reducción porcentual de carga cognitiva global: $\Delta \text{TLX}\% = (1 - \text{TLX}_{\text{asistido}} / \text{TLX}_{\text{no\_asistido}}) \times 100$, con el Raw TLX.
+   * Por condición, además, cuántas sesiones tienen NASA-TLX y fidelidad residual y sus medias. Una media o una reducción sin datos queda vacía (`null`), nunca a 0.
+   * Las medias son solo de las sesiones de la matriz: las de una cuenta que no está en ella (un piloto, una prueba) van en el CSV, sin bloque, pero no en el resumen.
+   * Lo que no cuadra, para que no se pierda: `sessions_outside_matrix` (sesiones sin bloque), `sessions_with_condition_not_in_matrix`, `duplicate_participant_blocks` (dos sesiones del mismo participante y bloque), `nasa_tlx_rows_without_session`, `residual_omr_ned_errors` y `finalized_sessions_without_effort`, junto con `bank_dir` y `nasa_tlx_csv` (relativas al repositorio; de fuera, solo el nombre).
 4. **`results/exp_10_run_info.json`:**
    * Metadatos de auditoría y trazabilidad científica (hash git, entorno, fecha y semilla).
 

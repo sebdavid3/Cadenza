@@ -3,6 +3,8 @@
 **Objetivo:** terminar Cadenza en tres semanas, con tres personas, con un alcance acordado y
 unos límites explícitos. Acordado con el responsable el 2026-10-25.
 
+> **Cambio del 2026-11-08: el estudio con participantes se aplaza** (decisión del responsable). Se hará con la vista de corrección rediseñada, con la foto y la partitura lado a lado y la barra en pestañas ([#341](https://github.com/sebdavid3/Cadenza/issues/341)), y con un piloto antes. El congelado del 8 de noviembre ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y las sesiones del 9 al 15 ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) quedan sin efecto tal como estaban: las fechas nuevas del piloto, del congelado y del estudio las decide el responsable y se anotan aquí. Hasta entonces, lo que se fusione en `dev` se puede desplegar cuando esté listo. Lo que depende del estudio (#249 a #254, y A11 y A12 de la Fase 11) sigue preparado, pero sin fecha.
+
 Seguimiento en GitHub: [#231](https://github.com/sebdavid3/Cadenza/issues/231), con la lista
 de issues por semana y carril. Milestones:
 [Fase 8](https://github.com/sebdavid3/Cadenza/milestone/3),
@@ -65,6 +67,10 @@ Al 15 de noviembre de 2026:
 | 1 | 26 oct – 1 nov | Construir |
 | 2 | 2 – 8 nov | Completar; piloto el 6 y 7; **congelado el 8** ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) |
 | 3 | 9 – 15 nov | Estudio, aprendizaje y cierre |
+
+**Aplazado el 2026-11-08** (ver el aviso del principio): el calendario de las semanas 2 y 3
+queda como estaba previsto, y las fechas nuevas del estudio están por decidir. Lo que sigue
+describe cómo se hace el estudio cuando tenga fecha.
 
 El estudio se hace con el sistema congelado: lo que no esté desplegado el 8 de noviembre no
 entra, y entre el 9 y el 15 no se despliega nada salvo un arreglo que bloquee el estudio, con

@@ -122,7 +122,8 @@ class EditOp(StrEnum):
 
     16. `SET_EVENT_KIND` ("SetEventKind"):
         - Convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se ve o en una
-          nota en su lugar, con la misma figura. La compensatoria lo devuelve a hueco.
+          nota en su lugar, con la misma figura. También un silencio que se ve en una nota (#350).
+          La compensatoria lo devuelve a lo que era.
         - ``before``/``after``: ``{"kind": "note" | "rest", "pitch": str | None,
           "hidden": bool}``.
     """

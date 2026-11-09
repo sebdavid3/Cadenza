@@ -192,10 +192,12 @@ class PreviewNotFound(ApplicationError):
 class PreviewCapacityExceeded(ApplicationError):
     """Hay ya demasiadas transcripciones sin cuenta guardadas (ADR-0054)."""
 
-    def __init__(self, max_active: int) -> None:
+    def __init__(self, max_active: int, retry_after_seconds: int = 60) -> None:
         msg = f"Hay {max_active} transcripciones sin cuenta guardadas: el máximo"
         super().__init__(msg)
         self.max_active = max_active
+        # Lo que falta para que caduque la más antigua: antes no cabe otra (#278).
+        self.retry_after_seconds = retry_after_seconds
         self.message = msg
 
 
