@@ -1075,6 +1075,19 @@ def test_exp_10_empty_database_fails_instead_of_inventing_sessions(tmp_path: Pat
     assert not (tmp_path / "out" / "effort_study_summary.json").exists()
 
 
+def _exp_10_document(session_id: str, score: Any | None = None) -> dict[str, Any]:
+    """El documento del doble de OMR (dos compases de un pentagrama), o con otra partitura."""
+    from dataclasses import replace
+
+    from cadenza.omr.testing import FakeOMREngine
+
+    document = FakeOMREngine(document_id=f"d-{session_id}").transcribe(Path("x.png"))
+    if score is not None:
+        document = replace(document, score=score)
+    primitive: dict[str, Any] = document.to_primitive()
+    return primitive
+
+
 def _exp_10_session(
     db: Any,
     session_id: str,
@@ -1082,6 +1095,10 @@ def _exp_10_session(
     *,
     status: str = "finalized",
     self_registered: bool = False,
+    role: str = "transcriptor",
+    test_score_id: str | None = "TS-01",
+    condition: str = "assisted",
+    score: Any | None = None,
 ) -> None:
     from cadenza.persistence import Session as SessionRecord
     from cadenza.persistence import UserRecord
@@ -1092,7 +1109,7 @@ def _exp_10_session(
                 id=owner,
                 username=owner,
                 password_hash="hash",
-                role="transcriptor",
+                role=role,
                 self_registered=self_registered,
             )
         )
@@ -1102,8 +1119,10 @@ def _exp_10_session(
             owner_id=owner,
             document_id=f"d-{session_id}",
             omr_engine="homr",
-            document={"score": {"parts": []}},
+            document=_exp_10_document(session_id, score),
             status=status,
+            condition=condition,
+            test_score_id=test_score_id,
         )
     )
 
@@ -1234,6 +1253,462 @@ def test_exp_10_reads_the_accumulated_record_of_the_web() -> None:
     assert (row.findings_dismissed, row.findings_restored) == (2, 1)
     assert (row.suggestions_applied, row.suggestions_rejected) == (1, 3)
     assert sorted((m.measure_number, m.interventions_count) for m in measures) == [(1, 3), (2, 1)]
+
+
+_TLX = ("mental", "physical", "temporal", "performance", "effort", "frustration")
+
+
+def _fake_score() -> Any:
+    from cadenza.omr.testing import FakeOMREngine
+
+    return FakeOMREngine().transcribe(Path("x.png")).score
+
+
+def _with_pitch(score: Any, measure: int, index: int, pitch: str) -> Any:
+    """La partitura con otra altura en un evento del primer pentagrama."""
+    from dataclasses import replace
+
+    part = score.parts[0]
+    staff = part.staves[0]
+    measures = list(staff.measures)
+    events = list(measures[measure].events)
+    events[index] = replace(events[index], pitch=pitch)
+    measures[measure] = replace(measures[measure], events=tuple(events))
+    staff = replace(staff, measures=tuple(measures))
+    return replace(score, parts=(replace(part, staves=(staff,)), *score.parts[1:]))
+
+
+def test_exp_10_only_exports_the_evaluated_scores_of_study_transcribers() -> None:
+    """Ni el calentamiento, ni una sesión sin partitura de prueba, ni las pruebas de una cuenta
+    de investigador entran en el estudio (#250, protocolo §2.3)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-ts02", "P01", test_score_id="TS-02", condition="unassisted")
+        _exp_10_session(db, "s-calentamiento", "P01", test_score_id="calentamiento")
+        _exp_10_session(db, "s-libre", "P01", test_score_id=None)
+        _exp_10_session(db, "s-investigador", "inv", role="investigador")
+        for session_id in ("s-ts02", "s-calentamiento", "s-libre", "s-investigador"):
+            _exp_10_effort(db, session_id, f"e-{session_id}")
+        db.commit()
+
+        sessions, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+        unmeasured = exp_10_effort_study.finalized_sessions_without_effort(db)
+
+    assert [(row.session_id, row.block) for row in sessions] == [("s-ts02", 2)]
+    assert unmeasured == []
+
+
+def test_exp_10_counts_the_measures_of_the_whole_score() -> None:
+    """Los compases son los del pentagrama que más tiene en toda la partitura, no los del
+    primero de la primera parte (#250)."""
+    from dataclasses import replace
+
+    from ml.experiments import exp_10_effort_study
+
+    score = _fake_score()
+    part = score.parts[0]
+    staff = part.staves[0]
+    longer = replace(part, staves=(replace(staff, measures=staff.measures * 3),))
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-1", "P01", score=replace(score, parts=(part, longer)))
+        _exp_10_effort(db, "s-1", "e-1", duration_ms=12_000, interventions={"1": 3})
+        db.commit()
+
+        (row,), _measures = exp_10_effort_study.extract_study_data_from_db(db)
+
+    assert len(staff.measures) == 2
+    assert row.total_measures == 6
+    assert (row.time_per_measure_s, row.interventions_per_measure) == (2.0, 0.5)
+
+
+def _write_tlx(path: Path, rows: list[dict[str, Any]]) -> Path:
+    import csv
+
+    columns = ["participant_id", "block", *_TLX, *[f"weight_{scale}" for scale in _TLX]]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    return path
+
+
+def _tlx_row(participant: str, block: int, **extra: Any) -> dict[str, Any]:
+    row: dict[str, Any] = {"participant_id": participant, "block": block}
+    row.update(dict(zip(_TLX, (60, 10, 40, 30, 50, 20), strict=True)))
+    row.update(extra)
+    return row
+
+
+def test_exp_10_joins_the_nasa_tlx_by_participant_and_block(tmp_path: Path) -> None:
+    """El NASA-TLX se une por participante y por el bloque que da la matriz; sin dato, las
+    celdas quedan vacías, nunca a 0 (#250, protocolo §3.3)."""
+    from ml.experiments import exp_10_effort_study
+
+    weights = dict(zip([f"weight_{scale}" for scale in _TLX], (5, 0, 3, 2, 4, 1), strict=True))
+    csv_path = _write_tlx(tmp_path / "tlx.csv", [_tlx_row("P03", 1, **weights)])
+    tlx = exp_10_effort_study.load_nasa_tlx(csv_path)
+    with _exp_10_db() as db:
+        # P03: bloque 1, TS-02 asistida; bloque 2, TS-01 no asistida (protocolo §2.4).
+        _exp_10_session(db, "s-b1", "P03", test_score_id="TS-02")
+        _exp_10_session(db, "s-b2", "P03", test_score_id="TS-01", condition="unassisted")
+        _exp_10_effort(db, "s-b1", "e-b1")
+        _exp_10_effort(db, "s-b2", "e-b2")
+        db.commit()
+
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(db, nasa_tlx=tlx)
+
+    by_block = {row.block: row for row in rows}
+    first, second = by_block[1], by_block[2]
+    assert (first.nasa_tlx_mental, first.nasa_tlx_frustration) == (60.0, 20.0)
+    assert first.nasa_tlx_raw == 35.0
+    # (60·5 + 10·0 + 40·3 + 30·2 + 50·4 + 20·1) / 15
+    assert first.nasa_tlx_weighted == 46.67
+    assert second.nasa_tlx_mental is None
+    assert (second.nasa_tlx_raw, second.nasa_tlx_weighted) == (None, None)
+
+    summary = exp_10_effort_study.compute_summary_statistics(rows)
+    assert summary["conditions"]["assisted"]["mean_nasa_tlx_raw"] == 35.0
+    assert summary["conditions"]["unassisted"]["mean_nasa_tlx_raw"] is None
+    assert summary["effort_reduction"]["cognitive_workload_reduction_percent"] is None
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([_tlx_row("P01", 1, mental=120)], "entre 0 y 100"),
+        ([_tlx_row("P01", 1, effort="")], "no es un número"),
+        ([_tlx_row("P01", 1), _tlx_row("P01", 1)], "repetido"),
+        ([_tlx_row("P01", 5)], "bloque"),
+        ([_tlx_row("P01", 1, weight_mental=15, weight_effort=0)], "todos o ninguno"),
+        (
+            [
+                _tlx_row(
+                    "P01",
+                    1,
+                    **dict(zip([f"weight_{s}" for s in _TLX], (10, 1, 1, 1, 1, 1), strict=True)),
+                )
+            ],
+            "de 0 a 5",
+        ),
+        (
+            [
+                _tlx_row(
+                    "P01",
+                    1,
+                    **dict(zip([f"weight_{s}" for s in _TLX], (5, 0, 3, 2, 4, 0), strict=True)),
+                )
+            ],
+            "suman 14",
+        ),
+    ],
+)
+def test_exp_10_rejects_an_invalid_nasa_tlx(
+    tmp_path: Path, rows: list[dict[str, Any]], message: str
+) -> None:
+    from ml.experiments import exp_10_effort_study
+
+    with pytest.raises(ValueError, match=message):
+        exp_10_effort_study.load_nasa_tlx(_write_tlx(tmp_path / "tlx.csv", rows))
+
+
+def test_exp_10_ser_does_not_depend_on_voice_numbers_or_chord_order() -> None:
+    """Dos voces numeradas al revés y un acorde escrito en otro orden se ven igual: la SER
+    normalizada no los cuenta como errores (protocolo §2.3, riesgos; #250)."""
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from cadenza.domain import Event, EventKind
+    from cadenza.learning import score_ser_pair
+
+    from ml.experiments import exp_10_effort_study
+
+    def note(pitch: str, voice: int, chord: bool = False) -> Event:
+        return Event(
+            kind=EventKind.NOTE,
+            voice=voice,
+            pitch=pitch,
+            duration_beats=Fraction(2),
+            is_chord=chord,
+        )
+
+    score = _fake_score()
+    part = score.parts[0]
+    staff = part.staves[0]
+
+    def with_events(events: tuple[Event, ...]) -> Any:
+        measure = replace(staff.measures[0], events=events)
+        new_staff = replace(staff, measures=(measure,))
+        return replace(score, parts=(replace(part, staves=(new_staff,)),))
+
+    truth = with_events(
+        (note("C4", 0), note("E4", 0, True), note("D4", 0), note("G3", 1), note("A3", 1))
+    )
+    final = with_events(
+        (note("G3", 0), note("A3", 0), note("E4", 1), note("C4", 1, True), note("D4", 1))
+    )
+
+    assert score_ser_pair(truth, final).ser > 0
+    normalized = score_ser_pair(
+        exp_10_effort_study.ser_normalized(truth), exp_10_effort_study.ser_normalized(final)
+    )
+    assert normalized.ser == 0.0
+
+
+def test_exp_10_measures_the_residual_fidelity_of_the_final_state() -> None:
+    """La fidelidad residual compara el estado final (el documento con el log aplicado) con la
+    verdad: una corrección que deja la partitura como la verdad da SER y OMR-NED 0 (#250)."""
+    from datetime import UTC, datetime
+
+    from cadenza.persistence import EditEventRecord
+
+    from ml.experiments import exp_10_effort_study
+
+    score = _fake_score()
+    truth = _with_pitch(score, 1, 0, "F4")
+    staff = score.parts[0].staves[0]
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-corregida", "P01")
+        _exp_10_session(db, "s-sin-corregir", "P02", condition="unassisted")
+        db.add(
+            EditEventRecord(
+                id="ed-1",
+                session_id="s-corregida",
+                seq=1,
+                op="SetPitch",
+                author="P01",
+                anchor={
+                    "part": 0,
+                    "staff": 0,
+                    "measure": staff.measures[1].number,
+                    "voice": 0,
+                    "event_index": 0,
+                    "staff_id": staff.id,
+                },
+                before={"pitch": "E4"},
+                after={"pitch": "F4"},
+                created_at=datetime(2026, 11, 9, tzinfo=UTC),
+            )
+        )
+        _exp_10_effort(db, "s-corregida", "e-1")
+        _exp_10_effort(db, "s-sin-corregir", "e-2")
+        db.commit()
+
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(
+            db, truths={"TS-01": truth}
+        )
+
+    by_session = {row.session_id: row for row in rows}
+    fixed, unfixed = by_session["s-corregida"], by_session["s-sin-corregir"]
+    assert (fixed.residual_ser, fixed.residual_omr_ned, fixed.residual_omr_ned_error) == (
+        0.0,
+        0.0,
+        "",
+    )
+    assert unfixed.residual_ser is not None and unfixed.residual_ser > 0
+    assert unfixed.residual_omr_ned is not None and unfixed.residual_omr_ned > 0
+    assert fixed.edits_count == 1
+
+
+def _exp_10_db_file(tmp_path: Path) -> str:
+    from cadenza.persistence import create_engine_for_url, create_schema, create_session_factory
+
+    url = f"sqlite+pysqlite:///{(tmp_path / 'estudio.db').as_posix()}"
+    engine = create_engine_for_url(url)
+    create_schema(engine)
+    with create_session_factory(engine)() as db:
+        # P01: bloque 1, TS-01 asistida (protocolo §2.4).
+        _exp_10_session(db, "s-1", "P01")
+        _exp_10_effort(db, "s-1", "e-1", duration_ms=8_000)
+        db.commit()
+    return url
+
+
+def test_exp_10_export_without_the_study_bank_fails_clearly(tmp_path: Path) -> None:
+    """Sin la verdad del banco no hay fidelidad residual: falla y dice cómo regenerarlo
+    (`CLAUDE.md` §8.1, #250)."""
+    from ml.experiments import exp_10_effort_study
+
+    with pytest.raises(ValueError, match="build_study_bank"):
+        exp_10_effort_study.run_effort_study_export(
+            db_url=_exp_10_db_file(tmp_path),
+            output_dir=tmp_path / "out",
+            bank_dir=tmp_path / "sin-banco",
+        )
+    assert not (tmp_path / "out").exists()
+
+
+def test_exp_10_export_with_the_bank_and_the_nasa_tlx(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """De punta a punta: la verdad del banco (comprobada con su sha256), el NASA-TLX unido y lo
+    que no cuadra, nombrado en el resumen (#250)."""
+    import copy
+    import csv
+    import hashlib
+
+    from cadenza.interchange import Music21ScoreExporter
+
+    from ml.experiments import exp_10_effort_study
+
+    manifest = copy.deepcopy(exp_10_effort_study.load_study_manifest())
+    bank = tmp_path / "banco"
+    bank.mkdir()
+    xml = Music21ScoreExporter().to_musicxml(_fake_score()).encode("utf-8")
+    for entry in manifest["partituras"]:
+        (bank / entry["salida"]["verdad"]).write_bytes(xml)
+        entry["sha256"]["verdad"] = hashlib.sha256(xml).hexdigest()
+    monkeypatch.setattr(exp_10_effort_study, "load_study_manifest", lambda: manifest)
+    tlx = _write_tlx(tmp_path / "tlx.csv", [_tlx_row("P01", 1), _tlx_row("P05", 2)])
+    out = tmp_path / "out"
+
+    db_url = _exp_10_db_file(tmp_path)
+    from cadenza.persistence import create_engine_for_url, create_session_factory
+
+    with create_session_factory(create_engine_for_url(db_url))() as db:
+        # Una cuenta de prueba que no está en la matriz: va en las filas, no en las medias.
+        _exp_10_session(db, "s-piloto", "piloto", test_score_id="TS-02")
+        _exp_10_effort(db, "s-piloto", "e-piloto", duration_ms=99_000)
+        db.commit()
+
+    summary = exp_10_effort_study.run_effort_study_export(
+        db_url=db_url, output_dir=out, bank_dir=bank, nasa_tlx_csv=tlx
+    )
+
+    with (out / "effort_study_sessions.csv").open(encoding="utf-8") as handle:
+        rows = {row["participant_id"]: row for row in csv.DictReader(handle)}
+    row = rows["P01"]
+    assert (row["block"], row["test_score_id"]) == ("1", "TS-01")
+    assert (row["residual_ser"], row["residual_omr_ned"]) == ("0.0", "0.0")
+    assert (row["nasa_tlx_raw"], row["nasa_tlx_weighted"]) == ("35.0", "")
+    assert rows["piloto"]["block"] == ""
+    assert summary["nasa_tlx_rows_without_session"] == ["P05#2"]
+    assert summary["sessions_outside_matrix"] == ["s-piloto"]
+    assert summary["sessions_with_condition_not_in_matrix"] == []
+    assert summary["duplicate_participant_blocks"] == []
+    assert summary["total_sessions"] == 1
+    assert summary["conditions"]["assisted"]["mean_duration_s"] == 8.0
+    assert summary["conditions"]["assisted"]["mean_residual_ser"] == 0.0
+    assert summary["conditions"]["unassisted"]["sessions_count"] == 0
+    assert summary["conditions"]["unassisted"]["mean_duration_s"] is None
+    assert summary["simulated"] is False
+    # Fuera del repositorio solo queda el nombre: nada de rutas con el usuario de la máquina.
+    assert summary["bank_dir"] == "banco"
+    assert summary["nasa_tlx_csv"] == "tlx.csv"
+
+
+def test_exp_10_ser_counts_a_lost_natural_under_the_key_signature() -> None:
+    """Las alturas del `ScoreIR` son las que suenan: en mi bemol mayor, un La becuadro de la
+    verdad (`A4`) leído como La bemol (`Ab4`) es un error, aunque la armadura ya lo bemolice
+    (como `exp_14`, #250)."""
+    from dataclasses import replace
+
+    from cadenza.domain import KeySignature
+
+    from ml.experiments import exp_10_effort_study
+
+    score = _fake_score()
+    part = score.parts[0]
+    staff = part.staves[0]
+    measures = (replace(staff.measures[0], key_signature=KeySignature(fifths=-3)),)
+    flat_key = replace(score, parts=(replace(part, staves=(replace(staff, measures=measures),)),))
+    truth = _with_pitch(flat_key, 0, 0, "A4")
+    final = _with_pitch(flat_key, 0, 0, "Ab4")
+
+    ser, _omr_ned, _error = exp_10_effort_study.residual_fidelity(final, truth)
+
+    assert ser > 0
+
+
+def test_exp_10_an_unreadable_pair_leaves_the_omr_ned_empty_and_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si musicdiff no lee un par, la celda del OMR-NED queda vacía, con su error, y el resumen
+    nombra la sesión; sin musicdiff, la exportación falla con un mensaje claro (#250)."""
+    from cadenza.learning import MetricsExtraMissing
+
+    from ml.experiments import exp_10_effort_study
+
+    def unreadable(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("par ilegible")
+
+    monkeypatch.setattr(exp_10_effort_study, "omr_ned_pair", unreadable)
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-1", "P01")
+        _exp_10_effort(db, "s-1", "e-1")
+        db.commit()
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(
+            db, truths={"TS-01": _fake_score()}
+        )
+
+    assert (rows[0].residual_ser, rows[0].residual_omr_ned) == (0.0, None)
+    assert rows[0].residual_omr_ned_error == "RuntimeError: par ilegible"
+    checks = exp_10_effort_study._matrix_checks(
+        rows, exp_10_effort_study.study_assignments(exp_10_effort_study.load_study_manifest()), None
+    )
+    assert checks["residual_omr_ned_errors"] == ["s-1"]
+
+    def missing(*_args: Any, **_kwargs: Any) -> Any:
+        raise MetricsExtraMissing("falta musicdiff")
+
+    monkeypatch.setattr(exp_10_effort_study, "omr_ned_pair", missing)
+    with pytest.raises(ValueError, match="musicdiff"):
+        exp_10_effort_study.residual_fidelity(_fake_score(), _fake_score())
+
+
+def test_exp_10_names_what_does_not_match_the_matrix() -> None:
+    """Una condición distinta de la de la matriz y dos sesiones del mismo participante y bloque
+    se nombran en el resumen (#250)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        # P01 hace TS-02 sin asistencia (bloque 2); P02, TS-01 sin asistencia (bloque 1).
+        _exp_10_session(db, "s-otra-condicion", "P01", test_score_id="TS-02")
+        _exp_10_session(db, "s-a", "P02", condition="unassisted")
+        _exp_10_session(db, "s-b", "P02", condition="unassisted")
+        for session_id in ("s-otra-condicion", "s-a", "s-b"):
+            _exp_10_effort(db, session_id, f"e-{session_id}")
+        db.commit()
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+
+    checks = exp_10_effort_study._matrix_checks(
+        rows, exp_10_effort_study.study_assignments(exp_10_effort_study.load_study_manifest()), None
+    )
+    assert checks["sessions_with_condition_not_in_matrix"] == ["s-otra-condicion"]
+    assert checks["duplicate_participant_blocks"] == ["P02#1"]
+
+
+def test_ml_cli_export_effort_passes_the_bank_and_the_nasa_tlx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ml import cli
+    from ml.experiments import exp_10_effort_study
+
+    received: dict[str, Any] = {}
+
+    def fake_export(**kwargs: Any) -> dict[str, Any]:
+        received.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(exp_10_effort_study, "run_effort_study_export", fake_export)
+
+    code = cli.main(
+        [
+            "export-effort",
+            "--db-url",
+            "sqlite+pysqlite:///estudio.db",
+            "--bank-dir",
+            "banco_estudio",
+            "--nasa-tlx",
+            "nasa_tlx.csv",
+            "--output-dir",
+            "fuera",
+        ]
+    )
+
+    assert code == 0
+    assert (received["bank_dir"], received["nasa_tlx_csv"]) == ("banco_estudio", "nasa_tlx.csv")
 
 
 def test_ml_cli_export_effort(tmp_path: Path) -> None:

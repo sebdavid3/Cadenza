@@ -1,6 +1,6 @@
 """Experimento 10: Protocolo de medición de esfuerzo con participantes (HITL).
 
-Fase 7, Issue #33, D38, Objetivo Específico 5 de la tesis.
+Fase 7, Issue #33, D38, Objetivo Específico 5 de la tesis; fidelidad residual y NASA-TLX, #250.
 
 Compara cuantitativa y cualitativamente la condición asistida (con hallazgos del
 validador musical) frente a la línea base no asistida (sin validador):
@@ -19,24 +19,46 @@ Solo exporta sesiones reales de una base de datos (`--db-url`). Sin base, o con 
 sesiones del estudio, falla: no hay datos de reserva (CLAUDE.md §8.1, #271). Los datos
 sintéticos de `--smoke` solo prueban la exportación, van marcados como simulados y nunca se
 escriben en `results/`.
+
+Con una base real, además (#250, protocolo §3.2 y §3.3):
+- **Fidelidad residual:** SER y OMR-NED del estado final de cada sesión (su documento con todo
+  el log aplicado) frente a la verdad de su `test_score_id` en el banco del estudio (#247). Sin
+  el banco regenerado, o con otra verdad que la del manifiesto, falla.
+- **NASA-TLX:** se lee de un CSV con una fila por participante y bloque (`--nasa-tlx`), y se une
+  a cada sesión por su participante y el bloque que le da la matriz del manifiesto. Sin dato, la
+  celda queda vacía, nunca a 0.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import random
 import sys
-from dataclasses import asdict, dataclass
+import tempfile
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from cadenza.application.score_state import raw_score_of
+from cadenza.domain import EventKind, ScoreIR, materialize
+from cadenza.interchange import Music21ScoreExporter, read_score
+from cadenza.learning import (
+    MetricsExtraMissing,
+    omr_ned_pair,
+    score_ser_pair,
+    without_time_symbols,
+)
 from cadenza.persistence import (
     EditEventRecord,
     EffortMetricsRecord,
     FindingRecord,
+    SqlAlchemyEditEventRepository,
     UserRecord,
     create_engine_for_url,
     create_schema,
@@ -45,6 +67,7 @@ from cadenza.persistence import (
 from cadenza.persistence import (
     Session as SessionRecord,
 )
+from cadenza.validation.rules.support import onsets, voices_of
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
@@ -60,6 +83,16 @@ SYNTHETIC_WARNING = (
     "No citar como resultado del estudio con participantes (#96, #271)."
 )
 
+STUDY_MANIFEST = REPO_ROOT / "docs" / "experimentos" / "banco_de_partituras.json"
+REGENERATE_BANK = "uv run --no-sync python -P scripts/build_study_bank.py"
+
+# Las seis subescalas del NASA-TLX (protocolo §3.3), en el orden del formulario. Todas van de 0 a
+# 100 y más es más carga: el rendimiento, como en el formulario original, 0 = perfecto y
+# 100 = fracaso.
+TLX_SCALES = ("mental", "physical", "temporal", "performance", "effort", "frustration")
+TLX_PAIRS = 15  # Comparaciones por parejas de las seis subescalas: los pesos suman 15.
+TLX_MAX_WEIGHT = 5  # Cada subescala aparece en 5 de las 15 parejas.
+
 
 @dataclass(frozen=True, slots=True)
 class EffortSessionRow:
@@ -69,6 +102,9 @@ class EffortSessionRow:
     participant_id: str
     condition: str
     test_score_id: str
+    # El bloque de la sesión en la matriz del protocolo (§2.4); vacío si el participante o la
+    # partitura no están en ella.
+    block: int | None
     duration_ms: int
     duration_s: float
     time_to_first_edit_ms: int | None
@@ -78,12 +114,22 @@ class EffortSessionRow:
     findings_count: int
     time_per_measure_s: float
     interventions_per_measure: float
-    nasa_tlx_mental: float
-    nasa_tlx_effort: float
-    nasa_tlx_frustration: float
-    nasa_tlx_global: float
+    # NASA-TLX del participante en ese bloque (§3.3). Sin dato, la celda queda vacía.
+    nasa_tlx_mental: float | None
+    nasa_tlx_physical: float | None
+    nasa_tlx_temporal: float | None
+    nasa_tlx_performance: float | None
+    nasa_tlx_effort: float | None
+    nasa_tlx_frustration: float | None
+    nasa_tlx_raw: float | None
+    nasa_tlx_weighted: float | None
     status: str
     created_at: str
+    # Fidelidad residual frente a la verdad (§3.2.7, #250). Vacía en los datos sintéticos; el
+    # OMR-NED también si musicdiff no puede leer el par (el error queda en su columna).
+    residual_ser: float | None = None
+    residual_omr_ned: float | None = None
+    residual_omr_ned_error: str = ""
     # Del registro que acumula la web (#188, ADR-0050). None en los datos sintéticos, que no
     # los simulan, y en los registros sueltos de `POST /effort`: la celda queda vacía.
     content_interventions: int | None = None
@@ -111,6 +157,240 @@ class MeasureInterventionRow:
 
     def to_csv_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(frozen=True, slots=True)
+class NasaTlx:
+    """Un cuestionario NASA-TLX: las seis subescalas y, si se recogieron, sus pesos."""
+
+    scales: dict[str, float]
+    weights: dict[str, int] | None = None
+
+    @property
+    def raw(self) -> float:
+        """Raw TLX: la media de las seis subescalas."""
+        return round(sum(self.scales.values()) / len(TLX_SCALES), 2)
+
+    @property
+    def weighted(self) -> float | None:
+        """TLX ponderado: cada subescala por las veces que se eligió en las 15 parejas."""
+        if self.weights is None:
+            return None
+        total = sum(self.scales[scale] * self.weights[scale] for scale in TLX_SCALES)
+        return round(total / TLX_PAIRS, 2)
+
+
+# ---------------------------------------------------------------------------
+# El estudio: la matriz, la verdad de cada partitura y el NASA-TLX.
+# ---------------------------------------------------------------------------
+
+
+def load_study_manifest(path: Path = STUDY_MANIFEST) -> dict[str, Any]:
+    manifest: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return manifest
+
+
+def study_assignments(manifest: Mapping[str, Any]) -> dict[str, dict[str, tuple[int, str]]]:
+    """De cada participante, el bloque y la condición de cada partitura (protocolo §2.4)."""
+
+    matrix: dict[str, list[dict[str, str]]] = manifest["estudio"]["matriz"]
+    return {
+        participant: {
+            assignment["partitura"]: (block, assignment["condicion"])
+            for block, assignment in enumerate(blocks, start=1)
+        }
+        for participant, blocks in matrix.items()
+    }
+
+
+def _study_scores(assignments: Mapping[str, Mapping[str, tuple[int, str]]]) -> list[str]:
+    return sorted({score for per_score in assignments.values() for score in per_score})
+
+
+def load_truths(manifest: Mapping[str, Any], bank_dir: Path) -> dict[str, ScoreIR]:
+    """La verdad de cada partitura evaluada del banco, comprobada contra su sha256.
+
+    Falla con un mensaje claro si falta el banco o una verdad no es la del manifiesto
+    (`CLAUDE.md` §8.1): sin ella no hay fidelidad residual que medir.
+    """
+
+    wanted = set(_study_scores(study_assignments(manifest)))
+    entries = [entry for entry in manifest["partituras"] if entry["id"] in wanted]
+    problems: list[str] = []
+    paths: dict[str, Path] = {}
+    for entry in entries:
+        path = bank_dir / entry["salida"]["verdad"]
+        if not path.is_file():
+            problems.append(f"falta {path.name}")
+        elif hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]["verdad"]:
+            problems.append(f"{path.name} no tiene el sha256 del manifiesto")
+        else:
+            paths[entry["id"]] = path
+    if problems or len(paths) != len(wanted):
+        raise ValueError(
+            f"Sin la verdad del banco del estudio en {bank_dir} no hay fidelidad residual "
+            f"({'; '.join(problems) or 'faltan partituras en el manifiesto'}). Regenéralo con "
+            f"`{REGENERATE_BANK}` o indica la carpeta con --bank-dir."
+        )
+    return {score_id: read_score(path) for score_id, path in paths.items()}
+
+
+def _tlx_number(raw: str | None, what: str, line: int) -> float:
+    try:
+        value = float((raw or "").strip().replace(",", "."))
+    except ValueError:
+        raise ValueError(f"NASA-TLX, línea {line}: {what} no es un número ({raw!r}).") from None
+    if not 0.0 <= value <= 100.0:
+        raise ValueError(f"NASA-TLX, línea {line}: {what} = {value} no está entre 0 y 100.")
+    return value
+
+
+def load_nasa_tlx(path: Path) -> dict[tuple[str, int], NasaTlx]:
+    """Lee el CSV del NASA-TLX: una fila por participante y bloque (protocolo §3.3, #244).
+
+    Columnas: `participant_id`, `block` (1 a 4) y las seis subescalas de 0 a 100 (`mental`,
+    `physical`, `temporal`, `performance`, `effort`, `frustration`). Si se hicieron las
+    comparaciones por parejas, `weight_<subescala>` con las veces que se eligió cada una (suman
+    15); si no, esas columnas faltan o van vacías. Un cuestionario que no se recogió no lleva
+    fila: su celda queda vacía. Un valor que falta o se sale de rango es un error, no un 0.
+    """
+
+    if not path.is_file():
+        raise ValueError(f"No existe el CSV del NASA-TLX: {path}")
+    result: dict[tuple[str, int], NasaTlx] = {}
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        columns = set(reader.fieldnames or ())
+        missing = {"participant_id", "block", *TLX_SCALES} - columns
+        if missing:
+            raise ValueError(
+                f"Al CSV del NASA-TLX le faltan columnas: {', '.join(sorted(missing))}."
+            )
+        for line, row in enumerate(reader, start=2):
+            participant = (row["participant_id"] or "").strip()
+            try:
+                block = int((row["block"] or "").strip())
+            except ValueError:
+                raise ValueError(f"NASA-TLX, línea {line}: el bloque no es un número.") from None
+            if not participant or not 1 <= block <= 4:
+                raise ValueError(f"NASA-TLX, línea {line}: participante o bloque inválidos.")
+            if (participant, block) in result:
+                raise ValueError(
+                    f"NASA-TLX, línea {line}: {participant}, bloque {block}, repetido."
+                )
+            scales = {scale: _tlx_number(row[scale], scale, line) for scale in TLX_SCALES}
+            raw_weights = {
+                scale: (row.get(f"weight_{scale}") or "").strip() for scale in TLX_SCALES
+            }
+            weights: dict[str, int] | None = None
+            if any(raw_weights.values()):
+                try:
+                    weights = {scale: int(value) for scale, value in raw_weights.items()}
+                except ValueError:
+                    raise ValueError(
+                        f"NASA-TLX, línea {line}: los pesos van todos o ninguno, y son enteros."
+                    ) from None
+                # Cada subescala sale en 5 de las 15 parejas: su peso va de 0 a 5.
+                if any(not 0 <= weight <= TLX_MAX_WEIGHT for weight in weights.values()):
+                    raise ValueError(
+                        f"NASA-TLX, línea {line}: cada peso va de 0 a {TLX_MAX_WEIGHT}."
+                    )
+                if sum(weights.values()) != TLX_PAIRS:
+                    raise ValueError(
+                        f"NASA-TLX, línea {line}: los pesos suman {sum(weights.values())}, "
+                        f"y deben sumar {TLX_PAIRS}."
+                    )
+            result[(participant, block)] = NasaTlx(scales=scales, weights=weights)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Compases y fidelidad residual.
+# ---------------------------------------------------------------------------
+
+
+def measure_count(score: ScoreIR) -> int:
+    """Los compases de la partitura: los del pentagrama que más tiene, en todas las partes."""
+    counts = [len(staff.measures) for part in score.parts for staff in part.staves]
+    return max(1, max(counts, default=0))
+
+
+def ser_normalized(score: ScoreIR) -> ScoreIR:
+    """La partitura con los eventos de cada compás en un orden que no depende de la voz.
+
+    El número de voz y el orden de las notas de un acorde cambian la secuencia de símbolos de
+    la SER aunque lo que se ve sea igual (protocolo §2.3, riesgos): se ordenan por dónde
+    empiezan, los silencios antes que las notas, por el nombre de la altura que suena (un orden
+    fijo, no de grave a agudo) y por figura.
+    """
+
+    parts = []
+    for part in score.parts:
+        staves = []
+        for staff in part.staves:
+            measures = []
+            for measure in staff.measures:
+                keyed = []
+                for events in voices_of(measure).values():
+                    for event, onset in zip(events, onsets(events), strict=True):
+                        key = (
+                            onset,
+                            event.kind is EventKind.NOTE,
+                            event.pitch or "",
+                            event.duration_beats or Fraction(0),
+                        )
+                        keyed.append((key, event))
+                ordered = tuple(event for _, event in sorted(keyed, key=lambda item: item[0]))
+                measures.append(replace(measure, events=ordered))
+            staves.append(replace(staff, measures=tuple(measures)))
+        parts.append(replace(part, staves=tuple(staves)))
+    return replace(score, parts=tuple(parts))
+
+
+def residual_fidelity(final: ScoreIR, truth: ScoreIR) -> tuple[float, float | None, str]:
+    """SER y OMR-NED del estado final frente a la verdad, y el error de musicdiff si lo hubo.
+
+    La SER se calcula con los eventos de cada compás normalizados (`ser_normalized`) y sin
+    aplicar la armadura, como `exp_14`: las alturas del `ScoreIR` son las que suenan, y
+    aplicándola un becuadro perdido no contaría como error. El OMR-NED compara con musicdiff la
+    notación tal cual, sin el símbolo del compás, como `exp_14` y `exp_15` (ADR-0044 §1). Sin
+    el extra `metrics` falla con un `ValueError` claro, no se imputa.
+    """
+
+    ser = score_ser_pair(
+        ser_normalized(truth), ser_normalized(final), apply_key_signature=False
+    ).ser
+    exporter = Music21ScoreExporter()
+    with tempfile.TemporaryDirectory(prefix="exp10-ned-") as work:
+        folder = Path(work)
+        truth_file = folder / "truth.musicxml"
+        final_file = folder / "final.musicxml"
+        try:
+            truth_file.write_text(
+                exporter.to_musicxml(without_time_symbols(truth)), encoding="utf-8"
+            )
+            final_file.write_text(
+                exporter.to_musicxml(without_time_symbols(final)), encoding="utf-8"
+            )
+            return ser, omr_ned_pair(final_file, truth_file).omr_ned, ""
+        except MetricsExtraMissing as exc:
+            raise ValueError(
+                f"Sin musicdiff no hay OMR-NED de la fidelidad residual: {exc}"
+            ) from exc
+        except Exception as exc:  # un par que musicdiff no lee se registra, no se imputa
+            return ser, None, f"{type(exc).__name__}: {exc}"
+
+
+def final_score(db: DbSession, session: SessionRecord) -> ScoreIR:
+    """El estado al que llega la sesión: su documento con todo el log aplicado, leído como lo
+    lee la aplicación (`raw_score_of`)."""
+    edits = SqlAlchemyEditEventRepository(db).list_events(session.id)
+    return materialize(raw_score_of(session.document), edits)
+
+
+# ---------------------------------------------------------------------------
+# Datos sintéticos (`--smoke`): solo prueban la exportación.
+# ---------------------------------------------------------------------------
 
 
 def generate_synthetic_study_dataset(
@@ -146,20 +426,16 @@ def generate_synthetic_study_dataset(
                 interv_rate = rng.uniform(0.5, 1.1)
                 time_to_first = rng.randint(2500, 5000)
                 findings = rng.randint(1, 4)
-                tlx_mental = round(rng.uniform(28.0, 44.0), 1)
-                tlx_effort = round(rng.uniform(30.0, 46.0), 1)
-                tlx_frust = round(rng.uniform(18.0, 32.0), 1)
+                low, high = 18.0, 46.0
             else:
                 # Condición no asistida: mayor tiempo de inspección y esfuerzo cognitivo
                 base_time_per_m = rng.uniform(15.0, 24.0)
                 interv_rate = rng.uniform(1.4, 2.3)
                 time_to_first = rng.randint(6000, 14000)
                 findings = 0
-                tlx_mental = round(rng.uniform(55.0, 75.0), 1)
-                tlx_effort = round(rng.uniform(58.0, 78.0), 1)
-                tlx_frust = round(rng.uniform(42.0, 68.0), 1)
+                low, high = 42.0, 78.0
 
-            tlx_global = round((tlx_mental + tlx_effort + tlx_frust) / 3.0, 1)
+            tlx = NasaTlx(scales={scale: round(rng.uniform(low, high), 1) for scale in TLX_SCALES})
             duration_s = round(base_time_per_m * n_measures, 2)
             duration_ms = int(duration_s * 1000)
 
@@ -190,6 +466,7 @@ def generate_synthetic_study_dataset(
                     participant_id=p_id,
                     condition=condition,
                     test_score_id=score_id,
+                    block=s_idx + 1,
                     duration_ms=duration_ms,
                     duration_s=duration_s,
                     time_to_first_edit_ms=time_to_first,
@@ -199,10 +476,14 @@ def generate_synthetic_study_dataset(
                     findings_count=findings,
                     time_per_measure_s=time_per_m_s,
                     interventions_per_measure=interv_per_m,
-                    nasa_tlx_mental=tlx_mental,
-                    nasa_tlx_effort=tlx_effort,
-                    nasa_tlx_frustration=tlx_frust,
-                    nasa_tlx_global=tlx_global,
+                    nasa_tlx_mental=tlx.scales["mental"],
+                    nasa_tlx_physical=tlx.scales["physical"],
+                    nasa_tlx_temporal=tlx.scales["temporal"],
+                    nasa_tlx_performance=tlx.scales["performance"],
+                    nasa_tlx_effort=tlx.scales["effort"],
+                    nasa_tlx_frustration=tlx.scales["frustration"],
+                    nasa_tlx_raw=tlx.raw,
+                    nasa_tlx_weighted=None,
                     status="finalized",
                     created_at=datetime.now(UTC).isoformat(),
                 )
@@ -211,17 +492,31 @@ def generate_synthetic_study_dataset(
     return session_rows, measure_rows
 
 
-def _study_sessions(db: DbSession) -> list[tuple[SessionRecord, UserRecord]]:
-    """Las sesiones finalizadas de las cuentas del estudio, por orden de creación.
+# ---------------------------------------------------------------------------
+# Datos reales.
+# ---------------------------------------------------------------------------
 
-    Las cuentas del registro público no forman parte del estudio (ADR-0022), y una partitura
-    sin finalizar no entra en el análisis (protocolo §3.4, #244).
+
+def _study_sessions(
+    db: DbSession, scores: list[str] | None = None
+) -> list[tuple[SessionRecord, UserRecord]]:
+    """Las sesiones finalizadas del estudio, por orden de creación.
+
+    Solo las de las partituras evaluadas (`scores`, por defecto las de la matriz del
+    manifiesto: el calentamiento no se evalúa) y de cuentas de transcriptor que no son del
+    registro público (ADR-0022): ni las pruebas del investigador ni las del registro. Una
+    partitura sin finalizar no entra en el análisis (protocolo §3.4, #244).
     """
+    wanted = (
+        scores if scores is not None else _study_scores(study_assignments(load_study_manifest()))
+    )
     stmt = (
         select(SessionRecord, UserRecord)
         .join(UserRecord, SessionRecord.owner_id == UserRecord.id)
         .where(UserRecord.self_registered.is_(False))
+        .where(UserRecord.role == "transcriptor")
         .where(SessionRecord.status == "finalized")
+        .where(SessionRecord.test_score_id.in_(wanted))
         .order_by(SessionRecord.created_at)
     )
     return [(sess, user) for sess, user in db.execute(stmt).all()]
@@ -245,10 +540,12 @@ def _session_effort(db: DbSession, session_id: str) -> EffortMetricsRecord | Non
     return next((r for r in records if not r.accumulated), None)
 
 
-def finalized_sessions_without_effort(db: DbSession) -> list[str]:
+def finalized_sessions_without_effort(db: DbSession, scores: list[str] | None = None) -> list[str]:
     """Sesiones del estudio finalizadas sin ningún registro de esfuerzo: no se midieron y no
     entran en las filas, pero el resumen las nombra para que no se pierdan en silencio."""
-    return [sess.id for sess, _ in _study_sessions(db) if _session_effort(db, sess.id) is None]
+    return [
+        sess.id for sess, _ in _study_sessions(db, scores) if _session_effort(db, sess.id) is None
+    ]
 
 
 def _class_total(by_class: dict[str, Any], name: str) -> int:
@@ -257,16 +554,23 @@ def _class_total(by_class: dict[str, Any], name: str) -> int:
 
 def extract_study_data_from_db(
     db: DbSession,
+    *,
+    assignments: Mapping[str, Mapping[str, tuple[int, str]]] | None = None,
+    truths: Mapping[str, ScoreIR] | None = None,
+    nasa_tlx: Mapping[tuple[str, int], NasaTlx] | None = None,
 ) -> tuple[list[EffortSessionRow], list[MeasureInterventionRow]]:
     """Extrae las sesiones de estudio y métricas persistidas en la base de datos.
 
     Solo las sesiones finalizadas de las cuentas del estudio con un registro de esfuerzo: sin
-    él no hay medición (`finalized_sessions_without_effort`).
+    él no hay medición (`finalized_sessions_without_effort`). Con `truths`, mide la fidelidad
+    residual; con `nasa_tlx`, une el cuestionario por participante y bloque. Sin ellos, esas
+    celdas quedan vacías.
     """
+    plan = assignments if assignments is not None else study_assignments(load_study_manifest())
     session_rows: list[EffortSessionRow] = []
     measure_rows: list[MeasureInterventionRow] = []
 
-    for sess, user in _study_sessions(db):
+    for sess, user in _study_sessions(db, _study_scores(plan)):
         effort = _session_effort(db, sess.id)
         if effort is None:
             continue
@@ -276,15 +580,20 @@ def extract_study_data_from_db(
         interventions = effort.interventions or {}
         accumulated = bool(effort.accumulated)
         by_class = effort.interventions_by_class or {}
+        score_id = sess.test_score_id or "unspecified"
 
-        # Contar compases del documento ScoreIR
-        doc = sess.document or {}
-        score_data = doc.get("score", {})
-        parts = score_data.get("parts", [])
-        total_measures = 1
-        if parts and "staves" in parts[0] and parts[0]["staves"]:
-            measures = parts[0]["staves"][0].get("measures", [])
-            total_measures = max(1, len(measures))
+        # El estado final de la sesión: sus compases y su fidelidad residual.
+        final = final_score(db, sess)
+        total_measures = measure_count(final)
+        residual_ser: float | None = None
+        residual_ned: float | None = None
+        residual_error = ""
+        if truths is not None:
+            residual_ser, residual_ned, residual_error = residual_fidelity(final, truths[score_id])
+
+        assignment = plan.get(user.username, {}).get(score_id)
+        block = assignment[0] if assignment is not None else None
+        tlx = nasa_tlx.get((user.username, block)) if nasa_tlx and block is not None else None
 
         total_interv = sum(int(v) for v in interventions.values())
         for m_str, count in interventions.items():
@@ -297,7 +606,7 @@ def extract_study_data_from_db(
                     session_id=sess.id,
                     participant_id=user.username,
                     condition=sess.condition,
-                    test_score_id=sess.test_score_id or "unspecified",
+                    test_score_id=score_id,
                     measure_number=m_num,
                     interventions_count=int(count),
                 )
@@ -326,12 +635,16 @@ def extract_study_data_from_db(
         time_per_m = round(duration_s / total_measures, 2)
         interv_per_m = round(total_interv / total_measures, 2)
 
+        def scale(name: str, tlx: NasaTlx | None = tlx) -> float | None:
+            return tlx.scales[name] if tlx is not None else None
+
         session_rows.append(
             EffortSessionRow(
                 session_id=sess.id,
                 participant_id=user.username,
                 condition=sess.condition,
-                test_score_id=sess.test_score_id or "unspecified",
+                test_score_id=score_id,
+                block=block,
                 duration_ms=duration_ms,
                 duration_s=duration_s,
                 time_to_first_edit_ms=time_to_first,
@@ -341,12 +654,19 @@ def extract_study_data_from_db(
                 findings_count=int(findings_count),
                 time_per_measure_s=time_per_m,
                 interventions_per_measure=interv_per_m,
-                nasa_tlx_mental=0.0,
-                nasa_tlx_effort=0.0,
-                nasa_tlx_frustration=0.0,
-                nasa_tlx_global=0.0,
+                nasa_tlx_mental=scale("mental"),
+                nasa_tlx_physical=scale("physical"),
+                nasa_tlx_temporal=scale("temporal"),
+                nasa_tlx_performance=scale("performance"),
+                nasa_tlx_effort=scale("effort"),
+                nasa_tlx_frustration=scale("frustration"),
+                nasa_tlx_raw=tlx.raw if tlx is not None else None,
+                nasa_tlx_weighted=tlx.weighted if tlx is not None else None,
                 status=sess.status,
                 created_at=sess.created_at.isoformat() if sess.created_at else "",
+                residual_ser=residual_ser,
+                residual_omr_ned=residual_ned,
+                residual_omr_ned_error=residual_error,
                 content_interventions=_class_total(by_class, "content") if accumulated else None,
                 mark_interventions=_class_total(by_class, "mark") if accumulated else None,
                 meter_interventions=_class_total(by_class, "meter") if accumulated else None,
@@ -360,64 +680,107 @@ def extract_study_data_from_db(
     return session_rows, measure_rows
 
 
+def _mean(values: list[float | None]) -> float | None:
+    """La media de los valores que hay; sin ninguno, vacía (no 0)."""
+    present = [value for value in values if value is not None]
+    return round(sum(present) / len(present), 4) if present else None
+
+
+def _reduction(assisted: float | None, unassisted: float | None) -> float | None:
+    if assisted is None or unassisted is None or unassisted <= 0:
+        return None
+    return round((1.0 - (assisted / unassisted)) * 100.0, 2)
+
+
 def compute_summary_statistics(
     session_rows: list[EffortSessionRow],
 ) -> dict[str, Any]:
-    """Calcula estadísticas descriptivas agregadas comparando assisted vs unassisted."""
-    assisted = [r for r in session_rows if r.condition == "assisted"]
-    unassisted = [r for r in session_rows if r.condition == "unassisted"]
+    """Calcula estadísticas descriptivas agregadas comparando assisted vs unassisted.
 
-    def _mean(values: list[float]) -> float:
-        return round(sum(values) / len(values), 2) if values else 0.0
+    Una media sin datos (sin NASA-TLX, sin fidelidad o sin sesiones de una condición) queda
+    vacía, y la reducción que dependa de ella también: nunca 0.
+    """
 
-    ast_time_per_m = _mean([r.time_per_measure_s for r in assisted])
-    una_time_per_m = _mean([r.time_per_measure_s for r in unassisted])
-    ast_interv_per_m = _mean([r.interventions_per_measure for r in assisted])
-    una_interv_per_m = _mean([r.interventions_per_measure for r in unassisted])
-    ast_duration = _mean([r.duration_s for r in assisted])
-    una_duration = _mean([r.duration_s for r in unassisted])
-    ast_tlx = _mean([r.nasa_tlx_global for r in assisted if r.nasa_tlx_global > 0])
-    una_tlx = _mean([r.nasa_tlx_global for r in unassisted if r.nasa_tlx_global > 0])
+    def condition_summary(rows: list[EffortSessionRow]) -> dict[str, Any]:
+        return {
+            "sessions_count": len(rows),
+            "mean_duration_s": _mean([r.duration_s for r in rows]),
+            "mean_time_per_measure_s": _mean([r.time_per_measure_s for r in rows]),
+            "mean_interventions_per_measure": _mean([r.interventions_per_measure for r in rows]),
+            "nasa_tlx_count": sum(r.nasa_tlx_raw is not None for r in rows),
+            "mean_nasa_tlx_raw": _mean([r.nasa_tlx_raw for r in rows]),
+            "mean_nasa_tlx_weighted": _mean([r.nasa_tlx_weighted for r in rows]),
+            "residual_count": sum(r.residual_ser is not None for r in rows),
+            "mean_residual_ser": _mean([r.residual_ser for r in rows]),
+            "mean_residual_omr_ned": _mean([r.residual_omr_ned for r in rows]),
+        }
 
-    time_reduction = (
-        round((1.0 - (ast_time_per_m / una_time_per_m)) * 100.0, 2) if una_time_per_m > 0 else 0.0
-    )
-    interv_reduction = (
-        round((1.0 - (ast_interv_per_m / una_interv_per_m)) * 100.0, 2)
-        if una_interv_per_m > 0
-        else 0.0
-    )
-    tlx_reduction = round((1.0 - (ast_tlx / una_tlx)) * 100.0, 2) if una_tlx > 0 else 0.0
-
-    unique_participants = len({r.participant_id for r in session_rows})
+    assisted = condition_summary([r for r in session_rows if r.condition == "assisted"])
+    unassisted = condition_summary([r for r in session_rows if r.condition == "unassisted"])
 
     return {
         "study_protocol": "Cadenza HITL Effort Measurement Protocol (Within-Subjects Latin Square)",
         "protocol_version": "1.0",
         "total_sessions": len(session_rows),
-        "total_participants": unique_participants,
-        "conditions": {
-            "assisted": {
-                "sessions_count": len(assisted),
-                "mean_duration_s": ast_duration,
-                "mean_time_per_measure_s": ast_time_per_m,
-                "mean_interventions_per_measure": ast_interv_per_m,
-                "mean_nasa_tlx_global": ast_tlx,
-            },
-            "unassisted": {
-                "sessions_count": len(unassisted),
-                "mean_duration_s": una_duration,
-                "mean_time_per_measure_s": una_time_per_m,
-                "mean_interventions_per_measure": una_interv_per_m,
-                "mean_nasa_tlx_global": una_tlx,
-            },
-        },
+        "total_participants": len({r.participant_id for r in session_rows}),
+        "conditions": {"assisted": assisted, "unassisted": unassisted},
         "effort_reduction": {
-            "time_per_measure_reduction_percent": time_reduction,
-            "interventions_per_measure_reduction_percent": interv_reduction,
-            "cognitive_workload_reduction_percent": tlx_reduction,
+            "time_per_measure_reduction_percent": _reduction(
+                assisted["mean_time_per_measure_s"], unassisted["mean_time_per_measure_s"]
+            ),
+            "interventions_per_measure_reduction_percent": _reduction(
+                assisted["mean_interventions_per_measure"],
+                unassisted["mean_interventions_per_measure"],
+            ),
+            "cognitive_workload_reduction_percent": _reduction(
+                assisted["mean_nasa_tlx_raw"], unassisted["mean_nasa_tlx_raw"]
+            ),
         },
     }
+
+
+def _matrix_checks(
+    session_rows: list[EffortSessionRow],
+    assignments: Mapping[str, Mapping[str, tuple[int, str]]],
+    nasa_tlx: Mapping[tuple[str, int], NasaTlx] | None,
+) -> dict[str, Any]:
+    """Lo que no cuadra con la matriz o con el NASA-TLX, para que no se pierda en silencio."""
+
+    outside = [r.session_id for r in session_rows if r.block is None]
+    mismatched = [
+        r.session_id
+        for r in session_rows
+        if r.block is not None and assignments[r.participant_id][r.test_score_id][1] != r.condition
+    ]
+    in_matrix = [(r.participant_id, r.block) for r in session_rows if r.block is not None]
+    matched = set(in_matrix)
+    unmatched_tlx = sorted(
+        f"{participant}#{block}"
+        for participant, block in (nasa_tlx or {})
+        if (participant, block) not in matched
+    )
+    duplicated = sorted(
+        f"{participant}#{block}"
+        for participant, block in matched
+        if in_matrix.count((participant, block)) > 1
+    )
+    return {
+        "sessions_outside_matrix": outside,
+        "sessions_with_condition_not_in_matrix": mismatched,
+        "duplicate_participant_blocks": duplicated,
+        "nasa_tlx_rows_without_session": unmatched_tlx,
+        "residual_omr_ned_errors": [r.session_id for r in session_rows if r.residual_omr_ned_error],
+    }
+
+
+def _display_path(path: Path | str) -> str:
+    """La ruta relativa al repositorio si está dentro; si no, tal cual. En `results/` no deben
+    quedar rutas con el nombre de usuario de la máquina."""
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return Path(path).name if resolved.is_absolute() else str(path)
 
 
 def run_effort_study_export(
@@ -426,11 +789,14 @@ def run_effort_study_export(
     output_dir: Path | str | None = None,
     smoke: bool = False,
     seed: int = DEFAULT_SEED,
+    bank_dir: Path | str | None = None,
+    nasa_tlx_csv: Path | str | None = None,
 ) -> dict[str, Any]:
     """Ejecuta la exportación y análisis del estudio de esfuerzo a formato tabular.
 
     Lanza `ValueError` sin `db_url` (salvo con `smoke`), si la base no tiene sesiones del
-    estudio o si `smoke` escribiría en `results/`.
+    estudio, si falta el banco con la verdad (`bank_dir`, por defecto el del manifiesto), si el
+    CSV del NASA-TLX no es válido o si `smoke` escribiría en `results/`.
     """
     if smoke:
         # Los datos sintéticos nunca van a `results/`, donde pasarían por el estudio (#271).
@@ -451,22 +817,42 @@ def run_effort_study_export(
 
     synthetic = smoke
     unmeasured: list[str] = []
+    checks: dict[str, Any] = {}
+    sources: dict[str, Any] = {}
     if smoke:
         session_rows, measure_rows = generate_synthetic_study_dataset(seed=seed)
     else:
         assert db_url is not None
+        manifest = load_study_manifest()
+        assignments = study_assignments(manifest)
+        scores = _study_scores(assignments)
         engine = create_engine_for_url(db_url)
         create_schema(engine)
         factory = create_session_factory(engine)
         with factory() as db:
-            session_rows, measure_rows = extract_study_data_from_db(db)
-            unmeasured = finalized_sessions_without_effort(db)
+            if not _study_sessions(db, scores):
+                # Sin sesiones del estudio no se inventan: un resultado es una medición (#96, #271).
+                raise ValueError(
+                    "La base de datos no tiene sesiones del estudio finalizadas y medidas (las "
+                    "cuentas del registro público no cuentan): no hay nada que exportar."
+                )
+            bank = Path(bank_dir) if bank_dir is not None else REPO_ROOT / manifest["salida"]
+            truths = load_truths(manifest, bank)
+            tlx = load_nasa_tlx(Path(nasa_tlx_csv)) if nasa_tlx_csv is not None else None
+            session_rows, measure_rows = extract_study_data_from_db(
+                db, assignments=assignments, truths=truths, nasa_tlx=tlx
+            )
+            unmeasured = finalized_sessions_without_effort(db, scores)
         if not session_rows:
-            # Sin sesiones del estudio no se inventan: un resultado es una medición (#96, #271).
             raise ValueError(
                 "La base de datos no tiene sesiones del estudio finalizadas y medidas (las "
                 "cuentas del registro público no cuentan): no hay nada que exportar."
             )
+        checks = _matrix_checks(session_rows, assignments, tlx)
+        sources = {
+            "bank_dir": _display_path(bank),
+            "nasa_tlx_csv": _display_path(nasa_tlx_csv) if nasa_tlx_csv is not None else None,
+        }
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 1. Exportar esfuerzo a nivel de sesión CSV
@@ -489,14 +875,20 @@ def run_effort_study_export(
             for m in measure_rows:
                 m_writer.writerow(m.to_csv_dict())
 
-    # 3. Exportar resumen estadístico JSON
-    summary = compute_summary_statistics(session_rows)
+    # 3. Exportar resumen estadístico JSON. Con datos reales, las medias son solo de las sesiones
+    # de la matriz: las de otras cuentas (un piloto, una prueba) van en las filas y se nombran
+    # en `sessions_outside_matrix`, pero no se mezclan con el estudio.
+    summary = compute_summary_statistics(
+        session_rows if synthetic else [r for r in session_rows if r.block is not None]
+    )
     # Sin base de datos de un estudio real, las sesiones son sintéticas: sirven para
     # probar la exportación, no como resultado del estudio con participantes (#96).
     summary["data_source"] = "synthetic" if synthetic else "database"
     summary["simulated"] = synthetic
     # Finalizadas sin registro de esfuerzo: no se midieron y no están en las filas (ADR-0050).
     summary["finalized_sessions_without_effort"] = unmeasured
+    summary.update(checks)
+    summary.update(sources)
     if synthetic:
         summary["simulation_warning"] = SYNTHETIC_WARNING
     summary_json_path = out_dir / "effort_study_summary.json"
@@ -507,6 +899,7 @@ def run_effort_study_export(
     run_info = get_run_info("exp_10_effort_study", seed=seed)
     run_info["data_source"] = summary["data_source"]
     run_info["simulated"] = synthetic
+    run_info.update(sources)
     if synthetic:
         run_info["simulation_warning"] = SYNTHETIC_WARNING
     (out_dir / "exp_10_run_info.json").write_text(
@@ -524,6 +917,26 @@ def _is_results_dir(path: Path) -> bool:
         if target == resolved or resolved in target.parents:
             return True
     return False
+
+
+def add_study_arguments(parser: argparse.ArgumentParser) -> None:
+    """Las opciones del banco y del NASA-TLX, compartidas con `ml export-effort`."""
+    parser.add_argument(
+        "--bank-dir",
+        default=None,
+        help=(
+            "Carpeta del banco del estudio con la verdad de cada partitura (por defecto, "
+            "banco_estudio/; se regenera con scripts/build_study_bank.py)"
+        ),
+    )
+    parser.add_argument(
+        "--nasa-tlx",
+        default=None,
+        help=(
+            "CSV del NASA-TLX: participant_id, block, las seis subescalas de 0 a 100 y, si se "
+            "recogieron, weight_<subescala> (formato en el protocolo §3.3)"
+        ),
+    )
 
 
 def main() -> int:
@@ -554,6 +967,7 @@ def main() -> int:
         default=DEFAULT_SEED,
         help="Semilla determinista",
     )
+    add_study_arguments(parser)
     args = parser.parse_args()
 
     try:
@@ -562,6 +976,8 @@ def main() -> int:
             output_dir=args.output_dir,
             smoke=args.smoke,
             seed=args.seed,
+            bank_dir=args.bank_dir,
+            nasa_tlx_csv=args.nasa_tlx,
         )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
