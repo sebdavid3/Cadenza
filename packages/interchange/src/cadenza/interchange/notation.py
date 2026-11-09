@@ -47,6 +47,7 @@ from music21 import (
     articulations,
     chord,
     clef,
+    common,
     converter,
     defaults,
     dynamics,
@@ -1274,6 +1275,73 @@ def _write_metadata(root: Any, metadata: ScoreMetadata) -> None:
         ET.SubElement(midi_instrument, "midi-program").text = str(sound.program)
 
 
+def _beam_by_bars(container: Any, signature: Any) -> None:
+    """Agrupa con barras una voz que suma más que su compás, por tramos de un compás (#366).
+
+    Cada tramo empieza en una barra contada desde la parte 1 y se agrupa con la métrica del
+    compás: lo que sobra, como si empezara otro compás. Una figura que cruza el borde de un tramo
+    queda sin barra. Las notas de adorno no entran en los grupos, como en `makeBeams`.
+    """
+
+    bar = Fraction(signature.barDuration.quarterLength)
+    placed = [
+        (Fraction(container.elementOffset(figure)), figure)
+        for figure in container.notesAndRests
+        if not figure.duration.isGrace
+    ]
+    ends = [start + Fraction(figure.quarterLength) for start, figure in placed]
+    if len(placed) < 2 or max(ends) <= bar:
+        return
+    windows: dict[int, list[tuple[Fraction, Any]]] = {}
+    for (start, figure), end in zip(placed, ends, strict=True):
+        index = start // bar
+        if end <= (index + 1) * bar:
+            windows.setdefault(index, []).append((start, figure))
+    for index, members in windows.items():
+        if len(members) < 2:
+            continue
+        # Como en `makeBeams`, el tramo va seguido desde 0, con dónde empieza en la barra (tras
+        # una figura que la cruza, no en la parte 1) y lo que le falta para llenarla: sin
+        # `paddingRight`, la última figura de un tramo corto se queda con una barra colgando. Se
+        # agrupan gemelos con la misma duración, para no mover las figuras de su compás.
+        first = members[0][0] - index * bar
+        twins = stream.Measure()
+        for _, figure in members:
+            twin = note.Rest() if figure.isRest else note.Note()
+            twin.duration = copy.deepcopy(figure.duration)
+            twins.append(twin)
+        twins.paddingRight = common.opFrac(bar - first - Fraction(twins.highestTime))
+        found = signature.getBeams(twins, measureStartOffset=common.opFrac(first))
+        for (_, figure), beams in zip(members, found, strict=True):
+            if beams is not None:
+                figure.beams = beams
+    stream.makeNotation.setStemDirectionForBeamGroups(container)
+
+
+def _beam_overfull_voices(out: stream.Score) -> None:
+    """Las barras de agrupación de cada parte, también en las voces de un compás sobrellenado.
+
+    `makeBeams` de music21 se salta toda voz que suma más que su compás, y el exportador no
+    reparte sus notas entre compases (#152): sus corcheas y semicorcheas salían sueltas, cada una
+    con su corchete (#366). Aquí se agrupa cada parte como lo haría el exportador y después cada
+    voz sobrellenada por tramos de un compás (`_beam_by_bars`). Como la parte ya tiene barras, el
+    exportador no la vuelve a agrupar. Las notas y sus duraciones no cambian.
+    """
+
+    for part in out.parts:
+        try:
+            part.makeBeams(inPlace=True)
+        except stream.StreamException:
+            # Sin compases que agrupar: el exportador lo vuelve a intentar y lo avisa.
+            continue
+        for measure in part.getElementsByClass(stream.Measure):
+            signature = measure.timeSignature or measure.getContextByClass(meter.TimeSignature)
+            if signature is None:
+                continue
+            for container in list(measure.voices) if measure.hasVoices() else [measure]:
+                _beam_by_bars(container, signature)
+
+
 def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
     """Serializa un `ScoreIR` a MusicXML 4.0 tal como está (base para la exportación, D11).
 
@@ -1281,9 +1349,10 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     ocultos y, con `makeNotation`, reparte entre compases las notas que cruzan la barra de un
     compás sobrellenado: la partitura exportada dejaría de ser la transcrita justo donde el
     validador señala un posible error (#152). El exportador de partes sigue haciendo las
-    alteraciones visibles, los corchetes de los tresillos y las barras de agrupación (salvo en
-    los compases sobrellenados, que music21 no agrupa), y divide en notas ligadas dentro del
-    mismo compás las duraciones que MusicXML no puede escribir con una sola figura. Los
+    alteraciones visibles, los corchetes de los tresillos y las barras de agrupación, y divide
+    en notas ligadas dentro del mismo compás las duraciones que MusicXML no puede escribir con
+    una sola figura. Las voces que suman más que su compás, que music21 no agrupa, se agrupan
+    por tramos de un compás (#366). Los
     tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`. Una nota
     de duración cero o nula sale como nota de adorno (D60, #199).
 
@@ -1297,6 +1366,7 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     if not score.parts:
         raise InterchangeError("La partitura no tiene partes que exportar")
     out = score_ir_to_music21(score)
+    _beam_overfull_voices(out)
     exporter = musicxml.m21ToXml.ScoreExporter(out, makeNotation=True)
     with _keeping_spanner_numbers():
         root = exporter.parse()
