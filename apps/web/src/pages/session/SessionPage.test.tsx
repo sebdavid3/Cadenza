@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
@@ -2015,7 +2015,25 @@ describe("corregir la nota elegida", () => {
   const selection = () => document.querySelector<HTMLElement>(".notation__selection");
   const editor = () => screen.getByRole("region", { name: "Corregir la nota elegida" });
   const editStatus = () => document.querySelector(".editor__status");
-  const button = (name: string) => within(editor()).getByRole("button", { name });
+  /**
+   * Busca en la barra de corrección y, si no está en la pestaña que se ve, abre las demás (#341):
+   * estas pruebas miran qué hace cada control, no en qué pestaña está.
+   */
+  function inTabs<T extends HTMLElement>(find: (bar: HTMLElement) => T | null, what: string): T {
+    const first = find(editor());
+    if (first) return first;
+    for (const tab of within(editor()).queryAllByRole("tab")) {
+      if (tab.getAttribute("aria-selected") === "true") continue;
+      fireEvent.click(tab);
+      const found = find(editor());
+      if (found) return found;
+    }
+    throw new Error(`No está en ninguna pestaña de la barra de corrección: ${what}`);
+  }
+  const button = (name: string) =>
+    inTabs((bar) => within(bar).queryByRole("button", { name }), name);
+  const combobox = (name: string | RegExp) =>
+    inTabs((bar) => within(bar).queryByRole("combobox", { name }), String(name));
   /** Centro de la cabeza de la primera figura de un compás (1, 2 o 3), con el zoom de jsdom. */
   const head = (measure: number) => ({
     clientX: (15 + (measure - 1) * 20) * 7.5,
@@ -3183,7 +3201,7 @@ describe("corregir la nota elegida", () => {
     const server = editableApi();
     renderPage();
     await chooseMeasure(2);
-    const picker = within(editor()).getByRole("combobox", { name: "Dinámica" });
+    const picker = combobox("Dinámica");
 
     expect(picker).toHaveValue("");
     expect(button("Poner dinámica")).toHaveAttribute("aria-disabled", "true");
@@ -4386,7 +4404,7 @@ describe("corregir la nota elegida", () => {
       const server = editableApi();
       renderPage();
       await chooseMeasure(2);
-      const picker = within(editor()).getByRole("combobox", { name: "Armadura · compases 2 a 3" });
+      const picker = combobox("Armadura · compases 2 a 3");
       expect(picker).toHaveValue("0");
       expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "true");
       fireEvent.click(button("Cambiar armadura"));
@@ -4407,9 +4425,7 @@ describe("corregir la nota elegida", () => {
         anchor: anchorOf(2),
         after: { fifths: 2 },
       });
-      expect(
-        within(editor()).getByRole("combobox", { name: "Armadura · compases 2 a 3" }),
-      ).toHaveValue("2");
+      expect(combobox("Armadura · compases 2 a 3")).toHaveValue("2");
       expect(button("Cambiar armadura")).toHaveAttribute("aria-disabled", "true");
       // El botón no se monta de nuevo al cambiar la armadura: el foco sigue en él.
       expect(document.activeElement).toBe(button("Cambiar armadura"));
@@ -4419,7 +4435,7 @@ describe("corregir la nota elegida", () => {
       const server = editableApi();
       renderPage();
       const region = await chooseMeasure(2);
-      const picker = () => within(editor()).getByRole("combobox", { name: /^Armadura · comp/ });
+      const picker = () => combobox(/^Armadura · comp/);
       fireEvent.change(picker(), { target: { value: "3" } });
       expect(picker()).toHaveValue("3");
 
@@ -7433,6 +7449,11 @@ describe("corregir la nota elegida", () => {
         anchor: anchorOf(2),
         after: { durations: ["1/3", "1/3", "1/3"] },
       });
+      // «Olvidar el inicio» está en «Marcas» (#341): se mira allí, con la pestaña a la vista.
+      fireEvent.click(within(editor()).getByRole("tab", { name: "Marcas" }));
+      expect(
+        within(editor()).getByRole("button", { name: "Inicio de la ligadura o el regulador" }),
+      ).toBeVisible();
       expect(within(editor()).queryByRole("button", { name: "Olvidar el inicio" })).toBeNull();
     });
 
@@ -7457,8 +7478,7 @@ describe("corregir la nota elegida", () => {
       const server = editableApi();
       renderPage();
       await chooseMeasure(2);
-      const picker = () =>
-        within(editor()).getByRole("combobox", { name: "Compás · compases 2 a 3" });
+      const picker = () => combobox("Compás · compases 2 a 3");
       expect(picker()).toHaveValue("3/4");
       expect(button("Cambiar compás")).toHaveAttribute("aria-disabled", "true");
 
@@ -7502,7 +7522,7 @@ describe("corregir la nota elegida", () => {
         );
         return jsonResponse({ detail: "Conflicto de secuencia" }, 409);
       });
-      fireEvent.change(within(editor()).getByRole("combobox", { name: /^Compás · / }), {
+      fireEvent.change(combobox(/^Compás · /), {
         target: { value: "4/4:common" },
       });
       fireEvent.click(button("Cambiar compás"));
@@ -7522,6 +7542,182 @@ describe("corregir la nota elegida", () => {
         anchor: anchorOf(2),
         after: { time_signature: { beats: 4, beat_type: 4, symbol: "common" } },
       });
+    });
+  });
+
+  describe("la mesa de corrección (#341)", () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    const separator = () => screen.getByRole("separator", { name: "Ancho de la imagen" });
+    const tabs = () =>
+      within(editor()).getByRole("tablist", { name: "Herramientas de corrección" });
+    const tab = (name: string) => within(tabs()).getByRole("tab", { name });
+
+    it("pone la imagen original, el divisor y la partitura uno tras otro", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      const scan = screen.getByRole("region", { name: "Imagen original" });
+      const score = screen.getByRole("region", { name: "Transcripción" });
+      expect(within(scan).getByAltText("Imagen original de la partitura")).toBeInTheDocument();
+      expect(separator()).toHaveAttribute("aria-controls", scan.id);
+      expect(scan.compareDocumentPosition(separator()) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      expect(separator().compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      // Las descargas son de la sesión: van en la cabecera, con finalizar.
+      const head = document.querySelector(".session__head");
+      if (!(head instanceof HTMLElement)) throw new Error("Falta la cabecera de la sesión");
+      expect(within(head).getByRole("button", { name: "Descargar MusicXML" })).toBeInTheDocument();
+    });
+
+    it("recuerda en el navegador el ancho que se le da a la imagen", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      fireEvent.keyDown(separator(), { key: "End" });
+      expect(separator()).toHaveAttribute("aria-valuenow", "70");
+      expect(localStorage.getItem("cadenza.mesa.imagen")).toBe("0.7");
+      cleanup();
+
+      editableApi();
+      renderPage();
+      await findScore();
+      expect(separator()).toHaveAttribute("aria-valuenow", "70");
+    });
+
+    it("el panel lateral se pliega a un raíl con el número de posibles errores y lo recuerda", async () => {
+      editableApi(detail(), { findings: [finding(1, 2), finding(2, 3)] });
+      renderPage();
+      await screen.findByRole("button", { name: /^Descartar como falso positivo · .*compás 2/ });
+
+      fireEvent.click(screen.getByRole("button", { name: "Plegar el panel" }));
+
+      const rail = screen.getByRole("button", {
+        name: "Desplegar el panel: Posibles errores · 2",
+      });
+      expect(rail).toHaveAttribute("aria-expanded", "false");
+      expect(
+        screen.queryByRole("button", { name: /^Descartar como falso positivo/ }),
+      ).not.toBeInTheDocument();
+      expect(localStorage.getItem("cadenza.mesa.panel")).toBe("plegado");
+      cleanup();
+
+      editableApi(detail(), { findings: [finding(1, 2), finding(2, 3)] });
+      renderPage();
+      expect(
+        await screen.findByRole("button", { name: "Desplegar el panel: Posibles errores · 2" }),
+      ).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(screen.getByRole("button", { name: /^Desplegar el panel/ }));
+      expect(
+        await screen.findByRole("button", { name: /^Descartar como falso positivo · .*compás 2/ }),
+      ).toBeVisible();
+    });
+
+    it("en la condición no asistida, el raíl no dice nada del validador", async () => {
+      editableApi(detail({ condition: "unassisted" }));
+      renderPage();
+      await findScore();
+
+      fireEvent.click(screen.getByRole("button", { name: "Plegar el panel" }));
+
+      expect(screen.getByRole("button", { name: "Desplegar el panel: Historial" })).toBeVisible();
+      expect(screen.queryByText(/Posibles errores/)).not.toBeInTheDocument();
+    });
+
+    it("la barra de corrección va en pestañas: Nota, Compás y Marcas", async () => {
+      editableApi();
+      renderPage();
+      await chooseMeasure(2);
+
+      expect(
+        within(tabs())
+          .getAllByRole("tab")
+          .map((element) => element.textContent),
+      ).toEqual(["Nota", "Compás", "Marcas"]);
+      expect(tab("Nota")).toHaveAttribute("aria-selected", "true");
+      const panel = within(editor()).getByRole("tabpanel");
+      expect(panel).toHaveAttribute("aria-labelledby", tab("Nota").id);
+      expect(within(panel).getByRole("group", { name: "Altura" })).toBeVisible();
+      expect(within(editor()).queryByRole("button", { name: "Clave de fa" })).toBeNull();
+      // Deshacer y rehacer, siempre a la vista.
+      expect(within(editor()).getByRole("button", { name: "Deshacer" })).toBeVisible();
+
+      fireEvent.click(tab("Compás"));
+      expect(tab("Compás")).toHaveAttribute("aria-selected", "true");
+      expect(within(editor()).getByRole("button", { name: "Clave de fa" })).toBeVisible();
+      expect(within(editor()).queryByRole("group", { name: "Altura" })).toBeNull();
+      expect(within(editor()).getByRole("button", { name: "Deshacer" })).toBeVisible();
+
+      // Con el teclado, el patrón de pestañas: flechas, Inicio y Fin.
+      tab("Compás").focus();
+      fireEvent.keyDown(tab("Compás"), { key: "ArrowRight" });
+      expect(tab("Marcas")).toHaveAttribute("aria-selected", "true");
+      expect(document.activeElement).toBe(tab("Marcas"));
+      expect(within(editor()).getByRole("button", { name: "Calderón" })).toBeVisible();
+      fireEvent.keyDown(tab("Marcas"), { key: "ArrowRight" });
+      expect(tab("Nota")).toHaveAttribute("aria-selected", "true");
+      fireEvent.keyDown(tab("Nota"), { key: "End" });
+      expect(tab("Marcas")).toHaveAttribute("aria-selected", "true");
+      fireEvent.keyDown(tab("Marcas"), { key: "Home" });
+      expect(tab("Nota")).toHaveAttribute("aria-selected", "true");
+      expect(tab("Nota")).toHaveAttribute("tabindex", "0");
+      expect(tab("Marcas")).toHaveAttribute("tabindex", "-1");
+    });
+
+    it("los atajos de teclado valen sea cual sea la pestaña", async () => {
+      editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+      expect(tab("Nota")).toHaveAttribute("aria-selected", "true");
+
+      // El calderón está en «Marcas», y su tecla vale desde «Nota».
+      fireEvent.keyDown(region, { key: "c" });
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: calderón en Do 4.");
+      });
+      expect(tab("Nota")).toHaveAttribute("aria-selected", "true");
+    });
+
+    it("«Atajos» muestra y oculta las leyendas, que siguen describiendo la partitura", async () => {
+      editableApi();
+      renderPage();
+      const region = await findScore();
+      const toggle = within(editor()).getByRole("button", { name: "Atajos" });
+      const editorKeys = document.querySelector<HTMLElement>(".editor__keys");
+      const selectionKeys = document.querySelector<HTMLElement>(".selection__keys");
+
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      // Controla las dos leyendas: la de la corrección y la de la selección.
+      expect(toggle.getAttribute("aria-controls")?.split(" ")).toEqual([
+        editorKeys?.id,
+        selectionKeys?.id,
+      ]);
+      expect(editorKeys).not.toBeVisible();
+      expect(selectionKeys).not.toBeVisible();
+      expect(region.getAttribute("aria-describedby")?.split(" ")).toContain(editorKeys?.id);
+
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      expect(editorKeys).toBeVisible();
+      expect(selectionKeys).toBeVisible();
+    });
+
+    it("sin barra de corrección, la leyenda de la selección se ve sin «Atajos»", async () => {
+      editableApi(detail({ status: "finalized" }));
+      renderPage();
+      await findScore();
+
+      expect(screen.queryByRole("button", { name: "Atajos" })).toBeNull();
+      expect(document.querySelector(".selection__keys")).toBeVisible();
     });
   });
 });
