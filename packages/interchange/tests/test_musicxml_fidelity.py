@@ -12,6 +12,8 @@ from fractions import Fraction
 import pytest
 from cadenza.domain import (
     Clef,
+    Dynamic,
+    DynamicMark,
     Event,
     EventKind,
     KeySignature,
@@ -296,6 +298,40 @@ def test_short_voice_beside_an_overfull_voice_is_beamed_from_the_downbeat() -> N
     xml_text = score_ir_to_musicxml(_score(_first(1, *upper, *lower, signature=TWO_FOUR)))
 
     assert _beams(_xml_measures(xml_text)[0])[6:] == ["begin", "end", None]
+
+
+def test_note_left_alone_in_an_overfull_measure_keeps_no_stem_of_an_old_group() -> None:
+    # La voz de silencios sobrellena el compás. `makeBeams` unía las dos últimas corcheas y les
+    # fijaba la plica; agrupadas desde la parte 1, la última queda sola y la plica la decide
+    # quien dibuja, como en cualquier nota suelta.
+    events = (
+        _note("C4", "1/2"),
+        _note("A5", "1/2"),
+        _note("C4", "1/2"),
+        _rest("3", voice=1),
+    )
+
+    measure = _xml_measures(score_ir_to_musicxml(_score(_first(1, *events, signature=TWO_FOUR))))[0]
+
+    notes = measure.findall("note")
+    assert _beams(measure)[:3] == ["begin", "end", None]
+    assert notes[2].find("stem") is None
+
+
+def test_dynamic_past_the_end_does_not_make_a_pickup_overfull() -> None:
+    # Solo las figuras llenan el compás: una dinámica más allá de la barra no lo sobrellena.
+    pickup = Measure(
+        number=1,
+        events=(_note("G4", "1/2"), _note("A4", "1/2"), _note("B4", "1/2")),
+        time_signature=TimeSignature(beats=4, beat_type=4),
+        clef=Clef(sign="G", line=2),
+        key_signature=KeySignature(fifths=0),
+        dynamics=(Dynamic(mark=DynamicMark("p"), offset_beats=Fraction(5)),),
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(_score(pickup)))
+
+    assert _beams(measures[0]) == [None, "begin", "end"]
 
 
 def test_figures_split_by_the_exporter_are_beamed_as_before() -> None:
