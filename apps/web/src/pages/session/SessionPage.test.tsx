@@ -7449,6 +7449,11 @@ describe("corregir la nota elegida", () => {
         anchor: anchorOf(2),
         after: { durations: ["1/3", "1/3", "1/3"] },
       });
+      // «Olvidar el inicio» está en «Marcas» (#341): se mira allí, con la pestaña a la vista.
+      fireEvent.click(within(editor()).getByRole("tab", { name: "Marcas" }));
+      expect(
+        within(editor()).getByRole("button", { name: "Inicio de la ligadura o el regulador" }),
+      ).toBeVisible();
       expect(within(editor()).queryByRole("button", { name: "Olvidar el inicio" })).toBeNull();
     });
 
@@ -7690,7 +7695,11 @@ describe("corregir la nota elegida", () => {
       const selectionKeys = document.querySelector<HTMLElement>(".selection__keys");
 
       expect(toggle).toHaveAttribute("aria-expanded", "false");
-      expect(toggle).toHaveAttribute("aria-controls", editorKeys?.id);
+      // Controla las dos leyendas: la de la corrección y la de la selección.
+      expect(toggle.getAttribute("aria-controls")?.split(" ")).toEqual([
+        editorKeys?.id,
+        selectionKeys?.id,
+      ]);
       expect(editorKeys).not.toBeVisible();
       expect(selectionKeys).not.toBeVisible();
       expect(region.getAttribute("aria-describedby")?.split(" ")).toContain(editorKeys?.id);

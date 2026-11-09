@@ -293,6 +293,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
   // La mesa de corrección (#341): lo que el navegador recuerda de ella, la pestaña de la barra y si
   // se ven las leyendas de teclas.
   const scanId = useId();
+  const scoreId = useId();
   const asideId = useId();
   const [share, setShare] = useState(() =>
     clampShare(Number(readStored("imagen") ?? SHARE_DEFAULT)),
@@ -338,21 +339,26 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const edits = detail.data?.edits.length ?? 0;
 
   // Solo de lectura, la cabecera dice por qué; corrigiendo, lo dicen la selección y la barra.
-  const lead = `${
-    foreign
-      ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
-      : finalized
-        ? owned
-          ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
-          : "Sesión finalizada: solo lectura."
-        : "Solo lectura."
-  } Compara la imagen original con la transcripción de HOMR${
-    assisted ? "; los compases tramados en violeta son posibles errores que conviene revisar." : "."
-  }`;
+  const lead = editable
+    ? `Corrige lo que no coincida con la imagen: elige una nota en la partitura y usa la barra de corrección.${
+        assisted ? " Los compases en violeta son posibles errores que conviene revisar." : ""
+      }`
+    : `${
+        foreign
+          ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
+          : finalized
+            ? owned
+              ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
+              : "Sesión finalizada: solo lectura."
+            : "Solo lectura."
+      } Compara la imagen original con la transcripción de HOMR${
+        assisted
+          ? "; los compases tramados en violeta son posibles errores que conviene revisar."
+          : "."
+      }`;
   // El panel lateral plegado se queda en un raíl con su nombre; en la condición no asistida no
   // dice nada del validador (ADR-0040 §13.2).
-  const findingsTotal =
-    marks.reduce((count, mark) => count + mark.findings.length, 0) + unplaced.length;
+  const findingsTotal = active.length;
   const railLabel = assisted
     ? findings.isSuccess
       ? `Posibles errores · ${String(findingsTotal)}`
@@ -409,6 +415,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               )}
             </dl>
           )}
+          <p className="session__lead">{lead}</p>
         </div>
         <div className="session__actions">
           {owned && detail.data && metadata && (
@@ -462,7 +469,6 @@ function SessionView({ sessionId }: { sessionId: string }) {
             />
           )}
         </div>
-        {!editable && <p className="session__lead">{lead}</p>}
       </header>
 
       <div className="session__body" data-aside={asideOpen ? "open" : "closed"}>
@@ -477,6 +483,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
             } as CSSProperties
           }
         >
+          <a className="session__skip" href={`#${scoreId}`}>
+            Ir a la partitura
+          </a>
           <ScanFigure
             id={scanId}
             blob={image.data ?? null}
@@ -490,7 +499,12 @@ function SessionView({ sessionId }: { sessionId: string }) {
             }}
             controls={scanId}
           />
-          <section className="sheet sheet--notation" aria-label="Transcripción">
+          <section
+            className="sheet sheet--notation"
+            id={scoreId}
+            tabIndex={-1}
+            aria-label="Transcripción"
+          >
             {snapshot ? (
               <ScoreView
                 snapshot={snapshot}
@@ -506,7 +520,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 keysHidden={editable && !keysShown}
                 editor={
                   showEditor
-                    ? (target, { available, focusScore }) => (
+                    ? (target, { available, focusScore, selectionKeysId }) => (
                         <EditBar
                           editor={editor}
                           editable={editable}
@@ -523,6 +537,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           onTab={setTab}
                           keysShown={keysShown}
                           onToggleKeys={toggleKeys}
+                          selectionKeysId={selectionKeysId}
                           suggestions={{
                             items: noteSuggestions(target),
                             labelOf,

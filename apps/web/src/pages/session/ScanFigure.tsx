@@ -245,6 +245,18 @@ export function ScanFigure({ blob, status, id }: ScanFigureProps) {
         <h2 className="label sheet__caption" id={captionId}>
           Imagen original
         </h2>
+        <button
+          type="button"
+          className="scan__toggle"
+          aria-expanded={!collapsed}
+          aria-controls={frameId}
+          aria-label={collapsed ? "Ver la imagen" : "Ocultar la imagen"}
+          onClick={() => {
+            setCollapsed((value) => !value);
+          }}
+        >
+          {collapsed ? "Ver" : "Ocultar"}
+        </button>
         <div className="scan__tools" role="group" aria-label="Zoom de la imagen">
           <ScanTool
             label="Alejar"
@@ -288,18 +300,6 @@ export function ScanFigure({ blob, status, id }: ScanFigureProps) {
             <span className="scan__tool-word">Página</span>
           </ScanTool>
         </div>
-        <button
-          type="button"
-          className="scan__toggle"
-          aria-expanded={!collapsed}
-          aria-controls={frameId}
-          aria-label={collapsed ? "Ver la imagen" : "Ocultar la imagen"}
-          onClick={() => {
-            setCollapsed((value) => !value);
-          }}
-        >
-          {collapsed ? "Ver" : "Ocultar"}
-        </button>
       </div>
       {body}
     </section>

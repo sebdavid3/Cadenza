@@ -77,7 +77,12 @@ interface ScoreViewProps {
    */
   editor?: (
     target: EditTarget | null,
-    context: { available: boolean; focusScore: () => boolean },
+    context: {
+      available: boolean;
+      focusScore: () => boolean;
+      /** Id de la leyenda de la selección, si se muestra (#341). */
+      selectionKeysId?: string;
+    },
   ) => ReactNode;
   /** Órdenes de corrección con el teclado sobre la partitura; sin ella, las teclas no editan. */
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
@@ -173,7 +178,13 @@ function scrollViewOf(element: Element): { top: number; bottom: number } {
       return { top: Math.max(0, rect.top), bottom: Math.min(window.innerHeight, rect.bottom) };
     }
   }
-  return { top: 0, bottom: window.innerHeight };
+  // En una columna, la imagen original va fija arriba (#341): lo que queda debajo de ella no se ve.
+  const pinned = document.querySelector(".sheet--scan");
+  const top =
+    pinned && window.getComputedStyle(pinned).position === "sticky"
+      ? Math.max(0, pinned.getBoundingClientRect().bottom)
+      : 0;
+  return { top, bottom: window.innerHeight };
 }
 
 /**
@@ -597,7 +608,14 @@ export function ScoreView({
           }}
         />
       )}
-      {editor?.(target, { available: selectable !== null, focusScore })}
+      {editor?.(target, {
+        available: selectable !== null,
+        focusScore,
+        selectionKeysId:
+          status !== "failed" && notesSelectable && selectionStatus.kind === "ready"
+            ? keysId
+            : undefined,
+      })}
       <div className="notation" data-state={status}>
         <div className="notation__stage" id={stageId} ref={stageRef} {...stageProps}>
           {aligned && (

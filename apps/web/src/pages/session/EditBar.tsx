@@ -87,6 +87,8 @@ interface EditBarProps {
   /** Pestaña de herramientas que se ve (#341); sin ella, la barra recuerda la suya. */
   tab?: ToolTab;
   onTab?: (tab: ToolTab) => void;
+  /** Id de la leyenda de la selección, que «Atajos» también muestra y oculta. */
+  selectionKeysId?: string;
   /** Si se ven las leyendas de teclas (#341); sin `onToggleKeys`, siempre se ven. */
   keysShown?: boolean;
   onToggleKeys?: () => void;
@@ -709,37 +711,40 @@ function HistoryControls({ editor, multiStaff, score }: HistoryControlsProps) {
     },
   ] as const;
   return (
-    <div className="editor__group editor__group--history" role="group" aria-labelledby={labelId}>
-      <p className="label editor__label" id={labelId}>
-        Deshacer y rehacer
-      </p>
-      <div className="editor__buttons">
-        {buttons.map(({ label, icon, edit, none, keys, onRun }) => {
-          const disabled = blocked || !edit;
-          return (
-            <button
-              key={label}
-              type="button"
-              className="editor__button"
-              aria-label={label}
-              title={edit ? `${label}: ${what(edit)}` : none}
-              aria-describedby={noteId}
-              aria-keyshortcuts={keys}
-              aria-disabled={disabled}
-              onClick={() => {
-                if (!disabled) onRun();
-              }}
-            >
-              <PixelIcon name={icon} />
-              <span className="editor__text">{label}</span>
-            </button>
-          );
-        })}
+    <>
+      <div className="editor__group editor__group--history" role="group" aria-labelledby={labelId}>
+        <p className="label editor__label" id={labelId}>
+          Deshacer y rehacer
+        </p>
+        <div className="editor__buttons">
+          {buttons.map(({ label, icon, edit, none, keys, onRun }) => {
+            const disabled = blocked || !edit;
+            return (
+              <button
+                key={label}
+                type="button"
+                className="editor__button"
+                aria-label={label}
+                title={edit ? `${label}: ${what(edit)}` : none}
+                aria-describedby={noteId}
+                aria-keyshortcuts={keys}
+                aria-disabled={disabled}
+                onClick={() => {
+                  if (!disabled) onRun();
+                }}
+              >
+                <PixelIcon name={icon} />
+                <span className="editor__text">{label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {/* Qué desharía y qué reharía, a la vista bajo la fila de la barra (ADR-0034 §4). */}
       <p className="editor__history" id={noteId}>
         {note}
       </p>
-    </div>
+    </>
   );
 }
 
@@ -768,6 +773,7 @@ export function EditBar({
   onTab,
   keysShown,
   onToggleKeys,
+  selectionKeysId,
 }: EditBarProps) {
   const suggestionsId = useId();
   const groupId = useId();
@@ -918,7 +924,7 @@ export function EditBar({
                   id={`${groupId}-tab-${id}`}
                   className="editor__tab"
                   aria-selected={activeTab === id}
-                  aria-controls={`${groupId}-panel`}
+                  aria-controls={`${groupId}-panel-${id}`}
                   tabIndex={activeTab === id ? 0 : -1}
                   onClick={() => {
                     chooseTab(id);
@@ -934,7 +940,7 @@ export function EditBar({
               type="button"
               className="editor__keys-toggle"
               aria-expanded={showKeys}
-              aria-controls={keysId}
+              aria-controls={[keysId, selectionKeysId].filter(Boolean).join(" ")}
               onClick={onToggleKeys}
             >
               Atajos
@@ -942,216 +948,224 @@ export function EditBar({
           )}
         </div>
       )}
+      {/* Las tres pestañas siguen montadas (ocultas las que no se ven): lo propuesto en un
+          desplegable sin aplicar no se pierde al cambiar de pestaña (#341). */}
       {editable && (
-        <div
-          className="editor__groups"
-          role="tabpanel"
-          data-tab={activeTab}
-          id={`${groupId}-panel`}
-          aria-labelledby={`${groupId}-tab-${activeTab}`}
-        >
-          {activeTab === "note" && (
-            <>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>
-                <p className="label editor__label" id={`${groupId}-pitch`}>
-                  Altura
-                </p>
-                <div className="editor__buttons">
-                  {PITCH.map((button) => (
-                    <CommandButton key={button.label} {...button} {...shared} />
-                  ))}
-                </div>
+        <>
+          <div
+            className="editor__groups"
+            role="tabpanel"
+            id={`${groupId}-panel-note`}
+            aria-labelledby={`${groupId}-tab-note`}
+            hidden={activeTab !== "note"}
+          >
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>
+              <p className="label editor__label" id={`${groupId}-pitch`}>
+                Altura
+              </p>
+              <div className="editor__buttons">
+                {PITCH.map((button) => (
+                  <CommandButton key={button.label} {...button} {...shared} />
+                ))}
               </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-accidental`}>
-                <p className="label editor__label" id={`${groupId}-accidental`}>
-                  Alteración
-                </p>
-                <div className="editor__buttons">
-                  {ACCIDENTAL_BUTTONS.map((button) => (
-                    <CommandButton
-                      key={button.label}
-                      command={{ kind: "accidental", accidental: button.accidental }}
-                      label={button.label}
-                      icon={button.icon}
-                      pressed={accidental === button.accidental}
-                      {...shared}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-figure`}>
-                <p className="label editor__label" id={`${groupId}-figure`}>
-                  Figura
-                </p>
-                <div className="editor__buttons">
-                  {FIGURES.map((figure, index) => (
-                    <CommandButton
-                      key={figure.name}
-                      command={{ kind: "figure", figure: index }}
-                      label={figure.name}
-                      icon={FIGURE_ICONS[index] ?? "figure-quarter"}
-                      pressed={current.figure === index}
-                      {...shared}
-                    />
-                  ))}
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-accidental`}>
+              <p className="label editor__label" id={`${groupId}-accidental`}>
+                Alteración
+              </p>
+              <div className="editor__buttons">
+                {ACCIDENTAL_BUTTONS.map((button) => (
                   <CommandButton
-                    command={{ kind: "dot" }}
-                    label="Puntillo"
-                    icon="figure-dot"
-                    pressed={current.dotted}
+                    key={button.label}
+                    command={{ kind: "accidental", accidental: button.accidental }}
+                    label={button.label}
+                    icon={button.icon}
+                    pressed={accidental === button.accidental}
                     {...shared}
                   />
-                </div>
+                ))}
               </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
-                <p className="label editor__label" id={`${groupId}-structure`}>
-                  {gap ? "Hueco" : "Insertar antes o borrar"}
-                </p>
-                <div className="editor__buttons">
-                  {/* Los mismos tres botones en un hueco: la misma clave, para que el foco siga
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-figure`}>
+              <p className="label editor__label" id={`${groupId}-figure`}>
+                Figura
+              </p>
+              <div className="editor__buttons">
+                {FIGURES.map((figure, index) => (
+                  <CommandButton
+                    key={figure.name}
+                    command={{ kind: "figure", figure: index }}
+                    label={figure.name}
+                    icon={FIGURE_ICONS[index] ?? "figure-quarter"}
+                    pressed={current.figure === index}
+                    {...shared}
+                  />
+                ))}
+                <CommandButton
+                  command={{ kind: "dot" }}
+                  label="Puntillo"
+                  icon="figure-dot"
+                  pressed={current.dotted}
+                  {...shared}
+                />
+              </div>
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
+              <p className="label editor__label" id={`${groupId}-structure`}>
+                {gap ? "Hueco" : "Insertar antes o borrar"}
+              </p>
+              <div className="editor__buttons">
+                {/* Los mismos tres botones en un hueco: la misma clave, para que el foco siga
                       en el que se pulsó cuando el hueco pasa a ser una nota (ADR-0058). */}
-                  {(gap ? GAP_STRUCTURE : STRUCTURE).map((button, index) => (
-                    <CommandButton key={index} {...button} {...shared} />
-                  ))}
-                </div>
+                {(gap ? GAP_STRUCTURE : STRUCTURE).map((button, index) => (
+                  <CommandButton key={index} {...button} {...shared} />
+                ))}
               </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-chord`}>
-                <p className="label editor__label" id={`${groupId}-chord`}>
-                  Acorde y prolongación
-                </p>
-                <div className="editor__buttons">
-                  <CommandButton
-                    command={{ kind: "chord-add" }}
-                    label="Añadir una nota al acorde"
-                    icon="plus"
-                    text="Acorde"
-                    {...shared}
-                  />
-                  <CommandButton
-                    command={{ kind: "tie" }}
-                    label="Ligar con la siguiente"
-                    icon="mark-tie"
-                    text="Ligar"
-                    pressed={tieLeaves(tie)}
-                    {...shared}
-                  />
-                </div>
-                {tieArrives(tie) && (
-                  <ul className="editor__spans" aria-labelledby={`${groupId}-chord`}>
-                    <li>
-                      <CommandButton
-                        command={{ kind: "untie-in" }}
-                        label="Quitar la ligadura que llega"
-                        icon="cross"
-                        text="Quitar la ligadura que llega"
-                        {...shared}
-                      />
-                    </li>
-                  </ul>
-                )}
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-chord`}>
+              <p className="label editor__label" id={`${groupId}-chord`}>
+                Acorde y prolongación
+              </p>
+              <div className="editor__buttons">
+                <CommandButton
+                  command={{ kind: "chord-add" }}
+                  label="Añadir una nota al acorde"
+                  icon="plus"
+                  text="Acorde"
+                  {...shared}
+                />
+                <CommandButton
+                  command={{ kind: "tie" }}
+                  label="Ligar con la siguiente"
+                  icon="mark-tie"
+                  text="Ligar"
+                  pressed={tieLeaves(tie)}
+                  {...shared}
+                />
               </div>
-            </>
-          )}
-          {activeTab === "measure" && (
-            <>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-tuplet`}>
-                <p className="label editor__label" id={`${groupId}-tuplet`}>
-                  Tresillo
-                </p>
-                <div className="editor__buttons">
-                  {TUPLETS.map(({ scope, label, text }) => (
+              {tieArrives(tie) && (
+                <ul className="editor__spans" aria-labelledby={`${groupId}-chord`}>
+                  <li>
                     <CommandButton
-                      key={scope}
-                      command={{ kind: "tuplet", scope }}
-                      label={label}
-                      text={text}
-                      pressed={tupletPressed(scope, target, score, editor.origin)}
-                      origin={editor.origin}
+                      command={{ kind: "untie-in" }}
+                      label="Quitar la ligadura que llega"
+                      icon="cross"
+                      text="Quitar la ligadura que llega"
                       {...shared}
                     />
-                  ))}
-                </div>
-              </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
-                <p className="label editor__label" id={`${groupId}-clef`}>
-                  {`Clave${range("clef")}`}
-                </p>
-                <div className="editor__buttons">
-                  {CLEFS.map((clef, index) => {
-                    const command: PlannedCommand = { kind: "clef", clef: index };
-                    const plan = planCommand(command, target, score);
-                    return (
-                      <CommandButton
-                        key={clef.name}
-                        command={command}
-                        label={clef.name}
-                        text={clef.word}
-                        pressed={plan.kind === "refused" && plan.reason === "same"}
-                        {...shared}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-key`}>
-                <p className="label editor__label" id={`${groupId}-key`}>
-                  {`Armadura${range("key_signature")}`}
-                </p>
-                <KeyPicker labelId={`${groupId}-key`} {...shared} />
-              </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-time`}>
-                <p className="label editor__label" id={`${groupId}-time`}>
-                  {`Compás${meterRange ? ` · ${rangeName(meterRange)}` : ""}`}
-                </p>
-                <TimePicker labelId={`${groupId}-time`} {...shared} />
-              </div>
-            </>
-          )}
-          {activeTab === "marks" && (
-            <>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-marks`}>
-                <p className="label editor__label" id={`${groupId}-marks`}>
-                  Articulaciones y calderón
-                </p>
-                <div className="editor__buttons">
-                  {ARTICULATIONS.map((articulation) => (
-                    <CommandButton
-                      key={articulation.value}
-                      command={{ kind: "articulation", articulation: articulation.value }}
-                      label={articulation.name}
-                      icon={ARTICULATION_ICONS[articulation.value] ?? "mark-staccato"}
-                      pressed={marks?.articulations.includes(articulation.value) ?? false}
-                      {...shared}
-                    />
-                  ))}
+                  </li>
+                </ul>
+              )}
+            </div>
+          </div>
+          <div
+            className="editor__groups"
+            role="tabpanel"
+            id={`${groupId}-panel-measure`}
+            aria-labelledby={`${groupId}-tab-measure`}
+            hidden={activeTab !== "measure"}
+          >
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-tuplet`}>
+              <p className="label editor__label" id={`${groupId}-tuplet`}>
+                Tresillo
+              </p>
+              <div className="editor__buttons">
+                {TUPLETS.map(({ scope, label, text }) => (
                   <CommandButton
-                    command={{ kind: "fermata" }}
-                    label="Calderón"
-                    icon="mark-fermata"
-                    pressed={marks?.fermata ?? false}
+                    key={scope}
+                    command={{ kind: "tuplet", scope }}
+                    label={label}
+                    text={text}
+                    pressed={tupletPressed(scope, target, score, editor.origin)}
+                    origin={editor.origin}
                     {...shared}
                   />
-                </div>
+                ))}
               </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-dynamic`}>
-                <p className="label editor__label" id={`${groupId}-dynamic`}>
-                  Dinámica
-                </p>
-                <DynamicPicker labelId={`${groupId}-dynamic`} {...shared} />
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
+              <p className="label editor__label" id={`${groupId}-clef`}>
+                {`Clave${range("clef")}`}
+              </p>
+              <div className="editor__buttons">
+                {CLEFS.map((clef, index) => {
+                  const command: PlannedCommand = { kind: "clef", clef: index };
+                  const plan = planCommand(command, target, score);
+                  return (
+                    <CommandButton
+                      key={clef.name}
+                      command={command}
+                      label={clef.name}
+                      text={clef.word}
+                      pressed={plan.kind === "refused" && plan.reason === "same"}
+                      {...shared}
+                    />
+                  );
+                })}
               </div>
-              <div
-                className="editor__group editor__group--spans"
-                role="group"
-                aria-labelledby={`${groupId}-spans`}
-              >
-                <p className="label editor__label" id={`${groupId}-spans`}>
-                  Ligadura y regulador
-                </p>
-                <SpanControls labelId={`${groupId}-spans`} editor={editor} {...shared} />
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-key`}>
+              <p className="label editor__label" id={`${groupId}-key`}>
+                {`Armadura${range("key_signature")}`}
+              </p>
+              <KeyPicker labelId={`${groupId}-key`} {...shared} />
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-time`}>
+              <p className="label editor__label" id={`${groupId}-time`}>
+                {`Compás${meterRange ? ` · ${rangeName(meterRange)}` : ""}`}
+              </p>
+              <TimePicker labelId={`${groupId}-time`} {...shared} />
+            </div>
+          </div>
+          <div
+            className="editor__groups"
+            role="tabpanel"
+            id={`${groupId}-panel-marks`}
+            aria-labelledby={`${groupId}-tab-marks`}
+            hidden={activeTab !== "marks"}
+          >
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-marks`}>
+              <p className="label editor__label" id={`${groupId}-marks`}>
+                Articulaciones y calderón
+              </p>
+              <div className="editor__buttons">
+                {ARTICULATIONS.map((articulation) => (
+                  <CommandButton
+                    key={articulation.value}
+                    command={{ kind: "articulation", articulation: articulation.value }}
+                    label={articulation.name}
+                    icon={ARTICULATION_ICONS[articulation.value] ?? "mark-staccato"}
+                    pressed={marks?.articulations.includes(articulation.value) ?? false}
+                    {...shared}
+                  />
+                ))}
+                <CommandButton
+                  command={{ kind: "fermata" }}
+                  label="Calderón"
+                  icon="mark-fermata"
+                  pressed={marks?.fermata ?? false}
+                  {...shared}
+                />
               </div>
-            </>
-          )}
-        </div>
+            </div>
+            <div className="editor__group" role="group" aria-labelledby={`${groupId}-dynamic`}>
+              <p className="label editor__label" id={`${groupId}-dynamic`}>
+                Dinámica
+              </p>
+              <DynamicPicker labelId={`${groupId}-dynamic`} {...shared} />
+            </div>
+            <div
+              className="editor__group editor__group--spans"
+              role="group"
+              aria-labelledby={`${groupId}-spans`}
+            >
+              <p className="label editor__label" id={`${groupId}-spans`}>
+                Ligadura y regulador
+              </p>
+              <SpanControls labelId={`${groupId}-spans`} editor={editor} {...shared} />
+            </div>
+          </div>
+        </>
       )}
       {editable && hint(target, available) !== null && (
         <p className="editor__hint">{hint(target, available)}</p>

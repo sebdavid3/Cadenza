@@ -108,10 +108,39 @@
 }
 
 .session__sheets {
+  position: relative;
   display: grid;
   align-content: start;
   gap: var(--space-5);
   padding: var(--space-5) var(--gutter) var(--space-8);
+}
+
+/* «Ir a la partitura»: la imagen, su zoom y el divisor van antes en el orden del teclado. Fuera de
+   la rejilla; se ve solo con el foco. */
+.session__skip {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 6;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  background: var(--color-paper);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-decoration: none;
+  clip-path: inset(50%);
+}
+
+.session__skip:focus,
+.session__skip:focus-visible {
+  clip-path: none;
+}
+
+.sheet--notation:focus {
+  outline: none;
 }
 
 .sheet {
@@ -378,7 +407,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Selección de notas: su propia franja entre el transporte y la partitura. A la izquierda, dónde
+/* Selección de notas: su propia franja encima de la partitura. A la izquierda, dónde
    está y qué es el evento elegido; a la derecha, los pasos, que en una pantalla táctil afinan lo
    que el dedo no alcanza (las notas distan menos de 44 px). Debajo, las teclas. */
 .selection {
@@ -489,8 +518,8 @@
   border-bottom: var(--rule);
 }
 
-/* Deshacer y rehacer, las pestañas y «Atajos», en una fila. Qué desharía cada botón lo dice su
-   `title` y, para el lector, su descripción. */
+/* Deshacer y rehacer, las pestañas y «Atajos», en una fila; debajo, en pequeño, qué desharía y
+   qué reharía (ADR-0034 §4). */
 .editor__bar {
   display: flex;
   flex-basis: 100%;
@@ -499,9 +528,7 @@
   gap: var(--space-2) var(--space-5);
 }
 
-.editor__bar .editor__group--history > .editor__label,
-.editor__bar .editor__history,
-.editor__bar .editor__group--history .editor__text {
+.editor__bar .editor__group--history > .editor__label {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -522,6 +549,12 @@
   margin-left: auto;
 }
 
+.editor__bar > .editor__history {
+  flex-basis: 100%;
+  order: 1;
+  max-width: none;
+}
+
 .editor__groups {
   display: flex;
   flex-basis: 100%;
@@ -529,16 +562,8 @@
   gap: var(--space-3) var(--space-5);
 }
 
-/* En «Nota» los signos y las palabras de los botones bastan (cada uno lleva su nombre y su
-   `title`): sin los rótulos, los grupos caben en menos filas y la partitura gana alto. En
-   «Compás» los rótulos se quedan, porque dicen hasta qué compás llega cada cambio. */
-.editor__groups[data-tab="note"] .editor__label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+.editor__groups[hidden] {
+  display: none;
 }
 
 .editor__group {
@@ -1054,12 +1079,6 @@
 }
 
 /* Columna de al lado: los posibles errores y, debajo, la historia de ediciones. */
-.session__aside {
-  display: grid;
-  align-content: start;
-  border-left: var(--rule);
-}
-
 /* Posibles errores */
 .findings {
   display: grid;
@@ -1593,9 +1612,9 @@ button.findings__item:hover {
 
   .session--desk .session__sheets {
     grid-template-columns:
-      minmax(14rem, var(--scan-fr, 42fr))
+      minmax(12rem, var(--scan-fr, 40fr))
       14px
-      minmax(24rem, var(--score-fr, 58fr));
+      minmax(22rem, var(--score-fr, 60fr));
     grid-template-rows: minmax(0, 1fr);
     gap: 0;
     min-height: 0;
@@ -1619,9 +1638,15 @@ button.findings__item:hover {
 
   .session--desk .sheet--notation .notation {
     flex: 1 1 0;
-    min-height: 0;
+    min-height: 12rem;
     overflow: auto;
     overscroll-behavior: contain;
+  }
+
+  /* Si la barra y la partitura no caben (una pantalla baja, las leyendas abiertas), el panel de la
+     partitura se desplaza entero en vez de dejarla sin alto. */
+  .session--desk .session__sheets > .sheet--notation {
+    overflow-y: auto;
   }
 
   .session--desk .sheet--notation .notation__failed {
@@ -1679,13 +1704,36 @@ button.findings__item:hover {
     z-index: 4;
   }
 
-  /* El rótulo y «Ocultar» en la primera fila; el zoom, debajo si no cabe. */
-  .sheet--scan .scan__toggle {
-    order: 1;
+  /* Lo que se trae a la vista (el posible error elegido, la nota, el compás que suena) queda
+     bajo la imagen fija, no tapado por ella. */
+  .session {
+    --scan-pinned: calc(30dvh + 8rem);
   }
 
-  .sheet--scan .scan__tools {
-    order: 2;
+  .session:has(.sheet--scan[data-collapsed="true"]) {
+    --scan-pinned: 5rem;
+  }
+
+  .notation__mark,
+  .notation__selection,
+  .notation__playhead {
+    scroll-margin-top: var(--scan-pinned);
+  }
+
+  /* El transporte, a la vista al pie de la pantalla mientras se recorre la partitura. */
+  .session .sheet--notation > .sheet__transport:last-child {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    background: var(--color-paper);
+  }
+
+  .session__downloads .score-download {
+    justify-content: flex-start;
+  }
+
+  .session__downloads .score-download__hint {
+    text-align: left;
   }
 
   .sheet--scan .scan {
