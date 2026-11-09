@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cadenza.application import (
@@ -11,6 +12,7 @@ from cadenza.application import (
     InMemoryPreviewRepository,
     InMemorySessionRepository,
     PreviewCapacityExceeded,
+    PreviewData,
     PreviewNotFound,
     PreviewResult,
     Role,
@@ -28,6 +30,7 @@ from cadenza.validation import ValidationEngine, get_default_rules
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 ANA = User(id="ana", username="ana", password_hash="-", role=Role.TRANSCRIPTOR)
+LUIS = User(id="luis", username="luis", password_hash="-", role=Role.TRANSCRIPTOR)
 
 
 def _preview(
@@ -97,6 +100,20 @@ def test_claiming_creates_the_same_session_once_with_the_user_as_owner(tmp_path:
     assert claimed.findings_count == result.findings_count
     assert previews.get(result.preview_id) is None
 
+    # Si se perdió la respuesta, la misma cuenta recibe su sesión otra vez y no se crea otra
+    # (#278); otra cuenta, como si no existiera.
+    again = claim_preview(
+        result.preview_id,
+        result.claim_token,
+        preview_repository=previews,
+        session_repository=sessions,
+        artifact_store=artifacts,
+        validator=ValidationEngine([]),
+        current_user=ANA,
+        now=NOW,
+    )
+    assert again == claimed
+    assert len(sessions.list()) == 1
     with pytest.raises(PreviewNotFound):
         claim_preview(
             result.preview_id,
@@ -105,7 +122,7 @@ def test_claiming_creates_the_same_session_once_with_the_user_as_owner(tmp_path:
             session_repository=sessions,
             artifact_store=artifacts,
             validator=ValidationEngine([]),
-            current_user=ANA,
+            current_user=LUIS,
             now=NOW,
         )
 
@@ -180,3 +197,63 @@ def test_a_preview_runs_the_meter_stage_and_the_claimed_session_keeps_it(tmp_pat
     measures = session.document["score"]["parts"][0]["staves"][0]["measures"]
     assert {m["time_signature"]["symbol"] for m in measures} == {"common"}
     assert session.document["provenance"]["omr_stages"]["meter"]["features"] == ["symbol"]
+
+
+def test_an_overlapping_retry_of_the_same_account_gets_its_session(tmp_path: Path) -> None:
+    """La segunda petición vio la fila, pero la primera la borró antes: si es la misma cuenta
+    con el mismo token, recibe la sesión que confirmó la primera (#278)."""
+    previews = InMemoryPreviewRepository()
+    sessions = InMemorySessionRepository()
+    artifacts = InMemoryArtifactStore()
+    result = _preview(tmp_path, previews)
+    stale = previews.get(result.preview_id)
+    assert stale is not None
+
+    def claim(user: User, token: str, repo: InMemoryPreviewRepository) -> Any:
+        return claim_preview(
+            result.preview_id,
+            token,
+            preview_repository=repo,
+            session_repository=sessions,
+            artifact_store=artifacts,
+            validator=ValidationEngine([]),
+            current_user=user,
+            now=NOW,
+        )
+
+    first = claim(ANA, result.claim_token, previews)
+
+    class _Overlapping(InMemoryPreviewRepository):
+        """Ve la fila que la primera reclamación ya borró."""
+
+        def get(self, preview_id: str) -> PreviewData | None:
+            return stale
+
+    assert claim(ANA, result.claim_token, _Overlapping()) == first
+    with pytest.raises(PreviewNotFound):
+        claim(LUIS, result.claim_token, _Overlapping())
+    # Con otro token, ni la misma cuenta llega a la sesión.
+    with pytest.raises(PreviewNotFound):
+        claim(ANA, "otro-token", previews)
+    assert len(sessions.list()) == 1
+
+
+def test_the_cap_says_when_the_oldest_preview_expires(tmp_path: Path) -> None:
+    previews = InMemoryPreviewRepository()
+    _preview(tmp_path, previews)
+
+    with pytest.raises(PreviewCapacityExceeded) as excinfo:
+        ensure_preview_capacity(previews, now=NOW + timedelta(minutes=10), max_active=1)
+
+    assert excinfo.value.retry_after_seconds == 50 * 60
+    assert previews.next_expiry(NOW) == NOW + timedelta(hours=1)
+    assert previews.next_expiry(NOW + timedelta(hours=2)) is None
+
+
+def test_purge_all_deletes_the_valid_ones_too(tmp_path: Path) -> None:
+    previews = InMemoryPreviewRepository()
+    _preview(tmp_path, previews)
+    _preview(tmp_path, previews)
+
+    assert previews.purge_all() == 2
+    assert previews.count_active(NOW) == 0

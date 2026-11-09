@@ -365,10 +365,25 @@ export type EditCommand =
    * Marcar el evento elegido como inicio de la ligadura o el regulador que se cree después: no
    * es una edición.
    */
-  | { kind: "origin" };
+  | { kind: "origin" }
+  /** Entrar en el modo «Escribir» o salir de él (#350): no es una edición; lo lleva la vista. */
+  | { kind: "writing" }
+  | WriteCommand;
 
-/** Órdenes que piden una edición (todas menos marcar el inicio). */
-export type PlannedCommand = Exclude<EditCommand, { kind: "origin" }>;
+/**
+ * Escribir con el ratón (#350). `write` da al evento la altura señalada: una nota cambia de
+ * altura y un silencio o un hueco pasa a ser esa nota, con su figura; `write-figure` le da la
+ * figura elegida; `write-insert` inserta una nota nueva antes del evento (o, con `end`, tras el
+ * último de su voz en el compás); `write-chord` añade la altura al acorde de la nota.
+ */
+export type WriteCommand =
+  | { kind: "write"; pitch: string }
+  | { kind: "write-figure"; figure: number; dotted: boolean }
+  | { kind: "write-insert"; pitch: string; figure: number; dotted: boolean; end: boolean }
+  | { kind: "write-chord"; pitch: string };
+
+/** Órdenes que piden una edición (todas menos marcar el inicio y entrar en el modo «Escribir»). */
+export type PlannedCommand = Exclude<EditCommand, { kind: "origin" } | { kind: "writing" }>;
 
 interface KeyLike {
   key: string;
@@ -410,6 +425,8 @@ export function editCommand(event: KeyLike): EditCommand | null {
       return { kind: "chord-add" };
     case "U":
       return { kind: "tie" };
+    case "W":
+      return { kind: "writing" };
   }
   switch (event.key) {
     case "<":
@@ -729,9 +746,18 @@ export function planAgain(
     case "SetTie":
       return score ? replanTie(edit, score, (anchor) => anchor).plan : refuse("no-target");
     case "SetEventKind": {
-      // Lo mismo en el hueco, si sigue siéndolo y una nota no se uniría a un acorde.
+      // Lo mismo en el hueco, si sigue siéndolo, o en el silencio que pasa a ser nota (#350), si
+      // sigue siéndolo, y si una nota no se uniría a un acorde.
       if (!isGap(target.event)) {
-        return refuse("same", "Ya no es un hueco: no hay nada que escribir en él.");
+        if (target.event.kind !== "rest") {
+          return refuse("same", "Ya no es un silencio: no hay nada que escribir en él.");
+        }
+        if (edit.after.kind !== "note") {
+          return refuse("same", "Ya es un silencio que se ve: no hay nada que cambiar.");
+        }
+        return score !== null && joinsChordAfter(score, target)
+          ? JOINS_CHORD
+          : restPlan(edit.after.pitch ?? "", target);
       }
       const joins = edit.after.kind === "note" && score !== null && joinsChordAfter(score, target);
       return joins ? JOINS_CHORD : gapPlan(edit.after, target);
@@ -788,7 +814,10 @@ function gapPlan(after: GapFill, target: EditTarget): EditPlan {
   };
 }
 
-/** Si lo que sigue al hueco en su voz es una nota de un acorde: una nota en él se le uniría. */
+/**
+ * Si lo que sigue al hueco o al silencio en su voz es una nota de un acorde: una nota en su lugar
+ * se le uniría.
+ */
 function joinsChordAfter(score: ScoreIRPayload, target: EditTarget): boolean {
   const following = (voiceEvents(score, target.anchor) ?? [])[target.anchor.event_index + 1];
   return following?.kind === "note" && following.is_chord === true;
@@ -797,7 +826,7 @@ function joinsChordAfter(score: ScoreIRPayload, target: EditTarget): boolean {
 const JOINS_CHORD: EditPlan = {
   kind: "refused",
   reason: "chord",
-  message: "Lo que sigue al hueco es una nota de un acorde: una nota en él se uniría al acorde.",
+  message: "Lo que sigue es una nota de un acorde: una nota escrita aquí se uniría a ese acorde.",
 };
 
 /**
@@ -1244,6 +1273,16 @@ export function planCommand(
   origin: AnchorPayload | null = null,
 ): EditPlan {
   if (!score) return refuse("no-target");
+  switch (command.kind) {
+    case "write":
+      return planWrite(command.pitch, target, score);
+    case "write-figure":
+      return planWriteFigure(command.figure, command.dotted, target, score);
+    case "write-insert":
+      return planWriteInsert(command, target, score);
+    case "write-chord":
+      return planWriteChord(command.pitch, target, score);
+  }
   if (target && isGap(target.event)) {
     // Un hueco (ADR-0058): N escribe una nota en él, S lo hace un silencio que se ve y Supr lo
     // borra; su figura se cambia como la de un silencio. No tiene altura ni marcas.
@@ -1288,6 +1327,186 @@ export function planCommand(
     default:
       return planEdit(command, target, target ? activeFifths(score, target.anchor) : 0, score);
   }
+}
+
+// --- Escribir con el ratón (#350) ------------------------------------------------------------
+
+/**
+ * Altura de una línea o un espacio del pentagrama: `steps` medios espacios bajo la línea superior
+ * (0 es la quinta línea; 8, la primera), con la clave del compás y la alteración que la armadura
+ * da a esa letra, como al subir o bajar un paso. Null si la clave no se conoce o la altura se
+ * sale del registro.
+ */
+export function staffPitch(clef: ClefPayload, fifths: number, steps: number): string | null {
+  const top = topLine(clef);
+  if (top === null) return null;
+  const position = top - steps;
+  const step = STEPS[((position % STEPS.length) + STEPS.length) % STEPS.length] ?? "C";
+  const octave = Math.floor(position / STEPS.length);
+  return canonical({ step, accidental: keyAccidental(step, fifths), octave });
+}
+
+/** Posición diatónica de la quinta línea con una clave, o null si la clave no se conoce. */
+function topLine(clef: ClefPayload): number | null {
+  const reference = CLEF_NOTES[clef.sign];
+  if (!reference) return null;
+  // La quinta línea está a dos pasos por línea por encima de la de la clave.
+  return (
+    STEPS.indexOf(reference.step) +
+    (5 - (clef.line ?? 2)) * 2 +
+    STEPS.length * (reference.octave + (clef.octave_change ?? 0))
+  );
+}
+
+/**
+ * Medios espacios bajo la quinta línea en que se dibuja una nota con una clave: lo contrario de
+ * `staffPitch`, sin la alteración. Null si la clave o la altura no se conocen.
+ */
+export function staffSteps(clef: ClefPayload, pitch: string | null): number | null {
+  const top = topLine(clef);
+  const spelling = parsePitch(pitch);
+  if (top === null || !spelling) return null;
+  return top - (STEPS.indexOf(spelling.step) + STEPS.length * spelling.octave);
+}
+
+/** Un silencio que se ve pasa a ser una nota en su lugar, con su figura (#350, ADR-0058). */
+function restPlan(pitch: string, target: EditTarget): EditPlan {
+  const figure = durationName(target.event.duration_beats ?? null);
+  return {
+    kind: "edit",
+    op: "SetEventKind",
+    after: { kind: "note", pitch, hidden: false },
+    anchor: target.anchor,
+    change: `${spoken(pitch)} en lugar del silencio de ${figure}`,
+  };
+}
+
+/** La altura que se escribe: una nota cambia de altura; un silencio o un hueco, pasa a ser nota. */
+function planWrite(pitch: string, target: EditTarget | null, score: ScoreIRPayload): EditPlan {
+  if (!target) return refuse("no-target");
+  const spelling = parsePitch(pitch);
+  const written = spelling ? canonical(spelling) : null;
+  if (!written) return refuse("range");
+  if (target.event.kind === "rest") {
+    if (joinsChordAfter(score, target)) return JOINS_CHORD;
+    return isGap(target.event)
+      ? gapPlan({ kind: "note", pitch: written, hidden: false }, target)
+      : restPlan(written, target);
+  }
+  const own = parsePitch(target.event.pitch);
+  if (own && canonical(own) === written) return refuse("same");
+  return {
+    kind: "edit",
+    op: "SetPitch",
+    after: { pitch: written },
+    change: `altura ${spoken(written)}`,
+  };
+}
+
+/**
+ * La figura con que se escribe: la elegida, con su puntillo; en un tresillo, la figura de
+ * tresillo, como al cambiarla desde la barra (#241).
+ */
+export function writeDuration(
+  figure: number,
+  dotted: boolean,
+  target: EditTarget | null,
+  score: ScoreIRPayload | null,
+): string {
+  const current = target ? figureOf(drawnDuration(target, score)) : null;
+  return figureDuration(figure, dotted, !dotted && current?.triplet === true);
+}
+
+function planWriteFigure(
+  figure: number,
+  dotted: boolean,
+  target: EditTarget | null,
+  score: ScoreIRPayload,
+): EditPlan {
+  if (!target) return refuse("no-target");
+  return planFigure(writeDuration(figure, dotted, target, score), target, score);
+}
+
+/** Una nota nueva con la figura elegida, antes del evento o tras el último de su voz. */
+function planWriteInsert(
+  command: Extract<WriteCommand, { kind: "write-insert" }>,
+  target: EditTarget | null,
+  score: ScoreIRPayload,
+): EditPlan {
+  if (!target) return refuse("no-target");
+  const spelling = parsePitch(command.pitch);
+  const pitch = spelling ? canonical(spelling) : null;
+  if (!pitch) return refuse("range");
+  const events = voiceEvents(score, target.anchor) ?? [];
+  let index = command.end ? events.length : chordStart(events, target.anchor.event_index);
+  // Las notas de adorno van con la nota que las sigue: la nueva entra antes de ellas.
+  while (!command.end && index > 0 && isGraceNote(events[index - 1])) {
+    index = chordStart(events, index - 1);
+  }
+  const after = {
+    kind: "note",
+    pitch,
+    duration_beats: figureDuration(command.figure, command.dotted),
+  };
+  const anchor = insertionAnchor(target.anchor, index);
+  return {
+    kind: "edit",
+    op: "InsertEvent",
+    after,
+    anchor,
+    select: anchor,
+    change: insertionChange(after),
+  };
+}
+
+/** Una nota de adorno: no ocupa tiempo y no tiene figura (ADR-0028). */
+function isGraceNote(event: ScoreEventPayload | undefined): boolean {
+  return event?.kind === "note" && (event.duration_beats ?? null) === null;
+}
+
+/** La altura señalada como una nota más del acorde de la nota (ADR-0055 §5). */
+function planWriteChord(pitch: string, target: EditTarget | null, score: ScoreIRPayload): EditPlan {
+  if (!target) return refuse("no-target");
+  if (target.event.kind !== "note") {
+    return {
+      kind: "refused",
+      reason: "chord",
+      message: "Un silencio no forma acordes: elige una nota.",
+    };
+  }
+  const spelling = parsePitch(pitch);
+  const written = spelling ? canonical(spelling) : null;
+  if (!written) return refuse("range");
+  const events = voiceEvents(score, target.anchor) ?? [];
+  const start = chordStart(events, target.anchor.event_index);
+  const end = chordEnd(events, target.anchor.event_index);
+  const notes = events.slice(start, end);
+  if (
+    notes.some((note) => {
+      const own = parsePitch(note.pitch);
+      return own !== null && canonical(own) === written;
+    })
+  ) {
+    return refuse("same", "Esa nota ya está en el acorde.");
+  }
+  const duration = admissible(notes[0]?.duration_beats ?? null);
+  if (!duration) {
+    return {
+      kind: "refused",
+      reason: "chord",
+      message: "Una nota de adorno no forma acordes desde la barra.",
+    };
+  }
+  const after = { kind: "note", pitch: written, duration_beats: duration, is_chord: true };
+  const anchor = insertionAnchor(target.anchor, end);
+  return {
+    kind: "edit",
+    op: "InsertEvent",
+    after,
+    anchor,
+    select: anchor,
+    change: insertionChange(after),
+  };
 }
 
 /** Edición enviada: lo decidido, su ancla y el estado sobre el que se construyó (ADR-0011). */

@@ -683,6 +683,8 @@ export function useEditor(
       markOrigin(target);
       return;
     }
+    // Entrar o salir del modo «Escribir» lo lleva la vista (#350).
+    if (command.kind === "writing") return;
     if (mustWait()) {
       enqueue({ kind: "command", command });
       return;

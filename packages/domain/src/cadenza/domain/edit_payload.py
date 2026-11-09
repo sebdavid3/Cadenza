@@ -406,8 +406,9 @@ def _kind_state(event: Event) -> dict[str, Any]:
 
 def _check_event_kind(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any] | None) -> None:
     """`SetEventKind` convierte un hueco (un silencio invisible, ADR-0032) en un silencio que se
-    ve o en una nota en su lugar, con la misma figura (ADR-0058). Solo la compensatoria lo
-    devuelve a hueco, y no pasa por aquí."""
+    ve o en una nota en su lugar, con la misma figura (ADR-0058), y un silencio que se ve en una
+    nota (#350, enmienda de ADR-0058). Solo la compensatoria devuelve una nota a silencio o un
+    silencio a hueco, y no pasa por aquí."""
 
     target = _locate_event(score, anchor)
     op = EditOp.SET_EVENT_KIND
@@ -425,13 +426,21 @@ def _check_event_kind(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any] |
             raise InvalidEditPayload("un silencio no lleva 'pitch'")
     else:
         raise InvalidEditPayload(f"SetEventKind solo admite kind 'note' o 'rest': {kind!r}")
-    if not (target.kind is EventKind.REST and target.hidden):
+    if target.kind is not EventKind.REST:
         raise InvalidEditPayload(
-            "SetEventKind solo se aplica a un hueco (un silencio invisible): una nota o un "
-            "silencio que se ve se corrigen con las demás operaciones"
+            "SetEventKind solo se aplica a un silencio (un hueco o uno que se ve): una nota se "
+            "corrige con las demás operaciones"
         )
     if hidden:
-        raise InvalidEditPayload("SetEventKind no cambia nada: el evento ya es un hueco")
+        if target.hidden:
+            raise InvalidEditPayload("SetEventKind no cambia nada: el evento ya es un hueco")
+        raise InvalidEditPayload(
+            "un silencio que se ve no pasa a ser un hueco: se borra o se cambia su figura"
+        )
+    if not target.hidden and kind == EventKind.REST.value:
+        raise InvalidEditPayload(
+            "SetEventKind no cambia nada: el evento ya es un silencio que se ve"
+        )
     # Lo que se escribe en el hueco lleva su figura: ha de ser una que admiten las ediciones
     # (ADR-0017), como la de una nota insertada. Un hueco importado puede no serlo.
     try:

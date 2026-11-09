@@ -1,6 +1,6 @@
 # ADR-0058: Elegir y corregir los huecos de una voz (silencios invisibles)
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado; §2 enmendado por [ADR-0061](ADR-0061-escribir-notas-con-el-raton.md) (2026-11-08, #350): `SetEventKind` también escribe una nota en el lugar de un silencio que se ve
 - **Fecha:** 2026-11-02
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0011, ADR-0017, ADR-0037, ADR-0038, ADR-0039 y ADR-0055, CLAUDE.md §9; el responsable decidió el 2026-11-02 resolverlo antes del congelado, #252)
 - **Enmienda:** [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md) §1 y §2 (un hueco también se empareja y se elige), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md) §1 («no se puede elegir en la vista»), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md) §5 y §8 (un hueco se elige, se borra y se escribe en él) y [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md) §7 (deshacer y rehacer eligen también un hueco) y [ADR-0050](ADR-0050-metricas-de-esfuerzo-de-la-correccion.md) §3 (la clase «contenido» de las intervenciones incluye `GAP_EDIT_OPS`)

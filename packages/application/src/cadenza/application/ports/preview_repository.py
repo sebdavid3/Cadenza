@@ -53,6 +53,15 @@ class PreviewRepository(ABC):
     def purge_expired(self, now: datetime) -> int:
         """Borra las caducadas en `now`, con su imagen; devuelve cuántas."""
 
+    @abstractmethod
+    def purge_all(self) -> int:
+        """Las borra todas, vigentes o no; devuelve cuántas (al arrancar con el interruptor
+        apagado, ADR-0054 §3)."""
+
+    @abstractmethod
+    def next_expiry(self, now: datetime) -> datetime | None:
+        """Cuándo caduca la vigente más antigua; None si no hay ninguna."""
+
 
 class InMemoryPreviewRepository(PreviewRepository):
     """Implementación en memoria, para pruebas unitarias."""
@@ -77,3 +86,14 @@ class InMemoryPreviewRepository(PreviewRepository):
         for pid in expired:
             del self.previews[pid]
         return len(expired)
+
+    def purge_all(self) -> int:
+        count = len(self.previews)
+        self.previews.clear()
+        return count
+
+    def next_expiry(self, now: datetime) -> datetime | None:
+        active = [
+            preview.expires_at for preview in self.previews.values() if preview.expires_at > now
+        ]
+        return min(active, default=None)
