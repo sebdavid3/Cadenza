@@ -1,4 +1,4 @@
-# ADR-0061: Despliegue continuo desde `main` en el homelab, con el servidor tirando de GitHub
+# ADR-0062: Despliegue continuo desde `main` en el homelab, con el servidor tirando de GitHub
 
 - **Estado:** Aceptado (se activa tras el estudio y la promoción de #261)
 - **Fecha:** 2026-11-04

@@ -5,6 +5,7 @@ import { DeskDivider } from "./DeskDivider";
 import { SHARE_DEFAULT, SHARE_MAX, SHARE_MIN } from "./deskShare";
 import { ScanFigure } from "./ScanFigure";
 import { readStored, writeStored } from "./storage";
+import sessionCss from "./session.css?raw";
 
 /** Mesa de corrección (#341): la imagen original con su zoom y el divisor que reparte el ancho. */
 
@@ -200,5 +201,33 @@ describe("lo que la mesa recuerda en el navegador", () => {
     } finally {
       if (original) Object.defineProperty(window, "localStorage", original);
     }
+  });
+});
+
+describe("la página de la mesa no se alarga (#355)", () => {
+  const uncommented = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+  /** Lo que acaba valiendo cada propiedad de un selector en la hoja, en el orden en que se escribe. */
+  const declared = (selector: string) => {
+    const values = new Map<string, string>();
+    for (const [, selectors, body] of uncommented(sessionCss).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const parts = (selectors ?? "").split(",").map((part) => part.trim());
+      if (!parts.includes(selector)) continue;
+      for (const [, property, value] of (body ?? "").matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)) {
+        values.set(property ?? "", (value ?? "").trim());
+      }
+    }
+    return values;
+  };
+
+  // Un panel que se desplaza por dentro ha de ser el bloque contenedor de lo que lleva dentro con
+  // `position: absolute` (los textos ocultos para el lector de pantalla): si no, el panel no los
+  // recorta, quedan bajo la ventana y alargan la página entera con un espacio en blanco.
+  it.each([
+    [".session--desk .session__sheets > .sheet--notation", "overflow-y"],
+    [".session--desk .session__aside-body", "overflow"],
+  ])("%s, que se desplaza por dentro, contiene a sus hijos posicionados", (selector, overflow) => {
+    const values = declared(selector);
+    expect(values.get(overflow)).toBe("auto");
+    expect(values.get("position")).toBe("relative");
   });
 });

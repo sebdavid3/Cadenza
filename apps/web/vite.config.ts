@@ -33,7 +33,9 @@ export default defineConfig(({ mode }) => {
     test: {
       environment: "jsdom",
       setupFiles: ["./src/test/setup.ts"],
-      css: false,
+      // Las hojas no se procesan ni se aplican en jsdom; sí se leen como texto (`?raw`) donde una
+      // prueba guarda una regla de maquetación (#355).
+      css: { include: [/\.css\?raw$/] },
       restoreMocks: true,
       // Cada prueba empieza con las variables VITE_ del build (vi.stubEnv) sin tocar.
       unstubEnvs: true,

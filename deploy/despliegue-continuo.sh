@@ -1,5 +1,5 @@
 #!/bin/sh
-# Despliegue continuo del homelab (#337, ADR-0061, docs/infra/operacion_backend.md §2.2): el
+# Despliegue continuo del homelab (#337, ADR-0062, docs/infra/operacion_backend.md §2.2): el
 # servidor tira de la rama publicada (main por defecto) y, si hay un commit nuevo cuya CI terminó en
 # verde, hace una copia verificada, avanza en fast-forward, reconstruye y espera a /api/health. Si
 # la API no responde, vuelve al commit anterior y no reintenta el fallido. Pensado para el cron del

@@ -1729,8 +1729,11 @@ button.findings__item:hover {
   }
 
   /* Si la barra y la partitura no caben (una pantalla baja, las leyendas abiertas), el panel de la
-     partitura se desplaza entero en vez de dejarla sin alto. */
+     partitura se desplaza entero en vez de dejarla sin alto. Es el bloque contenedor de lo que
+     lleva dentro con `position: absolute` (los textos ocultos para el lector de pantalla del pie):
+     así los recorta, y no alargan la página con un espacio en blanco bajo la mesa (#355). */
   .session--desk .session__sheets > .sheet--notation {
+    position: relative;
     overflow-y: auto;
   }
 
@@ -1757,7 +1760,9 @@ button.findings__item:hover {
     width: clamp(20rem, 24vw, 26rem);
   }
 
+  /* Como el panel de la partitura: contiene los textos ocultos de los posibles errores (#355). */
   .session--desk .session__aside-body {
+    position: relative;
     flex: 1 1 0;
     overflow: auto;
     overscroll-behavior: contain;
