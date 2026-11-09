@@ -408,8 +408,14 @@ def test_the_snapshot_reads_uncommitted_changes_that_are_not_ascii(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """«Í» en UTF-8 (C3 8D) no se decodifica en cp1252, la codificación de Windows, y el byte 8D
-    suelto no es UTF-8 válido: con la decodificación del sistema, `_git` devolvía `None` en
-    cualquier plataforma y el script se caía antes de pasar ninguna puerta."""
+    suelto no es UTF-8 válido: con la decodificación del sistema, `_git` se caía en cualquier
+    plataforma (en Windows, con `stdout` en `None`; en Linux, con `UnicodeDecodeError`) y el
+    script, antes de pasar ninguna puerta. La configuración de git de quien ejecuta la prueba no
+    cuenta: una firma de commits o un hook global la tumbarían antes de llegar a lo que prueba."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for variable in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        monkeypatch.delenv(variable, raising=False)
     repo = _repo_with(tmp_path, b"antes\n")
     monkeypatch.setattr(puertas, "REPO", repo)
     (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8d\n")
@@ -417,6 +423,9 @@ def test_the_snapshot_reads_uncommitted_changes_that_are_not_ascii(
     first = puertas._snapshot(puertas._git)
 
     assert first.dirty
-    assert "Íncipit" in puertas._git("diff", "HEAD")
+    diff = puertas._git("diff", "HEAD")
+    assert "Íncipit" in diff
+    # Sin pérdida: el byte suelto vuelve tal cual, como lo codifica `_snapshot` para la huella.
+    assert b"\x8d" in diff.encode("utf-8", "surrogateescape")
     (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8e\n")
     assert puertas._snapshot(puertas._git).content != first.content

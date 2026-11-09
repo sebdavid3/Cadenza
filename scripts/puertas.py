@@ -333,7 +333,14 @@ def _node_major() -> int | None:
     node = shutil.which("node")
     if node is None:
         return None
-    done = subprocess.run([node, "--version"], capture_output=True, text=True, check=False)
+    done = subprocess.run(
+        [node, "--version"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     match = re.match(r"v(\d+)", done.stdout.strip())
     return int(match.group(1)) if match else None
 
@@ -342,7 +349,14 @@ def _pg_dump_major() -> int | None:
     pg_dump = shutil.which("pg_dump")
     if pg_dump is None:
         return None
-    done = subprocess.run([pg_dump, "--version"], capture_output=True, text=True, check=False)
+    done = subprocess.run(
+        [pg_dump, "--version"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
     match = re.search(r"(\d+)(?:\.\d+)*\s*$", done.stdout.strip())
     return int(match.group(1)) if match else None
 
