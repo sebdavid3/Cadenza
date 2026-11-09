@@ -81,6 +81,22 @@ El recuadro de ADR-0053 cambia solo sin sesión, y solo si el build lo abre:
 - En un equipo compartido, si alguien deja una transcripción sin cuenta y otra persona entra en la misma pestaña desde «Entrar para editarla», la reclama a su nombre.
 - El token en `sessionStorage` permite reclamar tras una recarga en esa pestaña. Quien tenga acceso a la pestaña antes de que caduque podría reclamarla con su cuenta; es lo mismo que ver su resultado, que no tiene dueño.
 
+## Enmienda: antes de encender el interruptor (#278, 2026-11-08)
+
+La revisión independiente de #314 encontró lo que impedía encenderlo. Se corrige así:
+
+1. **HOMR, solo con todos los huecos libres (§5).** HOMR calcula de una en una (`_HOMR_LOCK`): con dos huecos, el segundo es el de espera. Una transcripción sin cuenta que tomara el segundo mientras otra con cuenta calcula dejaría a la siguiente persona con cuenta sin hueco o esperando la anónima entera. Ahora `POST /previews` solo empieza si están libres todos los huecos (`TranscriptionSlots.try_acquire(require_idle=True)`, que los toma todos y devuelve todos menos uno); si no, 503 sin llamar al OMR. Así, quien entra conserva siempre un hueco y espera, como mucho, una transcripción sin cuenta.
+2. **Otra web no puede usarla (§5).** Un formulario `multipart/form-data` sin cabeceras propias es una petición simple: el navegador la manda sin preflight y el CORS cerrado no la para, y cada visitante de esa web contaría como otra IP para el límite. `POST /previews` responde 403, antes de contar el intento, si `Sec-Fetch-Site` no es `same-origin` ni `none`, o, sin esa cabecera, si llega un `Origin` que no es uno de `CADENZA_CORS_ORIGINS` ni el de la propia web (`Host`). Un cliente que no es un navegador no manda ninguna de las dos: lo frena el límite por IP.
+3. **Apagar y reiniciar las borra todas (§3).** Al arrancar con el interruptor apagado se borran todas, también las vigentes, porque nada más las borraría; encendido, solo las caducadas.
+4. **El 503 del tope dice cuándo volver.** `Retry-After` es lo que falta para que caduque la más antigua (antes, siempre 60 s, y cada reintento gastaba el límite por IP). Falta en la web un mensaje propio para este caso: la portada la lleva otra rama (`homepage`) y se hará con ella.
+5. **Reclamar es idempotente para quien la reclamó (§4).** La sesión que nace al reclamar tiene un id que sale del de la transcripción (`uuid5`). Si se pierde la respuesta y la misma cuenta lo reintenta, recibe su sesión (201, el mismo cuerpo) en vez de un 404 que le haría transcribir otra vez; otra cuenta sigue recibiendo 404. El token sigue valiendo una sola vez: el reintento no crea nada.
+6. **La purga de una reclamación fallida se mantiene.** Las caducadas se borran en su propia transacción antes de reclamar: el 404 deshacía la de la petición, y con ella la purga.
+7. **La base, fuera del bucle de eventos.** El DELETE y el COUNT del tope y su commit corren en un hilo (`asyncio.to_thread`).
+8. **Los tiempos, antes de confirmar.** `compute_timing_map` corre antes del commit: si falla, no queda una fila guardada con su token perdido.
+9. **Un mensaje genérico si el OMR no lee la imagen.** El 422 de `POST /previews` no enseña a un visitante sin cuenta el texto interno de la excepción; se registra en el log.
+
+El contrato v1 solo amplía `POST /previews` con el 403 (compatible): se regeneró `openapi.json`, y `types.ts` no cambia.
+
 ## Alternativas consideradas
 
 1. **Una sesión con `owner_id` nulo o con un usuario anónimo.** Descartada: cambiaría una invariante del modelo (toda sesión tiene dueño), y los listados, el acceso de los investigadores, el log y el dataset tendrían que distinguir sesiones sin dueño.

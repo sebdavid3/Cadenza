@@ -323,3 +323,139 @@ def test_expired_previews_are_purged_when_the_api_starts() -> None:
     )
 
     assert api.count(PreviewRecord) == 0
+
+
+# ---------------------------------------------------------------------------
+# Antes de encender el interruptor (#278, revisión de #314).
+# ---------------------------------------------------------------------------
+
+
+def test_a_preview_needs_every_homr_slot_free() -> None:
+    """HOMR calcula de una en una: con un hueco ocupado, el otro es el de quien entra, y una
+    transcripción sin cuenta no lo toma (ADR-0054 §5)."""
+    api = Api(transcribe_max_concurrency=2)
+    slots = api.app.state.transcription_slots
+    assert slots.semaphore.acquire(blocking=False)
+    try:
+        busy = api.preview()
+    finally:
+        slots.semaphore.release()
+
+    assert busy.status_code == 503
+    assert api.omr.calls == 0
+    assert api.preview().status_code == 201
+    # Tras transcribir quedan libres los dos huecos.
+    assert slots.semaphore.acquire(blocking=False)
+    assert slots.semaphore.acquire(blocking=False)
+    slots.semaphore.release()
+    slots.semaphore.release()
+
+
+@pytest.mark.parametrize(
+    ("headers", "expected"),
+    [
+        ({"Sec-Fetch-Site": "cross-site"}, 403),
+        ({"Sec-Fetch-Site": "same-site"}, 403),
+        ({"Origin": "https://ajena.example"}, 403),
+        ({"Sec-Fetch-Site": "same-origin", "Origin": "http://testserver"}, 201),
+        ({"Sec-Fetch-Site": "none"}, 201),
+        ({"Origin": ORIGIN}, 201),
+        ({}, 201),
+    ],
+)
+def test_a_preview_from_another_site_is_refused(headers: dict[str, str], expected: int) -> None:
+    """Un formulario de otra web es una petición simple, sin preflight: el CORS no la para, y
+    cada visitante suyo contaría como otra IP. Se rechaza sin gastar el límite ni HOMR."""
+    api = Api()
+
+    response = api.client.post(
+        "/previews", files={"file": ("a.png", PNG, "image/png")}, headers=headers
+    )
+
+    assert response.status_code == expected
+    assert api.omr.calls == (1 if expected == 201 else 0)
+
+
+def test_switching_off_and_restarting_deletes_every_stored_preview() -> None:
+    api = Api()
+    api.now = datetime.now(UTC)
+    api.preview()
+    assert api.count(PreviewRecord) == 1
+
+    # Encendido, al arrancar solo se borran las caducadas.
+    create_app(api.factory, omr_engine=api.omr, settings=api.app.state.settings)
+    assert api.count(PreviewRecord) == 1
+    # Apagado, todas: nada más las borraría (ADR-0054 §3).
+    create_app(
+        api.factory,
+        omr_engine=api.omr,
+        settings=Settings(auth_secret_key=SECRET, cors_origins=[ORIGIN]),
+    )
+    assert api.count(PreviewRecord) == 0
+
+
+def test_the_cap_asks_to_retry_when_the_oldest_preview_expires() -> None:
+    api = Api(anonymous_preview_max_active=1, anonymous_preview_ttl_seconds=3600)
+    assert api.preview().status_code == 201
+
+    api.now += timedelta(seconds=1000)
+    full = api.preview()
+
+    assert full.status_code == 503
+    assert full.headers["Retry-After"] == "2600"
+
+
+def test_claiming_again_after_a_lost_answer_returns_the_same_session() -> None:
+    api = Api()
+    preview = api.preview().json()
+    first = api.claim(preview["preview_id"], preview["claim_token"])
+    assert first.status_code == 201
+
+    # La respuesta se perdió y la persona lo reintenta: su misma sesión, no otra.
+    again = api.claim(preview["preview_id"], preview["claim_token"])
+
+    assert again.status_code == 201
+    assert again.json() == first.json()
+    assert api.count(Session) == 1
+    # Otra cuenta con el mismo enlace no la ve.
+    assert api.claim(preview["preview_id"], preview["claim_token"], "luis").status_code == 404
+
+
+def test_a_failed_claim_still_purges_the_expired_previews() -> None:
+    api = Api(anonymous_preview_ttl_seconds=60)
+    old = api.preview().json()
+    api.now += timedelta(seconds=61)
+
+    assert api.claim("no-existe", old["claim_token"]).status_code == 404
+
+    with api.factory() as db:
+        assert db.get(PreviewRecord, old["preview_id"]) is None
+
+
+def test_a_failure_building_the_answer_saves_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Si los tiempos fallan, no queda una fila guardada con su token perdido."""
+    from cadenza.api import main
+
+    def broken(*_args: Any) -> Any:
+        raise RuntimeError("tiempos")
+
+    monkeypatch.setattr(main, "compute_timing_map", broken)
+    api = Api()
+
+    with pytest.raises(RuntimeError, match="tiempos"):
+        api.preview()
+
+    assert api.count(PreviewRecord) == 0
+
+
+def test_an_unreadable_image_gets_a_generic_message_without_the_internal_detail() -> None:
+    api = Api()
+    api.omr.fail_next = True
+
+    failed = api.preview()
+
+    assert failed.status_code == 422
+    assert "no se reconoce ninguna partitura" not in failed.text
+    assert failed.json()["detail"] == (
+        "No se reconoce ninguna partitura en la imagen. Prueba con otra foto o escaneo."
+    )

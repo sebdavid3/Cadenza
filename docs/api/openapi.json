@@ -657,6 +657,16 @@
               }
             }
           },
+          "403": {
+            "description": "La petición viene de otra web (Sec-Fetch-Site u Origin): solo se transcribe sin cuenta desde la propia web (#278)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
