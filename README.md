@@ -337,7 +337,20 @@ proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
 
 ## Calidad e integración continua
 
-Antes de cada fusión pasan estas puertas:
+Antes de cada fusión pasan estas puertas. `scripts/puertas.py` las pasa todas, en el orden de
+la CI, y deja una línea para el PR que dice lo que no cubrió: la web con `--sin-web`, Docker sin
+`--docker` y PostgreSQL sin `CADENZA_TEST_POSTGRES_URL` (con ella, esas pruebas se exigen como en
+la CI). En local, Vitest corre con dos procesos: por defecto usa tantos como hilos menos uno (15
+en un portátil de 16 hilos, frente a 3 en la CI), y con tantos se agotan los tiempos de algunas
+pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
+
+```bash
+uv run --no-sync python scripts/puertas.py            # Python y web
+uv run --no-sync python scripts/puertas.py --sin-web  # solo Python
+uv run --no-sync python scripts/puertas.py --docker   # y el job de Docker de la CI
+```
+
+Una a una:
 
 ```bash
 uv run --no-sync pytest
@@ -352,13 +365,18 @@ Si se modificó `apps/web`, además:
 cd apps/web
 npm run lint
 npm run format:check
-npm run test       # Vitest
+npm run test       # Vitest (en local, npm run test -- --maxWorkers=2)
 npm run build      # comprobación de tipos y empaquetado
 ```
 
 La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
-mismo en cada PR hacia `dev`, con un job para el backend y otro para el frontend. Los tests de compatibilidad con PostgreSQL corren allí contra un
+mismo en cada PR hacia `dev`, con un job para el backend, otro para el frontend y otro para las imágenes de Docker. Los tests de compatibilidad con PostgreSQL corren allí contra un
 PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala.
+
+**Desde el 2026-11-08 la CI no arranca** por un cobro pendiente de la cuenta de GitHub. Por
+decisión del responsable, mientras dure se fusiona con las puertas locales en verde
+(`scripts/puertas.py`), la revisión independiente hecha y una nota en el PR (D69 en
+[`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md)).
 
 ---
 
