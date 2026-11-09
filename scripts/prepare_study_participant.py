@@ -48,6 +48,11 @@ TRANSCRIBE_TIMEOUT_S = 600.0
 CUT_WAIT_S = 600.0
 CUT_POLL_S = 10.0
 MIN_PASSWORD_LENGTH = 8
+# Lo que no se puede arreglar con la orden: la API no borra sesiones.
+FIX_BY_HAND = (
+    "La API no permite borrar sesiones: retírala en la base, con una copia previa "
+    "(docs/infra/operacion_backend.md), o anótalo como incidencia, y vuelve a ejecutar la orden."
+)
 
 
 class PrepareError(Exception):
@@ -224,8 +229,8 @@ def _by_score(listed: Sequence[dict[str, Any]], participant: str) -> dict[str, d
     for session in listed:
         if session["test_score_id"] in existing:
             raise PrepareError(
-                f"{participant} tiene más de una sesión de {session['test_score_id']}: "
-                "revísalas antes de seguir."
+                f"{participant} tiene más de una sesión de {session['test_score_id']}. "
+                f"{FIX_BY_HAND}"
             )
         existing[session["test_score_id"]] = session
     return existing
@@ -241,8 +246,8 @@ def _check_existing(
         if session is not None and session["condition"] != planned.condition:
             raise PrepareError(
                 f"{participant} ya tiene una sesión de {planned.test_score_id} en condición "
-                f"{session['condition']}, y la matriz pide {planned.condition}. Revísala antes "
-                "de seguir: no se crea nada."
+                f"{session['condition']}, y la matriz pide {planned.condition}: no se crea nada. "
+                f"{FIX_BY_HAND}"
             )
     # Se crean del último bloque al calentamiento (el listado va del más reciente al más
     # antiguo): lo que ya existe tiene que ser el principio de ese orden.
@@ -251,8 +256,19 @@ def _check_existing(
     if present != sorted(present, reverse=True):
         raise PrepareError(
             f"Las sesiones que ya tiene {participant} no permiten crear las que faltan en el orden "
-            "de sus bloques: no se crea nada."
+            f"de sus bloques: no se crea nada. {FIX_BY_HAND}"
         )
+    for planned in plan:
+        session = existing.get(planned.test_score_id)
+        if session is not None and (session.get("title"), session.get("source_filename")) != (
+            planned.title,
+            planned.filename,
+        ):
+            raise PrepareError(
+                f"La sesión de {planned.test_score_id} que ya tiene {participant} no tiene el "
+                f"título «{planned.title}» ni el archivo {planned.filename}: el participante "
+                f"vería otro nombre. No se crea nada. {FIX_BY_HAND}"
+            )
 
 
 def _verify(
@@ -348,7 +364,6 @@ def prepare_participant(
     participant_password: Callable[[bool], str],
     plan: Sequence[PlannedSession],
     report: Callable[[str], None],
-    limit: int | None = None,
     wait_s: float = CUT_WAIT_S,
     poll_s: float = CUT_POLL_S,
     sleep: Callable[[float], None] = time.sleep,
@@ -356,8 +371,8 @@ def prepare_participant(
     """Prepara la cuenta y las sesiones de `participant` (ver el docstring del módulo).
 
     `participant_password(nueva)` da la contraseña de la cuenta; `nueva` dice si la cuenta se va
-    a crear, para pedirla dos veces. `limit` corta tras ese número de transcripciones (pruebas);
-    `wait_s`, `poll_s` y `sleep` gobiernan la espera tras un corte del proxy.
+    a crear, para pedirla dos veces. `wait_s`, `poll_s` y `sleep` gobiernan la espera tras un
+    corte del proxy.
     """
 
     investigator_headers = _login(
@@ -396,8 +411,6 @@ def prepare_participant(
                 line += " Ojo: ya tiene ediciones; si no son del participante, revísala."
             report(line)
             continue
-        if limit is not None and transcribed >= limit:
-            return
         result, after_cut = _transcribe(
             client, headers, planned, wait_s=wait_s, poll_s=poll_s, sleep=sleep
         )
