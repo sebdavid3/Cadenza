@@ -1067,9 +1067,12 @@ describe("vista de una sesión", () => {
       expect(button).toHaveAccessibleDescription(/no se pudo preparar el midi/i);
     });
     expect(button).toBeVisible();
-    // Ya con el aviso a la vista, un clic fuera lo cierra como siempre.
-    fireEvent.pointerDown(document.body);
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // Ya con el aviso a la vista, un clic fuera lo cierra como siempre (en cuanto la vista sabe que
+    // el MIDI dejó de prepararse).
+    await waitFor(() => {
+      fireEvent.pointerDown(document.body);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
   });
 
   it("si el MIDI falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a pedir y descarga", async () => {
@@ -1182,6 +1185,11 @@ describe("vista de una sesión", () => {
       expect(image).toHaveAttribute("src", "blob:original");
     });
     expect(revokeObjectURL).not.toHaveBeenCalled();
+    // OSMD ya está creado: al salir hay algo que limpiar (sin esperarlo, con carga, la prueba
+    // salía antes de que la partitura empezara a dibujarse).
+    await waitFor(() => {
+      expect(osmd.instances).toBeGreaterThan(0);
+    });
 
     await router.navigate("/transcripcion");
 
@@ -7935,7 +7943,9 @@ describe("corregir la nota elegida", () => {
       const toggle = within(editor()).getByRole("button", { name: "Atajos" });
 
       fireEvent.click(toggle);
-      fireEvent.pointerDown(document.querySelector(".editor__keys") as HTMLElement);
+      const keys = document.querySelector<HTMLElement>(".editor__keys");
+      if (!keys) throw new Error("Falta la leyenda de la corrección");
+      fireEvent.pointerDown(keys);
       expect(toggle).toHaveAttribute("aria-expanded", "true");
 
       fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
