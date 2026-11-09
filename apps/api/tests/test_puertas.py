@@ -11,12 +11,14 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
+import scripts.puertas as puertas
 from scripts.puertas import (
     WEB,
     Gate,
@@ -384,3 +386,46 @@ def test_the_gate_variables_reach_the_child(tmp_path: Path) -> None:
     assert code == 0
     assert output.strip() == "visto 1"
     assert "PUERTAS_349" not in os.environ
+
+
+# --- Cambios sin comitear que no son ASCII (#371) -----------------------------------------------
+
+
+def _repo_with(tmp_path: Path, committed: bytes) -> Path:
+    """Un repositorio de git temporal con un archivo comiteado."""
+
+    def run(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    run("init", "-q")
+    (tmp_path / "estado.md").write_bytes(committed)
+    run("add", "estado.md")
+    run("-c", "user.name=puertas", "-c", "user.email=puertas@example.invalid", "commit", "-qm", "x")
+    return tmp_path
+
+
+def test_the_snapshot_reads_uncommitted_changes_that_are_not_ascii(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Í» en UTF-8 (C3 8D) no se decodifica en cp1252, la codificación de Windows, y el byte 8D
+    suelto no es UTF-8 válido: con la decodificación del sistema, `_git` se caía en cualquier
+    plataforma (en Windows, con `stdout` en `None`; en Linux, con `UnicodeDecodeError`) y el
+    script, antes de pasar ninguna puerta. La configuración de git de quien ejecuta la prueba no
+    cuenta: una firma de commits o un hook global la tumbarían antes de llegar a lo que prueba."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for variable in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        monkeypatch.delenv(variable, raising=False)
+    repo = _repo_with(tmp_path, b"antes\n")
+    monkeypatch.setattr(puertas, "REPO", repo)
+    (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8d\n")
+
+    first = puertas._snapshot(puertas._git)
+
+    assert first.dirty
+    diff = puertas._git("diff", "HEAD")
+    assert "Íncipit" in diff
+    # Sin pérdida: el byte suelto vuelve tal cual, como lo codifica `_snapshot` para la huella.
+    assert b"\x8d" in diff.encode("utf-8", "surrogateescape")
+    (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8e\n")
+    assert puertas._snapshot(puertas._git).content != first.content
