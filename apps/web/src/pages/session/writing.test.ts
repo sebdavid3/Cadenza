@@ -140,6 +140,18 @@ describe("el pentagrama dibujado", () => {
   });
 });
 
+describe("insertar ante una nota con adornos", () => {
+  it("la nota nueva entra antes de los adornos, no entre ellos y su nota", () => {
+    const state = staffScore([note("C5"), note("D5", "1", { duration_beats: null }), note("E5")]);
+    const plan = planCommand(
+      { kind: "write-insert", pitch: "G4", figure: 4, dotted: false, end: false },
+      chosen(state, anchor(2)),
+      state,
+    );
+    expect(plan).toMatchObject({ kind: "edit", op: "InsertEvent", anchor: { event_index: 1 } });
+  });
+});
+
 describe("dónde cae el clic", () => {
   const measure: Box = { left: 20, top: 100, width: 200, height: 80 };
   const slot = { staff: 0, measure: 0 };
@@ -235,6 +247,39 @@ describe("dónde cae el clic", () => {
   it("las notas de adorno no se escriben con el ratón", () => {
     const grace = [selectable(0, 100, 135, { grace: true })];
     expect(at(104, 140, grace)).toBeNull();
+  });
+
+  it("antes de una nota con adornos, la línea de inserción va antes de ellos", () => {
+    const withGrace = [
+      selectable(0, 50),
+      selectable(1, 80, 135, { grace: true }),
+      selectable(2, 100),
+    ];
+    // Sobre el adorno o antes de él: se inserta ante su nota, con la línea antes del adorno.
+    for (const x of [72, 85]) {
+      const spot = at(x, 140, withGrace);
+      expect(spot?.aim).toMatchObject({ kind: "insert", end: false, x: 70 });
+      expect(spot?.aim.event.anchor.event_index).toBe(2);
+    }
+  });
+
+  it("ante un hueco no se inserta: se escribe en él", () => {
+    const gap = { kind: "rest", pitch: null, hidden: true } as const;
+    const withGap = [
+      selectable(0, 50),
+      selectable(1, 100, 135, { gap: true, event: { ...note(null), ...gap } }),
+      selectable(2, 150),
+    ];
+    const spot = at(80, 140, withGap);
+    expect(spot?.aim).toMatchObject({ kind: "replace", x: 105 });
+    expect(spot?.aim.event.anchor.event_index).toBe(1);
+  });
+
+  it("en una voz con un solo silencio, se escribe en él en cualquier sitio del compás", () => {
+    const whole = [selectable(0, 100, 135, { event: note(null, "3") })];
+    for (const x of [30, 104, 200]) {
+      expect(at(x, 140, whole)?.aim).toMatchObject({ kind: "replace", x: 105 });
+    }
   });
 });
 

@@ -2,7 +2,7 @@ import { FIGURES } from "./edits";
 import { pitchName } from "./noteNames";
 import { ledgerSteps, stepY, type WriteSpot } from "./writing";
 
-/** La línea central del pentagrama: de ella hacia abajo, la plica sube (#350). */
+/** La línea central del pentagrama: por debajo de ella, la plica sube; en ella o encima, baja. */
 const MIDDLE_LINE = 4;
 /** Figuras de cabeza blanca: la blanca y la redonda; la redonda, sin plica. */
 const HALF = 5;
@@ -17,13 +17,14 @@ interface WriteGhostProps {
   dotted: boolean;
   /** Mayús + clic sobre una nota: la altura se añade a su acorde. */
   chord: boolean;
-  /** Se está guardando otra corrección: el clic espera. */
-  waiting: boolean;
+  /** Por qué el clic no escribe ahora, o null (`WritingMode.wait`). */
+  wait: "saving" | "blocked" | null;
 }
 
 /** Lo que dice la etiqueta del fantasma: qué se escribe y cómo. */
-function ghostLabel({ spot, pitch, figure, dotted, chord, waiting }: WriteGhostProps): string {
-  if (waiting) return "Espera: se está guardando";
+function ghostLabel({ spot, pitch, figure, dotted, chord, wait }: WriteGhostProps): string {
+  if (wait === "saving") return "Espera: se está guardando";
+  if (wait === "blocked") return "Ahora no se puede escribir";
   const name = pitchName(pitch)?.written ?? pitch;
   const value = `${(FIGURES[figure]?.name ?? "").toLowerCase()}${dotted ? " con puntillo" : ""}`;
   if (chord) return `${name} al acorde`;
@@ -37,7 +38,8 @@ function ghostLabel({ spot, pitch, figure, dotted, chord, waiting }: WriteGhostP
  * cinco líneas lleva sus líneas adicionales.
  */
 export function WriteGhost(props: WriteGhostProps) {
-  const { spot, figure, dotted, chord, waiting } = props;
+  const { spot, figure, dotted, chord, wait } = props;
+  const waiting = wait !== null;
   const { lines, steps, aim } = spot;
   const { space } = lines;
   const x = aim.x;
@@ -46,7 +48,7 @@ export function WriteGhost(props: WriteGhostProps) {
   const ry = 0.46 * space;
   // En un acorde se añade la cabeza: la figura es la del acorde, así que va sin plica.
   const stem = !chord && figure < WHOLE;
-  const up = steps >= MIDDLE_LINE;
+  const up = steps > MIDDLE_LINE;
   const stemX = up ? x + rx * 0.92 : x - rx * 0.92;
   const tip = up ? y - 3.5 * space : y + 3.5 * space;
   const flags = !chord && figure <= EIGHTH ? EIGHTH + 1 - figure : 0;
@@ -113,6 +115,7 @@ export function WriteGhost(props: WriteGhostProps) {
       </svg>
       <span
         className="label notation__ghost-tag"
+        aria-hidden="true"
         data-waiting={waiting}
         style={{ left: x + 1.7 * space, top: y }}
       >

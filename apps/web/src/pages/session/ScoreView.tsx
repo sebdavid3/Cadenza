@@ -483,6 +483,11 @@ export function ScoreView({
       writing.onExit();
       return;
     }
+    // Mayús, sin mover el ratón, ya cambia el fantasma: el clic añadirá la nota al acorde.
+    if (writing && event.key === "Shift") {
+      shiftGhost(true);
+      return;
+    }
     const command = onCommand ? editCommand(event) : null;
     if (command) {
       event.preventDefault();
@@ -505,6 +510,18 @@ export function ScoreView({
   // Escribir con el ratón (#350): la nota fantasma sigue al puntero y el clic la escribe. Solo
   // sobre el estado que se ve dibujado: las anclas del mapa de notas son de ese estado.
   const [ghost, setGhost] = useState<Ghost | null>(null);
+  // El último punto del puntero sobre la partitura, aunque el fantasma no cambiara al pasar por él.
+  const pointerAt = useRef<Ghost["at"] | null>(null);
+  // El puntero del último toque: donde el clic no es un PointerEvent, dice si fue el dedo.
+  const pointerKind = useRef<string | null>(null);
+  const shiftGhost = (shift: boolean) => {
+    setGhost((previous) =>
+      previous ? ghostOf(previous.spot, previous.pitch, shift, previous.seq, previous.at) : null,
+    );
+  };
+  const onKeyUp = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (writing && event.key === "Shift") shiftGhost(false);
+  };
   const writable =
     writing !== null &&
     selectable !== null &&
@@ -528,16 +545,23 @@ export function ScoreView({
     const spot = writeSpotAt(selectable, at.x, at.y, (slot) => score.measureBox(slot), noteSteps);
     if (!spot) return null;
     const place = spot.aim.event.anchor;
-    const pitch = staffPitch(
-      activeClef(snapshot.transcription, place),
-      activeFifths(snapshot.transcription, place),
-      spot.steps,
-    );
+    const clef = activeClef(snapshot.transcription, place);
+    // Sobre una nota, en su misma línea o espacio, se conserva su alteración: cambiar solo la
+    // figura de un Fa#4 en Do mayor no lo deja en Fa4.
+    const aimed = spot.aim.event.event;
+    const own =
+      spot.aim.kind === "replace" &&
+      aimed.kind === "note" &&
+      staffSteps(clef, aimed.pitch) === spot.steps
+        ? aimed.pitch
+        : null;
+    const pitch = own ?? staffPitch(clef, activeFifths(snapshot.transcription, place), spot.steps);
     return pitch ? ghostOf(spot, pitch, shift, snapshot.seq, at) : null;
   };
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!writable || event.pointerType === "touch") return;
     const next = ghostAt(event.currentTarget, event.clientX, event.clientY, event.shiftKey);
+    pointerAt.current = next?.at ?? null;
     setGhost((previous) =>
       previous?.key === next?.key &&
       previous?.seq === next?.seq &&
@@ -547,7 +571,12 @@ export function ScoreView({
     );
   };
   const onPointerLeave = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== "touch") setGhost(null);
+    if (event.pointerType === "touch") return;
+    pointerAt.current = null;
+    setGhost(null);
+  };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointerKind.current = event.pointerType;
   };
   const writeAt = (event: MouseEvent<HTMLDivElement>, mode: WritingMode) => {
     const stage = event.currentTarget;
@@ -557,14 +586,16 @@ export function ScoreView({
       setGhost(null);
       return;
     }
-    const pointer = (event.nativeEvent as Partial<PointerEvent>).pointerType;
+    const pointer = (event.nativeEvent as Partial<PointerEvent>).pointerType ?? pointerKind.current;
     // Con el ratón, el clic escribe lo que enseña el fantasma: en el borde entre dos alturas, el
     // punto del clic, redondeado de otra forma, podría dar la de al lado.
+    const last = pointerAt.current;
     if (
       pointer !== "touch" &&
       ghost?.seq === next.seq &&
-      Math.abs(ghost.at.x - next.at.x) <= GHOST_SLACK_PX &&
-      Math.abs(ghost.at.y - next.at.y) <= GHOST_SLACK_PX
+      last !== null &&
+      Math.abs(last.x - next.at.x) <= GHOST_SLACK_PX &&
+      Math.abs(last.y - next.at.y) <= GHOST_SLACK_PX
     ) {
       next = ghostOf(ghost.spot, ghost.pitch, event.shiftKey, ghost.seq, ghost.at);
     }
@@ -572,7 +603,7 @@ export function ScoreView({
     // mismo sitio, escribe.
     const shown = ghost?.key === next.key && ghost.seq === next.seq;
     setGhost(next);
-    if ((pointer === "touch" && !shown) || !mode.ready) return;
+    if ((pointer === "touch" && !shown) || mode.wait !== null) return;
     const found = eventAt(snapshot.transcription, next.spot.aim.event.anchor);
     if (!found) return;
     const target: EditTarget = { anchor: next.spot.aim.event.anchor, ...found };
@@ -728,8 +759,10 @@ export function ScoreView({
         "aria-busy": ahead || undefined,
         onKeyDown,
         onClick,
+        onKeyUp,
         onPointerMove,
         onPointerLeave,
+        onPointerDown,
         "data-writing": writing ? "true" : undefined,
       }
     : {};
@@ -825,7 +858,7 @@ export function ScoreView({
               figure={writing.figure}
               dotted={writing.dotted}
               chord={ghost.chord}
-              waiting={!writing.ready}
+              wait={writing.wait}
             />
           )}
           {/* Solo es una imagen con nombre cuando hay partitura dibujada y no se eligen notas. */}

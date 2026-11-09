@@ -740,12 +740,22 @@
   display: none;
 }
 
+/* La indicación del modo «Escribir» (#350): con el ratón o con el dedo. */
+.editor__hint-touch {
+  display: none;
+}
+
 /* Sin teclado físico las leyendas solo estorban: quedan el toque y los botones. */
 @media (hover: none) and (pointer: coarse) {
   .selection__keys,
   .editor__keys,
-  .editor__keys-toggle {
+  .editor__keys-toggle,
+  .editor__hint-pointer {
     display: none;
+  }
+
+  .editor__hint-touch {
+    display: inline;
   }
 }
 
@@ -998,13 +1008,10 @@
   user-select: none;
 }
 
-/* Hueco de una voz (ADR-0058): un silencio invisible que OSMD guarda transparente en su sitio. Una
-   trama de puntos de tinta, la de lo secundario, por detrás de las notas: se ve dónde está sin
-   dibujar en la partitura un signo que no tiene. */
 /* Escribir con el ratón (#350): sobre la partitura, una cruz; la nota fantasma en violeta
    translúcido (pide una acción) y por encima de las notas, sin recibir el puntero; una línea de
    inserción discontinua entre dos figuras y su nombre en un rótulo violeta. Mientras se guarda
-   otra corrección, todo en filete discontinuo: el clic espera. */
+   otra corrección o el editor está parado, todo en filete discontinuo: el clic no escribe. */
 .notation__stage[data-writing="true"] {
   cursor: crosshair;
 }
@@ -1072,6 +1079,9 @@
   color: var(--color-ink);
 }
 
+/* Hueco de una voz (ADR-0058): un silencio invisible que OSMD guarda transparente en su sitio. Una
+   trama de puntos de tinta, la de lo secundario, por detrás de las notas: se ve dónde está sin
+   dibujar en la partitura un signo que no tiene. */
 .notation__gap {
   position: absolute;
   background: var(--halftone-ink);

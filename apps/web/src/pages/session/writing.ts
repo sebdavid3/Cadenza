@@ -1,4 +1,4 @@
-import type { EditTarget } from "./edits";
+import { isGap, type EditTarget } from "./edits";
 import { slotKey, type MeasureSlot } from "./findings";
 import type { SelectableEvent } from "./noteMap";
 import type { Box } from "./osmd";
@@ -96,6 +96,8 @@ interface Column {
   members: SelectableEvent[];
   left: number;
   right: number;
+  /** Donde empieza con las notas de adorno que la preceden: una inserción va antes de ellas. */
+  lead: number;
 }
 
 function distance(value: number, start: number, size: number): number {
@@ -110,25 +112,44 @@ const sameVoice = (a: SelectableEvent, b: SelectableEvent) =>
   a.anchor.measure === b.anchor.measure &&
   a.anchor.voice === b.anchor.voice;
 
-/** Las columnas de una voz: cada figura, con todas las notas de su acorde, en orden. */
-function columnsOf(voice: SelectableEvent[]): Column[] {
+const leftOf = (event: SelectableEvent) => Math.min(...event.boxes.map((box) => box.left));
+
+/**
+ * Las columnas de una voz: cada figura, con todas las notas de su acorde, en orden. Las notas de
+ * adorno no son columna: van con la figura que las sigue y alargan su comienzo (`lead`).
+ */
+function columnsOf(voice: SelectableEvent[], graces: SelectableEvent[]): Column[] {
   const columns: Column[] = [];
   const ordered = [...voice].sort((a, b) => a.anchor.event_index - b.anchor.event_index);
   for (const event of ordered) {
     const last = columns.at(-1);
-    const left = Math.min(...event.boxes.map((box) => box.left));
+    const left = leftOf(event);
     const right = Math.max(...event.boxes.map((box) => box.left + box.width));
     // Una nota que sigue a otra en su acorde (`is_chord`) va en su columna.
     if (event.event.is_chord === true && last) {
       last.members.push(event);
       last.left = Math.min(last.left, left);
       last.right = Math.max(last.right, right);
+      last.lead = Math.min(last.lead, left);
     } else {
-      columns.push({ members: [event], left, right });
+      columns.push({ members: [event], left, right, lead: left });
     }
+  }
+  for (const grace of graces) {
+    const owner = columns.find(
+      (column) => (column.members[0]?.anchor.event_index ?? -1) > grace.anchor.event_index,
+    );
+    if (owner) owner.lead = Math.min(owner.lead, leftOf(grace));
   }
   return columns.sort((a, b) => a.left - b.left);
 }
+
+/** Sustituir el evento de una columna: el fantasma, en su centro. */
+const replaceAim = (column: Column, event: SelectableEvent): WriteAim => ({
+  kind: "replace",
+  event,
+  x: (column.left + column.right) / 2,
+});
 
 /** Lo que pide un clic en el modo «Escribir», con el evento en el estado que se ve. */
 export type WriteRequest =
@@ -140,8 +161,11 @@ export interface WritingMode {
   /** Figura (índice de `FIGURES`) y puntillo con que se escribe. */
   figure: number;
   dotted: boolean;
-  /** Si se puede escribir ya: no se está guardando ninguna corrección. */
-  ready: boolean;
+  /**
+   * Por qué no se escribe ahora, o null si se puede: se está guardando otra corrección (o hay una
+   * en espera), o el editor está parado (un estado sin confirmar, una revalidación…).
+   */
+  wait: "saving" | "blocked" | null;
   onWrite: (request: WriteRequest) => void;
   onExit: () => void;
 }
@@ -151,7 +175,9 @@ export interface WritingMode {
  * franja, con sus líneas adicionales, contiene el punto (el de pentagrama más cercano, si dos se
  * tocan); la voz, la de la figura más cercana en horizontal. Sobre una figura (con un margen) se
  * sustituye su nota más cercana en vertical; entre dos figuras, antes de la primera o tras la
- * última se inserta. Las notas de adorno no se escriben con el ratón.
+ * última se inserta (antes de las notas de adorno de la siguiente). Ante un hueco no se inserta:
+ * se escribe en él, como en la barra (ADR-0058); y una voz con un solo silencio se escribe en él.
+ * Las notas de adorno no se escriben con el ratón.
  */
 export function writeSpotAt(
   events: readonly SelectableEvent[],
@@ -161,6 +187,7 @@ export function writeSpotAt(
   noteSteps: (event: SelectableEvent) => number | null = () => null,
 ): WriteSpot | null {
   const bySlot = new Map<string, { slot: MeasureSlot; events: SelectableEvent[] }>();
+  const graces = events.filter((event) => event.grace);
   for (const event of events) {
     if (event.grace) continue;
     const key = slotKey(event.slot);
@@ -205,7 +232,10 @@ export function writeSpotAt(
   }
   if (!nearest) return null;
   const voice = nearest;
-  const columns = columnsOf(found.events.filter((event) => sameVoice(event, voice)));
+  const columns = columnsOf(
+    found.events.filter((event) => sameVoice(event, voice)),
+    graces.filter((event) => sameVoice(event, voice)),
+  );
   const steps = stepsAt(y, lines);
   const margin = FIGURE_MARGIN * lines.space;
   const reach = INSERT_REACH * lines.space;
@@ -224,14 +254,23 @@ export function writeSpotAt(
         }
       }
     }
-    return { aim: { kind: "replace", event, x: (over.left + over.right) / 2 }, steps, lines };
+    return { aim: replaceAim(over, event), steps, lines };
+  }
+
+  // Una voz con un solo silencio (el de compás, en el centro): se escribe en él.
+  const only = columns.length === 1 ? columns[0] : undefined;
+  if (only?.members[0]?.event.kind === "rest") {
+    return { aim: replaceAim(only, only.members[0]), steps, lines };
   }
 
   const next = columns.find((column) => column.left > x);
   const previous = [...columns].reverse().find((column) => column.right < x);
   if (next?.members[0]) {
+    if (isGap(next.members[0].event)) {
+      return { aim: replaceAim(next, next.members[0]), steps, lines };
+    }
     const from = previous ? previous.right : box.left;
-    const at = Math.max((from + next.left) / 2, next.left - reach);
+    const at = Math.max((from + next.lead) / 2, next.lead - reach);
     return { aim: { kind: "insert", event: next.members[0], end: false, x: at }, steps, lines };
   }
   const last = previous?.members[0];

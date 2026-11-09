@@ -1200,9 +1200,16 @@ export function EditBar({
       )}
       {editable && writing && (
         <p className="editor__hint editor__hint--writing">
-          Escribir: elige la figura y pasa el ratón por la partitura; el fantasma enseña la nota.
-          Clic para ponerla (sobre otra figura, la cambia; entre dos, inserta) y Mayús + clic para
-          añadirla al acorde. Esc para salir.
+          <span className="editor__hint-pointer">
+            Escribir: elige la figura y pasa el ratón por la partitura; el fantasma enseña la nota.
+            Clic para ponerla (sobre otra figura, la cambia; entre dos, inserta) y Mayús + clic para
+            añadirla al acorde. Esc para salir.
+          </span>
+          <span className="editor__hint-touch">
+            Escribir: elige la figura y toca la partitura; el fantasma enseña la nota. Vuelve a
+            tocar en el mismo sitio para ponerla (sobre otra figura, la cambia; entre dos, inserta).
+            Pulsa «Escribir» para salir.
+          </span>
         </p>
       )}
       {editable && !writing && hint(target, available) !== null && (

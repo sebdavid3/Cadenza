@@ -370,6 +370,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
     if (!writingOn) return;
     const { target, pitch } = request;
     if (request.kind === "insert") {
+      // Elegido el evento ante el que se inserta, la nota nueva queda elegida al guardarse.
+      select({ sessionId, seq, anchor: target.anchor });
       editor.run(
         {
           kind: "write-insert",
@@ -400,17 +402,39 @@ function SessionView({ sessionId }: { sessionId: string }) {
       editor.run(height, target);
       return;
     }
-    if (heightPlan.kind === "edit") editor.run(height, target);
-    if (figurePlan.kind === "edit") editor.run(figure, target);
+    // Un silencio o un hueco cambia antes de figura: la nota en su lugar toma la suya, y un
+    // silencio importado con una figura que las ediciones no admiten no la rechazaría.
+    const order = target.event.kind === "rest" ? [figure, height] : [height, figure];
+    for (const command of order) {
+      const plan = command === height ? heightPlan : figurePlan;
+      if (plan.kind === "edit") editor.run(command, target);
+    }
   };
+  // Esc sale del modo «Escribir» también con el foco fuera de la partitura (tras pulsar
+  // «Escribir» o una figura), salvo en un campo o un diálogo, que la usan para lo suyo.
+  const writingActive = writingOn !== null;
+  useEffect(() => {
+    if (!writingActive) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const from = event.target instanceof Element ? event.target : null;
+      if (from?.closest("input, select, textarea, [role='dialog'], [aria-modal='true']")) return;
+      setWriting(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [writingActive]);
   const writingMode: WritingMode | null = writingOn
     ? {
         ...writingOn,
-        ready:
-          editor.status.kind !== "saving" &&
-          editor.status.kind !== "reloading" &&
-          !editor.queued &&
-          !editor.blocked,
+        wait:
+          editor.status.kind === "saving" || editor.status.kind === "reloading" || editor.queued
+            ? "saving"
+            : editor.blocked
+              ? "blocked"
+              : null,
         onWrite: write,
         onExit: () => {
           setWriting(null);

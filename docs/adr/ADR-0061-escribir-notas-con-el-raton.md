@@ -25,18 +25,18 @@ Hechos comprobados el 2026-11-08 sobre `dev` (`354b8b3`):
 
 - **Un conmutador «Escribir»** en la primera fila de la barra de corrección, junto a «Atajos» (`aria-pressed`, `aria-keyshortcuts="W"`), y la tecla **W** con la partitura enfocada. Al entrar se abre la pestaña «Nota».
 - **La figura y el puntillo de la barra eligen con qué se escribe** mientras dura el modo: no envían nada y se pueden pulsar siempre (también con las teclas 1 a 7 y el punto). El modo empieza con la figura de la nota elegida o, sin ninguna, con una negra.
-- **Se sale** con el conmutador, con W, con **Esc** (antes que quitar la nota elegida) y al finalizar la sesión. Fuera del modo, la vista se comporta como antes: el clic elige.
-- **La indicación** bajo los controles dice cómo se escribe, y la leyenda de teclas añade W y Esc.
+- **Se sale** con el conmutador, con W, con **Esc** (antes que quitar la nota elegida; también con el foco en la barra, salvo en un campo o un diálogo) y al finalizar la sesión. Fuera del modo, la vista se comporta como antes: el clic elige.
+- **La indicación** bajo los controles dice cómo se escribe: con el ratón o, en una pantalla táctil, con el dedo. La leyenda de teclas añade W y Esc.
 
 ### 2. La nota fantasma
 
-Con el ratón o el lápiz, en el modo, el puntero lleva una **nota fantasma** sobre la partitura (una capa SVG que no recibe el puntero, por encima de las marcas): la cabeza (blanca en la blanca y la redonda), la plica (hacia arriba desde la línea central hacia abajo; sin plica la redonda), los corchetes, el puntillo y las líneas adicionales que necesite, en violeta translúcido (pide una acción, DESIGN.md), con una etiqueta: «Sol4 · negra», «Insertar Sol4 · negra», «Sol4 al acorde» o, mientras se guarda otra corrección, «Espera: se está guardando», con filete discontinuo. El cursor es una cruz. Solo aparece sobre el estado que se ve dibujado: las anclas del mapa de notas son de ese estado.
+Con el ratón o el lápiz, en el modo, el puntero lleva una **nota fantasma** sobre la partitura (una capa SVG que no recibe el puntero, por encima de las marcas): la cabeza (blanca en la blanca y la redonda), la plica (hacia arriba bajo la línea central y hacia abajo en ella y por encima; sin plica la redonda), los corchetes, el puntillo y las líneas adicionales que necesite, en violeta translúcido (pide una acción, DESIGN.md), con una etiqueta: «Sol4 · negra», «Insertar Sol4 · negra», «Sol4 al acorde» o, cuando el clic no escribiría, con filete discontinuo: «Espera: se está guardando» mientras se guarda otra corrección o hay una en cola, y «Ahora no se puede escribir» con el editor parado (un estado sin confirmar, una revalidación…). Mayús cambia el fantasma al acorde sin mover el ratón. La etiqueta no se lee (`aria-hidden`): el modo es para el puntero. El cursor es una cruz. Solo aparece sobre el estado que se ve dibujado: las anclas del mapa de notas son de ese estado.
 
 ### 3. Dónde cae el puntero
 
 - **El pentagrama.** El compás cuya franja (de cuatro espacios por encima de la quinta línea a cuatro por debajo de la primera) contiene el punto; si hay varios, el de centro más cercano. Las líneas salen de su caja (un espacio es un octavo de su alto; la quinta línea, dos espacios bajo su borde) y se **ajustan con las cabezas dibujadas** del compás: la mediana de la diferencia entre donde está cada cabeza y donde debería estar por su altura y su clave. Un compás sin cabezas usa la caja tal cual.
-- **La altura.** El punto se redondea a la línea o el espacio más cercano, hasta cuatro líneas adicionales por encima y por debajo. La altura es la nota de esa línea en la clave vigente del compás, con la alteración de la armadura vigente (`staffPitch`); otra alteración se pone después con su grupo.
-- **La voz y la columna.** La voz es la del evento más cercano (en horizontal y, a igualdad, en vertical). Sus eventos se agrupan en columnas (las notas de un acorde forman una). Si el punto cae sobre una columna (su caja y 0,6 espacios a cada lado), apunta a ella: al evento de la columna más cercano en vertical. Si no, apunta a **insertar** antes de la columna siguiente o, tras la última, al final de la voz; la línea de inserción se dibuja en el hueco, a no más de dos espacios de la figura.
+- **La altura.** El punto se redondea a la línea o el espacio más cercano, hasta cuatro líneas adicionales por encima y por debajo. La altura es la nota de esa línea en la clave vigente del compás, con la alteración de la armadura vigente (`staffPitch`); otra alteración se pone después con su grupo. Sobre una nota, en su misma línea o espacio, se conserva su altura con su alteración: cambiar solo la figura de un Fa#4 en Do mayor no lo deja en Fa4.
+- **La voz y la columna.** La voz es la del evento más cercano (en horizontal y, a igualdad, en vertical). Sus eventos se agrupan en columnas (las notas de un acorde forman una). Si el punto cae sobre una columna (su caja y 0,6 espacios a cada lado), apunta a ella: al evento de la columna más cercano en vertical. Si no, apunta a **insertar** antes de la columna siguiente (y antes de sus notas de adorno, que van con ella) o, tras la última, al final de la voz; la línea de inserción se dibuja en el hueco, a no más de dos espacios de la figura o de su primer adorno. **Ante un hueco no se inserta**: se escribe en él, como en la barra (ADR-0058 §4, «antes» y «en» son el mismo sitio). **En una voz con un solo silencio** (el de compás, en el centro), cualquier punto del compás escribe en él.
 
 ### 4. Qué hace el clic (decisión del responsable)
 
@@ -48,11 +48,11 @@ Con el ratón o el lápiz, en el modo, el puntero lleva una **nota fantasma** so
 | Mayús + clic sobre una nota | `InsertEvent` de una nota con `is_chord` tras la última del acorde, con la figura del acorde (ADR-0055) | la nota añadida |
 | Entre dos figuras, antes de la primera o tras la última | `InsertEvent` de una nota con la figura elegida en ese sitio (ADR-0033) | la nota nueva |
 
-- **Cada orden es una edición**, con su `base_seq` y sin envío optimista (ADR-0030, ADR-0038). Cuando un clic da dos, la segunda espera su turno en la cola del editor y se vuelve a planear sobre la nota que dejó elegida la primera; cada una es un paso de deshacer.
+- **Cada orden es una edición**, con su `base_seq` y sin envío optimista (ADR-0030, ADR-0038). Cuando un clic da dos, la segunda espera su turno en la cola del editor y se vuelve a planear sobre la nota que dejó elegida la primera; cada una es un paso de deshacer. Sobre una nota va primero la altura; sobre un silencio o un hueco, primero la figura, para que la nota tome la elegida y un silencio importado con una figura que las ediciones no admiten no rechace la nota.
 - **Lo que ya es así no se envía** (la misma altura y la misma figura; una altura que ya está en el acorde). **Lo que no se puede** (fuera del registro, una nota que se uniría a un acorde, un acorde sobre un silencio) lo dice el editor con sus mensajes, sin enviar nada.
-- **El clic escribe lo que enseña el fantasma**: si el puntero no se ha movido más de 1,5 px desde el último movimiento, se usa el fantasma que se ve. El navegador puede redondear de forma distinta el punto del clic y el del movimiento y, en el borde entre dos alturas, el clic daría la de al lado.
-- **Mientras se guarda otra corrección**, hay una en cola o el editor está bloqueado, el clic no escribe: el fantasma lo dice.
-- **Con el dedo** no hay puntero que siga: el primer toque enseña el fantasma y el segundo, en el mismo sitio, escribe.
+- **El clic escribe lo que enseña el fantasma**: si el clic cae a no más de 1,5 px del último punto del puntero (aunque el fantasma no cambiara al pasar por él), se usa el fantasma que se ve. El navegador puede redondear de forma distinta el punto del clic y el del movimiento y, en el borde entre dos alturas, el clic daría la de al lado.
+- **Mientras se guarda otra corrección**, hay una en cola o el editor está parado, el clic no escribe: el fantasma lo dice.
+- **Con el dedo** no hay puntero que siga: el primer toque enseña el fantasma y el segundo, en el mismo sitio, escribe. Si el navegador no dice con qué puntero se hizo el clic, vale el del último `pointerdown`.
 
 ### 5. Dominio: un silencio que se ve pasa a ser una nota (enmienda ADR-0058 §2)
 
@@ -74,11 +74,11 @@ En la mesa (desde 960 px), el panel de la partitura y la partitura reservan desd
 - Comprobado en local con la API real y el navegador (2026-11-08, TS-01 a 1600×1000): sobre las 17 cabezas, el fantasma da la altura de la nota (también en el segundo sistema, gracias al ajuste); el clic cambia altura y figura, inserta entre dos figuras y añade al acorde con Mayús, y todo se guarda.
 
 ### Negativas / Riesgos
-- Las alteraciones fuera de la armadura y las notas de adorno no se escriben con el clic: se corrigen después con la barra.
+- Las alteraciones fuera de la armadura (salvo la de la nota sobre la que se escribe, en su línea) y las notas de adorno no se escriben con el clic: se corrigen después con la barra. Las alteraciones accidentales anteriores del compás tampoco cuentan.
 - En un compás con varias voces, la voz es la del evento más cercano: para escribir en otra hay que acercarse a sus figuras.
 - Un compás sin cabezas dibujadas (solo silencios) usa la caja del modelo sin ajustar y puede dar un paso de diferencia donde el modelo y el dibujo no coinciden.
 - Con Mayús, la figura elegida no cuenta: la nota añadida lleva la del acorde.
-- No está comprobado con un lector de pantalla ni en un móvil físico; el modo es para el puntero y la corrección con el teclado no cambia.
+- No está comprobado con un lector de pantalla ni en un móvil físico (sí, la maqueta y la indicación, con la emulación del navegador a 375 px); el modo es para el puntero y la corrección con el teclado no cambia.
 - Depende de que OSMD 2.2.1 y VexFlow dibujen las cabezas donde dice su altura y de la caja de compás de ADR-0021.
 
 ## Alternativas consideradas

@@ -749,8 +749,11 @@ export function planAgain(
       // Lo mismo en el hueco, si sigue siéndolo, o en el silencio que pasa a ser nota (#350), si
       // sigue siéndolo, y si una nota no se uniría a un acorde.
       if (!isGap(target.event)) {
-        if (target.event.kind !== "rest" || edit.after.kind !== "note") {
+        if (target.event.kind !== "rest") {
           return refuse("same", "Ya no es un silencio: no hay nada que escribir en él.");
+        }
+        if (edit.after.kind !== "note") {
+          return refuse("same", "Ya es un silencio que se ve: no hay nada que cambiar.");
         }
         return score !== null && joinsChordAfter(score, target)
           ? JOINS_CHORD
@@ -811,7 +814,10 @@ function gapPlan(after: GapFill, target: EditTarget): EditPlan {
   };
 }
 
-/** Si lo que sigue al hueco en su voz es una nota de un acorde: una nota en él se le uniría. */
+/**
+ * Si lo que sigue al hueco o al silencio en su voz es una nota de un acorde: una nota en su lugar
+ * se le uniría.
+ */
 function joinsChordAfter(score: ScoreIRPayload, target: EditTarget): boolean {
   const following = (voiceEvents(score, target.anchor) ?? [])[target.anchor.event_index + 1];
   return following?.kind === "note" && following.is_chord === true;
@@ -820,7 +826,7 @@ function joinsChordAfter(score: ScoreIRPayload, target: EditTarget): boolean {
 const JOINS_CHORD: EditPlan = {
   kind: "refused",
   reason: "chord",
-  message: "Lo que sigue al hueco es una nota de un acorde: una nota en él se uniría al acorde.",
+  message: "Lo que sigue es una nota de un acorde: una nota escrita aquí se uniría a ese acorde.",
 };
 
 /**
@@ -1432,7 +1438,11 @@ function planWriteInsert(
   const pitch = spelling ? canonical(spelling) : null;
   if (!pitch) return refuse("range");
   const events = voiceEvents(score, target.anchor) ?? [];
-  const index = command.end ? events.length : chordStart(events, target.anchor.event_index);
+  let index = command.end ? events.length : chordStart(events, target.anchor.event_index);
+  // Las notas de adorno van con la nota que las sigue: la nueva entra antes de ellas.
+  while (!command.end && index > 0 && isGraceNote(events[index - 1])) {
+    index = chordStart(events, index - 1);
+  }
   const after = {
     kind: "note",
     pitch,
@@ -1447,6 +1457,11 @@ function planWriteInsert(
     select: anchor,
     change: insertionChange(after),
   };
+}
+
+/** Una nota de adorno: no ocupa tiempo y no tiene figura (ADR-0028). */
+function isGraceNote(event: ScoreEventPayload | undefined): boolean {
+  return event?.kind === "note" && (event.duration_beats ?? null) === null;
 }
 
 /** La altura señalada como una nota más del acorde de la nota (ADR-0055 §5). */
@@ -1466,7 +1481,12 @@ function planWriteChord(pitch: string, target: EditTarget | null, score: ScoreIR
   const start = chordStart(events, target.anchor.event_index);
   const end = chordEnd(events, target.anchor.event_index);
   const notes = events.slice(start, end);
-  if (notes.some((note) => note.pitch === written)) {
+  if (
+    notes.some((note) => {
+      const own = parsePitch(note.pitch);
+      return own !== null && canonical(own) === written;
+    })
+  ) {
     return refuse("same", "Esa nota ya está en el acorde.");
   }
   const duration = admissible(notes[0]?.duration_beats ?? null);
