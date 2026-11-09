@@ -45,6 +45,7 @@ from cadenza.domain import (
 )
 from music21 import (
     articulations,
+    beam,
     chord,
     clef,
     common,
@@ -1280,7 +1281,9 @@ def _beam_by_bars(container: Any, signature: Any) -> None:
 
     Cada tramo empieza en una barra contada desde la parte 1 y se agrupa con la métrica del
     compás: lo que sobra, como si empezara otro compás. Una figura que cruza el borde de un tramo
-    queda sin barra. Las notas de adorno no entran en los grupos, como en `makeBeams`.
+    queda sin barra. Las notas de adorno no entran en los grupos, como en `makeBeams`. Se llama
+    con todas las voces de un compás sobrellenado: la que no lo llena tampoco es una anacrusa, y
+    sus barras empiezan en la parte 1, no al final del compás como las pone `makeBeams`.
     """
 
     bar = Fraction(signature.barDuration.quarterLength)
@@ -1289,13 +1292,11 @@ def _beam_by_bars(container: Any, signature: Any) -> None:
         for figure in container.notesAndRests
         if not figure.duration.isGrace
     ]
-    ends = [start + Fraction(figure.quarterLength) for start, figure in placed]
-    if len(placed) < 2 or max(ends) <= bar:
-        return
     windows: dict[int, list[tuple[Fraction, Any]]] = {}
-    for (start, figure), end in zip(placed, ends, strict=True):
+    for start, figure in placed:
+        figure.beams = beam.Beams()
         index = start // bar
-        if end <= (index + 1) * bar:
+        if start + Fraction(figure.quarterLength) <= (index + 1) * bar:
             windows.setdefault(index, []).append((start, figure))
     for index, members in windows.items():
         if len(members) < 2:
@@ -1323,12 +1324,15 @@ def _beam_overfull_voices(out: stream.Score) -> None:
 
     `makeBeams` de music21 se salta toda voz que suma más que su compás, y el exportador no
     reparte sus notas entre compases (#152): sus corcheas y semicorcheas salían sueltas, cada una
-    con su corchete (#366). Aquí se agrupa cada parte como lo haría el exportador y después cada
-    voz sobrellenada por tramos de un compás (`_beam_by_bars`). Como la parte ya tiene barras, el
-    exportador no la vuelve a agrupar. Las notas y sus duraciones no cambian.
+    con su corchete (#366). Aquí se hace lo que haría el exportador, en su orden (partir en notas
+    ligadas las duraciones que no caben en una figura y agrupar la parte), y después se agrupan
+    por tramos de un compás las voces de cada compás sobrellenado (`_beam_by_bars`). Como la parte
+    ya está partida y tiene barras, el exportador no la vuelve a tocar. Las notas que se escriben
+    y sus duraciones no cambian.
     """
 
     for part in out.parts:
+        part.splitAtDurations(recurse=True)
         try:
             part.makeBeams(inPlace=True)
         except stream.StreamException:
@@ -1337,6 +1341,8 @@ def _beam_overfull_voices(out: stream.Score) -> None:
         for measure in part.getElementsByClass(stream.Measure):
             signature = measure.timeSignature or measure.getContextByClass(meter.TimeSignature)
             if signature is None:
+                continue
+            if Fraction(measure.highestTime) <= Fraction(signature.barDuration.quarterLength):
                 continue
             for container in list(measure.voices) if measure.hasVoices() else [measure]:
                 _beam_by_bars(container, signature)
@@ -1352,9 +1358,9 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     alteraciones visibles, los corchetes de los tresillos y las barras de agrupación, y divide
     en notas ligadas dentro del mismo compás las duraciones que MusicXML no puede escribir con
     una sola figura. Las voces que suman más que su compás, que music21 no agrupa, se agrupan
-    por tramos de un compás (#366). Los
-    tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`. Una nota
-    de duración cero o nula sale como nota de adorno (D60, #199).
+    por tramos de un compás (#366). Los tresillos incompletos no se completan: se escriben con
+    las duraciones del `ScoreIR`. Una nota de duración cero o nula sale como nota de adorno (D60,
+    #199).
 
     Lleva las marcas de notación (ADR-0031): articulaciones, calderones, dinámicas y las
     ligaduras de expresión y los reguladores completos; un extremo sin pareja no se dibuja.

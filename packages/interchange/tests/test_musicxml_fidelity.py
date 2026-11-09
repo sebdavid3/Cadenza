@@ -270,6 +270,56 @@ def test_overfull_compound_measure_keeps_the_grouping_of_its_meter() -> None:
     ]
 
 
+def test_overfull_measure_in_three_eight_is_beamed_by_whole_bars() -> None:
+    # En 3/8 el compás entero es un grupo: lo que sobra empieza otro.
+    events = (
+        ("C5", "1/4"),
+        ("D5", "1/4"),
+        ("E5", "1/2"),
+        ("F5", "1/2"),
+        ("G5", "1/4"),
+        ("A5", "1/4"),
+    )
+    three_eight = TimeSignature(beats=3, beat_type=8)
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=three_eight))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == ["begin", "continue", "continue", "end", "begin", "end"]
+
+
+def test_short_voice_beside_an_overfull_voice_is_beamed_from_the_downbeat() -> None:
+    # Un compás sobrellenado no es una anacrusa: la voz que no lo llena empieza en la parte 1.
+    upper = [_note(pitch, "1/2") for pitch in ("G5", "F5", "E5", "D5", "C5", "B4")]
+    lower = [_note(pitch, "1/2", voice=1) for pitch in ("C4", "D4", "E4")]
+
+    xml_text = score_ir_to_musicxml(_score(_first(1, *upper, *lower, signature=TWO_FOUR)))
+
+    assert _beams(_xml_measures(xml_text)[0])[6:] == ["begin", "end", None]
+
+
+def test_figures_split_by_the_exporter_are_beamed_as_before() -> None:
+    # 5/4 de negra sale como negra ligada a semicorchea. Las barras se calculan tras partirla,
+    # como hacía el exportador: la semicorchea se une a las figuras de su parte.
+    four_four = TimeSignature(beats=4, beat_type=4)
+    events = ("C5", "5/4"), ("D5", "1/4"), ("E5", "1/2"), ("F5", "1/2"), ("G5", "1/2"), ("A5", "1")
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=four_four))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == [None, "begin", "continue", "end", "begin", "end", None]
+
+
+def test_figures_split_by_the_exporter_in_an_overfull_measure_are_beamed() -> None:
+    events = ("C5", "1/2"), ("D5", "5/4"), ("E5", "1/4"), ("F5", "1/2"), ("G5", "1/2")
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=TWO_FOUR))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    # Re negra y re semicorchea ligadas; la semicorchea se une a la de mi.
+    assert _beams(measures[0]) == [None, None, "begin", "end", "begin", "end"]
+
+
 def test_figure_across_the_bar_of_an_overfull_measure_is_not_beamed() -> None:
     # La corchea con puntillo empieza en el compás y acaba en el tramo que sobra: no se une a
     # ninguno de los dos.
