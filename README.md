@@ -337,7 +337,17 @@ proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
 
 ## Calidad e integración continua
 
-Antes de cada fusión pasan estas puertas:
+Antes de cada fusión pasan estas puertas. `scripts/puertas.py` las pasa todas, en el orden de
+la CI, dice lo que en local no cubren y deja una línea para el PR
+([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
+
+```bash
+uv run --no-sync python scripts/puertas.py            # Python y web
+uv run --no-sync python scripts/puertas.py --sin-web  # solo Python
+uv run --no-sync python scripts/puertas.py --docker   # y las imágenes de Docker
+```
+
+Una a una:
 
 ```bash
 uv run --no-sync pytest
@@ -359,6 +369,11 @@ npm run build      # comprobación de tipos y empaquetado
 La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
 mismo en cada PR hacia `dev`, con un job para el backend y otro para el frontend. Los tests de compatibilidad con PostgreSQL corren allí contra un
 PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala.
+
+**Desde el 2026-11-08 la CI no arranca** por un cobro pendiente de la cuenta de GitHub. Por
+decisión del responsable, mientras dure se fusiona con las puertas locales en verde
+(`scripts/puertas.py`), la revisión independiente hecha y una nota en el PR (D69 en
+[`docs/PROJECT_STATE.md`](docs/PROJECT_STATE.md)).
 
 ---
 
