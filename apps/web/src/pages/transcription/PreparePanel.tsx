@@ -27,7 +27,7 @@ interface PreparePanelProps {
   focusOnOpen: boolean;
   /** Tras enviar el lote: el foco pasa a la cola. */
   onSent: () => void;
-  /** Tras descartarlo o quitar la última imagen: el foco vuelve a «Elegir imágenes». */
+  /** Tras descartarlo o quitar la última imagen: el foco vuelve a «Nueva transcripción». */
   onClosed: () => void;
 }
 

@@ -5,7 +5,7 @@ import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { anonymousPreviewEnabled, registrationEnabled } from "../../config";
 import { formatSize } from "../transcription/format";
-import { Elapsed } from "../transcription/QueuePanel";
+import { Elapsed } from "../transcription/Elapsed";
 import { ScoreDataFields, type PartField } from "../transcription/ScoreDataFields";
 import { nonBlank } from "../transcription/scoreData";
 import { useBlockStrayDrops } from "../transcription/useBlockStrayDrops";
