@@ -301,6 +301,7 @@
 .editor__button,
 .editor__tab,
 .editor__keys-toggle,
+.editor__write,
 .scan__tool,
 .scan__toggle {
   display: inline-flex;
@@ -343,6 +344,7 @@
 .editor__button[aria-pressed="true"],
 .editor__tab[aria-selected="true"],
 .editor__keys-toggle[aria-expanded="true"],
+.editor__write[aria-pressed="true"],
 .scan__tool[aria-pressed="true"] {
   background: var(--color-ink);
   color: var(--color-paper);
@@ -357,6 +359,7 @@
   .editor__button:hover,
   .editor__tab:hover,
   .editor__keys-toggle:hover,
+  .editor__write:hover,
   .scan__tool:hover,
   .scan__toggle:hover {
     background: var(--color-ink);
@@ -381,6 +384,7 @@
 .selection__button:focus-visible,
 .editor__button:focus-visible,
 .editor__tab:focus-visible,
+.editor__write:focus-visible,
 .scan__tool:focus-visible {
   position: relative;
   z-index: 1;
@@ -997,6 +1001,77 @@
 /* Hueco de una voz (ADR-0058): un silencio invisible que OSMD guarda transparente en su sitio. Una
    trama de puntos de tinta, la de lo secundario, por detrás de las notas: se ve dónde está sin
    dibujar en la partitura un signo que no tiene. */
+/* Escribir con el ratón (#350): sobre la partitura, una cruz; la nota fantasma en violeta
+   translúcido (pide una acción) y por encima de las notas, sin recibir el puntero; una línea de
+   inserción discontinua entre dos figuras y su nombre en un rótulo violeta. Mientras se guarda
+   otra corrección, todo en filete discontinuo: el clic espera. */
+.notation__stage[data-writing="true"] {
+  cursor: crosshair;
+}
+
+.notation__ghost {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.notation__ghost-head {
+  fill: var(--color-accent);
+  fill-opacity: 0.75;
+}
+
+.notation__ghost-head[data-hollow="true"] {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 2.5;
+}
+
+.notation__ghost-stem,
+.notation__ghost-ledger {
+  stroke: var(--color-accent);
+  stroke-linecap: square;
+  stroke-width: 2;
+  stroke-opacity: 0.8;
+}
+
+.notation__ghost-caret {
+  stroke: var(--color-accent);
+  stroke-dasharray: 4 3;
+  stroke-width: 3;
+}
+
+.notation__ghost-dot {
+  fill: var(--color-accent);
+}
+
+.notation__ghost[data-waiting="true"] .notation__ghost-head {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-dasharray: 3 2;
+  stroke-width: 2;
+}
+
+.notation__ghost-tag {
+  position: absolute;
+  z-index: 3;
+  padding: 2px var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.notation__ghost-tag[data-waiting="true"] {
+  border: var(--rule-width) dashed var(--color-accent);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
 .notation__gap {
   position: absolute;
   background: var(--halftone-ink);
@@ -1647,6 +1722,15 @@ button.findings__item:hover {
      partitura se desplaza entero en vez de dejarla sin alto. */
   .session--desk .session__sheets > .sheet--notation {
     overflow-y: auto;
+  }
+
+  /* El hueco de las barras de desplazamiento (la del panel y la de la partitura) se reserva desde
+     el principio: si una apareciera después del dibujo (al abrir una leyenda o el modo «Escribir»,
+     que alargan la barra), la partitura perdería ancho y se volvería a maquetar, con su parpadeo y,
+     mientras tanto, las cajas medidas (la nota elegida, la nota fantasma, #350) desplazadas. */
+  .session--desk .session__sheets > .sheet--notation,
+  .session--desk .sheet--notation .notation {
+    scrollbar-gutter: stable;
   }
 
   .session--desk .sheet--notation .notation__failed {

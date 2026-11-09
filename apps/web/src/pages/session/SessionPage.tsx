@@ -25,7 +25,17 @@ import { clampShare, SHARE_DEFAULT } from "./deskShare";
 import { EditBar, type ToolTab } from "./EditBar";
 import { useEditor, type Editor } from "./editor";
 import { useEffortMeter } from "./effort";
-import { carryAnchor, type EditTarget } from "./edits";
+import {
+  carryAnchor,
+  drawnDuration,
+  eventAt,
+  figureOf,
+  planCommand,
+  type EditCommand,
+  type EditTarget,
+  type PlannedCommand,
+} from "./edits";
+import type { WriteRequest, WritingMode } from "./writing";
 import { useFindingActions } from "./findingActions";
 import {
   findingLabel,
@@ -61,6 +71,9 @@ import { suggestionsAt } from "./suggestions";
 import type { SuggestionActions } from "./SuggestionList";
 import "./session.css";
 import { readStored, writeStored } from "./storage";
+
+/** La figura con que empieza el modo «Escribir» sin nota elegida: la negra (#350). */
+const QUARTER = 4;
 
 function BackLink() {
   return (
@@ -313,6 +326,97 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const toggleKeys = useCallback(() => {
     setKeysShown((shown) => !shown);
   }, []);
+  // El modo «Escribir» (#350): la figura con que se escribe, o null fuera de él. Empieza con la
+  // de la nota elegida o, sin ninguna, con una negra; abre la pestaña «Nota», la de las figuras.
+  const [writing, setWriting] = useState<{ figure: number; dotted: boolean } | null>(null);
+  const toggleWriting = () => {
+    if (writing) {
+      setWriting(null);
+      return;
+    }
+    const { selection } = useSelectionStore.getState();
+    const at =
+      selection?.sessionId === sessionId && selection.seq === seq ? selection.anchor : null;
+    const found = at && score ? eventAt(score, at) : null;
+    const current = at && found ? figureOf(drawnDuration({ anchor: at, ...found }, score)) : null;
+    setWriting({ figure: current?.figure ?? QUARTER, dotted: current?.dotted ?? false });
+    setTab("note");
+  };
+  // Con la sesión finalizada no hay nada que escribir: el modo «Escribir» no vale.
+  const writingOn = editable ? writing : null;
+  // Las órdenes de la barra y del teclado: entrar o salir del modo «Escribir» y, en él, la figura
+  // y el puntillo eligen con qué se escribe; lo demás va al editor.
+  const runCommand = (command: EditCommand, target: EditTarget | null) => {
+    if (command.kind === "writing") {
+      toggleWriting();
+      return;
+    }
+    if (writingOn && command.kind === "figure") {
+      setWriting({ ...writingOn, figure: command.figure });
+      return;
+    }
+    if (writingOn && command.kind === "dot") {
+      setWriting({ ...writingOn, dotted: !writingOn.dotted });
+      return;
+    }
+    editor.run(command, target);
+  };
+  /**
+   * Un clic en el modo «Escribir»: insertar una nota nueva, añadir la altura al acorde o dar al
+   * evento la altura y la figura del fantasma, que pueden ser dos ediciones (la segunda espera su
+   * turno, ADR-0038). Lo que ya es así no se envía; si algo no se puede, el editor dice por qué.
+   */
+  const write = (request: WriteRequest) => {
+    if (!writingOn) return;
+    const { target, pitch } = request;
+    if (request.kind === "insert") {
+      editor.run(
+        {
+          kind: "write-insert",
+          pitch,
+          figure: writingOn.figure,
+          dotted: writingOn.dotted,
+          end: request.end,
+        },
+        target,
+      );
+      return;
+    }
+    select({ sessionId, seq, anchor: target.anchor });
+    if (request.chord) {
+      editor.run({ kind: "write-chord", pitch }, target);
+      return;
+    }
+    const height: PlannedCommand = { kind: "write", pitch };
+    const figure: PlannedCommand = {
+      kind: "write-figure",
+      figure: writingOn.figure,
+      dotted: writingOn.dotted,
+    };
+    const heightPlan = planCommand(height, target, score);
+    const figurePlan = planCommand(figure, target, score);
+    if (heightPlan.kind === "refused" && heightPlan.reason !== "same") {
+      // Lo dice el editor (fuera del registro, una nota que se uniría a un acorde…).
+      editor.run(height, target);
+      return;
+    }
+    if (heightPlan.kind === "edit") editor.run(height, target);
+    if (figurePlan.kind === "edit") editor.run(figure, target);
+  };
+  const writingMode: WritingMode | null = writingOn
+    ? {
+        ...writingOn,
+        ready:
+          editor.status.kind !== "saving" &&
+          editor.status.kind !== "reloading" &&
+          !editor.queued &&
+          !editor.blocked,
+        onWrite: write,
+        onExit: () => {
+          setWriting(null);
+        },
+      }
+    : null;
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -515,7 +619,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onPlacement={setPlaced}
                 findingsListed={assisted}
                 playing={playing}
-                onCommand={editable ? editor.run : undefined}
+                onCommand={editable ? runCommand : undefined}
+                writing={writingMode}
                 editKeysId={editable ? editKeysId : undefined}
                 keysHidden={editable && !keysShown}
                 editor={
@@ -538,6 +643,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           keysShown={keysShown}
                           onToggleKeys={toggleKeys}
                           selectionKeysId={selectionKeysId}
+                          onCommand={runCommand}
+                          writing={writingOn}
+                          onToggleWriting={toggleWriting}
                           suggestions={{
                             items: noteSuggestions(target),
                             labelOf,

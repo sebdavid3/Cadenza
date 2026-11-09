@@ -216,10 +216,22 @@ function eventOf(payload: Record<string, unknown>): string {
   return eventName(kind, text(payload.pitch), beats);
 }
 
-/** Lo que pasa a ser un hueco de una voz con `SetEventKind` (ADR-0058). */
-function kindChange(after: Record<string, unknown>): string {
+/**
+ * Lo que pasa a ser un hueco de una voz con `SetEventKind` (ADR-0058), o un silencio que se ve
+ * convertido en nota (#350): su instantánea dice qué era.
+ */
+function kindChange(
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): string {
   const pitch = text(after.pitch);
-  if (text(after.kind) === "note" && pitch) return `${spoken(pitch)} en el hueco`;
+  const wasShownRest = before !== null && text(before.kind) === "rest" && before.hidden === false;
+  if (text(after.kind) === "note" && pitch) {
+    return wasShownRest ? `${spoken(pitch)} en lugar del silencio` : `${spoken(pitch)} en el hueco`;
+  }
+  if (text(after.kind) === "rest" && after.hidden !== true && text(before?.kind) === "note") {
+    return "vuelta al silencio";
+  }
   return after.hidden === true ? "vuelta al hueco" : "silencio en el hueco";
 }
 
@@ -274,7 +286,7 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       return describeTieEdit(edit.after);
     // Los huecos de una voz (ADR-0058).
     case "SetEventKind":
-      return kindChange(after);
+      return kindChange(record(edit.before), after);
     // La figura de un acorde entero (ADR-0049).
     case "SetChordDuration": {
       const durations = Array.isArray(after.durations) ? after.durations : [];
