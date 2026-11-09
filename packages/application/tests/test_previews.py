@@ -28,6 +28,7 @@ from cadenza.validation import ValidationEngine, get_default_rules
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 ANA = User(id="ana", username="ana", password_hash="-", role=Role.TRANSCRIPTOR)
+LUIS = User(id="luis", username="luis", password_hash="-", role=Role.TRANSCRIPTOR)
 
 
 def _preview(
@@ -97,6 +98,20 @@ def test_claiming_creates_the_same_session_once_with_the_user_as_owner(tmp_path:
     assert claimed.findings_count == result.findings_count
     assert previews.get(result.preview_id) is None
 
+    # Si se perdió la respuesta, la misma cuenta recibe su sesión otra vez y no se crea otra
+    # (#278); otra cuenta, como si no existiera.
+    again = claim_preview(
+        result.preview_id,
+        result.claim_token,
+        preview_repository=previews,
+        session_repository=sessions,
+        artifact_store=artifacts,
+        validator=ValidationEngine([]),
+        current_user=ANA,
+        now=NOW,
+    )
+    assert again == claimed
+    assert len(sessions.list()) == 1
     with pytest.raises(PreviewNotFound):
         claim_preview(
             result.preview_id,
@@ -105,7 +120,7 @@ def test_claiming_creates_the_same_session_once_with_the_user_as_owner(tmp_path:
             session_repository=sessions,
             artifact_store=artifacts,
             validator=ValidationEngine([]),
-            current_user=ANA,
+            current_user=LUIS,
             now=NOW,
         )
 
