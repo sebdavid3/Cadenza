@@ -5,6 +5,7 @@ import { DeskDivider } from "./DeskDivider";
 import { SHARE_DEFAULT, SHARE_MAX, SHARE_MIN } from "./deskShare";
 import { ScanFigure } from "./ScanFigure";
 import { readStored, writeStored } from "./storage";
+import sessionCss from "./session.css?raw";
 
 /** Mesa de corrección (#341): la imagen original con su zoom y el divisor que reparte el ancho. */
 
@@ -200,5 +201,28 @@ describe("lo que la mesa recuerda en el navegador", () => {
     } finally {
       if (original) Object.defineProperty(window, "localStorage", original);
     }
+  });
+});
+
+describe("la página de la mesa no se alarga (#355)", () => {
+  /** Las reglas de un selector en la hoja de la vista, tal como están escritas. */
+  const rulesOf = (selector: string) =>
+    [...sessionCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) =>
+        (selectors ?? "")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .split(",")
+          .map((part) => part.trim())
+          .includes(selector),
+      )
+      .map(([, , body]) => body ?? "");
+
+  it("el panel de la partitura, que se desplaza por dentro, contiene a sus hijos posicionados", () => {
+    // Si no, los textos ocultos para el lector de pantalla del pie (`position: absolute`) toman
+    // un bloque contenedor fuera del panel, que no los recorta, y alargan la página entera con un
+    // espacio en blanco bajo la mesa.
+    const rules = rulesOf(".session--desk .session__sheets > .sheet--notation").join("\n");
+    expect(rules).toMatch(/overflow-y:\s*auto/);
+    expect(rules).toMatch(/position:\s*relative/);
   });
 });
