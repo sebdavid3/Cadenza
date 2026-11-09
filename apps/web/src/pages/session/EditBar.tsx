@@ -39,6 +39,15 @@ import type { SuggestionItem } from "./suggestions";
 import { TimePicker } from "./TimePicker";
 import type { EditEventRead, FindingRead } from "../../types";
 
+/** Pestañas de la barra de corrección (#341): lo de la nota, lo del compás y las marcas. */
+export type ToolTab = "note" | "measure" | "marks";
+
+const TOOL_TABS: readonly { id: ToolTab; label: string }[] = [
+  { id: "note", label: "Nota" },
+  { id: "measure", label: "Compás" },
+  { id: "marks", label: "Marcas" },
+];
+
 interface EditBarProps {
   editor: Editor;
   /** Si se ofrecen los controles: la sesión es de quien la ve y no está finalizada. */
@@ -75,6 +84,12 @@ interface EditBarProps {
     labelOf: (finding: FindingRead) => string;
     actions?: SuggestionActions;
   };
+  /** Pestaña de herramientas que se ve (#341); sin ella, la barra recuerda la suya. */
+  tab?: ToolTab;
+  onTab?: (tab: ToolTab) => void;
+  /** Si se ven las leyendas de teclas (#341); sin `onToggleKeys`, siempre se ven. */
+  keysShown?: boolean;
+  onToggleKeys?: () => void;
 }
 
 const PITCH: { command: PlannedCommand; label: string; word: string; icon: PixelIconName }[] = [
@@ -749,9 +764,18 @@ export function EditBar({
   focusScore,
   focusMemoryRef,
   suggestions,
+  tab,
+  onTab,
+  keysShown,
+  onToggleKeys,
 }: EditBarProps) {
   const suggestionsId = useId();
   const groupId = useId();
+  const [ownTab, setOwnTab] = useState<ToolTab>("note");
+  const activeTab = tab ?? ownTab;
+  const chooseTab = onTab ?? setOwnTab;
+  const tabRefs = useRef<Partial<Record<ToolTab, HTMLButtonElement | null>>>({});
+  const showKeys = onToggleKeys ? (keysShown ?? false) : true;
   const { status, refusal, blocked, retry, targetRef } = editor;
   // La orden en espera se planea con la nota que la vista ofrece corregir en el estado que se ve.
   useLayoutEffect(() => {
@@ -856,9 +880,77 @@ export function EditBar({
         </div>
       )}
       {(editable || undoable) && (
-        <div className="editor__groups">
+        <div className="editor__bar">
           {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} score={score} />}
           {editable && (
+            <div
+              className="editor__tabs"
+              role="tablist"
+              aria-label="Herramientas de corrección"
+              onKeyDown={(event) => {
+                const at = TOOL_TABS.findIndex(({ id }) => id === activeTab);
+                const next =
+                  event.key === "ArrowRight"
+                    ? (at + 1) % TOOL_TABS.length
+                    : event.key === "ArrowLeft"
+                      ? (at - 1 + TOOL_TABS.length) % TOOL_TABS.length
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? TOOL_TABS.length - 1
+                          : null;
+                if (next === null) return;
+                event.preventDefault();
+                const chosen = TOOL_TABS[next];
+                if (!chosen) return;
+                chooseTab(chosen.id);
+                tabRefs.current[chosen.id]?.focus();
+              }}
+            >
+              {TOOL_TABS.map(({ id, label }) => (
+                <button
+                  key={id}
+                  ref={(element) => {
+                    tabRefs.current[id] = element;
+                  }}
+                  type="button"
+                  role="tab"
+                  id={`${groupId}-tab-${id}`}
+                  className="editor__tab"
+                  aria-selected={activeTab === id}
+                  aria-controls={`${groupId}-panel`}
+                  tabIndex={activeTab === id ? 0 : -1}
+                  onClick={() => {
+                    chooseTab(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {editable && onToggleKeys && (
+            <button
+              type="button"
+              className="editor__keys-toggle"
+              aria-expanded={showKeys}
+              aria-controls={keysId}
+              onClick={onToggleKeys}
+            >
+              Atajos
+            </button>
+          )}
+        </div>
+      )}
+      {editable && (
+        <div
+          className="editor__groups"
+          role="tabpanel"
+          data-tab={activeTab}
+          id={`${groupId}-panel`}
+          aria-labelledby={`${groupId}-tab-${activeTab}`}
+        >
+          {activeTab === "note" && (
             <>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-pitch`}>
                 <p className="label editor__label" id={`${groupId}-pitch`}>
@@ -911,24 +1003,6 @@ export function EditBar({
                   />
                 </div>
               </div>
-              <div className="editor__group" role="group" aria-labelledby={`${groupId}-tuplet`}>
-                <p className="label editor__label" id={`${groupId}-tuplet`}>
-                  Tresillo
-                </p>
-                <div className="editor__buttons">
-                  {TUPLETS.map(({ scope, label, text }) => (
-                    <CommandButton
-                      key={scope}
-                      command={{ kind: "tuplet", scope }}
-                      label={label}
-                      text={text}
-                      pressed={tupletPressed(scope, target, score, editor.origin)}
-                      origin={editor.origin}
-                      {...shared}
-                    />
-                  ))}
-                </div>
-              </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
                 <p className="label editor__label" id={`${groupId}-structure`}>
                   {gap ? "Hueco" : "Insertar antes o borrar"}
@@ -976,6 +1050,28 @@ export function EditBar({
                   </ul>
                 )}
               </div>
+            </>
+          )}
+          {activeTab === "measure" && (
+            <>
+              <div className="editor__group" role="group" aria-labelledby={`${groupId}-tuplet`}>
+                <p className="label editor__label" id={`${groupId}-tuplet`}>
+                  Tresillo
+                </p>
+                <div className="editor__buttons">
+                  {TUPLETS.map(({ scope, label, text }) => (
+                    <CommandButton
+                      key={scope}
+                      command={{ kind: "tuplet", scope }}
+                      label={label}
+                      text={text}
+                      pressed={tupletPressed(scope, target, score, editor.origin)}
+                      origin={editor.origin}
+                      {...shared}
+                    />
+                  ))}
+                </div>
+              </div>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-clef`}>
                 <p className="label editor__label" id={`${groupId}-clef`}>
                   {`Clave${range("clef")}`}
@@ -1009,6 +1105,10 @@ export function EditBar({
                 </p>
                 <TimePicker labelId={`${groupId}-time`} {...shared} />
               </div>
+            </>
+          )}
+          {activeTab === "marks" && (
+            <>
               <div className="editor__group" role="group" aria-labelledby={`${groupId}-marks`}>
                 <p className="label editor__label" id={`${groupId}-marks`}>
                   Articulaciones y calderón
@@ -1087,7 +1187,7 @@ export function EditBar({
         )}
       </div>
       {editable && (
-        <p className="editor__keys" id={keysId}>
+        <p className="editor__keys" id={keysId} hidden={!showKeys}>
           <span>
             <KeyCap>Mayús</KeyCap>
             <KeyCap icon="arrow-up">flecha arriba</KeyCap>

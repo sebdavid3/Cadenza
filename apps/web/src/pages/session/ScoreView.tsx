@@ -83,6 +83,8 @@ interface ScoreViewProps {
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
   /** Leyenda de las teclas de corrección, que también describe la partitura. */
   editKeysId?: string;
+  /** Si la leyenda de teclas de la selección se oculta tras «Atajos» (#341). */
+  keysHidden?: boolean;
   /**
    * Si se pueden elegir notas sobre la partitura (ADR-0027). Sin ello es una imagen con nombre y
    * no hay barra de selección: el resultado de la portada solo se mira (#277, ADR-0053).
@@ -162,6 +164,18 @@ function drawingStore() {
   };
 }
 
+/** Lo que se ve del primer antepasado que se desplaza o, si no lo hay, de la ventana. */
+function scrollViewOf(element: Element): { top: number; bottom: number } {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = window.getComputedStyle(node);
+    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+      const rect = node.getBoundingClientRect();
+      return { top: Math.max(0, rect.top), bottom: Math.min(window.innerHeight, rect.bottom) };
+    }
+  }
+  return { top: 0, bottom: window.innerHeight };
+}
+
 /**
  * Notación dibujada con OSMD y, detrás, la trama violeta de los compases con posibles errores.
  * Se vuelve a maquetar cuando cambia el ancho. Si OSMD falla, lo dice sin arrastrar al resto de
@@ -179,6 +193,7 @@ export function ScoreView({
   editor,
   onCommand,
   editKeysId,
+  keysHidden = false,
   notesSelectable = true,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -525,7 +540,9 @@ export function ScoreView({
     if (!layer || !element) return;
     if (previous) {
       const top = layer.getBoundingClientRect().top + previous.box.top;
-      if (top + previous.box.height <= 0 || top >= window.innerHeight) return;
+      // En la mesa (#341) la partitura se desplaza en su panel: se mira lo que se ve de él.
+      const view = scrollViewOf(layer);
+      if (top + previous.box.height <= view.top || top >= view.bottom) return;
     }
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     element.scrollIntoView({
@@ -567,6 +584,7 @@ export function ScoreView({
           description={description}
           announcement={announcement}
           keysId={keysId}
+          keysHidden={keysHidden}
           onPrevious={() => {
             move("previous");
           }}
