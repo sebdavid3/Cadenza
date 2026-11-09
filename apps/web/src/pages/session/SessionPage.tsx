@@ -1,5 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Link, useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
@@ -11,7 +20,9 @@ import type { FindingRead } from "../../types";
 import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
 import { listUsers, statusLabel } from "../transcription/sessions";
 import { DownloadButton, MidiDownloadButton } from "./DownloadButton";
-import { EditBar } from "./EditBar";
+import { DeskDivider } from "./DeskDivider";
+import { clampShare, SHARE_DEFAULT } from "./deskShare";
+import { EditBar, type ToolTab } from "./EditBar";
 import { useEditor, type Editor } from "./editor";
 import { useEffortMeter } from "./effort";
 import { carryAnchor, type EditTarget } from "./edits";
@@ -49,6 +60,7 @@ import {
 import { suggestionsAt } from "./suggestions";
 import type { SuggestionActions } from "./SuggestionList";
 import "./session.css";
+import { readStored, writeStored } from "./storage";
 
 function BackLink() {
   return (
@@ -278,6 +290,29 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const showEditor = editable || editor.status.kind !== "idle";
   // El control que tenía el foco en la barra cuando esta pasa de un sitio a otro (ADR-0034).
   const editorFocusRef = useRef<string | null>(null);
+  // La mesa de corrección (#341): lo que el navegador recuerda de ella, la pestaña de la barra y si
+  // se ven las leyendas de teclas.
+  const scanId = useId();
+  const scoreId = useId();
+  const asideId = useId();
+  const [share, setShare] = useState(() =>
+    clampShare(Number(readStored("imagen") ?? SHARE_DEFAULT)),
+  );
+  // Sin preferencia guardada, el panel empieza plegado en una mesa estrecha, donde la partitura
+  // necesita el ancho, y abierto en las demás.
+  const [asideOpen, setAsideOpen] = useState(() => {
+    const stored = readStored("panel");
+    if (stored !== null) return stored !== "plegado";
+    return !(
+      "matchMedia" in window &&
+      window.matchMedia("(min-width: 960px) and (max-width: 1599.98px)").matches
+    );
+  });
+  const [tab, setTab] = useState<ToolTab>("note");
+  const [keysShown, setKeysShown] = useState(false);
+  const toggleKeys = useCallback(() => {
+    setKeysShown((shown) => !shown);
+  }, []);
 
   if (detail.error instanceof ApiError && detail.error.kind === "not-found") {
     return <SessionNotFound />;
@@ -303,133 +338,253 @@ function SessionView({ sessionId }: { sessionId: string }) {
     users.data?.find((candidate) => candidate.id === ownerId)?.username ?? ownerId?.slice(0, 8);
   const edits = detail.data?.edits.length ?? 0;
 
+  // Solo de lectura, la cabecera dice por qué; corrigiendo, lo dicen la selección y la barra.
+  const lead = editable
+    ? `Corrige lo que no coincida con la imagen: elige una nota en la partitura y usa la barra de corrección.${
+        assisted ? " Los compases en violeta son posibles errores que conviene revisar." : ""
+      }`
+    : `${
+        foreign
+          ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
+          : finalized
+            ? owned
+              ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
+              : "Sesión finalizada: solo lectura."
+            : "Solo lectura."
+      } Compara la imagen original con la transcripción de HOMR${
+        assisted
+          ? "; los compases tramados en violeta son posibles errores que conviene revisar."
+          : "."
+      }`;
+  // El panel lateral plegado se queda en un raíl con su nombre; en la condición no asistida no
+  // dice nada del validador (ADR-0040 §13.2).
+  const findingsTotal = active.length;
+  const railLabel = assisted
+    ? findings.isSuccess
+      ? `Posibles errores · ${String(findingsTotal)}`
+      : "Posibles errores"
+    : "Historial";
+
   return (
-    <main className="session" aria-busy={detail.isPending}>
+    <main className="session session--desk" aria-busy={detail.isPending}>
       <header className="session__head">
-        <BackLink />
-        <h1 className="session__title">
-          {(nonBlank(metadata?.title) ?? nonBlank(metadata?.source_filename)) ? (
-            name
-          ) : (
-            <>
-              Sesión <span className="session__id">{shortId}</span>
-            </>
+        <div className="session__titling">
+          <BackLink />
+          <h1 className="session__title">
+            {(nonBlank(metadata?.title) ?? nonBlank(metadata?.source_filename)) ? (
+              name
+            ) : (
+              <>
+                Sesión <span className="session__id">{shortId}</span>
+              </>
+            )}
+          </h1>
+          {detail.data && (
+            <dl className="session__meta">
+              <div>
+                <dt className="label">Estado</dt>
+                <dd>{statusLabel(detail.data.status ?? "")}</dd>
+              </div>
+              <div>
+                <dt className="label">Ediciones</dt>
+                <dd>{edits}</dd>
+              </div>
+              {metadata?.composer && (
+                <div>
+                  <dt className="label">Compositor</dt>
+                  <dd>{metadata.composer}</dd>
+                </div>
+              )}
+              {instruments && (
+                <div>
+                  <dt className="label">Instrumentos</dt>
+                  <dd>{instruments}</dd>
+                </div>
+              )}
+              {nonBlank(metadata?.title) && metadata?.source_filename && (
+                <div>
+                  <dt className="label">Archivo</dt>
+                  <dd>{metadata.source_filename}</dd>
+                </div>
+              )}
+              {foreign && (
+                <div>
+                  <dt className="label">Propietario</dt>
+                  <dd>{ownerName}</dd>
+                </div>
+              )}
+            </dl>
           )}
-        </h1>
-        {detail.data && (
-          <dl className="session__meta">
-            <div>
-              <dt className="label">Estado</dt>
-              <dd>{statusLabel(detail.data.status ?? "")}</dd>
-            </div>
-            <div>
-              <dt className="label">Ediciones</dt>
-              <dd>{edits}</dd>
-            </div>
-            {metadata?.composer && (
-              <div>
-                <dt className="label">Compositor</dt>
-                <dd>{metadata.composer}</dd>
-              </div>
-            )}
-            {instruments && (
-              <div>
-                <dt className="label">Instrumentos</dt>
-                <dd>{instruments}</dd>
-              </div>
-            )}
-            {nonBlank(metadata?.title) && metadata?.source_filename && (
-              <div>
-                <dt className="label">Archivo</dt>
-                <dd>{metadata.source_filename}</dd>
-              </div>
-            )}
-            {foreign && (
-              <div>
-                <dt className="label">Propietario</dt>
-                <dd>{ownerName}</dd>
-              </div>
-            )}
-          </dl>
-        )}
-        {owned && detail.data && metadata && (
-          <ScoreDataPanel
-            metadata={metadata}
-            staves={(score?.parts ?? []).map((part) => part.staves.length)}
-            fallbackName={fallbackName}
-            saving={metadataEditor.saving}
-            waiting={
-              editor.status.kind === "saving" ||
-              editor.status.kind === "reloading" ||
-              editor.queued ||
-              findingActions.busy ||
-              lifecycle.busy
-            }
-            message={metadataEditor.message}
-            onSave={metadataEditor.save}
-            onDismissMessage={metadataEditor.clearMessage}
-          />
-        )}
-        <p className="session__lead">
-          {editable
-            ? `Compara la imagen original con la transcripción de HOMR y corrige lo que no coincida: elige una nota y cambia su altura, su alteración o su figura, inserta o borra notas y silencios, o cambia la clave y la armadura de su compás.${
-                assisted
-                  ? " Los compases tramados en violeta son posibles errores que conviene revisar."
-                  : ""
-              }`
-            : `${
-                foreign
-                  ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
-                  : finalized
-                    ? owned
-                      ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
-                      : "Sesión finalizada: solo lectura."
-                    : "Solo lectura."
-              } Compara la imagen original con la transcripción de HOMR${
-                assisted
-                  ? "; los compases tramados en violeta son posibles errores que conviene revisar."
-                  : "."
-              }`}
-        </p>
-        {owned && detail.data && (
-          <LifecyclePanel
-            finalized={finalized}
-            assisted={assisted}
-            busy={lifecycle.busy}
-            waiting={
-              editor.status.kind === "saving" ||
-              editor.status.kind === "reloading" ||
-              editor.queued ||
-              findingActions.busy
-            }
-            message={lifecycle.message}
-            onFinalize={lifecycle.finalize}
-            onReopen={lifecycle.reopen}
-          />
-        )}
+          <p className="session__lead">{lead}</p>
+        </div>
+        <div className="session__actions">
+          {owned && detail.data && metadata && (
+            <ScoreDataPanel
+              metadata={metadata}
+              staves={(score?.parts ?? []).map((part) => part.staves.length)}
+              fallbackName={fallbackName}
+              saving={metadataEditor.saving}
+              waiting={
+                editor.status.kind === "saving" ||
+                editor.status.kind === "reloading" ||
+                editor.queued ||
+                findingActions.busy ||
+                lifecycle.busy
+              }
+              message={metadataEditor.message}
+              onSave={metadataEditor.save}
+              onDismissMessage={metadataEditor.clearMessage}
+            />
+          )}
+          <div className="session__downloads">
+            <DownloadButton
+              sessionId={sessionId}
+              xml={musicXml.data}
+              status={
+                musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
+              }
+              onRetry={async () => (await musicXml.refetch()).data}
+            />
+            <MidiDownloadButton
+              sessionId={sessionId}
+              seq={seq}
+              ready={ready}
+              fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
+            />
+          </div>
+          {owned && detail.data && (
+            <LifecyclePanel
+              finalized={finalized}
+              assisted={assisted}
+              busy={lifecycle.busy}
+              waiting={
+                editor.status.kind === "saving" ||
+                editor.status.kind === "reloading" ||
+                editor.queued ||
+                findingActions.busy
+              }
+              message={lifecycle.message}
+              onFinalize={lifecycle.finalize}
+              onReopen={lifecycle.reopen}
+            />
+          )}
+        </div>
       </header>
 
-      <div className="session__body">
-        {/* En el DOM, primero la transcripción; en escritorio la imagen se dibuja encima. */}
-        <section className="session__sheets" aria-label="Transcripción e imagen original">
-          <figure className="sheet sheet--notation">
-            <figcaption className="label sheet__caption">Transcripción</figcaption>
-            <div className="sheet__bar">
-              <DownloadButton
+      <div className="session__body" data-aside={asideOpen ? "open" : "closed"}>
+        {/* La mesa de corrección (#341): la imagen original y la partitura lado a lado, con un
+            divisor que reparte el ancho; en una columna, la imagen arriba. */}
+        <div
+          className="session__sheets"
+          style={
+            {
+              "--scan-fr": `${String(Math.round(share * 100))}fr`,
+              "--score-fr": `${String(Math.round((1 - share) * 100))}fr`,
+            } as CSSProperties
+          }
+        >
+          <a className="session__skip" href={`#${scoreId}`}>
+            Ir a la partitura
+          </a>
+          <ScanFigure
+            id={scanId}
+            blob={image.data ?? null}
+            status={image.isError ? "error" : image.data ? "ready" : "loading"}
+          />
+          <DeskDivider
+            share={share}
+            onShare={setShare}
+            onCommit={(value) => {
+              writeStored("imagen", String(value));
+            }}
+            controls={scanId}
+          />
+          <section
+            className="sheet sheet--notation"
+            id={scoreId}
+            tabIndex={-1}
+            aria-label="Transcripción"
+          >
+            {snapshot ? (
+              <ScoreView
+                snapshot={snapshot}
                 sessionId={sessionId}
-                xml={musicXml.data}
-                status={
-                  musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
+                marks={marks}
+                expectedMeasures={expected}
+                selectedKey={selectedKey}
+                onPlacement={setPlaced}
+                findingsListed={assisted}
+                playing={playing}
+                onCommand={editable ? editor.run : undefined}
+                editKeysId={editable ? editKeysId : undefined}
+                keysHidden={editable && !keysShown}
+                editor={
+                  showEditor
+                    ? (target, { available, focusScore, selectionKeysId }) => (
+                        <EditBar
+                          editor={editor}
+                          editable={editable}
+                          undoable={editable}
+                          target={target}
+                          available={available}
+                          score={snapshot.transcription}
+                          seq={snapshot.seq}
+                          multiStaff={multiStaff}
+                          keysId={editKeysId}
+                          focusScore={focusScore}
+                          focusMemoryRef={editorFocusRef}
+                          tab={tab}
+                          onTab={setTab}
+                          keysShown={keysShown}
+                          onToggleKeys={toggleKeys}
+                          selectionKeysId={selectionKeysId}
+                          suggestions={{
+                            items: noteSuggestions(target),
+                            labelOf,
+                            actions: suggestionActions,
+                          }}
+                        />
+                      )
+                    : undefined
                 }
-                onRetry={async () => (await musicXml.refetch()).data}
               />
-              <MidiDownloadButton
-                sessionId={sessionId}
-                seq={seq}
-                ready={ready}
-                fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
-              />
-            </div>
+            ) : musicXml.isError ? (
+              <>
+                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo,
+                  y se puede deshacer la edición que dejó la partitura así. */}
+                {showEditor && (
+                  <EditBar
+                    editor={editor}
+                    editable={false}
+                    undoable={editable}
+                    target={null}
+                    available={false}
+                    score={score}
+                    seq={seq}
+                    multiStaff={multiStaff}
+                    keysId={editKeysId}
+                    focusMemoryRef={editorFocusRef}
+                    tab={tab}
+                    onTab={setTab}
+                    keysShown={keysShown}
+                    onToggleKeys={toggleKeys}
+                  />
+                )}
+                <div className="notation__failed" role="alert">
+                  <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
+                  <p>{errorMessage(musicXml.error)}</p>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => void musicXml.refetch()}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="notation notation--placeholder" aria-hidden="true" />
+            )}
             <div className="sheet__transport">
               <PlaybackBar
                 status={player.status}
@@ -450,134 +605,77 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onTempo={player.setTempo}
               />
             </div>
-            {snapshot ? (
-              <ScoreView
-                snapshot={snapshot}
-                sessionId={sessionId}
+          </section>
+        </div>
+
+        <aside
+          className="session__aside"
+          aria-label={assisted ? "Posibles errores e historial" : "Historial"}
+        >
+          <button
+            type="button"
+            className="aside-toggle"
+            aria-expanded={asideOpen}
+            aria-controls={asideId}
+            aria-label={asideOpen ? "Plegar el panel" : `Desplegar el panel: ${railLabel}`}
+            onClick={() => {
+              const next = !asideOpen;
+              setAsideOpen(next);
+              writeStored("panel", next ? "abierto" : "plegado");
+            }}
+          >
+            <PixelIcon name={asideOpen ? "arrow-right" : "arrow-left"} />
+            <span className="aside-toggle__text">{asideOpen ? "Plegar" : railLabel}</span>
+          </button>
+          <div className="session__aside-body" id={asideId} hidden={!asideOpen}>
+            {assisted && (
+              <FindingsPanel
                 marks={marks}
-                expectedMeasures={expected}
+                unplaced={unplaced}
+                dismissed={dismissed}
+                validation={validation}
+                edits={edits}
+                seq={seq}
+                staleSuggestions={editor.staleSuggestions}
+                multiStaff={multiStaff}
+                selectable={placed && musicXml.isSuccess}
                 selectedKey={selectedKey}
-                onPlacement={setPlaced}
-                findingsListed={assisted}
-                playing={playing}
-                onCommand={editable ? editor.run : undefined}
-                editKeysId={editable ? editKeysId : undefined}
-                editor={
-                  showEditor
-                    ? (target, { available, focusScore }) => (
-                        <EditBar
-                          editor={editor}
-                          editable={editable}
-                          undoable={editable}
-                          target={target}
-                          available={available}
-                          score={snapshot.transcription}
-                          seq={snapshot.seq}
-                          multiStaff={multiStaff}
-                          keysId={editKeysId}
-                          focusScore={focusScore}
-                          focusMemoryRef={editorFocusRef}
-                          suggestions={{
-                            items: noteSuggestions(target),
-                            labelOf,
-                            actions: suggestionActions,
-                          }}
-                        />
-                      )
+                onSelect={setSelectedKey}
+                status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
+                errorText={findings.isError ? errorMessage(findings.error) : undefined}
+                onRetry={() => void findings.refetch()}
+                placeOf={placeOf}
+                message={findingActions.message}
+                actions={
+                  editable
+                    ? {
+                        busy: findingActions.busy || lifecycle.busy,
+                        editorBusy:
+                          editor.status.kind === "saving" ||
+                          editor.status.kind === "reloading" ||
+                          editor.queued,
+                        pendingId: findingActions.pendingId,
+                        onDismiss: findingActions.dismiss,
+                        onRestore: findingActions.restore,
+                        onRevalidate: findingActions.revalidate,
+                        onReload: editor.reload,
+                        applyBlocked: editor.blocked || lifecycle.busy,
+                        onApply: editor.applySuggestion,
+                        onReject: findingActions.reject,
+                      }
                     : undefined
                 }
               />
-            ) : musicXml.isError ? (
-              <>
-                {/* Sin partitura que dibujar, lo que pasó con la última corrección se sigue viendo,
-                    y se puede deshacer la edición que dejó la partitura así. */}
-                {showEditor && (
-                  <EditBar
-                    editor={editor}
-                    editable={false}
-                    undoable={editable}
-                    target={null}
-                    available={false}
-                    score={score}
-                    seq={seq}
-                    multiStaff={multiStaff}
-                    keysId={editKeysId}
-                    focusMemoryRef={editorFocusRef}
-                  />
-                )}
-                <div className="notation__failed" role="alert">
-                  <p className="notation__failed-title">No se pudo dibujar la partitura.</p>
-                  <p>{errorMessage(musicXml.error)}</p>
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => void musicXml.refetch()}
-                  >
-                    Reintentar
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="notation notation--placeholder" aria-hidden="true" />
             )}
-          </figure>
-          <figure className="sheet sheet--scan">
-            <figcaption className="label sheet__caption">Imagen original</figcaption>
-            <ScanFigure
-              blob={image.data ?? null}
-              status={image.isError ? "error" : image.data ? "ready" : "loading"}
-            />
-          </figure>
-        </section>
-
-        <div className="session__aside">
-          {assisted && (
-            <FindingsPanel
-              marks={marks}
-              unplaced={unplaced}
-              dismissed={dismissed}
-              validation={validation}
-              edits={edits}
-              seq={seq}
-              staleSuggestions={editor.staleSuggestions}
-              multiStaff={multiStaff}
-              selectable={placed && musicXml.isSuccess}
-              selectedKey={selectedKey}
-              onSelect={setSelectedKey}
-              status={findings.isError ? "error" : findings.isSuccess ? "ready" : "loading"}
-              errorText={findings.isError ? errorMessage(findings.error) : undefined}
-              onRetry={() => void findings.refetch()}
-              placeOf={placeOf}
-              message={findingActions.message}
-              actions={
-                editable
-                  ? {
-                      busy: findingActions.busy || lifecycle.busy,
-                      editorBusy:
-                        editor.status.kind === "saving" ||
-                        editor.status.kind === "reloading" ||
-                        editor.queued,
-                      pendingId: findingActions.pendingId,
-                      onDismiss: findingActions.dismiss,
-                      onRestore: findingActions.restore,
-                      onRevalidate: findingActions.revalidate,
-                      onReload: editor.reload,
-                      applyBlocked: editor.blocked || lifecycle.busy,
-                      onApply: editor.applySuggestion,
-                      onReject: findingActions.reject,
-                    }
-                  : undefined
-              }
-            />
-          )}
-          {detail.data && (
-            <HistoryPanel
-              edits={detail.data.edits}
-              score={detail.data.current_score ?? null}
-              multiStaff={multiStaff}
-            />
-          )}
-        </div>
+            {detail.data && (
+              <HistoryPanel
+                edits={detail.data.edits}
+                score={detail.data.current_score ?? null}
+                multiStaff={multiStaff}
+              />
+            )}
+          </div>
+        </aside>
       </div>
     </main>
   );
