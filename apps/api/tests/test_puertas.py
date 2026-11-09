@@ -11,12 +11,14 @@ import json
 import os
 import re
 import shlex
+import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
+import scripts.puertas as puertas
 from scripts.puertas import (
     WEB,
     Gate,
@@ -384,3 +386,37 @@ def test_the_gate_variables_reach_the_child(tmp_path: Path) -> None:
     assert code == 0
     assert output.strip() == "visto 1"
     assert "PUERTAS_349" not in os.environ
+
+
+# --- Cambios sin comitear que no son ASCII (#371) -----------------------------------------------
+
+
+def _repo_with(tmp_path: Path, committed: bytes) -> Path:
+    """Un repositorio de git temporal con un archivo comiteado."""
+
+    def run(*args: str) -> None:
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    run("init", "-q")
+    (tmp_path / "estado.md").write_bytes(committed)
+    run("add", "estado.md")
+    run("-c", "user.name=puertas", "-c", "user.email=puertas@example.invalid", "commit", "-qm", "x")
+    return tmp_path
+
+
+def test_the_snapshot_reads_uncommitted_changes_that_are_not_ascii(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """«Í» en UTF-8 (C3 8D) no se decodifica en cp1252, la codificación de Windows, y el byte 8D
+    suelto no es UTF-8 válido: con la decodificación del sistema, `_git` devolvía `None` en
+    cualquier plataforma y el script se caía antes de pasar ninguna puerta."""
+    repo = _repo_with(tmp_path, b"antes\n")
+    monkeypatch.setattr(puertas, "REPO", repo)
+    (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8d\n")
+
+    first = puertas._snapshot(puertas._git)
+
+    assert first.dirty
+    assert "Íncipit" in puertas._git("diff", "HEAD")
+    (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8e\n")
+    assert puertas._snapshot(puertas._git).content != first.content

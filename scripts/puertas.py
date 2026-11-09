@@ -285,7 +285,18 @@ def pr_line(
 
 
 def _git(*args: str) -> str:
-    done = subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
+    """La salida de git en UTF-8, y lo que no lo sea, con `surrogateescape`, la convención con la
+    que `_snapshot` vuelve a codificar la huella: con la codificación del sistema (cp1252 en
+    Windows), un cambio sin comitear con «Í» dejaba `stdout` en `None` (#371)."""
+    done = subprocess.run(
+        ["git", *args],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=False,
+    )
     return done.stdout.strip()
 
 
