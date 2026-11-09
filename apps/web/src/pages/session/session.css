@@ -3,40 +3,223 @@
    El violeta marca lo que pide acción: el compás dudoso, la nota elegida y lo que no se pudo
    guardar. */
 
+/* Cabecera única (#363): sustituye a la de la aplicación. A la izquierda, la marca, la vuelta a
+   las sesiones, el título con su resumen y «?»; a la derecha, «Exportar / Datos», finalizar y la
+   cuenta. En la mesa cabe en una franja de 64 px como mucho. */
 .session__head {
-  display: grid;
-  gap: var(--space-3);
-  justify-items: start;
-  padding: var(--space-5) var(--gutter) var(--space-6);
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-5);
+  padding: var(--space-2) var(--gutter);
   border-bottom: var(--rule);
+  background: var(--color-paper);
+}
+
+.session__start {
+  display: flex;
+  flex: 1 1 22rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.session__brand {
+  padding-right: var(--space-4);
+  border-right: var(--rule);
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  text-transform: uppercase;
 }
 
 .session__back {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: 44px;
+  min-height: 36px;
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .session__back:hover {
   text-decoration: underline;
 }
 
+/* El título y, debajo, el resumen en rótulo pequeño: el estado y las ediciones. */
+.session__titling {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
 .session__title {
   font-family: var(--font-display);
-  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-size: clamp(1.125rem, 1.7vw, 1.5rem);
   font-weight: 700;
-  line-height: 0.9;
+  line-height: 1;
   text-transform: uppercase;
   /* El nombre de la sesión puede ser un archivo largo sin espacios (#240). */
   overflow-wrap: anywhere;
 }
 
-.session__meta {
+.session__summary {
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+}
+
+.session__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2) var(--space-6);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.session__actions > .lifecycle {
+  position: relative;
+  width: auto;
+}
+
+/* Finalizar y reabrir: botones de 36 px, como el resto de la franja. */
+.session__head .button--compact,
+.session__account .app-header__exit {
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  font-size: 0.75rem;
+}
+
+/* La confirmación de finalizar y lo que pasó al finalizar o reabrir se abren bajo el botón, sobre
+   la vista, como el panel de «Exportar / Datos»: la franja no crece. */
+.session__actions .lifecycle__confirm,
+.session__actions .lifecycle__status {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: min(26rem, calc(100vw - 2 * var(--gutter)));
+  background: var(--color-paper);
+}
+
+.session__actions .lifecycle__confirm {
+  width: min(26rem, calc(100vw - 2 * var(--gutter)));
+}
+
+.session__actions .lifecycle__status:empty {
+  margin: 0;
+}
+
+.session__actions .lifecycle__status:not(:empty) {
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+}
+
+/* La cuenta, tras un filete: el nombre y «Salir». */
+.session__account {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  border-left: var(--rule);
+}
+
+.session__account .app-header__user {
+  margin-left: 0;
+  font-size: var(--text-small);
+}
+
+/* Un botón con su panel bajo él: «?» y «Exportar / Datos» (#363). */
+.header-popover {
+  position: relative;
+}
+
+.header-popover__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-width: 36px;
+  min-height: 36px;
+  padding: var(--space-1) var(--space-3);
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.header-popover__toggle[aria-expanded="true"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+@media (hover: hover) {
+  .header-popover__toggle:hover {
+    background: var(--color-ink);
+    color: var(--color-paper);
+  }
+}
+
+/* «?»: un cuadrado de 32 px junto al título. */
+.session__info .header-popover__toggle {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  font-size: 0.875rem;
+}
+
+.header-popover__panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  z-index: 30;
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: min(26rem, calc(100vw - 2 * var(--gutter)));
+  max-height: calc(100dvh - 6rem);
+  overflow: auto;
+  padding: var(--space-4);
+  border: var(--rule);
+  background: var(--color-paper);
+}
+
+.header-popover__panel[hidden] {
+  display: none;
+}
+
+.session__info .header-popover__panel {
+  left: 0;
+}
+
+.session__menu .header-popover__panel {
+  right: 0;
+  width: min(30rem, calc(100vw - 2 * var(--gutter)));
+}
+
+.session__lead {
+  max-width: 62ch;
+  font-size: var(--text-small);
+}
+
+.session__meta {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-small);
 }
 
 .session__meta div {
@@ -54,44 +237,46 @@
   overflow-wrap: anywhere;
 }
 
-.session__lead {
-  max-width: 62ch;
-  color: var(--color-ink-muted);
-}
-
-/* La vuelta, el título y sus datos en un bloque; a la derecha, en escritorio, lo que se hace con
-   la sesión. */
-.session__titling {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.session__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-3);
-}
-
-.session__actions > .score-data-panel,
-.session__actions > .lifecycle {
-  width: auto;
-}
-
+/* En «Exportar / Datos», un botón por fila a lo ancho del panel, cada uno con su aviso debajo. */
+.session__menu .score-data-panel,
 .session__downloads {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
 }
 
-.session--missing {
+.session__menu .score-data-panel > .button,
+.session__downloads .button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.session__downloads .score-download {
+  display: grid;
+  justify-content: stretch;
+  justify-items: stretch;
+  gap: var(--space-1);
+}
+
+.session__downloads .score-download__hint {
+  max-width: none;
+  text-align: left;
+}
+
+.session--missing .session__missing {
   display: grid;
   justify-items: start;
   gap: var(--space-4);
   padding: var(--space-6) var(--gutter) var(--space-9);
+}
+
+.session--missing .session__title {
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  line-height: 0.9;
+}
+
+.session--missing .session__lead {
+  font-size: var(--text-body);
 }
 
 .session__error {
@@ -157,8 +342,8 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-4);
-  min-height: 60px;
-  padding: var(--space-2) var(--space-3);
+  min-height: 48px;
+  padding: var(--space-1) var(--space-3);
   border-bottom: var(--rule);
 }
 
@@ -293,8 +478,10 @@
   align-items: center;
 }
 
-/* Conmutador segmentado: botones contiguos con el filete solapado. Mientras suena, «Pausa» es
-   un bloque de tinta (el estado pulsado del sistema). Los pasos de la selección son iguales. */
+/* Botones de herramienta (#363): sin filete propio, agrupados en un contenedor de filete suave con
+   separadores internos (la paleta, las pestañas, los pasos, el transporte y el zoom). Pulsado o al
+   pasar por encima, bloque de tinta; lo que ahora no se puede, en tinta desvaída, sin el filete
+   discontinuo de cada botón. Mientras suena, «Pausa» es un bloque de tinta. */
 .playback__button,
 .playback__step,
 .selection__button,
@@ -307,15 +494,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--space-2);
-  min-width: 44px;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  border: var(--rule);
+  gap: 6px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-label);
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   line-height: 1;
@@ -327,17 +514,39 @@
     color var(--duration-quick) var(--ease-out);
 }
 
-.playback__step {
-  padding: var(--space-2);
+/* Los contenedores: un filete suave alrededor del grupo y uno entre cada dos botones. */
+.playback__transport,
+.selection__steps,
+.editor__buttons,
+.editor__tabs,
+.scan__tools {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--color-rule-soft);
+  background: var(--color-paper);
 }
 
 .playback__button + .playback__button,
 .selection__button + .selection__button,
 .editor__button + .editor__button,
+.editor__select + .editor__button,
 .editor__tab + .editor__tab,
 .scan__tool + .scan__tool,
+.scan__tool + .scan__zoom,
 .scan__zoom + .scan__tool {
-  margin-left: calc(var(--rule-width) * -1);
+  border-left: 1px solid var(--color-rule-soft);
+}
+
+/* Los conmutadores sueltos («Escribir», «Atajos», ocultar la imagen) llevan su propio filete. */
+.editor__write,
+.editor__keys-toggle,
+.scan__toggle {
+  border: 1px solid var(--color-rule-soft);
+}
+
+.playback__step {
+  border: 1px solid var(--color-rule-soft);
+  padding: 0;
 }
 
 .playback__button[data-active="true"],
@@ -372,22 +581,42 @@
 .selection__button[aria-disabled="true"],
 .editor__button[aria-disabled="true"],
 .scan__tool[aria-disabled="true"] {
-  border-style: dashed;
   background: var(--color-paper);
-  color: var(--color-ink-muted);
+  color: var(--color-ink-faint);
   cursor: not-allowed;
 }
 
-/* El foco queda por encima del filete del vecino. */
+/* El foco queda por encima del separador del vecino y, dentro de un grupo, por dentro del botón:
+   la paleta se desplaza en horizontal y recortaría un anillo por fuera. */
 .playback__button:focus-visible,
 .playback__step:focus-visible,
 .selection__button:focus-visible,
 .editor__button:focus-visible,
 .editor__tab:focus-visible,
 .editor__write:focus-visible,
+.editor__keys-toggle:focus-visible,
 .scan__tool:focus-visible {
   position: relative;
   z-index: 1;
+  outline-offset: calc(var(--rule-width) * -1);
+}
+
+/* Con el dedo, cada botón vuelve a los 44 px. */
+@media (pointer: coarse) {
+  .playback__button,
+  .playback__step,
+  .selection__button,
+  .editor__button,
+  .editor__tab,
+  .editor__keys-toggle,
+  .editor__write,
+  .scan__tool,
+  .scan__toggle,
+  .header-popover__toggle,
+  .editor__select {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .playback__tempo-label {
@@ -398,10 +627,9 @@
 .playback__tempo-value {
   display: inline-grid;
   place-items: center;
-  min-width: 3.5rem;
-  min-height: 44px;
-  margin: 0 calc(var(--rule-width) * -1);
-  border-block: var(--rule);
+  min-width: 3.25rem;
+  min-height: 32px;
+  border-block: 1px solid var(--color-rule-soft);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -411,15 +639,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Selección de notas: su propia franja encima de la partitura. A la izquierda, dónde
-   está y qué es el evento elegido; a la derecha, los pasos, que en una pantalla táctil afinan lo
-   que el dedo no alcanza (las notas distan menos de 44 px). Debajo, las teclas. */
+/* Selección de notas sin barra de corrección (solo lectura): su propia franja encima de la
+   partitura. A la izquierda, dónde está y qué es el evento elegido; a la derecha, los pasos, que en
+   una pantalla táctil afinan lo que el dedo no alcanza. Debajo, las teclas. Con barra de
+   corrección, los pasos van en su primera fila y lo elegido en su barra de estado (#363). */
 .selection {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2) var(--space-5);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-4);
   border-bottom: var(--rule);
 }
 
@@ -428,9 +657,9 @@
   flex: 1 1 18rem;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  min-height: 44px;
   align-content: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: 36px;
 }
 
 .selection__place {
@@ -442,7 +671,7 @@
 }
 
 /* La lectura lleva en pequeño la marca de la nota elegida, para unir una con otra. */
-.selection[data-selected="true"] .selection__readout::before {
+.selection__readout[data-selected="true"]::before {
   content: "";
   align-self: center;
   width: 10px;
@@ -460,15 +689,14 @@
 
 .selection__note {
   max-width: 62ch;
+}
+
+.selection .selection__note {
   padding-block: var(--space-2);
 }
 
-.selection__steps {
-  display: flex;
-  align-items: center;
-}
-
-.selection__keys {
+.selection__keys,
+.editor__keys {
   display: flex;
   flex-basis: 100%;
   flex-wrap: wrap;
@@ -477,7 +705,10 @@
   font-size: var(--text-small);
 }
 
-.selection__keys > span {
+/* Un atajo largo («< / > empezar o terminar regulador») parte línea en vez de ensanchar la barra
+   (#331). */
+.selection__keys > span,
+.editor__keys > span {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
@@ -485,7 +716,8 @@
   max-width: 100%;
 }
 
-.selection__keys[hidden] {
+.selection__keys[hidden],
+.editor__keys[hidden] {
   display: none;
 }
 
@@ -510,26 +742,36 @@
   height: 0.75rem;
 }
 
-/* Corrección de la nota elegida: su propia franja bajo la de la selección, con tres grupos de
-   botones contiguos (altura, alteración y figura), cada uno con su rótulo encima. El valor que
-   ya tiene la nota es un bloque de tinta (pulsado); lo que no se puede, filete discontinuo. */
+/* Barra de corrección (#363), encima de la partitura, en dos filas y una barra de estado.
+   Fila 1: deshacer y rehacer, las pestañas y «Escribir»; a la derecha, los pasos de la nota y
+   «Atajos». Fila 2: la paleta de la pestaña. Debajo, lo elegido y lo que pasó. */
 .editor {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-2) var(--space-5);
-  padding: var(--space-2) var(--space-3) var(--space-3);
+  flex-direction: column;
   border-bottom: var(--rule);
 }
 
-/* Deshacer y rehacer, las pestañas y «Atajos», en una fila; debajo, en pequeño, qué desharía y
-   qué reharía (ADR-0034 §4). */
 .editor__bar {
   display: flex;
-  flex-basis: 100%;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-5);
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: 6px var(--space-4);
+}
+
+.editor__bar-start,
+.editor__bar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+/* El grupo de deshacer y rehacer: su rótulo es para el lector de pantalla. */
+.editor__group--history {
+  display: flex;
 }
 
 .editor__bar .editor__group--history > .editor__label {
@@ -541,29 +783,16 @@
   white-space: nowrap;
 }
 
-.editor__tabs {
-  display: flex;
-}
-
-.editor__tab {
-  padding-inline: var(--space-4);
-}
-
-.editor__keys-toggle {
-  margin-left: auto;
-}
-
-.editor__bar > .editor__history {
-  flex-basis: 100%;
-  order: 1;
-  max-width: none;
+/* Fila 2: los grupos de la pestaña, cada uno con su rótulo pequeño encima. */
+.editor__palette {
+  padding: 0 var(--space-4) 6px;
 }
 
 .editor__groups {
   display: flex;
-  flex-basis: 100%;
   flex-wrap: wrap;
-  gap: var(--space-3) var(--space-5);
+  align-items: flex-start;
+  gap: var(--space-2) var(--space-4);
 }
 
 .editor__groups[hidden] {
@@ -573,42 +802,32 @@
 .editor__group {
   display: grid;
   align-content: start;
-  gap: var(--space-1);
+  gap: 3px;
 }
 
 .editor__label {
   color: var(--color-ink-muted);
-}
-
-.editor__buttons {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.editor__button {
-  padding: var(--space-2);
+  font-size: 0.625rem;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .editor__button svg {
   flex: none;
 }
 
-.editor__word {
-  padding-right: var(--space-1);
-}
-
-/* Palabra que se ve también en una barra estrecha: «Nota», «Borrar», «Sol», «Cambiar». */
+.editor__word,
 .editor__text {
-  padding-inline: var(--space-1);
+  padding-inline: 1px;
 }
 
-/* Armadura: un desplegable con el filete y la altura del conmutador, pegado a «Cambiar». Solo
-   propone: enviarla es «Cambiar». A 1rem, para que un móvil no amplíe la página al tocarlo. */
+/* Armadura, dinámica y compás: un desplegable dentro del grupo, pegado a su botón. Solo propone:
+   enviarlo es el botón. A 1rem, para que un móvil no amplíe la página al tocarlo. */
 .editor__select {
-  min-width: 11rem;
-  min-height: 44px;
-  padding: var(--space-2) var(--space-3);
-  border: var(--rule);
+  min-width: 10rem;
+  min-height: 36px;
+  padding: 0 var(--space-2);
+  border: 0;
   border-radius: 0;
   background: var(--color-paper);
   color: var(--color-ink);
@@ -617,25 +836,14 @@
 }
 
 .editor__select:disabled {
-  border-style: dashed;
-  color: var(--color-ink-muted);
+  color: var(--color-ink-faint);
   cursor: not-allowed;
 }
 
 .editor__select:focus-visible {
   position: relative;
   z-index: 1;
-}
-
-.editor__select + .editor__button {
-  margin-left: calc(var(--rule-width) * -1);
-}
-
-/* Qué desharía y qué reharía: bajo sus botones, sin ensanchar el grupo. */
-.editor__history {
-  max-width: 30ch;
-  color: var(--color-ink-muted);
-  font-size: var(--text-small);
+  outline-offset: calc(var(--rule-width) * -1);
 }
 
 /* Ligaduras y reguladores (#214): el inicio marcado, con «Olvidar el inicio» al lado, y un botón
@@ -645,16 +853,43 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 var(--space-3);
+  max-width: 34ch;
 }
 
+.editor__origin .link-button {
+  min-height: 28px;
+  padding-block: var(--space-1);
+}
+
+/* La nota del inicio va a la derecha de sus botones, en dos líneas de rótulo pequeño, para que la
+   fila de «Marcas» mida lo que las demás y la partitura no salte al cambiar de pestaña (#363). */
 .editor__group--spans {
+  grid-template-columns: auto minmax(12rem, 22rem);
+  column-gap: var(--space-3);
   min-width: 0;
 }
 
-/* Sugerencias para la nota elegida (#258): ocupan la barra entera, encima de los controles. */
+.editor__group--spans > .editor__label,
+.editor__group--spans > .editor__spans {
+  grid-column: 1 / -1;
+}
+
+.editor__group--spans > .editor__origin {
+  align-self: center;
+  max-width: none;
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.editor__group--spans > .editor__origin .editor__history {
+  font-size: inherit;
+}
+
+/* Sugerencias para la nota elegida (#258): bajo la paleta, a lo ancho de la barra. */
 .editor__group--suggestions {
-  flex-basis: 100%;
   min-width: 0;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-rule-soft);
 }
 
 .editor__group--suggestions .suggestions {
@@ -674,32 +909,69 @@
 /* El nombre de la marca que se quita es largo: se parte en líneas en vez de ensanchar la barra. */
 .editor__spans .editor__button {
   max-width: 100%;
+  border: 1px solid var(--color-rule-soft);
   text-align: start;
   white-space: normal;
 }
 
+/* Barra de estado: a la izquierda, la nota elegida o la indicación; a la derecha, lo que pasó con
+   la última orden, con «Volver a aplicar» o «Recargar la sesión» si hace falta. */
+.editor__statusbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  min-height: 32px;
+  padding: var(--space-1) var(--space-4);
+  border-top: 1px solid var(--color-rule-soft);
+  font-size: var(--text-small);
+}
+
+.editor__now {
+  display: flex;
+  flex: 1 1 20rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  min-width: 0;
+}
+
+/* La nota elegida en una línea: dónde está y qué es. */
+.editor__now .selection__readout {
+  flex: none;
+  flex-wrap: nowrap;
+  min-height: 0;
+  white-space: nowrap;
+}
+
+.editor__history,
 .editor__hint {
-  flex-basis: 100%;
   color: var(--color-ink-muted);
   font-size: var(--text-small);
 }
 
-/* Lo que pasó con la última orden; si hay algo que hacer, el botón va al lado. */
 .editor__feedback {
   display: flex;
-  flex: 1 1 100%;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1) var(--space-4);
+  gap: 0 var(--space-4);
+  margin-left: auto;
 }
 
 .editor__feedback:not(:has(.editor__status:not(:empty), .editor__refusal, button)) {
   display: none;
 }
 
+.editor__feedback .link-button {
+  min-height: 28px;
+  padding-block: var(--space-1);
+}
+
 .editor__messages {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
   max-width: 64ch;
   font-size: var(--text-small);
 }
@@ -717,26 +989,28 @@
   font-weight: 400;
 }
 
-.editor__keys {
-  display: flex;
-  flex-basis: 100%;
-  flex-wrap: wrap;
-  gap: var(--space-1) var(--space-4);
-  color: var(--color-ink-muted);
-  font-size: var(--text-small);
+/* Las leyendas de teclas: tras «Atajos», en un panel sobre la partitura que no la empuja; sin
+   «Atajos» (la sesión ya no se corrige), a la vista bajo la barra de estado. */
+.editor__legend {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
 }
 
-/* Un atajo largo («< / > empezar o terminar regulador») parte línea en vez de ensanchar la barra
-   (#331). */
-.editor__keys > span {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px;
-  max-width: 100%;
+.editor__legend[data-popover="true"] {
+  position: absolute;
+  top: 100%;
+  right: var(--space-4);
+  z-index: 6;
+  width: min(46rem, calc(100% - 2 * var(--space-4)));
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule);
+  background: var(--color-paper);
 }
 
-.editor__keys[hidden] {
+.editor__legend[hidden] {
   display: none;
 }
 
@@ -749,6 +1023,7 @@
 @media (hover: none) and (pointer: coarse) {
   .selection__keys,
   .editor__keys,
+  .editor__legend,
   .editor__keys-toggle,
   .editor__hint-pointer {
     display: none;
@@ -774,10 +1049,26 @@
   text-align: right;
 }
 
-/* Los pasos de la selección se quedan en flechas en cuanto la partitura no es ancha: la lectura
-   de la nota elegida y los pasos caben en una fila. */
+/* En una partitura que no es muy ancha, la paleta deja los iconos solos (el nombre sigue para el
+   lector y en el `title`): «Paso», «Octava», «Borrar» y los nombres de las ligaduras. Y en la
+   primera fila de la barra, «Anterior» y «Siguiente» quedan en sus flechas, para que quepa entera. */
+@container sheet (max-width: 72rem) {
+  .editor__word,
+  .editor .selection__word {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Los pasos de la selección se quedan en flechas en cuanto la partitura no es ancha, y deshacer y
+   rehacer en sus iconos: la primera fila cabe entera. */
 @container sheet (max-width: 56rem) {
-  .selection__word {
+  .selection__word,
+  .editor__group--history .editor__text {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -798,23 +1089,17 @@
     margin-left: 0;
   }
 
-  /* En la corrección quedan los iconos solos (el nombre sigue para el lector) y la franja
-     aprovecha el ancho: ocho botones de figura caben en una fila a 390 px. */
-  .editor {
+  /* La barra aprovecha el ancho: ocho botones de figura caben en una fila a 390 px. */
+  .editor__bar,
+  .editor__palette,
+  .editor__statusbar,
+  .editor__legend {
     padding-inline: var(--space-2);
   }
 
-  .editor__word {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
-
   /* Los pasos de la selección ocupan la fila entera: flechas solas y «Quitar». */
-  .selection__steps {
+  .selection__steps,
+  .editor__bar-end {
     flex: 1 1 100%;
   }
 
@@ -822,17 +1107,26 @@
     flex: 1 1 0;
   }
 
-  .selection__word {
+  .score-download__hint {
+    text-align: left;
+  }
+}
+
+/* En una columna de imagen estrecha (la mesa la abre al 25 %, #363), la cabecera deja el zoom: el
+   rótulo y la lectura del zoom siguen para el lector de pantalla. */
+.sheet--scan {
+  container: scan / inline-size;
+}
+
+@container scan (max-width: 24rem) {
+  .sheet--scan .sheet__caption,
+  .sheet--scan .scan__zoom {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-
-  .score-download__hint {
-    text-align: left;
   }
 }
 
@@ -870,13 +1164,8 @@
   cursor: grabbing;
 }
 
-.scan__tools {
-  display: flex;
-  align-items: center;
-}
-
 .scan__tool {
-  padding: var(--space-2);
+  padding: 0 var(--space-2);
 }
 
 .scan__tool-word {
@@ -886,10 +1175,8 @@
 .scan__zoom {
   display: inline-grid;
   place-items: center;
-  min-width: 4.5rem;
-  min-height: 44px;
-  margin-left: calc(var(--rule-width) * -1);
-  border-block: var(--rule);
+  min-width: 4rem;
+  font-size: var(--text-small);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1622,20 +1909,18 @@ button.findings__item:hover {
   text-decoration: line-through;
 }
 
-/* La mesa de corrección (#341): a partir de 960 px, la vista ocupa el alto de la ventana. La
-   imagen, el divisor y la partitura se reparten el ancho (el divisor fija la proporción) y cada
-   panel se desplaza por su lado; la selección y la barra de corrección quedan fijas encima de la
-   partitura, y el transporte, al pie. */
+/* La mesa de corrección (#341, compacta desde #363): a partir de 960 px, la vista es una
+   aplicación del alto de la ventana y la página no se desplaza. La cabecera única ocupa una
+   franja de 64 px como mucho; la imagen, el divisor y la partitura se reparten el ancho (el
+   divisor fija la proporción) y cada panel se desplaza por su lado; la barra de corrección queda
+   fija encima de la partitura, y el transporte, al pie. */
 @media (min-width: 960px) {
   .app-layout:has(> .session--desk) {
     display: flex;
     flex-direction: column;
     height: 100vh;
     height: 100dvh;
-  }
-
-  .app-layout:has(> .session--desk) > .app-header {
-    flex: none;
+    overflow: hidden;
   }
 
   .session--desk {
@@ -1645,46 +1930,29 @@ button.findings__item:hover {
     min-height: 0;
   }
 
-  /* Una franja: a la izquierda la vuelta, el título y sus datos; a la derecha, las acciones,
-     que se reparten en dos filas antes que apretar el título. */
+  /* Una franja: el título se recorta antes que partirse, y lo que no cabe a la derecha cede. */
   .session--desk .session__head {
-    display: flex;
     flex: none;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-2) var(--space-6);
-    padding: var(--space-2) var(--gutter) var(--space-3);
+    flex-wrap: nowrap;
+    max-height: 64px;
+    min-height: 56px;
+    padding-block: var(--space-2);
   }
 
-  .session--desk .session__titling {
-    flex: 1 1 22rem;
-    gap: var(--space-1);
+  .session--desk .session__start {
+    flex-wrap: nowrap;
   }
 
-  .session--desk .session__back {
-    min-height: 32px;
-  }
-
-  .session--desk .session__title {
-    font-size: clamp(1.5rem, 2.2vw, 2.25rem);
-  }
-
-  .session--desk .session__meta {
-    gap: var(--space-1) var(--space-5);
-    font-size: var(--text-small);
+  .session--desk .session__title,
+  .session--desk .session__summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .session--desk .session__actions {
-    flex: 0 1 auto;
-    justify-content: flex-end;
-    max-width: 62%;
-    padding-top: var(--space-2);
-  }
-
-  .session--desk .session__lead {
-    flex-basis: 100%;
-    font-size: var(--text-small);
+    flex: none;
+    flex-wrap: nowrap;
   }
 
   /* Una sola fila del alto de la mesa: así cada panel tiene su alto y se desplaza por dentro. */
@@ -1692,14 +1960,14 @@ button.findings__item:hover {
     flex: 1 1 0;
     grid-template-rows: minmax(0, 1fr);
     grid-template-columns: minmax(0, 1fr) auto;
-    min-height: 28rem;
+    min-height: 0;
   }
 
   .session--desk .session__sheets {
     grid-template-columns:
-      minmax(12rem, var(--scan-fr, 40fr))
+      minmax(12rem, var(--scan-fr, 25fr))
       14px
-      minmax(22rem, var(--score-fr, 60fr));
+      minmax(22rem, var(--score-fr, 75fr));
     grid-template-rows: minmax(0, 1fr);
     gap: 0;
     min-height: 0;
@@ -1721,25 +1989,53 @@ button.findings__item:hover {
     max-height: none;
   }
 
+  /* La partitura con aire alrededor del pentagrama: las notas no se pegan a las barras. */
   .session--desk .sheet--notation .notation {
     flex: 1 1 0;
     min-height: 12rem;
+    padding: var(--space-5);
     overflow: auto;
     overscroll-behavior: contain;
   }
 
-  /* Si la barra y la partitura no caben (una pantalla baja, las leyendas abiertas), el panel de la
-     partitura se desplaza entero en vez de dejarla sin alto. Es el bloque contenedor de lo que
-     lleva dentro con `position: absolute` (los textos ocultos para el lector de pantalla del pie):
-     así los recorta, y no alargan la página con un espacio en blanco bajo la mesa (#355). */
+  /* La paleta en una sola fila: lo que no cabe se desplaza en horizontal, sin empujar la
+     partitura hacia abajo. Sus botones, de 32 px. */
+  .session--desk .editor__palette {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .session--desk .editor__palette .editor__groups {
+    flex-wrap: nowrap;
+    gap: var(--space-3);
+  }
+
+  .session--desk .editor__palette .editor__button {
+    gap: var(--space-1);
+    min-width: 32px;
+    min-height: 32px;
+    padding-inline: var(--space-2);
+    font-size: 0.6875rem;
+    letter-spacing: 0.03em;
+  }
+
+  .session--desk .editor__palette .editor__select {
+    min-height: 32px;
+  }
+
+  /* Si la barra y la partitura no caben (una pantalla muy baja, unas sugerencias largas), el panel
+     de la partitura se desplaza entero en vez de dejarla sin alto. Es el bloque contenedor de lo
+     que lleva dentro con `position: absolute` (los textos ocultos para el lector de pantalla del
+     pie, el panel de los atajos): así los recorta, y no alargan la página (#355). */
   .session--desk .session__sheets > .sheet--notation {
     position: relative;
     overflow-y: auto;
   }
 
   /* El hueco de las barras de desplazamiento (la del panel y la de la partitura) se reserva desde
-     el principio: si una apareciera después del dibujo (al abrir una leyenda o el modo «Escribir»,
-     que alargan la barra), la partitura perdería ancho y se volvería a maquetar, con su parpadeo y,
+     el principio: si una apareciera después del dibujo (al abrir el modo «Escribir», que cambia la
+     barra de estado), la partitura perdería ancho y se volvería a maquetar, con su parpadeo y,
      mientras tanto, las cajas medidas (la nota elegida, la nota fantasma, #350) desplazadas. */
   .session--desk .session__sheets > .sheet--notation,
   .session--desk .sheet--notation .notation {
@@ -1748,6 +2044,24 @@ button.findings__item:hover {
 
   .session--desk .sheet--notation .notation__failed {
     margin: var(--space-4) var(--space-3);
+  }
+
+  /* El transporte, al pie de la partitura como un reproductor: 48 px, en papel algo más claro y
+     con botones de 32 px. */
+  .session--desk .sheet--notation > .sheet__transport:last-child {
+    flex: none;
+    min-height: 48px;
+    padding: var(--space-1) var(--space-4);
+    background: var(--color-paper-raised);
+  }
+
+  .session--desk .playback__button,
+  .session--desk .playback__step {
+    min-height: 32px;
+  }
+
+  .session--desk .playback__step {
+    min-width: 32px;
   }
 
   .session--desk .session__aside {
@@ -1794,9 +2108,29 @@ button.findings__item:hover {
   }
 }
 
+/* En una mesa estrecha, la franja cede lo que se puede leer en otro sitio: el rol de la cuenta y,
+   más abajo, la marca (la vuelta a las sesiones sigue). */
+@media (min-width: 960px) and (max-width: 1279.98px) {
+  .session--desk .app-header__role {
+    display: none;
+  }
+}
+
+@media (min-width: 960px) and (max-width: 1099.98px) {
+  .session--desk .session__brand {
+    display: none;
+  }
+}
+
 /* En una columna, la imagen va fija arriba con un alto que deja ver la partitura, y se puede
    ocultar; el panel lateral, después. */
 @media (max-width: 959.98px) {
+  /* La cabecera se reparte en filas: la cuenta, en la suya, sin el filete que la separa. */
+  .session__account {
+    padding-left: 0;
+    border-left: 0;
+  }
+
   .sheet--scan {
     position: sticky;
     top: 0;
@@ -1827,14 +2161,6 @@ button.findings__item:hover {
     background: var(--color-paper);
   }
 
-  .session__downloads .score-download {
-    justify-content: flex-start;
-  }
-
-  .session__downloads .score-download__hint {
-    text-align: left;
-  }
-
   .sheet--scan .scan {
     height: 30vh;
     height: 30dvh;
@@ -1860,9 +2186,8 @@ button.findings__item:hover {
     display: none;
   }
 
-  .scan__tools .scan__tool + .scan__tool,
-  .scan__zoom + .scan__tool {
-    margin-left: calc(var(--rule-width) * -1);
+  .scan__tools .scan__tool + .scan__tool {
+    border-left: 1px solid var(--color-rule-soft);
   }
 }
 

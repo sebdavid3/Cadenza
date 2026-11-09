@@ -98,7 +98,7 @@ export function LifecyclePanel({
         <button
           ref={reopenRef}
           type="button"
-          className="button button--compact"
+          className="button button--compact button--primary"
           aria-disabled={blocked || undefined}
           onClick={() => void reopen()}
         >
@@ -108,7 +108,7 @@ export function LifecyclePanel({
         <button
           ref={finalizeRef}
           type="button"
-          className="button button--compact"
+          className="button button--compact button--primary"
           aria-expanded={open}
           aria-controls={open ? confirmId : undefined}
           aria-disabled={(busy && !open) || undefined}

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,6 +126,13 @@ function renderPage(user: UserRead = ANA) {
   return router;
 }
 
+/** Abre «Exportar / Datos» (#363) si está cerrado y da el botón de esa acción. */
+async function sessionAction(name: string) {
+  const toggle = await screen.findByRole("button", { name: "Exportar / Datos" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  return screen.findByRole("button", { name });
+}
+
 /** Escribe de una vez (pegando): letra a letra, bajo carga, la prueba pasaría del límite. */
 async function fill(element: HTMLElement, text: string) {
   await userEvent.clear(element);
@@ -220,7 +227,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     });
     renderPage();
 
-    const toggle = await screen.findByRole("button", { name: "Cambiar los datos" });
+    const toggle = await sessionAction("Cambiar los datos");
     await waitFor(() => {
       expect(drawn.xml).toHaveLength(1);
     });
@@ -313,7 +320,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
       saved.push(this.download);
     });
     renderPage();
-    const download = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const download = await sessionAction("Descargar MIDI");
     await waitFor(() => {
       expect(download).not.toHaveAttribute("aria-disabled", "true");
     });
@@ -351,7 +358,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     );
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await fill(screen.getByLabelText("Nombre de la partitura"), "Lied");
     await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -364,7 +371,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     api(detail(), () => answer);
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     const title = screen.getByLabelText("Nombre de la partitura");
     await fill(title, "Mondnacht");
     await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
@@ -387,7 +394,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     });
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await fill(screen.getByLabelText("Nombre de la partitura"), "Otro nombre");
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Mondnacht");
@@ -445,7 +452,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
         .map((key) => (key.startsWith("PATCH") ? "PATCH" : "UNDO"));
 
     // Mientras se guardan los datos, deshacer espera.
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await waitFor(() => {
       expect(drawn.xml).toHaveLength(1);
     });
@@ -462,7 +469,8 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     await waitFor(() => {
       expect(posts()).toEqual(["PATCH", "UNDO"]);
     });
-    await userEvent.click(screen.getByRole("button", { name: "Cambiar los datos" }));
+    // Deshacer se pulsó fuera de «Exportar / Datos», que se cerró al terminar de guardar (#363).
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     const save = screen.getByRole("button", { name: "Guardar" });
     expect(save).toHaveAttribute("aria-disabled", "true");
     expect(save).toHaveAccessibleDescription("Espera a que termine lo que está en curso.");

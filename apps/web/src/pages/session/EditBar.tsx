@@ -34,7 +34,14 @@ import {
 } from "./markEdits";
 import { timeRange, tupletPressed, type TupletScope } from "./meterEdits";
 import { tieArrives, tieLeaves } from "./tieEdits";
-import { KeyCap } from "./SelectionBar";
+import {
+  KeyCap,
+  SelectionAnnouncement,
+  SelectionKeys,
+  SelectionReadout,
+  SelectionSteps,
+} from "./SelectionBar";
+import { selectionReady, type SelectionControls } from "./selectionControls";
 import { SuggestionList, type SuggestionActions } from "./SuggestionList";
 import type { SuggestionItem } from "./suggestions";
 import { TimePicker } from "./TimePicker";
@@ -60,8 +67,6 @@ interface EditBarProps {
   undoable: boolean;
   /** Evento elegido en el estado que se muestra, o null si no hay ninguno que corregir. */
   target: EditTarget | null;
-  /** Si se puede elegir una nota sobre la partitura; si no, lo dice la barra de la selección. */
-  available: boolean;
   /** Estado que se muestra: el del evento elegido (su armadura, su clave, su compás). */
   score: ScoreIRPayload | null;
   /** `seq` del estado que se muestra. */
@@ -93,8 +98,11 @@ interface EditBarProps {
   /** El modo «Escribir» (#350): la figura con que se escribe, o null fuera de él. */
   writing?: { figure: number; dotted: boolean } | null;
   onToggleWriting?: () => void;
-  /** Id de la leyenda de la selección, que «Atajos» también muestra y oculta. */
-  selectionKeysId?: string;
+  /**
+   * La selección de notas de la partitura (#363): sus pasos van en la primera fila, la nota
+   * elegida en la barra de estado y su leyenda con la de la corrección, tras «Atajos».
+   */
+  selection?: SelectionControls;
   /** Si se ven las leyendas de teclas (#341); sin `onToggleKeys`, siempre se ven. */
   keysShown?: boolean;
   onToggleKeys?: () => void;
@@ -379,10 +387,12 @@ const GAP_STRUCTURE: typeof STRUCTURE = [
   { command: { kind: "delete" }, label: "Borrar el hueco", word: "Borrar", icon: "cross" },
 ];
 
-/** Qué indicar bajo los controles según lo elegido. */
-function hint(target: EditTarget | null, available: boolean): string | null {
-  // Si no se puede elegir nota, ya lo dice la barra de la selección.
-  if (!target) return available ? "Elige una nota o un silencio para corregirlo." : null;
+/**
+ * Qué indicar en la barra de estado según lo elegido. Sin nada elegido lo dice la selección («Elige
+ * una nota o un silencio…»), una sola vez (#363).
+ */
+function hint(target: EditTarget | null): string | null {
+  if (!target) return null;
   if (isGap(target.event)) {
     return "Un hueco de la voz no se dibuja: escribe una nota en él, hazlo un silencio o bórralo para que lo que sigue se adelante.";
   }
@@ -753,8 +763,9 @@ function HistoryControls({ editor, multiStaff, score }: HistoryControlsProps) {
           })}
         </div>
       </div>
-      {/* Qué desharía y qué reharía, a la vista bajo la fila de la barra (ADR-0034 §4). */}
-      <p className="editor__history" id={noteId}>
+      {/* Qué desharía y qué reharía: en el `title` y la descripción de sus botones, no en una línea
+          suelta bajo la barra (#363, enmienda de ADR-0034 §4). */}
+      <p className="editor__history visually-hidden" id={noteId}>
         {note}
       </p>
     </>
@@ -774,7 +785,6 @@ export function EditBar({
   editable,
   undoable,
   target,
-  available,
   score,
   seq,
   multiStaff,
@@ -786,7 +796,7 @@ export function EditBar({
   onTab,
   keysShown,
   onToggleKeys,
-  selectionKeysId,
+  selection,
   onCommand,
   writing = null,
   onToggleWriting,
@@ -876,6 +886,16 @@ export function EditBar({
     };
   }, [focusMemoryRef]);
 
+  // La selección (#363): sus pasos en la primera fila y la nota elegida en la barra de estado.
+  const steps = selection && selectionReady(selection.status) ? selection : null;
+  // Las leyendas se ven tras «Atajos»; sin él (la sesión ya no se puede corregir), a la vista.
+  const keysToggle = editable && onToggleKeys !== undefined;
+  const legendShown = keysToggle ? showKeys : true;
+  const hintText = editable && !writing ? hint(target) : null;
+  // Escribiendo, la barra de estado dice cómo se escribe en lugar de la nota elegida: así no
+  // crece a dos líneas al entrar en el modo y la partitura no se mueve.
+  const readout = selection !== undefined && !(editable && writing !== null);
+
   return (
     <section
       ref={sectionRef}
@@ -886,101 +906,95 @@ export function EditBar({
         lastFocused.current = event.target;
       }}
     >
-      {editable && suggestions && suggestions.items.length > 0 && (
-        <div
-          className="editor__group editor__group--suggestions"
-          role="group"
-          aria-labelledby={suggestionsId}
-        >
-          <p className="label editor__label" id={suggestionsId}>
-            Sugerencias para esta nota
-          </p>
-          <SuggestionList
-            items={suggestions.items}
-            labelOf={suggestions.labelOf}
-            actions={suggestions.actions}
-          />
-        </div>
-      )}
-      {(editable || undoable) && (
+      {/* Fila 1 (#363): deshacer y rehacer, las pestañas y «Escribir»; a la derecha, los pasos de
+          la nota elegida y «Atajos». */}
+      {(editable || undoable || steps !== null) && (
         <div className="editor__bar">
-          {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} score={score} />}
-          {editable && (
-            <div
-              className="editor__tabs"
-              role="tablist"
-              aria-label="Herramientas de corrección"
-              onKeyDown={(event) => {
-                const at = TOOL_TABS.findIndex(({ id }) => id === activeTab);
-                const next =
-                  event.key === "ArrowRight"
-                    ? (at + 1) % TOOL_TABS.length
-                    : event.key === "ArrowLeft"
-                      ? (at - 1 + TOOL_TABS.length) % TOOL_TABS.length
-                      : event.key === "Home"
-                        ? 0
-                        : event.key === "End"
-                          ? TOOL_TABS.length - 1
-                          : null;
-                if (next === null) return;
-                event.preventDefault();
-                const chosen = TOOL_TABS[next];
-                if (!chosen) return;
-                chooseTab(chosen.id);
-                tabRefs.current[chosen.id]?.focus();
-              }}
-            >
-              {TOOL_TABS.map(({ id, label }) => (
+          <div className="editor__bar-start">
+            {undoable && <HistoryControls editor={editor} multiStaff={multiStaff} score={score} />}
+            {editable && (
+              <div
+                className="editor__tabs"
+                role="tablist"
+                aria-label="Herramientas de corrección"
+                onKeyDown={(event) => {
+                  const at = TOOL_TABS.findIndex(({ id }) => id === activeTab);
+                  const next =
+                    event.key === "ArrowRight"
+                      ? (at + 1) % TOOL_TABS.length
+                      : event.key === "ArrowLeft"
+                        ? (at - 1 + TOOL_TABS.length) % TOOL_TABS.length
+                        : event.key === "Home"
+                          ? 0
+                          : event.key === "End"
+                            ? TOOL_TABS.length - 1
+                            : null;
+                  if (next === null) return;
+                  event.preventDefault();
+                  const chosen = TOOL_TABS[next];
+                  if (!chosen) return;
+                  chooseTab(chosen.id);
+                  tabRefs.current[chosen.id]?.focus();
+                }}
+              >
+                {TOOL_TABS.map(({ id, label }) => (
+                  <button
+                    key={id}
+                    ref={(element) => {
+                      tabRefs.current[id] = element;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`${groupId}-tab-${id}`}
+                    className="editor__tab"
+                    aria-selected={activeTab === id}
+                    aria-controls={`${groupId}-panel-${id}`}
+                    tabIndex={activeTab === id ? 0 : -1}
+                    onClick={() => {
+                      chooseTab(id);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {editable && onToggleWriting && (
+              <button
+                type="button"
+                className="editor__write"
+                aria-pressed={writing !== null}
+                aria-keyshortcuts="W"
+                title="Escribir con el ratón (W)"
+                onClick={onToggleWriting}
+              >
+                Escribir
+              </button>
+            )}
+          </div>
+          {(steps !== null || keysToggle) && (
+            <div className="editor__bar-end">
+              {steps && <SelectionSteps {...steps} />}
+              {keysToggle && (
                 <button
-                  key={id}
-                  ref={(element) => {
-                    tabRefs.current[id] = element;
-                  }}
                   type="button"
-                  role="tab"
-                  id={`${groupId}-tab-${id}`}
-                  className="editor__tab"
-                  aria-selected={activeTab === id}
-                  aria-controls={`${groupId}-panel-${id}`}
-                  tabIndex={activeTab === id ? 0 : -1}
-                  onClick={() => {
-                    chooseTab(id);
-                  }}
+                  className="editor__keys-toggle"
+                  aria-expanded={showKeys}
+                  aria-controls={[keysId, steps?.keysId].filter(Boolean).join(" ")}
+                  onClick={onToggleKeys}
                 >
-                  {label}
+                  Atajos
                 </button>
-              ))}
+              )}
             </div>
           )}
-          {editable && onToggleWriting && (
-            <button
-              type="button"
-              className="editor__write"
-              aria-pressed={writing !== null}
-              aria-keyshortcuts="W"
-              title="Escribir con el ratón (W)"
-              onClick={onToggleWriting}
-            >
-              Escribir
-            </button>
-          )}
-          {editable && onToggleKeys && (
-            <button
-              type="button"
-              className="editor__keys-toggle"
-              aria-expanded={showKeys}
-              aria-controls={[keysId, selectionKeysId].filter(Boolean).join(" ")}
-              onClick={onToggleKeys}
-            >
-              Atajos
-            </button>
-          )}
         </div>
       )}
-      {/* Las tres pestañas siguen montadas (ocultas las que no se ven): lo propuesto en un
-          desplegable sin aplicar no se pierde al cambiar de pestaña (#341). */}
+      {/* Fila 2 (#363): la paleta de la pestaña, en una fila. Las tres pestañas siguen montadas
+          (ocultas las que no se ven): lo propuesto en un desplegable sin aplicar no se pierde al
+          cambiar de pestaña (#341). */}
       {editable && (
-        <>
+        <div className="editor__palette">
           <div
             className="editor__groups"
             role="tabpanel"
@@ -1196,126 +1210,159 @@ export function EditBar({
               <SpanControls labelId={`${groupId}-spans`} editor={editor} {...shared} />
             </div>
           </div>
-        </>
-      )}
-      {editable && writing && (
-        <p className="editor__hint editor__hint--writing">
-          <span className="editor__hint-pointer">
-            Escribir: elige la figura y pasa el ratón por la partitura; el fantasma enseña la nota.
-            Clic para ponerla (sobre otra figura, la cambia; entre dos, inserta) y Mayús + clic para
-            añadirla al acorde. Esc para salir.
-          </span>
-          <span className="editor__hint-touch">
-            Escribir: elige la figura y toca la partitura; el fantasma enseña la nota. Vuelve a
-            tocar en el mismo sitio para ponerla (sobre otra figura, la cambia; entre dos, inserta).
-            Pulsa «Escribir» para salir.
-          </span>
-        </p>
-      )}
-      {editable && !writing && hint(target, available) !== null && (
-        <p className="editor__hint">{hint(target, available)}</p>
-      )}
-      <div className="editor__feedback">
-        <div className="editor__messages" role="status" ref={statusRef} tabIndex={-1}>
-          <p className="editor__status">{text}</p>
-          {/* Un rechazo no borra un aviso que hay que conservar, como el de un 409. */}
-          {refusal && <p className="editor__refusal">{distinct(refusal.message, refusal.nonce)}</p>}
         </div>
-        {retry?.plan.kind === "edit" && (
-          <button
-            type="button"
-            className="link-button"
-            aria-disabled={blocked}
-            onClick={editor.reapply}
-          >
-            Volver a aplicar
-          </button>
-        )}
-        {reload && (
-          <button
-            type="button"
-            className="link-button"
-            aria-disabled={busy || editor.held}
-            onClick={() => {
-              // Mientras se revalida, la recarga la hace la revalidación si hace falta (ADR-0035).
-              if (!busy && !editor.held) void editor.reload();
-            }}
-          >
-            Recargar la sesión
-          </button>
-        )}
-      </div>
-      {editable && (
-        <p className="editor__keys" id={keysId} hidden={!showKeys}>
-          <span>
-            <KeyCap>Mayús</KeyCap>
-            <KeyCap icon="arrow-up">flecha arriba</KeyCap>
-            <KeyCap icon="arrow-down">flecha abajo</KeyCap> paso
-          </span>
-          <span>
-            <KeyCap>Mayús</KeyCap>
-            <KeyCap>Re Pág</KeyCap>
-            <KeyCap>Av Pág</KeyCap> octava
-          </span>
-          <span>
-            <KeyCap>+</KeyCap>
-            <KeyCap>−</KeyCap>
-            <KeyCap>=</KeyCap> sostenido, bemol, becuadro
-          </span>
-          <span>
-            <KeyCap>1</KeyCap> a <KeyCap>7</KeyCap> figura, de semifusa a redonda
-          </span>
-          <span>
-            <KeyCap>.</KeyCap> puntillo
-          </span>
-          <span>
-            <KeyCap>R</KeyCap> tresillo de tres figuras; <KeyCap>Mayús</KeyCap>
-            <KeyCap>R</KeyCap> en todo el compás
-          </span>
-          <span>
-            <KeyCap>N</KeyCap> nota antes (en un hueco, en él)
-          </span>
-          <span>
-            <KeyCap>S</KeyCap> silencio antes (en un hueco, en él)
-          </span>
-          <span>
-            <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar
-          </span>
-          <span>
-            <KeyCap>E</KeyCap> nota en el acorde
-          </span>
-          <span>
-            <KeyCap>U</KeyCap> ligar con la siguiente
-          </span>
-          <span>
-            <KeyCap>W</KeyCap> escribir con el ratón; <KeyCap>Esc</KeyCap> salir
-          </span>
-          <span>
-            <KeyCap>P</KeyCap>
-            <KeyCap>A</KeyCap>
-            <KeyCap>M</KeyCap>
-            <KeyCap>T</KeyCap> picado, acento, marcato, tenuto
-          </span>
-          <span>
-            <KeyCap>C</KeyCap> calderón
-          </span>
-          <span>
-            <KeyCap>I</KeyCap> inicio; <KeyCap>L</KeyCap>
-            <KeyCap>&lt;</KeyCap>
-            <KeyCap>&gt;</KeyCap> ligadura, crescendo, diminuendo hasta aquí
-          </span>
-          <span>
-            <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
-            <KeyCap>Z</KeyCap> deshacer
-          </span>
-          <span>
-            <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
-            <KeyCap>Mayús</KeyCap>
-            <KeyCap>Z</KeyCap>, o <KeyCap>Ctrl</KeyCap>
-            <KeyCap>Y</KeyCap> rehacer
-          </span>
-        </p>
       )}
+      {editable && suggestions && suggestions.items.length > 0 && (
+        <div
+          className="editor__group editor__group--suggestions"
+          role="group"
+          aria-labelledby={suggestionsId}
+        >
+          <p className="label editor__label" id={suggestionsId}>
+            Sugerencias para esta nota
+          </p>
+          <SuggestionList
+            items={suggestions.items}
+            labelOf={suggestions.labelOf}
+            actions={suggestions.actions}
+          />
+        </div>
+      )}
+      {/* Barra de estado (#363): a la izquierda, la nota elegida o la indicación; a la derecha, lo
+          que pasó con la última orden. */}
+      <div className="editor__statusbar">
+        {(readout || hintText !== null || (editable && writing !== null)) && (
+          <div className="editor__now">
+            {readout && (
+              <SelectionReadout status={selection.status} description={selection.description} />
+            )}
+            {editable && writing ? (
+              <p className="editor__hint editor__hint--writing">
+                <span className="editor__hint-pointer">
+                  Escribir: elige la figura y pasa el ratón por la partitura; clic para ponerla,
+                  Mayús + clic para el acorde y Esc para salir.
+                </span>
+                <span className="editor__hint-touch">
+                  Escribir: elige la figura y toca la partitura; vuelve a tocar en el mismo sitio
+                  para ponerla y pulsa «Escribir» para salir.
+                </span>
+              </p>
+            ) : (
+              hintText !== null && <p className="editor__hint">{hintText}</p>
+            )}
+          </div>
+        )}
+        <div className="editor__feedback">
+          <div className="editor__messages" role="status" ref={statusRef} tabIndex={-1}>
+            <p className="editor__status">{text}</p>
+            {/* Un rechazo no borra un aviso que hay que conservar, como el de un 409. */}
+            {refusal && (
+              <p className="editor__refusal">{distinct(refusal.message, refusal.nonce)}</p>
+            )}
+          </div>
+          {retry?.plan.kind === "edit" && (
+            <button
+              type="button"
+              className="link-button"
+              aria-disabled={blocked}
+              onClick={editor.reapply}
+            >
+              Volver a aplicar
+            </button>
+          )}
+          {reload && (
+            <button
+              type="button"
+              className="link-button"
+              aria-disabled={busy || editor.held}
+              onClick={() => {
+                // Mientras se revalida, la recarga la hace la revalidación si hace falta (ADR-0035).
+                if (!busy && !editor.held) void editor.reload();
+              }}
+            >
+              Recargar la sesión
+            </button>
+          )}
+        </div>
+      </div>
+      {/* Las leyendas de teclas: tras «Atajos», en un panel sobre la partitura que no la empuja. */}
+      {(editable || steps !== null) && (
+        <div className="editor__legend" data-popover={keysToggle} hidden={!legendShown}>
+          {steps && <SelectionKeys keysId={steps.keysId} hidden={!legendShown} />}
+          {editable && (
+            <p className="editor__keys" id={keysId} hidden={!legendShown}>
+              <span>
+                <KeyCap>Mayús</KeyCap>
+                <KeyCap icon="arrow-up">flecha arriba</KeyCap>
+                <KeyCap icon="arrow-down">flecha abajo</KeyCap> paso
+              </span>
+              <span>
+                <KeyCap>Mayús</KeyCap>
+                <KeyCap>Re Pág</KeyCap>
+                <KeyCap>Av Pág</KeyCap> octava
+              </span>
+              <span>
+                <KeyCap>+</KeyCap>
+                <KeyCap>−</KeyCap>
+                <KeyCap>=</KeyCap> sostenido, bemol, becuadro
+              </span>
+              <span>
+                <KeyCap>1</KeyCap> a <KeyCap>7</KeyCap> figura, de semifusa a redonda
+              </span>
+              <span>
+                <KeyCap>.</KeyCap> puntillo
+              </span>
+              <span>
+                <KeyCap>R</KeyCap> tresillo de tres figuras; <KeyCap>Mayús</KeyCap>
+                <KeyCap>R</KeyCap> en todo el compás
+              </span>
+              <span>
+                <KeyCap>N</KeyCap> nota antes (en un hueco, en él)
+              </span>
+              <span>
+                <KeyCap>S</KeyCap> silencio antes (en un hueco, en él)
+              </span>
+              <span>
+                <KeyCap>Supr</KeyCap> o <KeyCap>Retroceso</KeyCap> borrar
+              </span>
+              <span>
+                <KeyCap>E</KeyCap> nota en el acorde
+              </span>
+              <span>
+                <KeyCap>U</KeyCap> ligar con la siguiente
+              </span>
+              <span>
+                <KeyCap>W</KeyCap> escribir con el ratón; <KeyCap>Esc</KeyCap> salir
+              </span>
+              <span>
+                <KeyCap>P</KeyCap>
+                <KeyCap>A</KeyCap>
+                <KeyCap>M</KeyCap>
+                <KeyCap>T</KeyCap> picado, acento, marcato, tenuto
+              </span>
+              <span>
+                <KeyCap>C</KeyCap> calderón
+              </span>
+              <span>
+                <KeyCap>I</KeyCap> inicio; <KeyCap>L</KeyCap>
+                <KeyCap>&lt;</KeyCap>
+                <KeyCap>&gt;</KeyCap> ligadura, crescendo, diminuendo hasta aquí
+              </span>
+              <span>
+                <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+                <KeyCap>Z</KeyCap> deshacer
+              </span>
+              <span>
+                <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+                <KeyCap>Mayús</KeyCap>
+                <KeyCap>Z</KeyCap>, o <KeyCap>Ctrl</KeyCap>
+                <KeyCap>Y</KeyCap> rehacer
+              </span>
+            </p>
+          )}
+        </div>
+      )}
+      {steps && <SelectionAnnouncement announcement={steps.announcement} />}
     </section>
   );
 }
