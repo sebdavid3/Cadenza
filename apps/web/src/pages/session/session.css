@@ -133,8 +133,17 @@
   border-bottom: var(--rule);
 }
 
+/* Rótulo de un panel: en su propia franja (el resultado de la portada) o, en la cabecera de un
+   panel de la mesa, a la izquierda de sus controles. */
 .sheet__caption {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.sheet__head > .sheet__caption {
   margin-right: auto;
+  padding: 0;
+  border-bottom: 0;
 }
 
 /* La partitura: la selección y la barra de corrección encima, el transporte al pie. */
@@ -142,12 +151,18 @@
   container: sheet / inline-size;
 }
 
-/* Transporte: al pie de la partitura, como el de un reproductor. */
+/* Transporte: en su franja sobre la partitura (el resultado de la portada) o, en la mesa, al pie
+   de la partitura, como el de un reproductor. */
 .sheet__transport {
   display: flex;
   align-items: center;
   padding: var(--space-2) var(--space-3);
+  border-bottom: var(--rule);
+}
+
+.session .sheet--notation > .sheet__transport:last-child {
   border-top: var(--rule);
+  border-bottom: 0;
 }
 
 /* Divisor entre la imagen y la partitura (#341): una franja con su trama que se arrastra; al
