@@ -670,13 +670,13 @@ describe("datos de sesiones", () => {
     expect(parseUtc("2026-10-22T20:15:00+02:00").toISOString()).toBe("2026-10-22T18:15:00.000Z");
   });
 
-  it("reduce la miniatura lo justo para cubrir el hueco de 96 × 48 a doble densidad", () => {
+  it("reduce la miniatura lo justo para cubrir la imagen de una lámina del diario (#370)", () => {
     // Un incipit apaisado manda la altura; una página escaneada, la anchura.
-    expect(thumbnailSize(1200, 200)).toEqual({ width: 576, height: 96 });
-    expect(thumbnailSize(2480, 3508)).toEqual({ width: 192, height: 272 });
+    expect(thumbnailSize(3000, 500)).toEqual({ width: 1920, height: 320 });
+    expect(thumbnailSize(2480, 3508)).toEqual({ width: 480, height: 679 });
     // Lo que ya es pequeño no se toca (ni se amplía).
-    expect(thumbnailSize(180, 90)).toBeNull();
-    expect(thumbnailSize(192, 96)).toBeNull();
+    expect(thumbnailSize(400, 300)).toBeNull();
+    expect(thumbnailSize(480, 320)).toBeNull();
   });
 
   it("da a <time> la fecha en ISO con zona y no falla con una fecha ilegible", () => {
@@ -777,8 +777,8 @@ describe("reducción de miniaturas", () => {
   }
 
   it("dibuja la imagen al tamaño reducido y cierra los dos bitmaps", async () => {
-    const full = bitmap(1200, 200);
-    const reduced = bitmap(576, 96);
+    const full = bitmap(3000, 500);
+    const reduced = bitmap(1920, 320);
     vi.stubGlobal(
       "createImageBitmap",
       vi.fn().mockResolvedValueOnce(full).mockResolvedValueOnce(reduced),
@@ -789,7 +789,7 @@ describe("reducción de miniaturas", () => {
 
     await expect(shrinkForThumbnail(original)).resolves.toBe(small);
 
-    expect(drawImage).toHaveBeenCalledWith(reduced, 0, 0, 576, 96);
+    expect(drawImage).toHaveBeenCalledWith(reduced, 0, 0, 1920, 320);
     expect(full.close).toHaveBeenCalledOnce();
     expect(reduced.close).toHaveBeenCalledOnce();
   });
@@ -797,7 +797,7 @@ describe("reducción de miniaturas", () => {
   it("si algo falla a mitad, devuelve la original sin dejar bitmaps abiertos", async () => {
     const original = new Blob(["original"], { type: "image/png" });
 
-    const full = bitmap(1200, 200);
+    const full = bitmap(3000, 500);
     vi.stubGlobal(
       "createImageBitmap",
       vi.fn().mockResolvedValueOnce(full).mockRejectedValueOnce(new Error("sin memoria")),
@@ -806,8 +806,8 @@ describe("reducción de miniaturas", () => {
     await expect(shrinkForThumbnail(original)).resolves.toBe(original);
     expect(full.close).toHaveBeenCalledOnce();
 
-    const full2 = bitmap(1200, 200);
-    const reduced = bitmap(576, 96);
+    const full2 = bitmap(3000, 500);
+    const reduced = bitmap(1920, 320);
     vi.stubGlobal(
       "createImageBitmap",
       vi.fn().mockResolvedValueOnce(full2).mockResolvedValueOnce(reduced),

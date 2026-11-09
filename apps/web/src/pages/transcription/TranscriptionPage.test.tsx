@@ -80,6 +80,25 @@ function item(id: string, name: string, changes: Partial<QueueItem> = {}): Queue
   return { id, file: png(name), status: "queued", ...changes };
 }
 
+/** El diario de sesiones (#370), una vez que enseña al menos una lámina. */
+async function findDiary(): Promise<HTMLElement> {
+  const diary = screen.getByRole("region", { name: "Sesiones" });
+  await waitFor(() => {
+    expect(diary.querySelector("[data-session-id]")).not.toBeNull();
+  });
+  return diary;
+}
+
+/** Las láminas de las sesiones, en el orden en que se ven. */
+function plates(diary: HTMLElement): HTMLElement[] {
+  return [...diary.querySelectorAll<HTMLElement>("[data-session-id]")];
+}
+
+/** La fecha de hoy en la API: UTC sin zona. */
+function nowUtc(): string {
+  return new Date().toISOString().replace("Z", "");
+}
+
 let createObjectURL: MockInstance<typeof URL.createObjectURL>;
 let revokeObjectURL: MockInstance<typeof URL.revokeObjectURL>;
 
@@ -101,10 +120,12 @@ describe("vista de transcripción", () => {
     renderPage();
 
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
-    expect(screen.getByText(/las imágenes que transcribas aparecerán aquí/i)).toBeVisible();
+    expect(screen.getByText(/se transcriben de una en una/i)).toBeVisible();
+    // Sin imágenes no hay cola.
+    expect(screen.queryByRole("region", { name: "Cola" })).toBeNull();
   });
 
-  it("lista las sesiones con fecha, estado, hallazgos, miniatura autenticada y enlace a su vista", async () => {
+  it("enseña cada sesión como lámina de su día, con hora, estado, posibles errores, miniatura y enlace", async () => {
     mockApi({
       "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111"), session("bbbbbbbb-2222")]),
       "GET /sessions/aaaaaaaa-1111/image": () =>
@@ -114,20 +135,31 @@ describe("vista de transcripción", () => {
     });
     renderPage();
 
-    const table = await screen.findByRole("table");
-    expect(within(table).getAllByRole("row")).toHaveLength(3);
-    expect(within(table).getByText("Sesión aaaaaaaa")).toBeVisible();
-    expect(table.querySelector("time")).toHaveAttribute("datetime", "2026-10-22T20:15:00.000Z");
+    const diary = await findDiary();
+    expect(plates(diary)).toHaveLength(2);
+    // Un solo día, con su fecha en el margen.
+    expect(within(diary).getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    expect(
+      within(diary).getByRole("heading", { level: 2, name: "jueves, 22 de octubre de 2026" }),
+    ).toBeVisible();
+    expect(within(diary).getByText("Sesión aaaaaaaa")).toBeVisible();
+    expect(plates(diary)[0]?.querySelector("time")).toHaveAttribute(
+      "datetime",
+      "2026-10-22T20:15:00.000Z",
+    );
     // 20:15 UTC es 15:15 en Bogotá (TZ de las pruebas).
-    expect(within(table).getAllByText("15:15")).toHaveLength(2);
+    expect(within(diary).getAllByText("15:15")).toHaveLength(2);
     expect(screen.queryByText(/assisted/i)).toBeNull();
-    expect(within(table).getAllByText("Transcrita")).toHaveLength(2);
-    expect(within(table).queryByRole("columnheader", { name: /propietario/i })).toBeNull();
+    expect(within(diary).getAllByText("Transcrita")).toHaveLength(2);
+    expect(within(diary).getAllByText("2 posibles errores")).toHaveLength(2);
+    // Quien transcribe solo ve las suyas: no se dice de quién son.
+    expect(screen.getByText(/^tus sesiones/i)).toBeVisible();
+    expect(within(diary).queryByText("Tú")).toBeNull();
     await waitFor(() => {
       expect(createObjectURL).toHaveBeenCalledTimes(2);
     });
     // Cada sesión enlaza con su vista de solo lectura; no hay enlaces a una edición.
-    expect(within(table).getByRole("link", { name: "Sesión aaaaaaaa" })).toHaveAttribute(
+    expect(within(diary).getByRole("link", { name: "Sesión aaaaaaaa" })).toHaveAttribute(
       "href",
       "/sesiones/aaaaaaaa-1111",
     );
@@ -168,7 +200,7 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    await screen.findByRole("table");
+    await findDiary();
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
@@ -190,13 +222,13 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
-    expect(await within(table).findByText("Sesión ultima-0")).toBeVisible();
-    expect(within(table).getAllByText("Sesión s-0019")).toHaveLength(1);
-    expect(within(table).getAllByRole("row")).toHaveLength(1 + 21);
+    expect(await within(diary).findByText("Sesión ultima-0")).toBeVisible();
+    expect(within(diary).getAllByText("Sesión s-0019")).toHaveLength(1);
+    expect(plates(diary)).toHaveLength(21);
   });
 
   it("si falla «Cargar más» avisa una sola vez y conserva las filas", async () => {
@@ -209,13 +241,13 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no se pudieron cargar más/i);
     expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(within(table).getAllByRole("row")).toHaveLength(21);
+    expect(plates(diary)).toHaveLength(20);
     expect(screen.getByRole("button", { name: "Cargar más" })).toHaveAttribute(
       "aria-disabled",
       "false",
@@ -234,10 +266,12 @@ describe("vista de transcripción", () => {
     });
     renderPage(investigador);
 
-    const table = await screen.findByRole("table");
-    expect(within(table).getByRole("columnheader", { name: /propietario/i })).toBeVisible();
-    expect(await within(table).findByText("ana")).toBeVisible();
-    expect(within(table).getByText("Tú")).toBeVisible();
+    const diary = await findDiary();
+    expect(screen.getByText(/^todas las sesiones/i)).toBeVisible();
+    const [deAna, propia] = plates(diary);
+    if (!deAna || !propia) throw new Error("faltan láminas");
+    expect(await within(deAna).findByText("ana")).toBeVisible();
+    expect(within(propia).getByText("Tú")).toBeVisible();
   });
 
   it("muestra un error del listado con reintento", async () => {
@@ -252,7 +286,7 @@ describe("vista de transcripción", () => {
     fail = false;
     await userEvent.click(screen.getByRole("button", { name: "Reintentar" }));
 
-    expect(await screen.findByRole("table")).toBeVisible();
+    expect(await screen.findByText("Sesión aaaaaaaa")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -267,14 +301,14 @@ describe("vista de transcripción", () => {
     expect(screen.queryByText(/cargando sesiones/i)).not.toBeInTheDocument();
   });
 
-  it("sube varias imágenes, las transcribe en cola y las sesiones nuevas aparecen en el listado", async () => {
+  it("sube varias imágenes, las transcribe en cola y sus sesiones ocupan su sitio en el día de hoy", async () => {
     const created: SessionSummaryRead[] = [];
     mockApi({
       // La más reciente primero, como la API.
       "GET /sessions": () => jsonResponse([...created].reverse()),
       "POST /transcribe": () => {
         const id = `nueva000-${String(created.length + 1)}`;
-        created.push(session(id, { findings_count: 1 }));
+        created.push(session(id, { findings_count: 1, created_at: nowUtc() }));
         return jsonResponse(transcribed(id), 201);
       },
       "GET /sessions/nueva000-1/image": image,
@@ -285,16 +319,97 @@ describe("vista de transcripción", () => {
 
     await chooseAndTranscribe([png("uno.png"), png("dos.png")]);
 
-    const queue = screen.getByRole("region", { name: "Cola" });
+    const today = screen.getByRole("region", { name: /^hoy, /i });
+    const queue = within(today).getByRole("region", { name: "Cola" });
+    const diary = screen.getByRole("region", { name: "Sesiones" });
     await waitFor(() => {
-      expect(within(queue).getAllByText("1 hallazgo")).toHaveLength(2);
+      expect(plates(diary)).toHaveLength(2);
     });
-    const table = await screen.findByRole("table");
-    await waitFor(() => {
-      expect(within(table).getAllByRole("row")).toHaveLength(3);
-    });
-    expect(within(table).getAllByText("Sesión nueva000")).toHaveLength(2);
+    expect(within(today).getAllByText("Sesión nueva000")).toHaveLength(2);
+    expect(within(today).getAllByText("1 posible error")).toHaveLength(2);
+    // Las imágenes ya son sesiones: la cola no las repite, pero el recuento las sigue contando.
+    expect(within(queue).queryAllByRole("listitem")).toHaveLength(0);
     expect(within(queue).getByText(/0 en cola · 2 transcritas · 0 con error/)).toBeVisible();
+  });
+
+  it("una imagen transcrita deja su sitio a la lámina de su sesión, y el foco pasa con ella", async () => {
+    const refresh = deferred<Response>();
+    let listed = 0;
+    mockApi({
+      "GET /sessions": () => {
+        listed += 1;
+        return listed === 1 ? jsonResponse([]) : refresh.promise;
+      },
+      "POST /transcribe": () => jsonResponse(transcribed("hecha000-1", 2), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+
+    await chooseAndTranscribe([png("uno.png")]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+    const open = await within(queue).findByRole("link", { name: "Abrir la sesión de uno.png" });
+    expect(within(queue).getByText("2 posibles errores")).toBeVisible();
+    act(() => {
+      open.focus();
+    });
+
+    refresh.resolve(
+      jsonResponse([session("hecha000-1", { findings_count: 2, created_at: nowUtc() })]),
+    );
+
+    const diary = screen.getByRole("region", { name: "Sesiones" });
+    await waitFor(() => {
+      expect(within(diary).getByText("Sesión hecha000").closest("li")).toHaveFocus();
+    });
+    expect(within(queue).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(queue).getByText("0 en cola · 1 transcrita · 0 con error")).toBeVisible();
+  });
+
+  it("agrupa las sesiones por día local, con hoy y ayer señalados en el margen", async () => {
+    const at = (daysAgo: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() - daysAgo);
+      date.setHours(12, 0, 0, 0);
+      return date.toISOString().replace("Z", "");
+    };
+    mockApi({
+      "GET /sessions": () =>
+        jsonResponse([
+          session("hoy00000-1", { created_at: at(0) }),
+          session("ayer0000-1", { created_at: at(1) }),
+          session("ayer0000-2", { created_at: at(1) }),
+          session("antes000-1", { created_at: at(9) }),
+        ]),
+    });
+    renderPage();
+
+    const diary = await findDiary();
+    const days = within(diary).getAllByRole("region");
+    expect(days.map((day) => plates(day).length)).toEqual([1, 2, 1]);
+    const [today, yesterday, before] = days;
+    if (!today || !yesterday || !before) throw new Error("faltan días");
+    expect(today).toHaveAccessibleName(/^hoy, /i);
+    expect(yesterday).toHaveAccessibleName(/^ayer, /i);
+    expect(before).not.toHaveAccessibleName(/^(hoy|ayer), /i);
+    expect(within(yesterday).getByText("Ayer")).toBeVisible();
+  });
+
+  it("la cola solo aparece con imágenes, en el día de hoy aunque no tenga sesiones", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([session("antes000-1")]) });
+    renderPage();
+    const diary = await findDiary();
+    expect(within(diary).getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    expect(screen.queryByRole("region", { name: "Cola" })).toBeNull();
+
+    setQueue([item("a", "a.png")]);
+
+    const days = within(diary).getAllByRole("region", { name: /, / });
+    expect(days).toHaveLength(2);
+    const [today] = days;
+    if (!today) throw new Error("falta el día de hoy");
+    expect(today).toHaveAccessibleName(/^hoy, /i);
+    expect(within(today).getByRole("region", { name: "Cola" })).toBeVisible();
+    expect(plates(today)).toHaveLength(0);
   });
 
   it("si la sesión caduca a mitad del lote, lleva al acceso, conserva la cola y la reanuda al volver", async () => {
@@ -335,9 +450,8 @@ describe("vista de transcripción", () => {
     });
     // La vista se carga bajo demanda: puede no estar dibujada aún al cambiar la ruta.
     const queue = await screen.findByRole("region", { name: "Cola" });
-    await waitFor(() => {
-      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
-    });
+    expect(await screen.findByText("Sesión retomada")).toBeVisible();
+    expect(within(queue).getByText("0 en cola · 1 transcrita · 1 con error")).toBeVisible();
     expect(within(queue).getByText(/vuelve a entrar/i)).toBeVisible();
     expect(within(queue).getByRole("button", { name: /reintentar uno\.png/i })).toBeVisible();
     expect(posts).toBe(2);
@@ -361,7 +475,7 @@ describe("vista de transcripción", () => {
     expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
   });
 
-  it("marca en violeta las sesiones con hallazgos y deja en contorno las que no tienen", async () => {
+  it("marca en violeta las sesiones con posibles errores y no las que no tienen", async () => {
     mockApi({
       "GET /sessions": () =>
         jsonResponse([
@@ -371,11 +485,14 @@ describe("vista de transcripción", () => {
     });
     renderPage();
 
-    const table = await screen.findByRole("table");
-    const [, withFindings, without] = within(table).getAllByRole("row");
-    if (!withFindings || !without) throw new Error("faltan filas");
-    expect(within(withFindings).getByText("3")).toHaveClass("chip--finding");
+    const diary = await findDiary();
+    const [withFindings, without] = plates(diary);
+    if (!withFindings || !without) throw new Error("faltan láminas");
+    expect(within(withFindings).getByText("3 posibles errores")).toHaveClass("chip--finding");
+    // La imagen lleva la trama del compás dudoso.
+    expect(withFindings).toHaveAttribute("data-flagged", "true");
     expect(without.querySelector(".chip--finding")).toBeNull();
+    expect(without).toHaveAttribute("data-flagged", "false");
   });
 
   it("distingue una sesión finalizada de las que siguen abiertas (#187)", async () => {
@@ -388,9 +505,9 @@ describe("vista de transcripción", () => {
     });
     renderPage();
 
-    const table = await screen.findByRole("table");
-    const [, finalized, open] = within(table).getAllByRole("row");
-    if (!finalized || !open) throw new Error("faltan filas");
+    const diary = await findDiary();
+    const [finalized, open] = plates(diary);
+    if (!finalized || !open) throw new Error("faltan láminas");
     expect(within(finalized).getByText("Finalizada")).toHaveClass("chip--finalized");
     expect(within(open).getByText("En corrección")).not.toHaveClass("chip--finalized");
   });
@@ -570,7 +687,7 @@ describe("vista de transcripción", () => {
       ),
     });
     renderPage();
-    await screen.findByRole("table");
+    await findDiary();
 
     await waitFor(() => {
       expect(pending.size).toBe(3);
@@ -627,7 +744,7 @@ describe("vista de transcripción", () => {
       "POST /transcribe": () => post.promise,
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
     act(() => {
       useQueueStore.getState().add([png("uno.png")]);
     });
@@ -644,10 +761,10 @@ describe("vista de transcripción", () => {
     nextPage.resolve(undefined);
 
     await waitFor(() => {
-      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
+      expect(within(diary).getByText("Sesión nueva000")).toBeVisible();
     });
-    expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
-    expect(within(table).getAllByRole("row")).toHaveLength(1 + 22);
+    expect(within(diary).getByText("Sesión ultima-0")).toBeVisible();
+    expect(plates(diary)).toHaveLength(22);
     const offsets = calls
       .filter((call) => call.key === "GET /sessions")
       .map((call) => call.url.searchParams.get("offset"));
@@ -674,7 +791,7 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
     act(() => {
       useQueueStore.getState().add([png("uno.png")]);
     });
@@ -693,7 +810,7 @@ describe("vista de transcripción", () => {
 
     refresh.resolve(undefined);
     await waitFor(() => {
-      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
+      expect(within(diary).getByText("Sesión nueva000")).toBeVisible();
     });
     await waitFor(() => {
       expect(more).toHaveAttribute("aria-disabled", "false");
@@ -701,7 +818,7 @@ describe("vista de transcripción", () => {
     await userEvent.click(more);
 
     await waitFor(() => {
-      expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
+      expect(within(diary).getByText("Sesión ultima-0")).toBeVisible();
     });
     expect(offsets()).toEqual(["0", "0", "20"]);
   });
@@ -716,12 +833,12 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
 
     await waitFor(() => {
-      expect(within(table).getByText("Sesión ultima-0").closest("tr")).toHaveFocus();
+      expect(within(diary).getByText("Sesión ultima-0").closest("li")).toHaveFocus();
     });
     expect(screen.queryByRole("button", { name: "Cargar más" })).not.toBeInTheDocument();
   });
@@ -775,24 +892,34 @@ describe("vista de transcripción", () => {
     await userEvent.click(within(queue).getByRole("button", { name: "Reanudar" }));
 
     await waitFor(() => {
-      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+      expect(within(queue).getByText("1 posible error")).toBeVisible();
     });
     expect(posts).toBe(2);
     expect(within(queue).queryByText(/la cola está en pausa/i)).not.toBeInTheDocument();
     expect(within(queue).getByRole("heading", { name: "Cola" })).toHaveFocus();
   });
 
-  it("acepta imágenes soltadas sobre la zona de subida", async () => {
+  it("acepta imágenes soltadas en cualquier parte de la vista y avisa mientras se arrastran", async () => {
     mockApi({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse(transcribed("soltada0-1"), 201),
     });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
-    const zone = screen.getByText(/o arrástralas aquí/i).parentElement;
-    if (!zone) throw new Error("falta la zona de subida");
+    const page = screen.getByRole("main");
+    const empty = screen.getByText(/todavía no hay sesiones/i);
 
-    fireEvent.drop(zone, { dataTransfer: { files: [png("soltada.png")], types: ["Files"] } });
+    expect(screen.queryByText("Suelta las imágenes")).toBeNull();
+    fireEvent.dragEnter(empty, { dataTransfer: { files: [], types: ["Files"] } });
+    expect(screen.getByText("Suelta las imágenes")).toBeInTheDocument();
+    // Un texto arrastrado no es una imagen: no cambia nada.
+    fireEvent.dragEnter(page, { dataTransfer: { files: [], types: ["text/plain"] } });
+    fireEvent.dragLeave(empty, { dataTransfer: { files: [], types: ["Files"] } });
+    expect(screen.queryByText("Suelta las imágenes")).toBeNull();
+
+    fireEvent.dragEnter(empty, { dataTransfer: { files: [], types: ["Files"] } });
+    fireEvent.drop(empty, { dataTransfer: { files: [png("soltada.png")], types: ["Files"] } });
+    expect(screen.queryByText("Suelta las imágenes")).toBeNull();
     // Antes de enviar se piden los datos: el foco va al primero (#240). Con el selector no se
     // comprueba aquí: user-event devuelve el foco al campo de archivo al cerrar el diálogo.
     expect(screen.getByLabelText("Nombre de la partitura")).toHaveFocus();
@@ -801,7 +928,7 @@ describe("vista de transcripción", () => {
     const queue = screen.getByRole("region", { name: "Cola" });
     expect(within(queue).getByText("soltada.png")).toBeVisible();
     await waitFor(() => {
-      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+      expect(within(queue).getByText("1 posible error")).toBeVisible();
     });
   });
 
@@ -846,14 +973,14 @@ describe("vista de transcripción", () => {
       },
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
     const exit = screen.getByRole("button", { name: "Salir" });
     exit.focus();
     nextPage.resolve(jsonResponse([session("ultima-0000")]));
 
-    expect(await within(table).findByText("Sesión ultima-0")).toBeVisible();
+    expect(await within(diary).findByText("Sesión ultima-0")).toBeVisible();
     expect(exit).toHaveFocus();
   });
 
@@ -877,7 +1004,7 @@ describe("vista de transcripción", () => {
       "POST /transcribe": () => post.promise,
     });
     renderPage();
-    const table = await screen.findByRole("table");
+    const diary = await findDiary();
     act(() => {
       useQueueStore.getState().add([png("uno.png")]);
     });
@@ -899,9 +1026,9 @@ describe("vista de transcripción", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
     await waitFor(() => {
-      expect(within(table).getByText("Sesión nueva000")).toBeVisible();
+      expect(within(diary).getByText("Sesión nueva000")).toBeVisible();
     });
-    expect(within(table).getByText("Sesión ultima-0")).toBeVisible();
+    expect(within(diary).getByText("Sesión ultima-0")).toBeVisible();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -990,7 +1117,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
 
     const queue = screen.getByRole("region", { name: "Cola" });
     await waitFor(() => {
-      expect(within(queue).getByText("1 hallazgo")).toBeVisible();
+      expect(within(queue).getByText("1 posible error")).toBeVisible();
     });
     expect(sentData(calls.find((call) => call.key === "POST /transcribe"))).toEqual([
       ["title", "Mondnacht"],
@@ -1050,7 +1177,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
 
     const queue = screen.getByRole("region", { name: "Cola" });
     await waitFor(() => {
-      expect(within(queue).getAllByText("1 hallazgo")).toHaveLength(2);
+      expect(within(queue).getAllByText("1 posible error")).toHaveLength(2);
     });
     const posts = calls.filter((call) => call.key === "POST /transcribe");
     expect(posts.map(sentData)).toEqual([
@@ -1085,7 +1212,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     await userEvent.click(within(form).getByRole("button", { name: "Descartar" }));
 
     expect(screen.queryByRole("form", { name: /antes de transcribir/i })).toBeNull();
-    expect(screen.getByRole("button", { name: "Elegir imágenes" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Nueva transcripción" })).toHaveFocus();
     expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
 
     await chooseAndTranscribe([png("tres.png")]);
@@ -1115,16 +1242,18 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     });
     renderPage();
 
-    const table = await screen.findByRole("table");
-    expect(within(table).getByRole("link", { name: "Mondnacht" })).toHaveAttribute(
+    const diary = await findDiary();
+    expect(within(diary).getByRole("link", { name: "Mondnacht" })).toHaveAttribute(
       "href",
       "/sesiones/aaaaaaaa-1111",
     );
-    expect(within(table).getByRole("link", { name: "pagina-2.png" })).toHaveAttribute(
+    // El compositor va con la hora, bajo el nombre.
+    expect(within(diary).getByText("Robert Schumann")).toBeVisible();
+    expect(within(diary).getByRole("link", { name: "pagina-2.png" })).toHaveAttribute(
       "href",
       "/sesiones/bbbbbbbb-2222",
     );
-    expect(within(table).getByRole("link", { name: "Sesión cccccccc" })).toBeVisible();
+    expect(within(diary).getByRole("link", { name: "Sesión cccccccc" })).toBeVisible();
     // Nada de los datos del estudio.
     expect(screen.queryByText(/unassisted|TS-03/i)).toBeNull();
   });

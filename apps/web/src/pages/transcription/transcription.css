@@ -1,32 +1,487 @@
-/* Vista de transcripción: modo de trabajo. Misma retícula de filetes; los estados se leen por
-   patrón (contorno, trama, macizo, rayado) y el violeta solo marca lo que pide atención. */
+/* Vista de transcripción (#370): un diario de trabajo. Las sesiones se agrupan por días, con la
+   fecha en el margen; la subida es una barra y la cola vive en el día de hoy solo mientras hay
+   imágenes. Los estados se leen por patrón (contorno, trama, macizo, discontinuo) y el violeta
+   solo marca lo que pide la mano de la persona. */
 
-.transcription__intake {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 560px);
-  gap: var(--space-4) var(--space-7);
-  align-items: end;
-  padding: var(--space-6) var(--gutter);
+.transcription {
+  /* El ancho del margen de los días: la cola, el pie y las láminas se alinean con él. */
+  --day-margin: clamp(8.5rem, 13vw, 12.5rem);
+}
+
+/* Barra: el título de la vista y la subida, en una franja. */
+.transcription__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
+  padding: var(--space-5) var(--gutter);
   border-bottom: var(--rule);
+}
+
+.transcription__heading {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
 .transcription__title {
   font-family: var(--font-display);
-  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-size: clamp(1.75rem, 3.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.transcription__title:focus-visible {
+  outline-offset: 4px;
+}
+
+.transcription__scope {
+  color: var(--color-ink-muted);
+}
+
+/* Si la barra se parte en dos filas, la subida sigue a la derecha. */
+.transcription__pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-left: auto;
+}
+
+.transcription__hint {
+  max-width: 24ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.35;
+  text-align: right;
+}
+
+/* Sin ratón no hay nada que arrastrar. */
+@media (hover: none), (pointer: coarse) {
+  .transcription__hint {
+    display: none;
+  }
+}
+
+/* Antes de transcribir (#240): las imágenes elegidas y sus datos, en una banda bajo la barra. */
+.transcription__prepare {
+  padding: var(--space-5) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+/* Mientras se arrastran archivos: toda la página es la zona. */
+.transcription__drop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  /* La trama del violeta, «te toca a ti», sobre un papel que deja entrever el diario. */
+  background: var(--halftone-accent), rgb(240 239 242 / 0.86);
+  pointer-events: none;
+}
+
+.transcription__drop-card {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 34rem;
+  padding: var(--space-6);
+  border: var(--rule);
+  background: var(--color-paper);
+}
+
+.transcription__drop-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
   font-weight: 700;
   line-height: 0.9;
   text-transform: uppercase;
 }
 
-.transcription__lead {
-  grid-column: 1;
+/* Un día: la fecha en el margen, tras un filete, y sus láminas. */
+.day {
+  display: grid;
+  grid-template-columns: var(--day-margin) minmax(0, 1fr);
+  border-bottom: var(--rule);
+}
+
+.day__margin {
+  padding: var(--space-5) var(--space-4) var(--space-6) var(--gutter);
+  border-right: var(--rule);
+}
+
+/* La fecha acompaña al día mientras se recorre. */
+.day__date {
+  position: sticky;
+  top: var(--space-5);
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  font-weight: 400;
+}
+
+.day__number {
+  font-family: var(--font-display);
+  font-size: clamp(3.5rem, 6.4vw, 6rem);
+  font-weight: 700;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+}
+
+.day__month {
+  color: var(--color-ink-muted);
+}
+
+.day__relative {
+  padding: 2px var(--space-2);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.day__body {
+  display: grid;
+  gap: var(--space-7);
+  min-width: 0;
+  padding: var(--space-5) var(--gutter) var(--space-7);
+}
+
+/* Láminas: la imagen arriba y sus datos debajo, en una retícula de celdas enteras. */
+.plates {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: var(--space-6) var(--space-5);
+  padding: 0;
+  list-style: none;
+}
+
+.plate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.plate:focus-visible {
+  outline-offset: 6px;
+}
+
+.plate__image {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+  border: var(--rule);
+  background: var(--color-paper-raised);
+}
+
+/* Lo que el validador señaló: la trama fina del compás dudoso, sobre la imagen (#368). */
+.plate[data-flagged="true"] .plate__image::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--halftone-accent-fine);
+  pointer-events: none;
+}
+
+.plate__name {
+  font-family: var(--font-text);
+  font-size: 1.0625rem;
+  font-weight: 500;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+/* El nombre es el enlace; su filete invisible cubre la lámina entera para el clic. */
+.plate__link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  max-width: 100%;
+  margin-left: calc(var(--space-1) * -1);
+  padding: 1px var(--space-1);
+  text-decoration: none;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.plate__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.plate__link > span {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.plate__link svg {
+  flex: none;
+  width: 12px;
+  height: auto;
+  transition: transform var(--duration-quick) var(--ease-out);
+}
+
+.plate:hover .plate__link,
+.plate__link:focus-visible {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.plate:hover .plate__link svg {
+  transform: translateX(2px);
+}
+
+.plate__meta {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.plate__meta:empty {
+  display: none;
+}
+
+.plate__meta > * + *::before {
+  content: "·";
+  margin-inline: 0.4em;
+}
+
+.plate__owner {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+.plate__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plate__edits {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* El rótulo de los posibles errores cuelga de la esquina de la imagen, sobre su filete, como el
+   del compás señalado en la mesa. No recibe el clic: la lámina entera abre la sesión. */
+.plate__flag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.plate__error {
+  font-size: var(--text-small);
+}
+
+.plate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-4);
+}
+
+/* El enlace a la sesión de una imagen transcrita (#277), con el alto de un objetivo táctil. */
+.plate__open {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.3em;
+}
+
+/* La cola, en el día de hoy: su cabecera es un rótulo invertido y el recuento, en vivo. */
+.queue {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.queue__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  border-bottom: var(--rule);
+}
+
+.queue__title {
+  padding: 3px var(--space-2);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.queue__title:focus-visible {
+  outline-offset: 2px;
+}
+
+.queue__summary {
+  color: var(--color-ink-muted);
+}
+
+.queue__clear {
+  margin-left: auto;
+}
+
+.queue__paused {
+  margin-top: 0;
+}
+
+/* En cola: filete discontinuo y la imagen desvaída, lo que aún no ha empezado. */
+.plate--queue[data-status="queued"] .plate__image {
+  border-style: dashed;
+}
+
+.plate--queue[data-status="queued"] .thumb img {
+  opacity: 0.45;
+}
+
+/* Con error: el filete violeta, como el aviso; el motivo va en el texto. */
+.plate--queue[data-status="error"] .plate__image {
+  border-color: var(--color-accent);
+}
+
+/* La lectura: una línea violeta recorre la imagen a saltos de columna, como en la portada, y deja
+   atrás la parte ya leída. Es el único movimiento de la vista. */
+.plate__reading {
+  position: absolute;
+  inset: 0;
+  background: rgb(240 239 242 / 0.62);
+  animation: plate-reading 2.4s steps(48, end) infinite;
+}
+
+.plate__reading::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 4px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-ink);
+}
+
+@keyframes plate-reading {
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* El rótulo «Transcribiendo» no se anima en la lámina: ya lo hace la lectura. */
+.plate .chip--running {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plate__reading {
+    animation: none;
+    transform: translateX(40%);
+  }
+}
+
+.queue__source {
+  overflow-wrap: anywhere;
+}
+
+.queue__elapsed {
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5ch;
+  text-align: right;
+}
+
+/* Lo que ocupa el sitio del diario: la carga, el error y el estado vacío. */
+.diary__note {
+  padding: var(--space-6) var(--gutter);
+  color: var(--color-ink-muted);
+}
+
+.diary__note .panel__error {
+  margin-top: 0;
+  color: var(--color-ink);
+}
+
+.diary__empty {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 56rem;
+  margin: var(--space-7) var(--gutter) var(--space-9);
+  padding: var(--space-7) var(--space-6);
+  border: var(--rule-width) dashed var(--color-ink-muted);
+}
+
+.diary__empty-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 3.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.diary__empty p + p {
   max-width: 60ch;
   color: var(--color-ink-muted);
 }
 
+.diary__foot {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-4);
+  padding: var(--space-6) var(--gutter) var(--space-8) calc(var(--day-margin) + var(--gutter));
+}
+
+/* Miniatura: la imagen como lámina impresa, en tinta sobre papel. */
+.thumb {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-paper-raised);
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  filter: grayscale(1) contrast(1.06);
+  mix-blend-mode: multiply;
+}
+
+/* Una franja ancha (un incipit) se ve entera, centrada. */
+.thumb[data-shape="wide"] img {
+  object-fit: contain;
+  object-position: center;
+  padding: var(--space-3);
+}
+
+.thumb .label {
+  padding: 0 2px;
+  color: var(--color-ink-muted);
+}
+
+/* Compartido con la portada (#277): la zona de subida, el rótulo de un panel y los estados. */
 .upload {
-  grid-column: 2;
-  grid-row: 1 / span 2;
   display: grid;
   justify-items: start;
   gap: var(--space-3);
@@ -50,14 +505,90 @@
   font-size: var(--text-small);
 }
 
-/* Antes de transcribir (#240): las imágenes elegidas y sus datos, a lo ancho bajo la entrada. */
+.panel__title {
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.panel__error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--rule-width) solid var(--color-accent);
+}
+
+/* Estados por patrón */
+.chip {
+  display: inline-block;
+  padding: 6px var(--space-2);
+  border: var(--rule);
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.chip > span {
+  padding: 0 2px;
+  background: var(--color-paper);
+}
+
+.chip--queued,
+.chip--status {
+  background: var(--color-paper);
+}
+
+.chip--running {
+  background: var(--halftone-ink);
+  animation: chip-running 1.2s steps(5) infinite;
+}
+
+/* Terminada: contorno, como «Transcrita» en el diario. */
+.chip--done {
+  background: var(--color-paper);
+}
+
+/* Finalizada (#187): macizo de tinta, la corrección cerrada; se distingue sin leer el rótulo. */
+.chip--finalized {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+/* Con posibles errores: rótulo violeta, el turno de la persona. */
+.chip--finding {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.chip--error {
+  border-color: var(--color-accent);
+  background: var(--hatch-accent);
+}
+
+@keyframes chip-running {
+  to {
+    background-position: 5px 0;
+  }
+}
+
+/* Antes de transcribir (#240): el formulario de las imágenes elegidas. */
 .prepare {
-  grid-column: 1 / -1;
   display: grid;
   justify-items: start;
   gap: var(--space-4);
   max-width: 64rem;
-  margin-top: var(--space-3);
   padding: var(--space-5);
   border: var(--rule);
 }
@@ -153,368 +684,81 @@
   gap: var(--space-3) var(--space-5);
 }
 
-/* La tabla de sesiones pide más ancho que la cola (unos 670 px, 790 con el propietario). */
-.transcription__panels {
-  display: grid;
-  grid-template-columns: minmax(22rem, 4fr) minmax(0, 8fr);
-}
-
-.panel {
-  padding: var(--space-6) var(--gutter) var(--space-8);
-}
-
-.panel + .panel {
-  border-left: var(--rule);
-}
-
-.panel__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2) var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: var(--rule);
-}
-
-.panel__title {
-  padding: 2px var(--space-3);
-  background: var(--color-ink);
-  color: var(--color-paper);
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.panel__count {
-  color: var(--color-ink-muted);
-}
-
-.panel__empty {
-  padding: var(--space-5) 0;
-  color: var(--color-ink-muted);
-}
-
-.panel__error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border: var(--rule-width) solid var(--color-accent);
-}
-
-/* Estados por patrón */
-.chip {
-  display: inline-block;
-  padding: 6px var(--space-2);
-  border: var(--rule);
-  font-family: var(--font-label);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.chip > span {
-  padding: 0 2px;
-  background: var(--color-paper);
-}
-
-.chip--queued,
-.chip--status {
-  background: var(--color-paper);
-}
-
-.chip--running {
-  background: var(--halftone-ink);
-  animation: chip-running 1.2s steps(5) infinite;
-}
-
-/* Terminada: contorno, como «Transcrita» en el listado. El único macizo es la imagen en curso. */
-.chip--done {
-  background: var(--color-paper);
-}
-
-/* Finalizada (#187): macizo de tinta, la corrección cerrada; se distingue sin leer el rótulo. */
-.chip--finalized {
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
-/* Con hallazgos: rótulo violeta, el turno de la persona. */
-.chip--finding {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.chip--error {
-  border-color: var(--color-accent);
-  background: var(--hatch-accent);
-}
-
-@keyframes chip-running {
-  to {
-    background-position: 5px 0;
-  }
-}
-
-/* Cola */
-.queue__list {
-  padding: 0;
-  list-style: none;
-}
-
-.queue__item {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2) var(--space-4);
-  align-items: center;
-  padding: var(--space-4) 0;
-  border-bottom: var(--rule-width) solid var(--color-ink);
-}
-
-/* La imagen en curso es el bloque de más tinta. */
-.queue__item[data-status="transcribing"] {
-  margin-inline: calc(var(--space-3) * -1);
-  padding-inline: var(--space-3);
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
-.queue__item[data-status="transcribing"]::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 4px;
-  background: var(--color-accent);
-  animation: queue-reading 2.4s steps(24, end) infinite;
-}
-
-@keyframes queue-reading {
-  to {
-    left: calc(100% - 4px);
-  }
-}
-
-.queue__item[data-status="transcribing"] .chip {
-  border-color: var(--color-paper);
-  background: var(--halftone-ink), var(--color-paper);
-  color: var(--color-ink);
-}
-
-.queue__item[data-status="transcribing"] .queue__size {
-  color: inherit;
-}
-
-.queue__file {
-  display: grid;
-  min-width: 0;
-}
-
-.queue__name {
-  overflow: hidden;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.queue__size {
-  color: var(--color-ink-muted);
-}
-
-/* Con nombre propio, el archivo de la imagen va debajo, en pequeño (#240). */
-.queue__source {
-  overflow: hidden;
-  font-size: var(--text-small);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.queue__state {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  justify-self: end;
-}
-
-.queue__elapsed {
-  font-family: var(--font-label);
-  font-size: var(--text-label);
-  font-variant-numeric: tabular-nums;
-  min-width: 3.5ch;
-  text-align: right;
-}
-
-.queue__error {
-  grid-column: 1 / -1;
-  font-size: var(--text-small);
-}
-
-/* El enlace a la sesión de una imagen transcrita (#277), con el alto de un objetivo táctil. */
-.queue__session {
-  grid-column: 1;
-  justify-self: start;
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-}
-
-.queue__actions {
-  grid-column: 2;
-  justify-self: end;
-}
-
-.queue__actions:empty {
-  display: none;
-}
-
-.queue__clear {
-  margin-top: var(--space-3);
-}
-
-/* Sesiones */
-.sessions__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.sessions__table th {
-  padding: var(--space-3) var(--space-2);
-  border-bottom: var(--rule);
-  font-family: var(--font-label);
-  font-size: var(--text-label);
-  font-weight: 400;
-  letter-spacing: 0.06em;
-  text-align: left;
-  text-transform: uppercase;
-}
-
-.sessions__table td {
-  padding: var(--space-3) var(--space-2);
-  border-bottom: 1px solid var(--color-ink);
-  vertical-align: middle;
-}
-
-.sessions__table .num {
-  text-align: right;
-}
-
-/* La tabla pasa a fichas según el ancho de su panel, no el de la ventana: el panel cambia de
-   ancho con la retícula. El desplazamiento solo queda de reserva para nombres muy largos. */
-.sessions__frame {
-  container: sessions / inline-size;
-  overflow-x: auto;
-}
-
-.sessions__table time span {
-  display: block;
-  white-space: nowrap;
-}
-
-/* El nombre de la sesión es el enlace a su vista (#240): el título, el archivo o el comienzo del
-   identificador. Un nombre largo se parte en líneas en lugar de ensanchar la tabla. */
-.sessions__name {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 44px;
-  max-width: 32ch;
-  padding: 2px var(--space-2);
-  border: var(--rule);
-  font-weight: 500;
-  line-height: 1.25;
-  text-decoration: none;
-  overflow-wrap: anywhere;
-  transition:
-    background-color var(--duration-quick) var(--ease-out),
-    color var(--duration-quick) var(--ease-out);
-}
-
-.sessions__name > span {
-  min-width: 0;
-}
-
-.sessions__name svg {
-  flex: none;
-}
-
-.sessions__name:hover {
-  background: var(--color-ink);
-  color: var(--color-paper);
-}
-
-.thumb {
-  display: grid;
-  place-items: center;
-  width: 96px;
-  height: 48px;
-  overflow: hidden;
-  border: 1px solid var(--color-ink);
-  background: var(--halftone-ink);
-}
-
-.thumb[data-state="ready"] {
-  background: #fff;
-}
-
-.thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: left center;
-}
-
-.thumb .label {
-  padding: 0 2px;
-  background: var(--color-paper);
-  font-size: 0.625rem;
-}
-
-.sessions__more {
-  margin-top: var(--space-5);
-}
-
-@media (max-width: 960px) {
-  .transcription__intake,
-  .transcription__panels {
+/* Sin ancho para el margen, la fecha encabeza el día en una línea. */
+@media (max-width: 760px) {
+  .day {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .upload {
-    grid-column: 1;
-    grid-row: auto;
+  .day__margin {
+    padding: var(--space-5) var(--gutter) 0;
+    border-right: 0;
   }
 
-  .panel + .panel {
-    border-top: var(--rule);
-    border-left: 0;
+  .day__date {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-3);
+  }
+
+  .day__number {
+    font-size: 2.75rem;
+  }
+
+  .day__body {
+    gap: var(--space-6);
+    padding-top: var(--space-4);
+  }
+
+  .diary__foot {
+    padding-left: var(--gutter);
+  }
+
+  .transcription__pick,
+  .transcription__pick .button {
+    width: 100%;
   }
 }
 
-@media (max-width: 600px) {
-  .queue__item {
+/* En un teléfono, cada lámina es una fila: la imagen a la izquierda y sus datos al lado. */
+@media (max-width: 560px) {
+  .plates {
     grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
   }
 
-  .queue__state,
-  .queue__actions {
-    grid-column: 1;
-    justify-self: start;
+  .plate {
+    display: grid;
+    grid-template-columns: 6.5rem minmax(0, 1fr);
+    align-content: start;
+    gap: 2px var(--space-4);
   }
 
-  .queue__name {
-    overflow-wrap: anywhere;
-    white-space: normal;
+  .plate__image {
+    grid-row: 1 / span 6;
+    align-self: start;
+    aspect-ratio: 3 / 4;
+    margin-bottom: 0;
+  }
+
+  .plate > :not(.plate__image) {
+    grid-column: 2;
+  }
+
+  /* La imagen es estrecha: el rótulo vuelve a la línea del estado, tras él. */
+  .plate__flag {
+    position: static;
+    order: 1;
+  }
+
+  .plate__edits {
+    order: 2;
+  }
+
+  .diary__empty {
+    padding: var(--space-5);
   }
 
   .prepare {
@@ -527,93 +771,5 @@
 
   .prepare__item-actions {
     justify-content: start;
-  }
-}
-
-/* Sin ancho para la tabla, cada sesión es una ficha: miniatura a la izquierda y datos en tres
-   líneas (cuatro con el propietario). Los roles ARIA explícitos conservan la tabla. */
-@container sessions (max-width: 50rem) {
-  .sessions__table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-  }
-
-  .sessions__table,
-  .sessions__table tbody {
-    display: block;
-  }
-
-  .sessions__table tr {
-    display: grid;
-    grid-template-columns: 96px minmax(0, 1fr) auto;
-    grid-template-areas:
-      "thumb id date"
-      "thumb status status"
-      "thumb findings edits";
-    gap: var(--space-2) var(--space-3);
-    align-items: center;
-    padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--color-ink);
-  }
-
-  .sessions--owner .sessions__table tr {
-    grid-template-areas:
-      "thumb id date"
-      "thumb status status"
-      "thumb findings edits"
-      "thumb owner owner";
-  }
-
-  .sessions__table td {
-    padding: 0;
-    border: 0;
-  }
-
-  .sessions__table .sessions__thumb {
-    grid-area: thumb;
-    align-self: start;
-  }
-
-  .sessions__table .sessions__key {
-    grid-area: id;
-  }
-
-  .sessions__table .sessions__date {
-    grid-area: date;
-    justify-self: end;
-    font-size: var(--text-small);
-  }
-
-  .sessions__table .sessions__status {
-    grid-area: status;
-  }
-
-  .sessions__table .sessions__findings {
-    grid-area: findings;
-  }
-
-  .sessions__table .sessions__edits {
-    grid-area: edits;
-  }
-
-  .sessions__table .sessions__owner {
-    grid-area: owner;
-  }
-
-  .sessions__table td.num {
-    text-align: left;
-  }
-
-  /* El rótulo es visual: la cabecera de la columna ya lo da a los lectores de pantalla. */
-  .sessions__table td[data-label]::before {
-    content: attr(data-label) " " / "";
-    font-family: var(--font-label);
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-ink-muted);
   }
 }
