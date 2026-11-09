@@ -1387,6 +1387,16 @@ def test_exp_10_joins_the_nasa_tlx_by_participant_and_block(tmp_path: Path) -> N
                 _tlx_row(
                     "P01",
                     1,
+                    **dict(zip([f"weight_{s}" for s in _TLX], (10, 1, 1, 1, 1, 1), strict=True)),
+                )
+            ],
+            "de 0 a 5",
+        ),
+        (
+            [
+                _tlx_row(
+                    "P01",
+                    1,
                     **dict(zip([f"weight_{s}" for s in _TLX], (5, 0, 3, 2, 4, 0), strict=True)),
                 )
             ],
@@ -1553,23 +1563,152 @@ def test_exp_10_export_with_the_bank_and_the_nasa_tlx(
     tlx = _write_tlx(tmp_path / "tlx.csv", [_tlx_row("P01", 1), _tlx_row("P05", 2)])
     out = tmp_path / "out"
 
+    db_url = _exp_10_db_file(tmp_path)
+    from cadenza.persistence import create_engine_for_url, create_session_factory
+
+    with create_session_factory(create_engine_for_url(db_url))() as db:
+        # Una cuenta de prueba que no está en la matriz: va en las filas, no en las medias.
+        _exp_10_session(db, "s-piloto", "piloto", test_score_id="TS-02")
+        _exp_10_effort(db, "s-piloto", "e-piloto", duration_ms=99_000)
+        db.commit()
+
     summary = exp_10_effort_study.run_effort_study_export(
-        db_url=_exp_10_db_file(tmp_path), output_dir=out, bank_dir=bank, nasa_tlx_csv=tlx
+        db_url=db_url, output_dir=out, bank_dir=bank, nasa_tlx_csv=tlx
     )
 
     with (out / "effort_study_sessions.csv").open(encoding="utf-8") as handle:
-        (row,) = list(csv.DictReader(handle))
-    assert (row["participant_id"], row["block"], row["test_score_id"]) == ("P01", "1", "TS-01")
+        rows = {row["participant_id"]: row for row in csv.DictReader(handle)}
+    row = rows["P01"]
+    assert (row["block"], row["test_score_id"]) == ("1", "TS-01")
     assert (row["residual_ser"], row["residual_omr_ned"]) == ("0.0", "0.0")
     assert (row["nasa_tlx_raw"], row["nasa_tlx_weighted"]) == ("35.0", "")
+    assert rows["piloto"]["block"] == ""
     assert summary["nasa_tlx_rows_without_session"] == ["P05#2"]
-    assert summary["sessions_outside_matrix"] == []
+    assert summary["sessions_outside_matrix"] == ["s-piloto"]
     assert summary["sessions_with_condition_not_in_matrix"] == []
+    assert summary["duplicate_participant_blocks"] == []
+    assert summary["total_sessions"] == 1
+    assert summary["conditions"]["assisted"]["mean_duration_s"] == 8.0
     assert summary["conditions"]["assisted"]["mean_residual_ser"] == 0.0
     assert summary["conditions"]["unassisted"]["sessions_count"] == 0
     assert summary["conditions"]["unassisted"]["mean_duration_s"] is None
     assert summary["simulated"] is False
-    assert summary["bank_dir"] == str(bank)
+    # Fuera del repositorio solo queda el nombre: nada de rutas con el usuario de la máquina.
+    assert summary["bank_dir"] == "banco"
+    assert summary["nasa_tlx_csv"] == "tlx.csv"
+
+
+def test_exp_10_ser_counts_a_lost_natural_under_the_key_signature() -> None:
+    """Las alturas del `ScoreIR` son las que suenan: en mi bemol mayor, un La becuadro de la
+    verdad (`A4`) leído como La bemol (`Ab4`) es un error, aunque la armadura ya lo bemolice
+    (como `exp_14`, #250)."""
+    from dataclasses import replace
+
+    from cadenza.domain import KeySignature
+
+    from ml.experiments import exp_10_effort_study
+
+    score = _fake_score()
+    part = score.parts[0]
+    staff = part.staves[0]
+    measures = (replace(staff.measures[0], key_signature=KeySignature(fifths=-3)),)
+    flat_key = replace(score, parts=(replace(part, staves=(replace(staff, measures=measures),)),))
+    truth = _with_pitch(flat_key, 0, 0, "A4")
+    final = _with_pitch(flat_key, 0, 0, "Ab4")
+
+    ser, _omr_ned, _error = exp_10_effort_study.residual_fidelity(final, truth)
+
+    assert ser > 0
+
+
+def test_exp_10_an_unreadable_pair_leaves_the_omr_ned_empty_and_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Si musicdiff no lee un par, la celda del OMR-NED queda vacía, con su error, y el resumen
+    nombra la sesión; sin musicdiff, la exportación falla con un mensaje claro (#250)."""
+    from cadenza.learning import MetricsExtraMissing
+
+    from ml.experiments import exp_10_effort_study
+
+    def unreadable(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("par ilegible")
+
+    monkeypatch.setattr(exp_10_effort_study, "omr_ned_pair", unreadable)
+    with _exp_10_db() as db:
+        _exp_10_session(db, "s-1", "P01")
+        _exp_10_effort(db, "s-1", "e-1")
+        db.commit()
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(
+            db, truths={"TS-01": _fake_score()}
+        )
+
+    assert (rows[0].residual_ser, rows[0].residual_omr_ned) == (0.0, None)
+    assert rows[0].residual_omr_ned_error == "RuntimeError: par ilegible"
+    checks = exp_10_effort_study._matrix_checks(
+        rows, exp_10_effort_study.study_assignments(exp_10_effort_study.load_study_manifest()), None
+    )
+    assert checks["residual_omr_ned_errors"] == ["s-1"]
+
+    def missing(*_args: Any, **_kwargs: Any) -> Any:
+        raise MetricsExtraMissing("falta musicdiff")
+
+    monkeypatch.setattr(exp_10_effort_study, "omr_ned_pair", missing)
+    with pytest.raises(ValueError, match="musicdiff"):
+        exp_10_effort_study.residual_fidelity(_fake_score(), _fake_score())
+
+
+def test_exp_10_names_what_does_not_match_the_matrix() -> None:
+    """Una condición distinta de la de la matriz y dos sesiones del mismo participante y bloque
+    se nombran en el resumen (#250)."""
+    from ml.experiments import exp_10_effort_study
+
+    with _exp_10_db() as db:
+        # P01 hace TS-02 sin asistencia (bloque 2); P02, TS-01 sin asistencia (bloque 1).
+        _exp_10_session(db, "s-otra-condicion", "P01", test_score_id="TS-02")
+        _exp_10_session(db, "s-a", "P02", condition="unassisted")
+        _exp_10_session(db, "s-b", "P02", condition="unassisted")
+        for session_id in ("s-otra-condicion", "s-a", "s-b"):
+            _exp_10_effort(db, session_id, f"e-{session_id}")
+        db.commit()
+        rows, _measures = exp_10_effort_study.extract_study_data_from_db(db)
+
+    checks = exp_10_effort_study._matrix_checks(
+        rows, exp_10_effort_study.study_assignments(exp_10_effort_study.load_study_manifest()), None
+    )
+    assert checks["sessions_with_condition_not_in_matrix"] == ["s-otra-condicion"]
+    assert checks["duplicate_participant_blocks"] == ["P02#1"]
+
+
+def test_ml_cli_export_effort_passes_the_bank_and_the_nasa_tlx(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ml import cli
+    from ml.experiments import exp_10_effort_study
+
+    received: dict[str, Any] = {}
+
+    def fake_export(**kwargs: Any) -> dict[str, Any]:
+        received.update(kwargs)
+        return {}
+
+    monkeypatch.setattr(exp_10_effort_study, "run_effort_study_export", fake_export)
+
+    code = cli.main(
+        [
+            "export-effort",
+            "--db-url",
+            "sqlite+pysqlite:///estudio.db",
+            "--bank-dir",
+            "banco_estudio",
+            "--nasa-tlx",
+            "nasa_tlx.csv",
+            "--output-dir",
+            "fuera",
+        ]
+    )
+
+    assert code == 0
+    assert (received["bank_dir"], received["nasa_tlx_csv"]) == ("banco_estudio", "nasa_tlx.csv")
 
 
 def test_ml_cli_export_effort(tmp_path: Path) -> None:

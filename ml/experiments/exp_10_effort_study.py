@@ -45,7 +45,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from cadenza.domain import EventKind, ScoreDocument, ScoreIR, materialize
+from cadenza.application.score_state import raw_score_of
+from cadenza.domain import EventKind, ScoreIR, materialize
 from cadenza.interchange import Music21ScoreExporter, read_score
 from cadenza.learning import (
     MetricsExtraMissing,
@@ -53,7 +54,6 @@ from cadenza.learning import (
     score_ser_pair,
     without_time_symbols,
 )
-from cadenza.learning.evaluation import resolve_pitch_with_key_signature
 from cadenza.persistence import (
     EditEventRecord,
     EffortMetricsRecord,
@@ -91,6 +91,7 @@ REGENERATE_BANK = "uv run --no-sync python -P scripts/build_study_bank.py"
 # 100 = fracaso.
 TLX_SCALES = ("mental", "physical", "temporal", "performance", "effort", "frustration")
 TLX_PAIRS = 15  # Comparaciones por parejas de las seis subescalas: los pesos suman 15.
+TLX_MAX_WEIGHT = 5  # Cada subescala aparece en 5 de las 15 parejas.
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,7 +290,12 @@ def load_nasa_tlx(path: Path) -> dict[tuple[str, int], NasaTlx]:
                     raise ValueError(
                         f"NASA-TLX, línea {line}: los pesos van todos o ninguno, y son enteros."
                     ) from None
-                if min(weights.values()) < 0 or sum(weights.values()) != TLX_PAIRS:
+                # Cada subescala sale en 5 de las 15 parejas: su peso va de 0 a 5.
+                if any(not 0 <= weight <= TLX_MAX_WEIGHT for weight in weights.values()):
+                    raise ValueError(
+                        f"NASA-TLX, línea {line}: cada peso va de 0 a {TLX_MAX_WEIGHT}."
+                    )
+                if sum(weights.values()) != TLX_PAIRS:
                     raise ValueError(
                         f"NASA-TLX, línea {line}: los pesos suman {sum(weights.values())}, "
                         f"y deben sumar {TLX_PAIRS}."
@@ -314,26 +320,23 @@ def ser_normalized(score: ScoreIR) -> ScoreIR:
 
     El número de voz y el orden de las notas de un acorde cambian la secuencia de símbolos de
     la SER aunque lo que se ve sea igual (protocolo §2.3, riesgos): se ordenan por dónde
-    empiezan, los silencios antes que las notas, por altura (con la armadura) y por figura.
+    empiezan, los silencios antes que las notas, por el nombre de la altura que suena (un orden
+    fijo, no de grave a agudo) y por figura.
     """
 
     parts = []
     for part in score.parts:
         staves = []
         for staff in part.staves:
-            fifths = 0
             measures = []
             for measure in staff.measures:
-                if measure.key_signature is not None:
-                    fifths = measure.key_signature.fifths
                 keyed = []
                 for events in voices_of(measure).values():
                     for event, onset in zip(events, onsets(events), strict=True):
-                        pitch = resolve_pitch_with_key_signature(event.pitch, fifths) or ""
                         key = (
                             onset,
                             event.kind is EventKind.NOTE,
-                            pitch,
+                            event.pitch or "",
                             event.duration_beats or Fraction(0),
                         )
                         keyed.append((key, event))
@@ -347,12 +350,16 @@ def ser_normalized(score: ScoreIR) -> ScoreIR:
 def residual_fidelity(final: ScoreIR, truth: ScoreIR) -> tuple[float, float | None, str]:
     """SER y OMR-NED del estado final frente a la verdad, y el error de musicdiff si lo hubo.
 
-    La SER se calcula con los eventos de cada compás normalizados (`ser_normalized`); el
-    OMR-NED compara con musicdiff la notación tal cual, sin el símbolo del compás, como
-    `exp_14` y `exp_15` (ADR-0044 §1). Sin el extra `metrics` falla, no se imputa.
+    La SER se calcula con los eventos de cada compás normalizados (`ser_normalized`) y sin
+    aplicar la armadura, como `exp_14`: las alturas del `ScoreIR` son las que suenan, y
+    aplicándola un becuadro perdido no contaría como error. El OMR-NED compara con musicdiff la
+    notación tal cual, sin el símbolo del compás, como `exp_14` y `exp_15` (ADR-0044 §1). Sin
+    el extra `metrics` falla con un `ValueError` claro, no se imputa.
     """
 
-    ser = score_ser_pair(ser_normalized(truth), ser_normalized(final)).ser
+    ser = score_ser_pair(
+        ser_normalized(truth), ser_normalized(final), apply_key_signature=False
+    ).ser
     exporter = Music21ScoreExporter()
     with tempfile.TemporaryDirectory(prefix="exp10-ned-") as work:
         folder = Path(work)
@@ -366,17 +373,19 @@ def residual_fidelity(final: ScoreIR, truth: ScoreIR) -> tuple[float, float | No
                 exporter.to_musicxml(without_time_symbols(final)), encoding="utf-8"
             )
             return ser, omr_ned_pair(final_file, truth_file).omr_ned, ""
-        except MetricsExtraMissing:
-            raise
+        except MetricsExtraMissing as exc:
+            raise ValueError(
+                f"Sin musicdiff no hay OMR-NED de la fidelidad residual: {exc}"
+            ) from exc
         except Exception as exc:  # un par que musicdiff no lee se registra, no se imputa
             return ser, None, f"{type(exc).__name__}: {exc}"
 
 
 def final_score(db: DbSession, session: SessionRecord) -> ScoreIR:
-    """El estado al que llega la sesión: su documento con todo el log aplicado."""
-    document = ScoreDocument.from_primitive(session.document)
+    """El estado al que llega la sesión: su documento con todo el log aplicado, leído como lo
+    lee la aplicación (`raw_score_of`)."""
     edits = SqlAlchemyEditEventRepository(db).list_events(session.id)
-    return materialize(document.score, edits)
+    return materialize(raw_score_of(session.document), edits)
 
 
 # ---------------------------------------------------------------------------
@@ -743,18 +752,35 @@ def _matrix_checks(
         for r in session_rows
         if r.block is not None and assignments[r.participant_id][r.test_score_id][1] != r.condition
     ]
-    matched = {(r.participant_id, r.block) for r in session_rows if r.block is not None}
+    in_matrix = [(r.participant_id, r.block) for r in session_rows if r.block is not None]
+    matched = set(in_matrix)
     unmatched_tlx = sorted(
         f"{participant}#{block}"
         for participant, block in (nasa_tlx or {})
         if (participant, block) not in matched
     )
+    duplicated = sorted(
+        f"{participant}#{block}"
+        for participant, block in matched
+        if in_matrix.count((participant, block)) > 1
+    )
     return {
         "sessions_outside_matrix": outside,
         "sessions_with_condition_not_in_matrix": mismatched,
+        "duplicate_participant_blocks": duplicated,
         "nasa_tlx_rows_without_session": unmatched_tlx,
         "residual_omr_ned_errors": [r.session_id for r in session_rows if r.residual_omr_ned_error],
     }
+
+
+def _display_path(path: Path | str) -> str:
+    """La ruta relativa al repositorio si está dentro; si no, tal cual. En `results/` no deben
+    quedar rutas con el nombre de usuario de la máquina."""
+    resolved = Path(path).resolve()
+    try:
+        return resolved.relative_to(REPO_ROOT.resolve()).as_posix()
+    except ValueError:
+        return Path(path).name if resolved.is_absolute() else str(path)
 
 
 def run_effort_study_export(
@@ -824,8 +850,8 @@ def run_effort_study_export(
             )
         checks = _matrix_checks(session_rows, assignments, tlx)
         sources = {
-            "bank_dir": str(bank),
-            "nasa_tlx_csv": str(nasa_tlx_csv) if nasa_tlx_csv is not None else None,
+            "bank_dir": _display_path(bank),
+            "nasa_tlx_csv": _display_path(nasa_tlx_csv) if nasa_tlx_csv is not None else None,
         }
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -849,8 +875,12 @@ def run_effort_study_export(
             for m in measure_rows:
                 m_writer.writerow(m.to_csv_dict())
 
-    # 3. Exportar resumen estadístico JSON
-    summary = compute_summary_statistics(session_rows)
+    # 3. Exportar resumen estadístico JSON. Con datos reales, las medias son solo de las sesiones
+    # de la matriz: las de otras cuentas (un piloto, una prueba) van en las filas y se nombran
+    # en `sessions_outside_matrix`, pero no se mezclan con el estudio.
+    summary = compute_summary_statistics(
+        session_rows if synthetic else [r for r in session_rows if r.block is not None]
+    )
     # Sin base de datos de un estudio real, las sesiones son sintéticas: sirven para
     # probar la exportación, no como resultado del estudio con participantes (#96).
     summary["data_source"] = "synthetic" if synthetic else "database"
@@ -904,7 +934,7 @@ def add_study_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "CSV del NASA-TLX: participant_id, block, las seis subescalas de 0 a 100 y, si se "
-            "recogieron, weight_<subescala> (protocolo §6.2)"
+            "recogieron, weight_<subescala> (formato en el protocolo §3.3)"
         ),
     )
 

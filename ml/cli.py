@@ -918,7 +918,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_effort.add_argument(
         "--nasa-tlx",
         default=None,
-        help="CSV del NASA-TLX por participante y bloque (protocolo §6.2).",
+        help="CSV del NASA-TLX por participante y bloque (formato en el protocolo §3.3).",
     )
 
     # 8. suggestions (capa de sugerencias, ADR-0036)
