@@ -193,7 +193,7 @@ Comprobado al publicar, desde fuera del tailnet. Se usó otra IP pública, conec
 
 El primer acceso público, mientras Funnel obtenía el certificado, cortó el handshake TLS. Unos minutos después ya respondía.
 
-#### Despliegue continuo desde `main` ([#337](https://github.com/sebdavid3/Cadenza/issues/337), [ADR-0061](../adr/ADR-0061-despliegue-continuo-desde-main-en-el-homelab.md))
+#### Despliegue continuo desde `main` ([#337](https://github.com/sebdavid3/Cadenza/issues/337), [ADR-0062](../adr/ADR-0062-despliegue-continuo-desde-main-en-el-homelab.md))
 
 `deploy/despliegue-continuo.sh` automatiza el procedimiento de «Actualizar» de arriba: cada 5 minutos trae `origin/main` y, si hay un commit nuevo cuyo flujo `CI` terminó en verde, hace la copia verificada, avanza en *fast-forward*, reconstruye, espera a que `/api/health` responda con la base de datos conectada (hasta 5 minutos) y limpia la caché de Docker. Si la API no queda sana, vuelve al commit anterior y descarta el nuevo. **Se activa después del estudio y de la promoción de `dev` a `main` ([#261](https://github.com/sebdavid3/Cadenza/issues/261)), no antes:** con `main` atrasado, avanzar a `main` sería volver atrás.
 

@@ -1,4 +1,4 @@
-"""Pruebas de `deploy/despliegue-continuo.sh` (#337, ADR-0061).
+"""Pruebas de `deploy/despliegue-continuo.sh` (#337, ADR-0062).
 
 Cada prueba monta un remoto `origin` y un clon de «producción» con git de verdad, y pone delante
 del PATH versiones falsas de `docker`, `gh` y `curl`:
