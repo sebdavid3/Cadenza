@@ -321,9 +321,10 @@
 
 .selection__keys > span {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 /* Teclas como bloques de tinta macizos, del grano de los rótulos. */
@@ -522,11 +523,14 @@
   font-size: var(--text-small);
 }
 
+/* Una leyenda larga parte línea en una ventana estrecha con ratón (#331): con `nowrap`, a
+   390 px «< / > empezar o terminar regulador» desbordaba la barra. */
 .editor__keys > span {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 3px;
-  white-space: nowrap;
+  min-width: 0;
 }
 
 /* Sin teclado físico las leyendas solo estorban: quedan el toque y los botones. */
