@@ -45,8 +45,10 @@ from cadenza.domain import (
 )
 from music21 import (
     articulations,
+    beam,
     chord,
     clef,
+    common,
     converter,
     defaults,
     dynamics,
@@ -1274,6 +1276,91 @@ def _write_metadata(root: Any, metadata: ScoreMetadata) -> None:
         ET.SubElement(midi_instrument, "midi-program").text = str(sound.program)
 
 
+def _placed_figures(container: Any) -> list[tuple[Fraction, Any]]:
+    """Las figuras de una voz (o de un compás sin voces) con su posición, sin las notas de adorno,
+    que no ocupan tiempo ni entran en los grupos, como en `makeBeams`."""
+
+    return [
+        (Fraction(container.elementOffset(figure)), figure)
+        for figure in container.notesAndRests
+        if not figure.duration.isGrace
+    ]
+
+
+def _beam_by_bars(placed: list[tuple[Fraction, Any]], signature: Any) -> None:
+    """Agrupa con barras las figuras de una voz de un compás sobrellenado, por tramos (#366).
+
+    Cada tramo empieza en una barra contada desde la parte 1 y se agrupa con la métrica del
+    compás: lo que sobra, como si empezara otro compás. Una figura que cruza el borde de un tramo
+    queda sin barra. Se llama con todas las voces de un compás sobrellenado: la que no lo llena
+    tampoco es una anacrusa, y sus barras empiezan en la parte 1, no al final del compás como las
+    pone `makeBeams`.
+    """
+
+    bar = Fraction(signature.barDuration.quarterLength)
+    windows: dict[int, list[tuple[Fraction, Any]]] = {}
+    for start, figure in placed:
+        figure.beams = beam.Beams()
+        index = start // bar
+        if start + Fraction(figure.quarterLength) <= (index + 1) * bar:
+            windows.setdefault(index, []).append((start, figure))
+    for index, members in windows.items():
+        if len(members) < 2:
+            continue
+        # Como en `makeBeams`, el tramo va seguido desde 0, con dónde empieza en la barra (tras
+        # una figura que la cruza, no en la parte 1) y lo que le falta para llenarla: sin
+        # `paddingRight`, la última figura de un tramo corto se queda con una barra colgando. Se
+        # agrupan gemelos con la misma duración, para no mover las figuras de su compás.
+        first = members[0][0] - index * bar
+        twins = stream.Measure()
+        for _, figure in members:
+            twin = note.Rest() if figure.isRest else note.Note()
+            twin.duration = copy.deepcopy(figure.duration)
+            twins.append(twin)
+        twins.paddingRight = common.opFrac(bar - first - Fraction(twins.highestTime))
+        found = signature.getBeams(twins, measureStartOffset=common.opFrac(first))
+        for (_, figure), beams in zip(members, found, strict=True):
+            if beams is not None:
+                figure.beams = beams
+
+
+def _beam_overfull_voices(out: stream.Score) -> None:
+    """Las barras de agrupación de cada parte, también en las voces de un compás sobrellenado.
+
+    `makeBeams` de music21 se salta toda voz que suma más que su compás, y el exportador no
+    reparte sus notas entre compases (#152): sus corcheas y semicorcheas salían sueltas, cada una
+    con su corchete (#366). Aquí se hace lo que haría el exportador, en su orden (partir en notas
+    ligadas las duraciones que no caben en una figura y agrupar la parte), y después se agrupan
+    por tramos de un compás las voces de cada compás sobrellenado (`_beam_by_bars`). Las plicas de
+    los grupos se fijan al final, con todas las barras puestas, como al final de `makeBeams`: una
+    nota que deja de ir en un grupo no conserva la plica del grupo. Como la parte ya está partida
+    y tiene barras, el exportador no la vuelve a tocar. Las notas que se escriben y sus
+    duraciones no cambian.
+    """
+
+    for part in out.parts:
+        part.splitAtDurations(recurse=True)
+        try:
+            part.makeBeams(inPlace=True, setStemDirections=False)
+        except stream.StreamException:
+            # Sin compases que agrupar: el exportador lo vuelve a intentar y lo avisa.
+            continue
+        for measure in part.getElementsByClass(stream.Measure):
+            signature = measure.timeSignature or measure.getContextByClass(meter.TimeSignature)
+            if signature is None:
+                continue
+            bar = Fraction(signature.barDuration.quarterLength)
+            containers = list(measure.voices) if measure.hasVoices() else [measure]
+            voices = [_placed_figures(container) for container in containers]
+            # Solo las figuras llenan el compás, no las dinámicas ni las anclas de los reguladores.
+            ends = (start + Fraction(figure.quarterLength) for v in voices for start, figure in v)
+            if max(ends, default=Fraction(0)) <= bar:
+                continue
+            for placed in voices:
+                _beam_by_bars(placed, signature)
+        stream.makeNotation.setStemDirectionForBeamGroups(part)
+
+
 def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
     """Serializa un `ScoreIR` a MusicXML 4.0 tal como está (base para la exportación, D11).
 
@@ -1281,11 +1368,12 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     ocultos y, con `makeNotation`, reparte entre compases las notas que cruzan la barra de un
     compás sobrellenado: la partitura exportada dejaría de ser la transcrita justo donde el
     validador señala un posible error (#152). El exportador de partes sigue haciendo las
-    alteraciones visibles, los corchetes de los tresillos y las barras de agrupación (salvo en
-    los compases sobrellenados, que music21 no agrupa), y divide en notas ligadas dentro del
-    mismo compás las duraciones que MusicXML no puede escribir con una sola figura. Los
-    tresillos incompletos no se completan: se escriben con las duraciones del `ScoreIR`. Una nota
-    de duración cero o nula sale como nota de adorno (D60, #199).
+    alteraciones visibles, los corchetes de los tresillos y las barras de agrupación, y divide
+    en notas ligadas dentro del mismo compás las duraciones que MusicXML no puede escribir con
+    una sola figura. Las voces que suman más que su compás, que music21 no agrupa, se agrupan
+    por tramos de un compás (#366). Los tresillos incompletos no se completan: se escriben con
+    las duraciones del `ScoreIR`. Una nota de duración cero o nula sale como nota de adorno (D60,
+    #199).
 
     Lleva las marcas de notación (ADR-0031): articulaciones, calderones, dinámicas y las
     ligaduras de expresión y los reguladores completos; un extremo sin pareja no se dibuja.
@@ -1297,6 +1385,7 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     if not score.parts:
         raise InterchangeError("La partitura no tiene partes que exportar")
     out = score_ir_to_music21(score)
+    _beam_overfull_voices(out)
     exporter = musicxml.m21ToXml.ScoreExporter(out, makeNotation=True)
     with _keeping_spanner_numbers():
         root = exporter.parse()
