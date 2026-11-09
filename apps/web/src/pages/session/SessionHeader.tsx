@@ -92,15 +92,27 @@ export function HeaderPopover({
   }, [open, pinned]);
 
   // Lo de dentro que usa Esc para lo suyo (cerrar el formulario de los datos) la consume antes.
+  // Fijado, Esc tampoco lo cierra: lo que pase al terminar se vería en un panel oculto.
   function onKeyDown(event: KeyboardEvent) {
-    if (event.key !== "Escape" || !open || event.defaultPrevented) return;
+    if (event.key !== "Escape" || !open || pinned || event.defaultPrevented) return;
     event.preventDefault();
     setOpen(false);
     toggleRef.current?.focus();
   }
 
   return (
-    <div className={`header-popover ${className}`} ref={rootRef} onKeyDown={onKeyDown}>
+    <div
+      className={`header-popover ${className}`}
+      ref={rootRef}
+      onKeyDown={onKeyDown}
+      onBlur={(event) => {
+        // Con el teclado, el foco que pasa a otro control fuera lo cierra: así no quedan los dos
+        // paneles abiertos a la vez. Sin destino (un clic en el texto del panel), no.
+        const next = event.relatedTarget;
+        if (!open || pinned || !(next instanceof Node)) return;
+        if (!rootRef.current?.contains(next)) setOpen(false);
+      }}
+    >
       <button
         ref={toggleRef}
         type="button"

@@ -1047,6 +1047,31 @@ describe("vista de una sesión", () => {
     expect(button).not.toHaveAccessibleDescription(/midi/i);
   });
 
+  it("mientras prepara el MIDI, un clic fuera no cierra «Exportar / Datos» y su aviso se ve (#363)", async () => {
+    const pending = deferred<Response>();
+    withMidi(() => pending.promise);
+    captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar MIDI");
+    const toggle = screen.getByRole("button", { name: "Exportar / Datos" });
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el MIDI…");
+    });
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    pending.resolve(jsonResponse({ detail: "fallo" }, 500));
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(/no se pudo preparar el midi/i);
+    });
+    expect(button).toBeVisible();
+    // Ya con el aviso a la vista, un clic fuera lo cierra como siempre.
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  });
+
   it("si el MIDI falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a pedir y descarga", async () => {
     let fail = true;
     const { calls } = withMidi(() => (fail ? jsonResponse({ detail: "fallo" }, 500) : midi()));
@@ -6269,6 +6294,20 @@ describe("corregir la nota elegida", () => {
       await userEvent.click(confirmButton());
     }
 
+    it("el aviso de finalizar flota bajo el botón y un clic fuera lo quita de la vista (#363)", async () => {
+      lifecycleApi();
+      renderPage();
+      await findScore();
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(/^Sesión finalizada\./);
+      });
+      fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
+      expect(lifecycleStatus()).toBeEmptyDOMElement();
+    });
+
     it("finaliza tras confirmarlo, con la validación final a la vista y en solo lectura", async () => {
       const server = lifecycleApi(detail(), {
         findings: [finding(1, 1), dismissedFinding(2, 3)],
@@ -7887,6 +7926,35 @@ describe("corregir la nota elegida", () => {
 
       expect(status).toHaveTextContent(/Compás 2/);
       expect(screen.queryByText(/^Elige una nota o un silencio/)).toBeNull();
+    });
+
+    it("el panel de «Atajos» se cierra con un clic fuera de él", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+      const toggle = within(editor()).getByRole("button", { name: "Atajos" });
+
+      fireEvent.click(toggle);
+      fireEvent.pointerDown(document.querySelector(".editor__keys") as HTMLElement);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("con el teclado, el foco que sale de un panel de la cabecera lo cierra", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      fireEvent.click(infoToggle());
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "true");
+      // Dentro del panel, nada.
+      fireEvent.focusOut(infoToggle(), { relatedTarget: infoToggle() });
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "true");
+      // A otro control de la cabecera, se cierra: no quedan dos paneles abiertos.
+      fireEvent.focusOut(infoToggle(), { relatedTarget: menuToggle() });
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "false");
     });
 
     it("sin preferencia guardada, la imagen se lleva el 25 % y la partitura el resto", async () => {

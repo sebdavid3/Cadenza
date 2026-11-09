@@ -38,6 +38,21 @@ export function LifecyclePanel({
   onReopen,
 }: LifecyclePanelProps) {
   const [confirming, setConfirming] = useState(false);
+  // El aviso flota sobre la vista (#363): un clic fuera lo quita de la vista, ya anunciado.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const shown = message !== null && message !== dismissed ? message : null;
+  useEffect(() => {
+    if (shown === null) return;
+    const onPointerDown = (event: Event) => {
+      if (event.target instanceof Node && rootRef.current?.contains(event.target)) return;
+      setDismissed(shown);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [shown]);
   const confirmId = useId();
   const noteId = useId();
   const waitId = useId();
@@ -93,7 +108,7 @@ export function LifecyclePanel({
   }
 
   return (
-    <div className="lifecycle">
+    <div className="lifecycle" ref={rootRef}>
       {finalized ? (
         <button
           ref={reopenRef}
@@ -120,55 +135,57 @@ export function LifecyclePanel({
           Finalizar la corrección
         </button>
       )}
-      {open && (
-        <div
-          id={confirmId}
-          className="lifecycle__confirm"
-          role="group"
-          aria-label="Confirmar la finalización"
-          aria-describedby={noteId}
-          onKeyDown={onKeyDown}
-        >
-          <p id={noteId} className="lifecycle__note">
-            {assisted
-              ? "¿Das por terminada la corrección? Se validará la partitura tal como está y la sesión quedará en solo lectura, con el resultado de esa validación."
-              : "¿Das por terminada la corrección? La sesión quedará en solo lectura."}{" "}
-            Si se te pasó algo, podrás reabrirla.
-          </p>
-          <div className="lifecycle__actions">
-            <button
-              ref={confirmRef}
-              type="button"
-              className="button button--compact button--primary"
-              aria-disabled={blocked || undefined}
-              aria-describedby={waiting && !busy ? waitId : undefined}
-              onClick={() => void finalize()}
-            >
-              Sí, finalizar
-            </button>
-            <button
-              type="button"
-              className="link-button"
-              aria-disabled={busy || undefined}
-              onClick={() => {
-                if (busy) return;
-                setConfirming(false);
-                finalizeRef.current?.focus();
-              }}
-            >
-              Cancelar
-            </button>
-          </div>
-          {waiting && !busy && (
-            <p id={waitId} className="lifecycle__wait">
-              Espera a que termine lo que está en curso.
+      <div className="lifecycle__float">
+        {open && (
+          <div
+            id={confirmId}
+            className="lifecycle__confirm"
+            role="group"
+            aria-label="Confirmar la finalización"
+            aria-describedby={noteId}
+            onKeyDown={onKeyDown}
+          >
+            <p id={noteId} className="lifecycle__note">
+              {assisted
+                ? "¿Das por terminada la corrección? Se validará la partitura tal como está y la sesión quedará en solo lectura, con el resultado de esa validación."
+                : "¿Das por terminada la corrección? La sesión quedará en solo lectura."}{" "}
+              Si se te pasó algo, podrás reabrirla.
             </p>
-          )}
-        </div>
-      )}
-      <p className="lifecycle__status" role="status" aria-live="polite">
-        {message}
-      </p>
+            <div className="lifecycle__actions">
+              <button
+                ref={confirmRef}
+                type="button"
+                className="button button--compact button--primary"
+                aria-disabled={blocked || undefined}
+                aria-describedby={waiting && !busy ? waitId : undefined}
+                onClick={() => void finalize()}
+              >
+                Sí, finalizar
+              </button>
+              <button
+                type="button"
+                className="link-button"
+                aria-disabled={busy || undefined}
+                onClick={() => {
+                  if (busy) return;
+                  setConfirming(false);
+                  finalizeRef.current?.focus();
+                }}
+              >
+                Cancelar
+              </button>
+            </div>
+            {waiting && !busy && (
+              <p id={waitId} className="lifecycle__wait">
+                Espera a que termine lo que está en curso.
+              </p>
+            )}
+          </div>
+        )}
+        <p className="lifecycle__status" role="status" aria-live="polite">
+          {shown}
+        </p>
+      </div>
     </div>
   );
 }

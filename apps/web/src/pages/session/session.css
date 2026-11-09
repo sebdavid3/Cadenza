@@ -94,21 +94,24 @@
   font-size: 0.75rem;
 }
 
-/* La confirmación de finalizar y lo que pasó al finalizar o reabrir se abren bajo el botón, sobre
-   la vista, como el panel de «Exportar / Datos»: la franja no crece. */
-.session__actions .lifecycle__confirm,
-.session__actions .lifecycle__status {
+/* La confirmación de finalizar y lo que pasó al finalizar o reabrir se abren bajo el botón, uno
+   bajo otro, sobre la vista, como el panel de «Exportar / Datos»: la franja no crece. El aviso no
+   intercepta los clics, y uno fuera lo quita de la vista. */
+.session__actions .lifecycle__float {
   position: absolute;
   top: calc(100% + var(--space-2));
   right: 0;
   z-index: 30;
-  width: max-content;
-  max-width: min(26rem, calc(100vw - 2 * var(--gutter)));
-  background: var(--color-paper);
+  display: grid;
+  justify-items: end;
+  gap: var(--space-2);
+  width: min(26rem, calc(100vw - 2 * var(--gutter)));
+  pointer-events: none;
 }
 
 .session__actions .lifecycle__confirm {
-  width: min(26rem, calc(100vw - 2 * var(--gutter)));
+  background: var(--color-paper);
+  pointer-events: auto;
 }
 
 .session__actions .lifecycle__status:empty {
@@ -118,6 +121,7 @@
 .session__actions .lifecycle__status:not(:empty) {
   padding: var(--space-2) var(--space-3);
   border: var(--rule);
+  background: var(--color-paper);
 }
 
 /* La cuenta, tras un filete: el nombre y «Salir». */
@@ -786,6 +790,9 @@
 /* Fila 2: los grupos de la pestaña, cada uno con su rótulo pequeño encima. */
 .editor__palette {
   padding: 0 var(--space-4) 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
 }
 
 .editor__groups {
@@ -861,28 +868,8 @@
   padding-block: var(--space-1);
 }
 
-/* La nota del inicio va a la derecha de sus botones, en dos líneas de rótulo pequeño, para que la
-   fila de «Marcas» mida lo que las demás y la partitura no salte al cambiar de pestaña (#363). */
 .editor__group--spans {
-  grid-template-columns: auto minmax(12rem, 22rem);
-  column-gap: var(--space-3);
   min-width: 0;
-}
-
-.editor__group--spans > .editor__label,
-.editor__group--spans > .editor__spans {
-  grid-column: 1 / -1;
-}
-
-.editor__group--spans > .editor__origin {
-  align-self: center;
-  max-width: none;
-  font-size: 0.75rem;
-  line-height: 1.25;
-}
-
-.editor__group--spans > .editor__origin .editor__history {
-  font-size: inherit;
 }
 
 /* Sugerencias para la nota elegida (#258): bajo la paleta, a lo ancho de la barra. */
@@ -939,10 +926,7 @@
 
 /* La nota elegida en una línea: dónde está y qué es. */
 .editor__now .selection__readout {
-  flex: none;
-  flex-wrap: nowrap;
   min-height: 0;
-  white-space: nowrap;
 }
 
 .editor__history,
@@ -1107,8 +1091,11 @@
     flex: 1 1 0;
   }
 
-  .score-download__hint {
-    text-align: left;
+  /* Con el dedo, los ocho botones de figura caben en una fila a 390 px con 40 px de ancho (y
+     44 de alto); si un grupo no cabe, la paleta se desplaza, no la página. */
+  .editor__palette .editor__button {
+    min-width: 40px;
+    padding-inline: var(--space-1);
   }
 }
 
@@ -1391,7 +1378,7 @@
    con el color de selección del sistema, y la muestra de la barra igual. */
 @media (forced-colors: active) {
   .notation__selection,
-  .selection[data-selected="true"] .selection__readout::before {
+  .selection__readout[data-selected="true"]::before {
     outline: var(--rule-width) solid Highlight;
     outline-offset: var(--rule-width);
   }
@@ -2024,6 +2011,57 @@ button.findings__item:hover {
     min-height: 32px;
   }
 
+  /* La nota del inicio va a la derecha de sus botones, en dos líneas de rótulo pequeño, para que la
+     fila de «Marcas» mida lo que las demás y la partitura no salte al cambiar de pestaña (#363). */
+  .session--desk .editor__group--spans {
+    grid-template-columns: auto minmax(12rem, 22rem);
+    column-gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .session--desk .editor__group--spans > .editor__label,
+  .session--desk .editor__group--spans > .editor__spans {
+    grid-column: 1 / -1;
+  }
+
+  .session--desk .editor__group--spans > .editor__origin {
+    align-self: center;
+    max-width: none;
+    font-size: 0.75rem;
+    line-height: 1.25;
+  }
+
+  .session--desk .editor__group--spans > .editor__origin .editor__history {
+    font-size: inherit;
+  }
+
+  /* La nota elegida, en una línea: dónde está y qué es. */
+  .session--desk .editor__now .selection__readout {
+    flex: none;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+  }
+
+  /* La barra de estado, en una línea: la nota elegida entera y la indicación recortada con
+     puntos suspensivos (entera en su `title`), para que no crezca al entrar en «Escribir» ni al
+     elegir un acorde y la partitura no se mueva. Lo que pasó con la última orden no se recorta. */
+  .session--desk .editor__statusbar {
+    flex-wrap: nowrap;
+  }
+
+  .session--desk .editor__now {
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+
+  .session--desk .editor__now .editor__hint {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* Si la barra y la partitura no caben (una pantalla muy baja, unas sugerencias largas), el panel
      de la partitura se desplaza entero en vez de dejarla sin alto. Es el bloque contenedor de lo
      que lleva dentro con `position: absolute` (los textos ocultos para el lector de pantalla del
@@ -2131,6 +2169,22 @@ button.findings__item:hover {
     border-left: 0;
   }
 
+  /* Los paneles («?», «Exportar / Datos», la confirmación de finalizar y su aviso) se abren bajo
+     la cabecera y a lo ancho de la pantalla: anclados a su botón, se saldrían por un lado. */
+  .session__head .header-popover,
+  .session__actions > .lifecycle {
+    position: static;
+  }
+
+  .session__head .header-popover__panel,
+  .session__actions .lifecycle__float {
+    top: 100%;
+    right: var(--gutter);
+    left: var(--gutter);
+    width: auto;
+    max-width: none;
+  }
+
   .sheet--scan {
     position: sticky;
     top: 0;
@@ -2195,5 +2249,28 @@ button.findings__item:hover {
 @media (max-width: 760px) {
   .scan[data-wide="true"][data-zoom="width"] img {
     min-width: 720px;
+  }
+}
+
+/* Con el dedo, cada control vuelve a los 44 px, también los compactos de la cabecera y, en la mesa,
+   los de 32 px de la paleta y el transporte (#363). Al final, para ganar a esas reglas; en una
+   columna, la paleta se queda en los 40 × 44 px de la partitura estrecha. */
+@media (pointer: coarse) {
+  .session .session__info .header-popover__toggle,
+  .session__head .button--compact,
+  .session__account .app-header__exit,
+  .session__back {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (pointer: coarse) and (min-width: 960px) {
+  .session--desk .editor__palette .editor__button,
+  .session--desk .editor__palette .editor__select,
+  .session--desk .playback__button,
+  .session--desk .playback__step {
+    min-width: 44px;
+    min-height: 44px;
   }
 }

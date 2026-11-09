@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MutableRefObject } from "react";
 import { PixelIcon, type PixelIconName } from "../../components/PixelIcon";
 import type { AnchorPayload, ScoreIRPayload } from "../../types";
 import {
@@ -386,6 +386,10 @@ const GAP_STRUCTURE: typeof STRUCTURE = [
   },
   { command: { kind: "delete" }, label: "Borrar el hueco", word: "Borrar", icon: "cross" },
 ];
+
+/** Cómo se escribe con el ratón (#350): en la barra de estado y, entero, en su `title`. */
+const WRITING_HINT =
+  "Escribir: elige la figura y pasa el ratón por la partitura; el fantasma enseña la nota. Clic para ponerla (sobre otra figura, la cambia; entre dos, inserta), Mayús + clic para añadirla al acorde y Esc para salir.";
 
 /**
  * Qué indicar en la barra de estado según lo elegido. Sin nada elegido lo dice la selección («Elige
@@ -892,9 +896,27 @@ export function EditBar({
   const keysToggle = editable && onToggleKeys !== undefined;
   const legendShown = keysToggle ? showKeys : true;
   const hintText = editable && !writing ? hint(target) : null;
-  // Escribiendo, la barra de estado dice cómo se escribe en lugar de la nota elegida: así no
-  // crece a dos líneas al entrar en el modo y la partitura no se mueve.
-  const readout = selection !== undefined && !(editable && writing !== null);
+  // Escribiendo sin nada elegido, la indicación es la del modo «Escribir», no la de elegir; con
+  // una nota elegida (la que se acaba de escribir), se sigue viendo cuál es.
+  const readout =
+    selection !== undefined && !(editable && writing !== null && steps?.description === null);
+  // El panel de los atajos tapa la partitura: un clic fuera de él y de «Atajos» lo cierra.
+  const legendRef = useRef<HTMLDivElement>(null);
+  const keysToggleRef = useRef<HTMLButtonElement>(null);
+  const legendOpen = keysToggle && showKeys;
+  useEffect(() => {
+    if (!legendOpen) return;
+    const onPointerDown = (event: Event) => {
+      const at = event.target;
+      if (!(at instanceof Node)) return;
+      if (legendRef.current?.contains(at) || keysToggleRef.current?.contains(at)) return;
+      onToggleKeys();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [legendOpen, onToggleKeys]);
 
   return (
     <section
@@ -977,6 +999,7 @@ export function EditBar({
               {steps && <SelectionSteps {...steps} />}
               {keysToggle && (
                 <button
+                  ref={keysToggleRef}
                   type="button"
                   className="editor__keys-toggle"
                   aria-expanded={showKeys}
@@ -1237,18 +1260,20 @@ export function EditBar({
               <SelectionReadout status={selection.status} description={selection.description} />
             )}
             {editable && writing ? (
-              <p className="editor__hint editor__hint--writing">
-                <span className="editor__hint-pointer">
-                  Escribir: elige la figura y pasa el ratón por la partitura; clic para ponerla,
-                  Mayús + clic para el acorde y Esc para salir.
-                </span>
+              <p className="editor__hint editor__hint--writing" title={WRITING_HINT}>
+                <span className="editor__hint-pointer">{WRITING_HINT}</span>
                 <span className="editor__hint-touch">
-                  Escribir: elige la figura y toca la partitura; vuelve a tocar en el mismo sitio
-                  para ponerla y pulsa «Escribir» para salir.
+                  Escribir: elige la figura y toca la partitura; el fantasma enseña la nota. Vuelve
+                  a tocar en el mismo sitio para ponerla (sobre otra figura, la cambia; entre dos,
+                  inserta) y pulsa «Escribir» para salir.
                 </span>
               </p>
             ) : (
-              hintText !== null && <p className="editor__hint">{hintText}</p>
+              hintText !== null && (
+                <p className="editor__hint" title={hintText}>
+                  {hintText}
+                </p>
+              )
             )}
           </div>
         )}
@@ -1287,7 +1312,12 @@ export function EditBar({
       </div>
       {/* Las leyendas de teclas: tras «Atajos», en un panel sobre la partitura que no la empuja. */}
       {(editable || steps !== null) && (
-        <div className="editor__legend" data-popover={keysToggle} hidden={!legendShown}>
+        <div
+          ref={legendRef}
+          className="editor__legend"
+          data-popover={keysToggle}
+          hidden={!legendShown}
+        >
           {steps && <SelectionKeys keysId={steps.keysId} hidden={!legendShown} />}
           {editable && (
             <p className="editor__keys" id={keysId} hidden={!legendShown}>

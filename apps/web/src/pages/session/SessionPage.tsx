@@ -316,6 +316,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
     );
   });
   const [tab, setTab] = useState<ToolTab>("note");
+  const [midiPreparing, setMidiPreparing] = useState(false);
   const [keysShown, setKeysShown] = useState(false);
   const toggleKeys = useCallback(() => {
     setKeysShown((shown) => !shown);
@@ -501,6 +502,9 @@ function SessionView({ sessionId }: { sessionId: string }) {
 
   const busyElsewhere =
     editor.status.kind === "saving" || editor.status.kind === "reloading" || editor.queued;
+  // «Exportar / Datos» no se cierra con un clic fuera mientras se guardan los datos o se prepara
+  // el MIDI: su aviso se vería en un panel oculto.
+  const menuPinned = metadataEditor.saving || midiPreparing;
   return (
     <div className="session session--desk">
       <SessionTopBar
@@ -516,7 +520,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 </>
               }
               panelLabel="Datos y descargas de la sesión"
-              pinned={metadataEditor.saving}
+              pinned={menuPinned}
             >
               {owned && detail.data && metadata && (
                 <ScoreDataPanel
@@ -544,6 +548,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                   seq={seq}
                   ready={ready}
                   fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
+                  onPreparing={setMidiPreparing}
                 />
               </div>
             </HeaderPopover>
