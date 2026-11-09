@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { api } from "../../api/instance";
 import type { QueueItem } from "./queue";
@@ -93,5 +93,15 @@ export function SessionThumb({ sessionId }: { sessionId: string }) {
 export function QueueThumb({ item }: { item: QueueItem }) {
   // Un archivo rechazado antes de enviarlo (no es PNG ni JPEG) no se intenta dibujar.
   const image = useQuery({ ...queueImageQuery(item.id, item.file), enabled: !item.rejected });
+  // La imagen de la sesión es la que se subió: la lámina que ocupa el sitio de esta no la vuelve
+  // a descargar ni aparece en blanco mientras llega.
+  const queryClient = useQueryClient();
+  const sessionId = item.status === "done" ? item.result?.session_id : undefined;
+  const blob = image.data;
+  useEffect(() => {
+    if (sessionId === undefined || !blob) return;
+    const { queryKey } = sessionImageQuery(api, sessionId);
+    if (queryClient.getQueryData(queryKey) === undefined) queryClient.setQueryData(queryKey, blob);
+  }, [sessionId, blob, queryClient]);
   return <Thumb blob={image.data} failed={image.isError || item.rejected === true} />;
 }

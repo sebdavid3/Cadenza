@@ -50,16 +50,16 @@
 }
 
 .transcription__hint {
-  max-width: 24ch;
+  max-width: 34ch;
   color: var(--color-ink-muted);
   font-size: var(--text-small);
   line-height: 1.35;
   text-align: right;
 }
 
-/* Sin ratón no hay nada que arrastrar. */
+/* Sin ratón no hay nada que arrastrar: quedan los límites. */
 @media (hover: none), (pointer: coarse) {
-  .transcription__hint {
+  .transcription__drop-hint {
     display: none;
   }
 }
@@ -162,6 +162,7 @@
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
+  container-type: inline-size;
 }
 
 .plate:focus-visible {
@@ -175,15 +176,18 @@
   overflow: hidden;
   border: var(--rule);
   background: var(--color-paper-raised);
+  transition: box-shadow var(--duration-quick) var(--ease-out);
 }
 
-/* Lo que el validador señaló: la trama fina del compás dudoso, sobre la imagen (#368). */
-.plate[data-flagged="true"] .plate__image::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: var(--halftone-accent-fine);
-  pointer-events: none;
+/* Toda la lámina abre la sesión: al pasar, el marco dobla su filete de tinta. */
+.plate:hover .plate__image {
+  box-shadow: 0 0 0 var(--rule-width) var(--color-ink);
+}
+
+/* Lo que el validador señaló: la trama fina del compás dudoso (#368), bajo la imagen
+   multiplicada, de modo que solo se ve en el papel y la notación sigue en tinta. */
+.plate[data-flagged="true"] .thumb {
+  background: var(--halftone-accent-fine), var(--color-paper-raised);
 }
 
 .plate__name {
@@ -252,9 +256,9 @@
   display: none;
 }
 
-.plate__meta > * + *::before {
-  content: "·";
-  margin-inline: 0.4em;
+/* El punto va pegado a lo anterior (espacio de no separación): nunca empieza una línea. */
+.plate__meta > :not(:last-child)::after {
+  content: "\00a0· ";
 }
 
 .plate__owner {
@@ -275,13 +279,15 @@
   font-size: var(--text-small);
 }
 
-/* El rótulo de los posibles errores cuelga de la esquina de la imagen, sobre su filete, como el
-   del compás señalado en la mesa. No recibe el clic: la lámina entera abre la sesión. */
+/* El rótulo de los posibles errores cuelga de la esquina inferior de la imagen, sobre su filete,
+   como el del compás señalado en la mesa; arriba taparía el título impreso. La imagen mide 2/3
+   del ancho de la lámina. No recibe el clic: la lámina entera abre la sesión. */
 .plate__flag {
   position: absolute;
-  top: 0;
+  top: calc(100cqw * 2 / 3);
   left: 0;
   z-index: 2;
+  transform: translateY(-100%);
   pointer-events: none;
 }
 
@@ -423,10 +429,8 @@
 .diary__empty {
   display: grid;
   gap: var(--space-3);
-  max-width: 56rem;
-  margin: var(--space-7) var(--gutter) var(--space-9);
-  padding: var(--space-7) var(--space-6);
-  border: var(--rule-width) dashed var(--color-ink-muted);
+  max-width: 60ch;
+  padding: var(--space-4) 0 var(--space-8);
 }
 
 .diary__empty-title {
@@ -716,9 +720,17 @@
     padding-left: var(--gutter);
   }
 
-  .transcription__pick,
-  .transcription__pick .button {
+  /* El botón a lo ancho y, debajo, lo que se admite. */
+  .transcription__pick {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: var(--space-2);
     width: 100%;
+  }
+
+  .transcription__hint {
+    max-width: none;
+    text-align: left;
   }
 }
 
@@ -743,6 +755,11 @@
     margin-bottom: 0;
   }
 
+  /* Una franja ancha (un incipit) no cabe en un marco vertical. */
+  .plate__image:has(.thumb[data-shape="wide"]) {
+    aspect-ratio: 3 / 2;
+  }
+
   .plate > :not(.plate__image) {
     grid-column: 2;
   }
@@ -751,14 +768,11 @@
   .plate__flag {
     position: static;
     order: 1;
+    transform: none;
   }
 
   .plate__edits {
     order: 2;
-  }
-
-  .diary__empty {
-    padding: var(--space-5);
   }
 
   .prepare {

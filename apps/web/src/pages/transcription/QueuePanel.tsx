@@ -1,6 +1,7 @@
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useEffect, useRef } from "react";
 import { Link } from "react-router";
-import { findingsLabel, formatSize } from "./format";
+import { Elapsed } from "./Elapsed";
+import { findingsLabel, formatSize, queueSummary } from "./format";
 import { useQueueStore, type QueueItem } from "./queue";
 import { nonBlank } from "./scoreData";
 import { QueueThumb } from "./SessionThumb";
@@ -8,39 +9,6 @@ import { QueueThumb } from "./SessionThumb";
 /** El nombre que se dio a la partitura de una imagen, o null si no se dio ninguno. */
 function titleOf(item: QueueItem): string | null {
   return nonBlank(item.data?.title);
-}
-
-/** Recuento de la región viva: lo pendiente, lo que está en curso, lo transcrito y lo fallido. */
-function summary(items: QueueItem[]): string {
-  const count = (status: QueueItem["status"]) =>
-    items.filter((item) => item.status === status).length;
-  const done = count("done");
-  const running = count("transcribing");
-  return [
-    `${String(count("queued"))} en cola`,
-    ...(running > 0 ? [`${String(running)} en curso`] : []),
-    `${String(done)} ${done === 1 ? "transcrita" : "transcritas"}`,
-    `${String(count("error"))} con error`,
-  ].join(" · ");
-}
-
-function subscribeToClock(onTick: () => void) {
-  const timer = setInterval(onTick, 1000);
-  return () => {
-    clearInterval(timer);
-  };
-}
-
-/** Segundos desde que empezó la transcripción en curso: progreso visible sin bloquear. */
-export function Elapsed({ since }: { since: number }) {
-  const seconds = useSyncExternalStore(subscribeToClock, () =>
-    Math.max(0, Math.floor((Date.now() - since) / 1000)),
-  );
-  return (
-    <span className="queue__elapsed" aria-hidden="true">
-      {seconds} s
-    </span>
-  );
 }
 
 function StatusChip({ item }: { item: QueueItem }) {
@@ -77,6 +45,20 @@ function becameSession(item: QueueItem, listed: ReadonlySet<string>): boolean {
   return item.status === "done" && item.result !== undefined && listed.has(item.result.session_id);
 }
 
+/** La lámina de una sesión del diario. */
+function sessionPlate(sessionId: string): HTMLElement | undefined {
+  const plates = document.querySelectorAll<HTMLElement>("[data-session-id]");
+  return [...plates].find((plate) => plate.dataset.sessionId === sessionId);
+}
+
+/**
+ * Cuando una acción vacía la cola, la cola desaparece con su título: el foco pasa antes a
+ * «Nueva transcripción», que sigue ahí.
+ */
+function leaveQueue() {
+  document.getElementById("new-transcription")?.focus();
+}
+
 interface QueuePanelProps {
   /** Las sesiones que el diario ya enseña. */
   listed: ReadonlySet<string>;
@@ -86,6 +68,7 @@ interface QueuePanelProps {
  * La cola en el día de hoy (#370): sin columna propia, solo existe mientras hay imágenes. Cada
  * imagen es una lámina que cambia de estado en su sitio; al aparecer su sesión en el listado, la
  * lámina de la sesión la sustituye, y el recuento sigue contándola hasta «Limpiar terminadas».
+ * El recuento se anuncia desde la vista (TranscriptionPage), que existe aunque no haya cola.
  */
 export function QueuePanel({ listed }: QueuePanelProps) {
   const items = useQueueStore((state) => state.items);
@@ -94,7 +77,8 @@ export function QueuePanel({ listed }: QueuePanelProps) {
   const clearFinished = useQueueStore((state) => state.clearFinished);
   const paused = useQueueStore((state) => state.paused);
   const resume = useQueueStore((state) => state.resume);
-  const finished = items.filter((item) => item.status === "done" || item.status === "error").length;
+  const isFinished = (item: QueueItem) => item.status === "done" || item.status === "error";
+  const finished = items.filter(isFinished).length;
   const visible = items.filter((item) => !becameSession(item, listed));
 
   // Las acciones hacen desaparecer su propio botón: el foco pasa a un elemento de la cola
@@ -105,6 +89,7 @@ export function QueuePanel({ listed }: QueuePanelProps) {
   const itemRefs = useRef(new Map<string, HTMLLIElement>());
   const focusAfterUpdate = useRef<string | null>(null);
   const focusIfLost = useRef<string | null>(null);
+  // La imagen que tenía el foco cuando este se perdió sin ir a otro sitio (su lámina salió).
   const lastFocused = useRef<string | null>(null);
   useEffect(
     () =>
@@ -119,27 +104,41 @@ export function QueuePanel({ listed }: QueuePanelProps) {
     [],
   );
   useEffect(() => {
+    /** Adónde va el foco de una imagen: a su sesión si ya lo es; si no, a ella o al título. */
+    const focusItem = (id: string) => {
+      const item = items.find((candidate) => candidate.id === id);
+      const sessionId = item?.result?.session_id;
+      const plate =
+        item && sessionId !== undefined && becameSession(item, listed)
+          ? sessionPlate(sessionId)
+          : undefined;
+      (plate ?? itemRefs.current.get(id) ?? headingRef.current)?.focus();
+    };
     const target = focusAfterUpdate.current;
     const owner = focusIfLost.current;
     focusAfterUpdate.current = null;
     focusIfLost.current = null;
     const lost = !document.activeElement || document.activeElement === document.body;
     if (target !== null) {
-      (itemRefs.current.get(target) ?? headingRef.current)?.focus();
+      focusItem(target);
     } else if (owner !== null && lost) {
-      (itemRefs.current.get(owner) ?? headingRef.current)?.focus();
+      focusItem(owner);
     } else if (lost && lastFocused.current !== null) {
-      const gone = items.find((item) => item.id === lastFocused.current);
-      const sessionId = gone?.result?.session_id;
-      if (gone && sessionId && becameSession(gone, listed)) {
+      const id = lastFocused.current;
+      const item = items.find((candidate) => candidate.id === id);
+      if (item && becameSession(item, listed)) {
         lastFocused.current = null;
-        const plates = document.querySelectorAll<HTMLElement>("[data-session-id]");
-        [...plates].find((plate) => plate.dataset.sessionId === sessionId)?.focus();
+        focusItem(id);
       }
     }
   });
 
   const removeItem = (id: string) => {
+    if (items.length === 1) {
+      leaveQueue();
+      remove(id);
+      return;
+    }
     const index = visible.findIndex((item) => item.id === id);
     const neighbour = visible[index + 1] ?? visible[index - 1];
     focusAfterUpdate.current = neighbour?.id ?? "";
@@ -152,15 +151,14 @@ export function QueuePanel({ listed }: QueuePanelProps) {
         <h3 id="queue-title" className="label queue__title" ref={headingRef} tabIndex={-1}>
           Cola
         </h3>
-        <p className="label queue__summary" aria-live="polite">
-          {summary(items)}
-        </p>
+        <p className="label queue__summary">{queueSummary(items)}</p>
         {finished > 0 && (
           <button
             type="button"
             className="link-button queue__clear"
             onClick={() => {
-              focusAfterUpdate.current = "";
+              if (items.every(isFinished)) leaveQueue();
+              else focusAfterUpdate.current = "";
               clearFinished();
             }}
           >
@@ -193,9 +191,17 @@ export function QueuePanel({ listed }: QueuePanelProps) {
             lastFocused.current = plate?.dataset.queueId ?? null;
           }}
           onBlur={(event) => {
-            // Si el foco se va a otro sitio concreto, se olvida; si se pierde (la lámina
-            // desaparece), se recuerda para pasarlo a la sesión.
-            if (event.relatedTarget) lastFocused.current = null;
+            // Si el foco va a otro sitio, se olvida. Si se pierde porque la lámina sale del
+            // documento, se recuerda para pasarlo a su sesión; el navegador puede avisar del
+            // blur antes de quitarla, así que se mira un instante después.
+            const left = event.target;
+            if (event.relatedTarget) {
+              lastFocused.current = null;
+              return;
+            }
+            setTimeout(() => {
+              if (left.isConnected) lastFocused.current = null;
+            }, 0);
           }}
         >
           {visible.map((item) => (

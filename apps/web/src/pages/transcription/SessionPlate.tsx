@@ -21,7 +21,8 @@ export function SessionPlate({ session, owner }: SessionPlateProps) {
   const edits = session.edits_count ?? 0;
   const time = formatTime(session.created_at);
   const composer = nonBlank(session.composer);
-  const instruments = instrumentsSummary(session.instruments);
+  // El punto que separa los instrumentos va pegado al anterior: nunca empieza una línea.
+  const instruments = instrumentsSummary(session.instruments)?.replaceAll(" · ", " · ");
   const finalized = session.status === "finalized";
 
   return (

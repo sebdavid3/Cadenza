@@ -27,7 +27,7 @@ THESIS: el archivo de sesiones como diario de trabajo: cada día es una banda co
 
 OWN-WORLD: el de DESIGN.md sin añadidos: papel, tinta y el violeta solo para lo que pide la mano (primario, posibles errores, error, foco, lectura). Fecha en Pixelify Sans a 6rem, rótulos en Silkscreen, texto en Hanken Grotesk. Filetes de tinta de 3 px entre bandas y en el margen; láminas con la imagen en un marco de tinta, en escala de grises multiplicada sobre papel; la trama fina violeta y el rótulo violeta colgado de la esquina marcan las que tienen posibles errores.
 
-STORY: la persona reconoce sus partituras por su imagen y por el día en que las hizo, ve de un vistazo cuáles piden revisión y entra en una con un clic. Si trae imágenes, las suelta en cualquier parte o pulsa «Nueva transcripción»; las ve avanzar en el día de hoy, y cada una se convierte en su sesión en el mismo sitio.
+STORY: la persona reconoce sus partituras por su imagen y por el día en que las hizo, ve de un vistazo cuáles piden revisión y entra en una con un clic. Si trae imágenes, las suelta en cualquier parte o pulsa «Nueva transcripción»; las ve avanzar en el día de hoy y, al terminar, cada una sale de la cola y pasa a ser una lámina más del día, justo debajo, con su misma imagen.
 
 FIRST VIEWPORT: cabecera de la aplicación (96 px). Barra de unos 100 px: «TRANSCRIPCIONES» en display a 40 px y «Tus sesiones · la más reciente primero» debajo; a la derecha, la indicación de soltar y «Nueva transcripción» como único primario. Debajo, la banda de hoy: margen de 12,5rem con «09» a 6rem, «NOV 2026» y el bloque «HOY», un filete vertical, y cuatro láminas por fila a 1440 px. Asoma la banda de ayer.
 

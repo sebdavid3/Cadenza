@@ -5,6 +5,7 @@ import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { PreparePanel } from "./PreparePanel";
+import { queueSummary } from "./format";
 import { useQueueStore } from "./queue";
 import { refreshSessions } from "./sessions";
 import { SessionsDiary } from "./SessionsDiary";
@@ -36,11 +37,16 @@ function PickImages({ onFiles, buttonRef }: PickImagesProps) {
           event.target.value = "";
         }}
       />
-      <p className="transcription__hint" id="pick-hint">
-        o suelta las imágenes en cualquier parte de la página
+      {/* Lo que se admite se ve antes de elegir; soltar solo se ofrece con ratón. */}
+      <p className="transcription__hint">
+        <span className="transcription__drop-hint">
+          o suéltalas en cualquier parte de la página.{" "}
+        </span>
+        <span id="pick-hint">PNG o JPEG, de hasta 20 MB.</span>
       </p>
       <button
         ref={buttonRef}
+        id="new-transcription"
         type="button"
         className="button button--primary"
         aria-describedby="pick-hint"
@@ -67,6 +73,11 @@ export function TranscriptionPage() {
   const running = useQueueStore((state) => state.running);
   const paused = useQueueStore((state) => state.paused);
   const hasQueued = useQueueStore((state) => state.items.some((item) => item.status === "queued"));
+  // El recuento de la cola se anuncia desde aquí: la cola solo existe con imágenes, y una región
+  // viva que aparece ya llena no se anuncia (una imagen rechazada con la cola vacía).
+  const summary = useQueueStore((state) =>
+    state.items.length > 0 ? queueSummary(state.items) : "",
+  );
   // Tras enviar el lote, el foco pasa a la cola, que aparece en el día de hoy al dibujarse.
   const focusQueue = useRef(false);
   useEffect(() => {
@@ -112,6 +123,9 @@ export function TranscriptionPage() {
           />
         </div>
       )}
+      <p className="visually-hidden" role="status">
+        {summary && `Cola: ${summary}`}
+      </p>
       <SessionsDiary />
       {/* El aviso cubre la página sin recibir el arrastre: lo recibe la ventana. */}
       {dragging && (

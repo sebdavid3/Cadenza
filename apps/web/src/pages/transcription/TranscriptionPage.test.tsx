@@ -121,6 +121,9 @@ describe("vista de transcripción", () => {
 
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
     expect(screen.getByText(/se transcriben de una en una/i)).toBeVisible();
+    // El vacío va en el día de hoy: la vista enseña su forma desde el principio.
+    const today = screen.getByRole("group", { name: /^hoy, /i });
+    expect(within(today).getByText(/todavía no hay sesiones/i)).toBeVisible();
     // Sin imágenes no hay cola.
     expect(screen.queryByRole("region", { name: "Cola" })).toBeNull();
   });
@@ -295,7 +298,7 @@ describe("vista de transcripción", () => {
     mockApi({ "GET /sessions": () => response.promise });
     renderPage();
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/cargando sesiones/i);
+    expect(await screen.findByText(/cargando sesiones/i)).toHaveAttribute("role", "status");
     response.resolve(jsonResponse([]));
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
     expect(screen.queryByText(/cargando sesiones/i)).not.toBeInTheDocument();
@@ -319,7 +322,7 @@ describe("vista de transcripción", () => {
 
     await chooseAndTranscribe([png("uno.png"), png("dos.png")]);
 
-    const today = screen.getByRole("region", { name: /^hoy, /i });
+    const today = screen.getByRole("group", { name: /^hoy, /i });
     const queue = within(today).getByRole("region", { name: "Cola" });
     const diary = screen.getByRole("region", { name: "Sesiones" });
     await waitFor(() => {
@@ -330,6 +333,110 @@ describe("vista de transcripción", () => {
     // Las imágenes ya son sesiones: la cola no las repite, pero el recuento las sigue contando.
     expect(within(queue).queryAllByRole("listitem")).toHaveLength(0);
     expect(within(queue).getByText(/0 en cola · 2 transcritas · 0 con error/)).toBeVisible();
+  });
+
+  it("si «Limpiar terminadas» vacía la cola, el foco pasa a «Nueva transcripción»", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    setQueue([
+      item("a", "a.png", { status: "done", result: transcribed("s1", 0) }),
+      item("b", "b.png", { status: "error", error: "El servidor tuvo un problema." }),
+    ]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+
+    await userEvent.click(within(queue).getByRole("button", { name: /limpiar terminadas/i }));
+
+    expect(screen.queryByRole("region", { name: "Cola" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Nueva transcripción" })).toHaveFocus();
+  });
+
+  it("si se quita la única imagen, el foco pasa a «Nueva transcripción»", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    setQueue([item("a", "a.png")]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+
+    await userEvent.click(within(queue).getByRole("button", { name: "Quitar a.png" }));
+
+    expect(screen.queryByRole("region", { name: "Cola" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Nueva transcripción" })).toHaveFocus();
+  });
+
+  it("el foco no salta a la sesión si la persona ya había dejado la cola", async () => {
+    const refresh = deferred<Response>();
+    let listed = 0;
+    mockApi({
+      "GET /sessions": () => {
+        listed += 1;
+        return listed === 1 ? jsonResponse([]) : refresh.promise;
+      },
+      "POST /transcribe": () => jsonResponse(transcribed("dejada00-1", 0), 201),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    await chooseAndTranscribe([png("uno.png")]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+    const open = await within(queue).findByRole("link", { name: "Abrir la sesión de uno.png" });
+
+    // La persona pasa por la lámina y se va a otra parte de la página (el foco, a ninguna).
+    act(() => {
+      open.focus();
+      open.blur();
+    });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    refresh.resolve(jsonResponse([session("dejada00-1", { created_at: nowUtc() })]));
+
+    expect(await screen.findByText("Sesión dejada00")).toBeVisible();
+    expect(document.body).toHaveFocus();
+  });
+
+  it("si la sesión ya estaba en el listado al terminar, el foco pasa a su lámina", async () => {
+    mockApi({
+      "GET /sessions": () =>
+        jsonResponse([session("lista000-1", { created_at: nowUtc(), findings_count: 0 })]),
+    });
+    renderPage();
+    const diary = await findDiary();
+    setQueue([item("a", "a.png", { status: "transcribing", startedAt: Date.now() })]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+    act(() => {
+      within(queue).getByText("a.png").closest("li")?.focus();
+    });
+
+    act(() => {
+      useQueueStore.setState((state) => ({
+        items: state.items.map((entry) => ({
+          ...entry,
+          status: "done" as const,
+          result: transcribed("lista000-1", 0),
+        })),
+      }));
+    });
+
+    expect(within(queue).queryAllByRole("listitem")).toHaveLength(0);
+    expect(within(diary).getByText("Sesión lista000").closest("li")).toHaveFocus();
+  });
+
+  it("anuncia la cola aunque aparezca por una imagen rechazada", async () => {
+    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    // La región viva existe antes de que haya cola: así se anuncia lo que cambie.
+    const live = screen
+      .getAllByRole("status")
+      .find((element) => element.classList.contains("visually-hidden"));
+    if (!live) throw new Error("falta la región viva de la cola");
+    expect(live).toHaveTextContent("");
+
+    await userEvent.upload(fileInput(), new File(["hola"], "notas.txt", { type: "text/plain" }), {
+      applyAccept: false,
+    });
+
+    expect(live).toHaveTextContent("Cola: 0 en cola · 0 transcritas · 1 con error");
+    // Los límites se ven antes de elegir.
+    expect(screen.getByText("PNG o JPEG, de hasta 20 MB.")).toBeVisible();
   });
 
   it("una imagen transcrita deja su sitio a la lámina de su sesión, y el foco pasa con ella", async () => {
@@ -384,7 +491,7 @@ describe("vista de transcripción", () => {
     renderPage();
 
     const diary = await findDiary();
-    const days = within(diary).getAllByRole("region");
+    const days = within(diary).getAllByRole("group");
     expect(days.map((day) => plates(day).length)).toEqual([1, 2, 1]);
     const [today, yesterday, before] = days;
     if (!today || !yesterday || !before) throw new Error("faltan días");
@@ -403,7 +510,7 @@ describe("vista de transcripción", () => {
 
     setQueue([item("a", "a.png")]);
 
-    const days = within(diary).getAllByRole("region", { name: /, / });
+    const days = within(diary).getAllByRole("group");
     expect(days).toHaveLength(2);
     const [today] = days;
     if (!today) throw new Error("falta el día de hoy");
@@ -649,7 +756,7 @@ describe("vista de transcripción", () => {
     expect(within(queue).getByRole("heading", { name: "Cola" })).toHaveFocus();
   });
 
-  it("el selector oculto no es una parada de foco y soltar fuera de la zona no abre la imagen", async () => {
+  it("el selector oculto no es una parada de foco y soltar nada no abre nada en la pestaña", async () => {
     mockApi({ "GET /sessions": () => jsonResponse([]) });
     const router = renderPage();
     await screen.findByText(/todavía no hay sesiones/i);

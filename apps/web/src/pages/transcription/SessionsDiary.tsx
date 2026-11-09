@@ -1,5 +1,5 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
@@ -26,18 +26,19 @@ function uniqueSessions(pages: SessionSummaryRead[][]): SessionSummaryRead[] {
 interface DayBandProps {
   day: Day;
   now: Date;
-  /** La cola, en el día de hoy y solo mientras hay imágenes. */
-  queue: ReactNode;
+  /** Lo que va en el día de hoy antes de sus sesiones: la cola, o la invitación a empezar. */
+  lead: ReactNode;
   owner: (session: SessionSummaryRead) => string | null;
 }
 
 /** Un día del diario: la fecha en el margen y sus láminas, la más reciente primero. */
-function DayBand({ day, now, queue, owner }: DayBandProps) {
+function DayBand({ day, now, lead, owner }: DayBandProps) {
   const parts = dayParts(day);
   const relative = relativeDay(day, now);
   const headingId = `day-${day.key}`;
+  // Un grupo y no una región: con veinte días serían veinte hitos para el lector de pantalla.
   return (
-    <section className="day" aria-labelledby={headingId} data-today={relative === "Hoy"}>
+    <div className="day" role="group" aria-labelledby={headingId}>
       <div className="day__margin">
         <h2 className="day__date" id={headingId}>
           <span className="visually-hidden">
@@ -58,7 +59,7 @@ function DayBand({ day, now, queue, owner }: DayBandProps) {
         </h2>
       </div>
       <div className="day__body">
-        {queue}
+        {lead}
         {day.sessions.length > 0 && (
           // role="list": sin viñetas, Safari y VoiceOver dejan de tratarla como lista.
           <ol className="plates" role="list">
@@ -68,8 +69,42 @@ function DayBand({ day, now, queue, owner }: DayBandProps) {
           </ol>
         )}
       </div>
-    </section>
+    </div>
   );
+}
+
+/** Sin sesiones ni cola: el día de hoy invita a empezar. */
+function EmptyToday() {
+  return (
+    <div className="diary__empty">
+      <p className="diary__empty-title">Todavía no hay sesiones.</p>
+      <p>
+        Elige las imágenes de tus partituras con «Nueva transcripción» o suéltalas en cualquier
+        parte de esta página. Se transcriben de una en una y cada una crea una sesión, que aparecerá
+        aquí, en el día en que la hiciste, con los compases que el validador señala.
+      </p>
+    </div>
+  );
+}
+
+/** Milisegundos hasta la próxima medianoche local (y un segundo más). */
+function untilMidnight(now: Date): number {
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  return midnight.getTime() - now.getTime() + 1000;
+}
+
+/** La fecha de ahora, que se renueva a medianoche para que «Hoy» y «Ayer» sigan siendo ciertos. */
+function useToday(): Date {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNow(new Date());
+    }, untilMidnight(now));
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [now]);
+  return now;
 }
 
 /**
@@ -109,8 +144,10 @@ export function SessionsDiary() {
   const pages = sessions.data?.pages;
   const rows = useMemo(() => uniqueSessions(pages ?? []), [pages]);
   const listed = useMemo(() => new Set(rows.map((row) => row.session_id)), [rows]);
-  const now = new Date();
-  const days = daysWithToday(groupByDay(rows), now, queued);
+  const now = useToday();
+  const empty = sessions.isSuccess && rows.length === 0;
+  // Sin sesiones, el día de hoy se dibuja igual: la vista enseña su forma desde el principio.
+  const days = daysWithToday(groupByDay(rows), now, queued || empty);
 
   // «Cargar más» no se ofrece mientras el listado pide algo: pedir otra página cancelaría la
   // actualización en curso (y al revés), y la sesión recién creada podría no aparecer.
@@ -135,6 +172,10 @@ export function SessionsDiary() {
     else if (!moreRef.current) document.getElementById("transcription-title")?.focus();
   });
 
+  let todayLead: ReactNode = null;
+  if (queued) todayLead = <QueuePanel listed={listed} />;
+  else if (empty) todayLead = <EmptyToday />;
+
   return (
     <section className="diary" aria-label="Sesiones" ref={diaryRef}>
       {days.map((day) => (
@@ -143,7 +184,7 @@ export function SessionsDiary() {
           day={day}
           now={now}
           owner={owner}
-          queue={queued && relativeDay(day, now) === "Hoy" ? <QueuePanel listed={listed} /> : null}
+          lead={relativeDay(day, now) === "Hoy" ? todayLead : null}
         />
       ))}
 
@@ -162,17 +203,6 @@ export function SessionsDiary() {
               Reintentar
             </button>
           </div>
-        </div>
-      )}
-
-      {sessions.isSuccess && rows.length === 0 && !queued && (
-        <div className="diary__empty">
-          <p className="diary__empty-title">Todavía no hay sesiones.</p>
-          <p>
-            Elige las imágenes de tus partituras con «Nueva transcripción» o suéltalas en cualquier
-            parte de esta página. Se transcriben de una en una y cada una crea una sesión, que
-            aparecerá aquí, en el día en que la hiciste, con los compases que el validador señala.
-          </p>
         </div>
       )}
 
