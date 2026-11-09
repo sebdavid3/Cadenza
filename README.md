@@ -338,13 +338,15 @@ proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
 ## Calidad e integración continua
 
 Antes de cada fusión pasan estas puertas. `scripts/puertas.py` las pasa todas, en el orden de
-la CI, dice lo que en local no cubren y deja una línea para el PR
-([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
+la CI, y deja una línea para el PR que dice lo que no cubrió: la web con `--sin-web`, Docker sin
+`--docker` y PostgreSQL sin `CADENZA_TEST_POSTGRES_URL` (con ella, esas pruebas se exigen como en
+la CI). En local, Vitest corre con dos procesos: con más, en una máquina cargada se agotan los
+tiempos de algunas pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
 
 ```bash
 uv run --no-sync python scripts/puertas.py            # Python y web
 uv run --no-sync python scripts/puertas.py --sin-web  # solo Python
-uv run --no-sync python scripts/puertas.py --docker   # y las imágenes de Docker
+uv run --no-sync python scripts/puertas.py --docker   # y el job de Docker de la CI
 ```
 
 Una a una:
@@ -367,7 +369,7 @@ npm run build      # comprobación de tipos y empaquetado
 ```
 
 La CI de GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta lo
-mismo en cada PR hacia `dev`, con un job para el backend y otro para el frontend. Los tests de compatibilidad con PostgreSQL corren allí contra un
+mismo en cada PR hacia `dev`, con un job para el backend, otro para el frontend y otro para las imágenes de Docker. Los tests de compatibilidad con PostgreSQL corren allí contra un
 PostgreSQL 16 real; los del motor HOMR real se omiten porque la CI no lo instala.
 
 **Desde el 2026-11-08 la CI no arranca** por un cobro pendiente de la cuenta de GitHub. Por

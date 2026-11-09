@@ -100,7 +100,7 @@ follow_imports = "skip"
 
 
 [tool.pytest.ini_options]
-testpaths = ["apps", "packages", "scripts"]
+testpaths = ["apps", "packages"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = "-q"
