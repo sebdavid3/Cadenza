@@ -46,12 +46,13 @@ class _CountingOMR(FakeOMREngine):
         self.calls = 0
 
         self.fail_next = False
+        self.fail_message = "no se reconoce ninguna partitura"
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         self.calls += 1
         if self.fail_next:
             self.fail_next = False
-            raise OMRTranscriptionError("no se reconoce ninguna partitura")
+            raise OMRTranscriptionError(self.fail_message)
         return super().transcribe(image_path)
 
 
@@ -360,6 +361,12 @@ def test_a_preview_needs_every_homr_slot_free() -> None:
         ({"Sec-Fetch-Site": "same-origin", "Origin": "http://testserver"}, 201),
         ({"Sec-Fetch-Site": "none"}, 201),
         ({"Origin": ORIGIN}, 201),
+        # La web servida desde otro origen permitido (CADENZA_CORS_ORIGINS).
+        ({"Sec-Fetch-Site": "cross-site", "Origin": ORIGIN}, 201),
+        # Sin Sec-Fetch-Site (HTTP sin TLS): la propia web, con o sin puerto, vale; null no.
+        ({"Origin": "http://testserver"}, 201),
+        ({"Origin": "http://testserver:8380"}, 201),
+        ({"Origin": "null"}, 403),
         ({}, 201),
     ],
 )
@@ -374,6 +381,19 @@ def test_a_preview_from_another_site_is_refused(headers: dict[str, str], expecte
 
     assert response.status_code == expected
     assert api.omr.calls == (1 if expected == 201 else 0)
+
+
+def test_a_refused_cross_site_preview_does_not_spend_the_limit() -> None:
+    api = Api(anonymous_preview_rate_limit_max_attempts=1)
+
+    refused = api.client.post(
+        "/previews",
+        files={"file": ("a.png", PNG, "image/png")},
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+
+    assert refused.status_code == 403
+    assert api.preview().status_code == 201
 
 
 def test_switching_off_and_restarting_deletes_every_stored_preview() -> None:
@@ -451,11 +471,12 @@ def test_a_failure_building_the_answer_saves_nothing(monkeypatch: pytest.MonkeyP
 def test_an_unreadable_image_gets_a_generic_message_without_the_internal_detail() -> None:
     api = Api()
     api.omr.fail_next = True
+    api.omr.fail_message = "onnx: tensor shape (1, 3, 0) en el detector"
 
     failed = api.preview()
 
     assert failed.status_code == 422
-    assert "no se reconoce ninguna partitura" not in failed.text
+    assert "onnx" not in failed.text
     assert failed.json()["detail"] == (
         "No se reconoce ninguna partitura en la imagen. Prueba con otra foto o escaneo."
     )

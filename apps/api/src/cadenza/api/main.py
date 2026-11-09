@@ -376,18 +376,23 @@ _IMAGE_SUFFIXES: dict[str, tuple[str, ...]] = {
 def _from_another_site(request: Request, allowed_origins: Sequence[str]) -> bool:
     """Si la petición la manda el navegador desde otra web (#278).
 
-    Con `Sec-Fetch-Site` (todos los navegadores actuales), solo valen `same-origin` y `none`
-    (lo que la persona abre a mano). Sin ella, un `Origin` que no es uno de los permitidos ni el
-    de la propia web. Sin ninguna de las dos no es un navegador en otra web: lo frena el límite
-    por IP.
+    Un `Origin` de `CADENZA_CORS_ORIGINS` vale siempre: una web servida desde otro origen
+    (`apps/web/.env.example`) manda `same-site` o `cross-site`. Si no, con `Sec-Fetch-Site`
+    (todos los navegadores actuales en HTTPS) solo valen `same-origin` y `none` (lo que la
+    persona abre a mano). Sin ella (HTTP sin TLS, navegadores viejos), un `Origin` cuyo nombre
+    no es el de la propia web (`Host`, sin puerto: Nginx manda `$host`). Sin ninguna de las dos
+    no es un navegador en otra web: lo frena el límite por IP.
     """
+    origin = request.headers.get("origin")
+    if origin is not None and origin in allowed_origins:
+        return False
     site = request.headers.get("sec-fetch-site")
     if site is not None:
         return site.strip().lower() not in ("same-origin", "none")
-    origin = request.headers.get("origin")
-    if origin is None or origin in allowed_origins:
+    if origin is None:
         return False
-    return urlsplit(origin).netloc.lower() != (request.headers.get("host") or "").lower()
+    own = urlsplit(f"//{request.headers.get('host') or ''}").hostname
+    return urlsplit(origin).hostname != own
 
 
 def _upload_temp_name(filename: str | None, content: bytes) -> str:
@@ -1449,8 +1454,9 @@ def create_app(
             "mapa de tiempos), cuántos posibles errores señalan las reglas y un token para "
             "reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda "
             "sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, "
-            "con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay "
-            "uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054)."
+            "con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: solo "
+            "empieza si están libres todos; si no, 503. Desde otra web, 403. "
+            "Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054)."
         ),
         responses={
             **CROSS_SITE_403,
@@ -1555,46 +1561,49 @@ def create_app(
                             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                             detail=PREVIEW_UNREADABLE,
                         ) from exc
-                    # Los tiempos antes de confirmar: si fallan, no queda una fila guardada con
-                    # su token perdido (#278).
-                    timing = _timing_read(
-                        outcome.preview_id, compute_timing_map(outcome.document.score)
+                    # La respuesta antes de confirmar: si algo falla, no queda una fila
+                    # guardada con su token perdido (#278). El MusicXML, que puede fallar sin
+                    # impedir la respuesta, va después.
+                    score = outcome.document.score
+                    response = PreviewResponse(
+                        preview_id=outcome.preview_id,
+                        claim_token=outcome.claim_token,
+                        expires_at=outcome.expires_at,
+                        findings_count=outcome.findings_count,
+                        musicxml=None,
+                        score=ScoreIRPayload.model_validate(score.to_primitive()),
+                        timing=_timing_read(outcome.preview_id, compute_timing_map(score)),
+                        title=outcome.metadata.title,
+                        composer=outcome.metadata.composer,
+                        instruments=PartInstrumentRead.list_from(outcome.metadata),
+                        source_filename=outcome.source_filename,
                     )
                     work_db.commit()
             finally:
                 gate.release()
             # La exportación con music21, también fuera del bucle de eventos.
-            score = outcome.document.score
             try:
-                musicxml: str | None = exporter.to_musicxml(score, outcome.metadata)
+                response.musicxml = exporter.to_musicxml(score, outcome.metadata)
             except Exception:
                 logger.exception("preview_export_failed preview_id=%s", outcome.preview_id)
-                musicxml = None
-            return PreviewResponse(
-                preview_id=outcome.preview_id,
-                claim_token=outcome.claim_token,
-                expires_at=outcome.expires_at,
-                findings_count=outcome.findings_count,
-                musicxml=musicxml,
-                score=ScoreIRPayload.model_validate(score.to_primitive()),
-                timing=timing,
-                title=outcome.metadata.title,
-                composer=outcome.metadata.composer,
-                instruments=PartInstrumentRead.list_from(outcome.metadata),
-                source_filename=outcome.source_filename,
-            )
+            return response
 
         def check_capacity() -> OMREngine:
             # Con el semáforo ya tomado, el tope no se puede rebasar entre la comprobación y el
-            # alta: se borran las caducadas y se cuentan las guardadas antes de calcular.
-            ensure_preview_capacity(
-                SqlAlchemyPreviewRepository(db),
-                now=now,
-                max_active=app_settings.anonymous_preview_max_active,
-            )
-            chosen = _effective_engine(request, db, get_artifact_store(request, db))
-            db.commit()
-            return chosen
+            # alta: se borran las caducadas y se cuentan las guardadas antes de calcular. Con su
+            # propia sesión: la de la petición se cierra si esta se cancela, con el hilo en
+            # marcha. La purga se confirma aunque no quepa otra (#278).
+            with factory() as cap_db:
+                try:
+                    ensure_preview_capacity(
+                        SqlAlchemyPreviewRepository(cap_db),
+                        now=now,
+                        max_active=app_settings.anonymous_preview_max_active,
+                    )
+                finally:
+                    cap_db.commit()
+                # El almacén solo se usa al construir el motor (`resolve_path`).
+                return _effective_engine(request, cap_db, get_artifact_store(request, cap_db))
 
         try:
             # La base, en un hilo: el DELETE, el COUNT y el commit no paran el bucle de eventos.
@@ -1624,8 +1633,10 @@ def create_app(
             "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el "
             "mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija "
             "el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la "
-            "transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token "
-            "responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054)."
+            "transcripción sin cuenta se borra; si la misma cuenta la reclama otra vez con el "
+            "mismo token (se perdió la respuesta), recibe la misma sesión. Una que no existe, que "
+            "caducó o con otro token responde 404, como con "
+            "CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054)."
         ),
         responses={**AUTH_401, **NOT_FOUND_404, **UNPROCESSABLE_422},
         dependencies=[Depends(require_anonymous_preview_enabled)],
@@ -1637,12 +1648,10 @@ def create_app(
         db: DbDep,
         current_user: CurrentUserDep,
     ) -> TranscribeResponse:
-        # Las caducadas se borran en su propia transacción: una reclamación que falla (404) hace
-        # rollback de la suya, y con ella se desharía la purga (ADR-0054 §3, #278).
-        factory: SessionFactory = request.app.state.session_factory
-        with factory() as purge_db:
-            SqlAlchemyPreviewRepository(purge_db).purge_expired(request.app.state.clock())
-            purge_db.commit()
+        # Las caducadas se borran y se confirman antes de reclamar: una reclamación que falla
+        # (404) deshace solo lo suyo, no la purga (ADR-0054 §3, #278).
+        SqlAlchemyPreviewRepository(db).purge_expired(request.app.state.clock())
+        db.commit()
         result = claim_preview_use_case(
             preview_id,
             payload.claim_token,
