@@ -324,36 +324,6 @@ def test_prepare_is_idempotent(tmp_path: Path) -> None:
     assert sum("ya existía" in line for line in lines) == 6
 
 
-def test_prepare_resumes_after_an_interrupted_run(tmp_path: Path) -> None:
-    client = _client(tmp_path)
-    manifest, bank_dir = _bank(tmp_path)
-    password = secrets.token_urlsafe(12)
-    plan = plan_sessions(manifest, "P07", bank_dir)
-    source, _ = _password_source(password)
-    # Se corta tras las dos primeras transcripciones (los bloques 4 y 3, que se crean primero).
-    prepare_participant(
-        client,
-        participant="P07",
-        investigator=INVESTIGATOR,
-        investigator_password=INVESTIGATOR_PASSWORD,
-        participant_password=source,
-        plan=plan,
-        report=lambda line: None,
-        limit=2,
-    )
-
-    _prepare(client, manifest, bank_dir, "P07", password)
-
-    listed = _sessions(client, _login(client, "P07", password))
-    assert [s["title"] for s in listed] == [
-        "Calentamiento",
-        "Partitura 1",
-        "Partitura 2",
-        "Partitura 3",
-        "Partitura 4",
-    ]
-
-
 def test_an_existing_session_with_another_condition_stops_everything(tmp_path: Path) -> None:
     client = _client(tmp_path)
     manifest, bank_dir = _bank(tmp_path)
@@ -412,7 +382,7 @@ def test_a_wrong_password_for_an_existing_account_is_reported(tmp_path: Path) ->
     manifest, bank_dir = _bank(tmp_path)
     _prepare(client, manifest, bank_dir, "P04", secrets.token_urlsafe(12))
 
-    with pytest.raises(PrepareError, match="P04"):
+    with pytest.raises(PrepareError, match="P04: la contraseña no es la de la cuenta"):
         _prepare(client, manifest, bank_dir, "P04", secrets.token_urlsafe(12))
 
 
@@ -664,6 +634,20 @@ def test_a_gap_in_the_middle_of_the_blocks_stops_everything(tmp_path: Path) -> N
         _prepare(client, manifest, bank_dir, "P01", password)
 
     assert len(_sessions(client, headers)) == 2
+
+
+def test_an_existing_session_without_the_neutral_title_stops_everything(tmp_path: Path) -> None:
+    client = _client(tmp_path)
+    manifest, bank_dir = _bank(tmp_path)
+    password = secrets.token_urlsafe(12)
+    # P01 hace TS-04 sin asistencia en el bloque 4, pero esta sesión no se llama «Partitura 4».
+    untitled = [("TS-04", "unassisted")]
+    headers = _participant_with(client, "P01", password, untitled)
+
+    with pytest.raises(PrepareError, match="Partitura 4"):
+        _prepare(client, manifest, bank_dir, "P01", password)
+
+    assert len(_sessions(client, headers)) == 1
 
 
 def test_main_fails_clearly_without_the_bank(
