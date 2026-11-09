@@ -1,25 +1,5 @@
 import { PixelIcon, type PixelIconName } from "../../components/PixelIcon";
-
-/** Qué se puede hacer con la selección de notas en la partitura dibujada. */
-export type SelectionStatus =
-  | { kind: "pending" }
-  | { kind: "ready"; empty: boolean }
-  /** No se ofrece: OSMD dibujó otros compases (sin recuento) o no todos los eventos cuadran. */
-  | { kind: "unavailable"; total?: number; unmatched?: number };
-
-interface SelectionBarProps {
-  status: SelectionStatus;
-  /** Evento elegido: dónde está y qué es. */
-  description: { place: string; what: string } | null;
-  announcement: string;
-  /** Identificador de la leyenda de teclas, que describe la partitura. */
-  keysId: string;
-  /** La leyenda de teclas se oculta tras «Atajos» (#341); sigue describiendo la partitura. */
-  keysHidden?: boolean;
-  onPrevious: () => void;
-  onNext: () => void;
-  onClear: () => void;
-}
+import { selectionReady, type SelectionControls } from "./selectionControls";
 
 function unavailableText(total?: number, unmatched?: number): string {
   const base = "No se puede elegir nota a nota en esta partitura";
@@ -41,104 +21,129 @@ export function KeyCap({ icon, children }: { icon?: PixelIconName; children: str
 }
 
 /**
- * Barra de la selección de notas (ADR-0027): qué evento está elegido, cómo moverse y, en una
- * pantalla táctil, botones de 44 px para afinar lo que el dedo no alcanza. La selección se
- * anuncia en una región `aria-live` cuando se detiene, no a cada paso.
+ * Qué está elegido o, si no se puede elegir, por qué: la nota elegida (dónde está y qué es), la
+ * indicación para elegir una o el aviso de que la selección no se ofrece.
  */
-export function SelectionBar({
+export function SelectionReadout({
   status,
   description,
-  announcement,
-  keysId,
-  keysHidden = false,
+}: Pick<SelectionControls, "status" | "description">) {
+  if (status.kind === "unavailable") {
+    return <p className="selection__note">{unavailableText(status.total, status.unmatched)}</p>;
+  }
+  if (status.kind === "pending") {
+    return <p className="selection__note">Preparando la selección de notas…</p>;
+  }
+  if (status.empty) {
+    return <p className="selection__note">La partitura no tiene notas ni silencios que elegir.</p>;
+  }
+  return (
+    <div className="selection__readout" data-selected={description !== null}>
+      {description ? (
+        <>
+          <p className="label selection__place">{description.place}</p>
+          <p className="selection__what">{description.what}</p>
+        </>
+      ) : (
+        <p className="selection__hint">Elige una nota o un silencio: tócalo o usa las flechas.</p>
+      )}
+    </div>
+  );
+}
+
+/** «Anterior», «Siguiente» y «Quitar»: en una pantalla táctil afinan lo que el dedo no alcanza. */
+export function SelectionSteps({
+  description,
   onPrevious,
   onNext,
   onClear,
-}: SelectionBarProps) {
-  if (status.kind === "unavailable") {
-    return (
-      <div className="selection" data-status="unavailable">
-        <p className="selection__note">{unavailableText(status.total, status.unmatched)}</p>
-      </div>
-    );
-  }
-  if (status.kind === "pending") {
-    return (
-      <div className="selection" data-status="pending">
-        <p className="selection__note">Preparando la selección de notas…</p>
-      </div>
-    );
-  }
-  if (status.empty) {
-    return (
-      <div className="selection" data-status="empty">
-        <p className="selection__note">La partitura no tiene notas ni silencios que elegir.</p>
-      </div>
-    );
-  }
-
+}: Pick<SelectionControls, "description" | "onPrevious" | "onNext" | "onClear">) {
   return (
-    <div className="selection" data-status="ready" data-selected={description !== null}>
-      <div className="selection__readout">
-        {description ? (
-          <>
-            <p className="label selection__place">{description.place}</p>
-            <p className="selection__what">{description.what}</p>
-          </>
-        ) : (
-          <p className="selection__hint">Elige una nota o un silencio: tócalo o usa las flechas.</p>
-        )}
+    <div className="selection__steps" role="group" aria-label="Nota elegida">
+      {/* En una partitura estrecha quedan las flechas; el nombre sigue para el lector. */}
+      <button type="button" className="selection__button" onClick={onPrevious}>
+        <PixelIcon name="arrow-left" />
+        <span className="selection__word">Anterior</span>
+      </button>
+      <button type="button" className="selection__button" onClick={onNext}>
+        <span className="selection__word">Siguiente</span>
+        <PixelIcon name="arrow-right" />
+      </button>
+      <button
+        type="button"
+        className="selection__button"
+        aria-disabled={description === null}
+        onClick={() => {
+          if (description) onClear();
+        }}
+      >
+        Quitar
+      </button>
+    </div>
+  );
+}
+
+/** Leyenda de las teclas de la selección, que también describe la partitura. */
+export function SelectionKeys({ keysId, hidden }: { keysId: string; hidden: boolean }) {
+  return (
+    <p className="selection__keys" id={keysId} hidden={hidden}>
+      <span>
+        <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
+        <KeyCap icon="arrow-right">flecha derecha</KeyCap> nota
+      </span>
+      <span>
+        <KeyCap icon="arrow-up">flecha arriba</KeyCap>
+        <KeyCap icon="arrow-down">flecha abajo</KeyCap> voz y pentagrama
+      </span>
+      <span>
+        <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
+        <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
+        <KeyCap icon="arrow-right">flecha derecha</KeyCap> compás
+      </span>
+      <span>
+        <KeyCap>Re Pág</KeyCap>
+        <KeyCap>Av Pág</KeyCap> compás
+      </span>
+      <span>
+        <KeyCap>Inicio</KeyCap>
+        <KeyCap>Fin</KeyCap> dentro del compás
+      </span>
+      <span>
+        <KeyCap>Esc</KeyCap> quitar
+      </span>
+    </p>
+  );
+}
+
+/** La selección se anuncia cuando se detiene, no a cada paso. */
+export function SelectionAnnouncement({ announcement }: { announcement: string }) {
+  return (
+    <p className="visually-hidden selection__live" role="status">
+      {announcement}
+    </p>
+  );
+}
+
+/**
+ * Barra de la selección de notas (ADR-0027), sin barra de corrección: qué evento está elegido,
+ * cómo moverse y, en una pantalla táctil, botones de 44 px para afinar lo que el dedo no alcanza.
+ * La selección se anuncia en una región `aria-live` cuando se detiene, no a cada paso.
+ */
+export function SelectionBar(controls: SelectionControls) {
+  const { status, description } = controls;
+  if (!selectionReady(status)) {
+    return (
+      <div className="selection" data-status={status.kind === "ready" ? "empty" : status.kind}>
+        <SelectionReadout status={status} description={description} />
       </div>
-      <div className="selection__steps" role="group" aria-label="Nota elegida">
-        {/* En una partitura estrecha quedan las flechas; el nombre sigue para el lector. */}
-        <button type="button" className="selection__button" onClick={onPrevious}>
-          <PixelIcon name="arrow-left" />
-          <span className="selection__word">Anterior</span>
-        </button>
-        <button type="button" className="selection__button" onClick={onNext}>
-          <span className="selection__word">Siguiente</span>
-          <PixelIcon name="arrow-right" />
-        </button>
-        <button
-          type="button"
-          className="selection__button"
-          aria-disabled={description === null}
-          onClick={() => {
-            if (description) onClear();
-          }}
-        >
-          Quitar
-        </button>
-      </div>
-      <p className="selection__keys" id={keysId} hidden={keysHidden}>
-        <span>
-          <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
-          <KeyCap icon="arrow-right">flecha derecha</KeyCap> nota
-        </span>
-        <span>
-          <KeyCap icon="arrow-up">flecha arriba</KeyCap>
-          <KeyCap icon="arrow-down">flecha abajo</KeyCap> voz y pentagrama
-        </span>
-        <span>
-          <KeyCap>Ctrl</KeyCap> o <KeyCap>Cmd</KeyCap>
-          <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
-          <KeyCap icon="arrow-right">flecha derecha</KeyCap> compás
-        </span>
-        <span>
-          <KeyCap>Re Pág</KeyCap>
-          <KeyCap>Av Pág</KeyCap> compás
-        </span>
-        <span>
-          <KeyCap>Inicio</KeyCap>
-          <KeyCap>Fin</KeyCap> dentro del compás
-        </span>
-        <span>
-          <KeyCap>Esc</KeyCap> quitar
-        </span>
-      </p>
-      <p className="visually-hidden" role="status">
-        {announcement}
-      </p>
+    );
+  }
+  return (
+    <div className="selection" data-status="ready">
+      <SelectionReadout status={status} description={description} />
+      <SelectionSteps {...controls} />
+      <SelectionKeys keysId={controls.keysId} hidden={false} />
+      <SelectionAnnouncement announcement={controls.announcement} />
     </div>
   );
 }

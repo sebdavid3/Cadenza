@@ -1,57 +1,38 @@
-import { Link, NavLink, Outlet, useNavigate } from "react-router";
+import { Link, NavLink, Outlet, useMatch } from "react-router";
 import { useAuthStore } from "../auth/store";
-import { pendingWorkWarning } from "../pendingWork";
+import { AccountControls } from "./AccountControls";
 import "./app-layout.css";
 import "./button.css";
 
-const ROLE_LABELS: Record<string, string> = {
-  investigador: "Investigador",
-  transcriptor: "Transcriptor",
-};
-
-/** Marco de la zona privada: marca, secciones, persona en sesión y salida. */
+/**
+ * Marco de la zona privada: marca, secciones, persona en sesión y salida. La vista de una sesión
+ * lleva su propia cabecera, que reúne la marca, la vuelta a las sesiones y la cuenta con los datos
+ * y las acciones de la sesión, para dejar el alto a la partitura (#363).
+ */
 export function AppLayout() {
   const user = useAuthStore((state) => state.user);
-  const signOut = useAuthStore((state) => state.signOut);
-  const navigate = useNavigate();
+  const ownHeader = useMatch("/sesiones/:sessionId") !== null;
 
   return (
     <div className="app-layout">
-      <header className="app-header">
-        <Link className="app-header__brand" to="/" aria-label="Cadenza, página pública">
-          Cadenza
-        </Link>
-        <nav className="app-header__nav" aria-label="Zona de trabajo">
-          <NavLink className="label" to="/transcripcion">
-            Transcripción
-          </NavLink>
-          {user?.role === "investigador" && (
-            <NavLink className="label" to="/cuentas">
-              Cuentas
+      {!ownHeader && (
+        <header className="app-header">
+          <Link className="app-header__brand" to="/" aria-label="Cadenza, página pública">
+            Cadenza
+          </Link>
+          <nav className="app-header__nav" aria-label="Zona de trabajo">
+            <NavLink className="label" to="/transcripcion">
+              Transcripción
             </NavLink>
-          )}
-        </nav>
-        {user && (
-          // La persona en sesión lleva a su cuenta, donde cambia la contraseña (#190).
-          <NavLink className="app-header__user" to="/cuenta">
-            <span className="visually-hidden">Tu cuenta: </span>
-            <span className="app-header__name">{user.username}</span>
-            <span className="label app-header__role">{ROLE_LABELS[user.role] ?? user.role}</span>
-          </NavLink>
-        )}
-        <button
-          type="button"
-          className="button app-header__exit"
-          onClick={() => {
-            const warning = pendingWorkWarning();
-            if (warning && !window.confirm(warning)) return;
-            signOut("signed-out");
-            void navigate("/entrar", { replace: true });
-          }}
-        >
-          Salir
-        </button>
-      </header>
+            {user?.role === "investigador" && (
+              <NavLink className="label" to="/cuentas">
+                Cuentas
+              </NavLink>
+            )}
+          </nav>
+          <AccountControls />
+        </header>
+      )}
       <Outlet />
     </div>
   );

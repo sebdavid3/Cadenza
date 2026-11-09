@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { midiFile, musicXmlFile, saveFile } from "./download";
@@ -96,6 +96,11 @@ interface MidiDownloadButtonProps {
   ready: boolean;
   /** Pide el MIDI del estado que se ve, o lo da de la caché si ya se pidió. */
   fetchMidi: () => Promise<Blob>;
+  /**
+   * Si el MIDI se está preparando (#363): la vista deja abierto el panel que lo contiene, para que
+   * su aviso se vea y se anuncie al llegar.
+   */
+  onPreparing?: (preparing: boolean) => void;
 }
 
 type MidiStatus = "idle" | "loading" | "error" | "late";
@@ -114,7 +119,13 @@ const MIDI_HINTS: Record<MidiStatus, string | null> = {
  * está no se descarga solo: el botón queda listo para pulsarlo. El fallo y el aviso de listo se
  * anuncian, porque nada más en la vista los dice.
  */
-export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDownloadButtonProps) {
+export function MidiDownloadButton({
+  sessionId,
+  seq,
+  ready,
+  fetchMidi,
+  onPreparing,
+}: MidiDownloadButtonProps) {
   const hintId = useId();
   const mounted = useMounted();
   const busy = useRef(false);
@@ -149,6 +160,17 @@ export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDow
     setStatus("idle");
     saveFile(midiFile(sessionId, midi));
   }
+
+  const preparing = status === "loading";
+  useEffect(() => {
+    onPreparing?.(preparing);
+  }, [onPreparing, preparing]);
+  useEffect(
+    () => () => {
+      onPreparing?.(false);
+    },
+    [onPreparing],
+  );
 
   const hint = MIDI_HINTS[status];
   return (

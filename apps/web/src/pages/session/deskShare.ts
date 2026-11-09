@@ -1,5 +1,5 @@
 /** Parte del ancho de la mesa de corrección que ocupa la imagen original (#341). */
-export const SHARE_DEFAULT = 0.4;
+export const SHARE_DEFAULT = 0.25;
 export const SHARE_MIN = 0.2;
 export const SHARE_MAX = 0.7;
 

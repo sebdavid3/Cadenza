@@ -37,7 +37,8 @@ import { describeEvent } from "./noteNames";
 import { markDrawn, timeStage } from "./marks";
 import { createScoreRenderer, type Box, type RenderedScore, type ScoreRenderer } from "./osmd";
 import { useSelectionStore } from "./selection";
-import { SelectionBar, type SelectionStatus } from "./SelectionBar";
+import { SelectionBar } from "./SelectionBar";
+import type { SelectionControls, SelectionStatus } from "./selectionControls";
 
 /** Un estado de la sesión, tal como se dibuja: su MusicXML, su `ScoreIR` y su `seq`. */
 export interface ScoreSnapshot {
@@ -82,26 +83,16 @@ interface ScoreViewProps {
   /** Compás que suena y dónde se dibuja en cada pentagrama; null si no suena nada. */
   playing?: { measure: number; slots: readonly MeasureSlot[] } | null;
   /**
-   * Barra de corrección (ADR-0030), entre la de la selección y la partitura: recibe el evento
+   * Barra de corrección (ADR-0030), encima de la partitura y con la selección dentro: recibe el evento
    * elegido en el estado actual (o null si no hay ninguno que se pueda corregir), si se pueden
    * elegir notas y cómo llevar el foco a la partitura. Sigue aunque la partitura no se pueda
    * dibujar, para que se vea qué pasó con la última corrección.
    */
-  editor?: (
-    target: EditTarget | null,
-    context: {
-      available: boolean;
-      focusScore: () => boolean;
-      /** Id de la leyenda de la selección, si se muestra (#341). */
-      selectionKeysId?: string;
-    },
-  ) => ReactNode;
+  editor?: EditorRender;
   /** Órdenes de corrección con el teclado sobre la partitura; sin ella, las teclas no editan. */
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
   /** Leyenda de las teclas de corrección, que también describe la partitura. */
   editKeysId?: string;
-  /** Si la leyenda de teclas de la selección se oculta tras «Atajos» (#341). */
-  keysHidden?: boolean;
   /** El modo «Escribir» (#350): con él, el puntero lleva una nota fantasma y el clic escribe. */
   writing?: WritingMode | null;
   /**
@@ -109,6 +100,35 @@ interface ScoreViewProps {
    * no hay barra de selección: el resultado de la portada solo se mira (#277, ADR-0053).
    */
   notesSelectable?: boolean;
+}
+
+/** Lo que la partitura da a la barra de corrección. */
+interface EditorContext {
+  available: boolean;
+  focusScore: () => boolean;
+  /**
+   * La selección de notas, si la partitura la ofrece: con barra de corrección, sus pasos van en la
+   * primera fila de la barra y la nota elegida en su barra de estado (#363).
+   */
+  selection?: SelectionControls;
+}
+
+type EditorRender = (target: EditTarget | null, context: EditorContext) => ReactNode;
+
+/**
+ * Dibuja la barra de corrección como un componente: sus órdenes (moverse, quitar la selección)
+ * usan referencias de la partitura, y así no se leen durante el dibujo de esta.
+ */
+function EditorSlot({
+  render,
+  target,
+  context,
+}: {
+  render: EditorRender;
+  target: EditTarget | null;
+  context: EditorContext;
+}) {
+  return render(target, context);
 }
 
 /** Tecla pulsada sobre la partitura: un movimiento, quitar la selección o nada. */
@@ -256,7 +276,6 @@ export function ScoreView({
   editor,
   onCommand,
   editKeysId,
-  keysHidden = false,
   writing = null,
   notesSelectable = true,
 }: ScoreViewProps) {
@@ -679,6 +698,24 @@ export function ScoreView({
   else if (noteMap?.status === "incomplete") {
     selectionStatus = { kind: "unavailable", total: noteMap.total, unmatched: noteMap.unmatched };
   } else selectionStatus = { kind: "ready", empty: selectable === null };
+  // La selección se ofrece mientras la partitura no falle y se puedan elegir notas.
+  const selectionShown = status !== "failed" && notesSelectable;
+  const selection: SelectionControls = {
+    status: selectionStatus,
+    description,
+    announcement,
+    keysId,
+    onPrevious: () => {
+      move("previous");
+    },
+    onNext: () => {
+      move("next");
+    },
+    onClear: () => {
+      stageRef.current?.focus({ preventScroll: true });
+      clearSelection();
+    },
+  };
 
   const placed = status === "ready" ? boxes !== null : null;
   useEffect(() => {
@@ -769,33 +806,19 @@ export function ScoreView({
 
   return (
     <>
-      {status !== "failed" && notesSelectable && (
-        <SelectionBar
-          status={selectionStatus}
-          description={description}
-          announcement={announcement}
-          keysId={keysId}
-          keysHidden={keysHidden}
-          onPrevious={() => {
-            move("previous");
-          }}
-          onNext={() => {
-            move("next");
-          }}
-          onClear={() => {
-            stageRef.current?.focus({ preventScroll: true });
-            clearSelection();
+      {/* Sin barra de corrección, la selección va en su propia franja. */}
+      {selectionShown && !editor && <SelectionBar {...selection} />}
+      {editor && (
+        <EditorSlot
+          render={editor}
+          target={target}
+          context={{
+            available: selectable !== null,
+            focusScore,
+            selection: selectionShown ? selection : undefined,
           }}
         />
       )}
-      {editor?.(target, {
-        available: selectable !== null,
-        focusScore,
-        selectionKeysId:
-          status !== "failed" && notesSelectable && selectionStatus.kind === "ready"
-            ? keysId
-            : undefined,
-      })}
       <div className="notation" data-state={status}>
         <div className="notation__stage" id={stageId} ref={stageRef} {...stageProps}>
           {aligned && (

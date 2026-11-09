@@ -11,6 +11,11 @@
   --color-ink-muted: #4a4950; /* 7,8:1 sobre papel */
   --color-accent: #7a2cf0; /* 5,3:1 sobre papel; el papel sobre el acento, igual */
   --color-on-accent: #f0eff2;
+  /* Tinta rebajada sobre papel, sin otro tono (#363): el filete suave que agrupa los botones de
+     una barra de herramientas, lo que ahora no se puede pulsar y el papel del pie de la partitura. */
+  --color-rule-soft: #bdbcbf; /* tinta al 22 % */
+  --color-ink-faint: #8a898d; /* tinta al 45 %: deshabilitado, sin filete discontinuo */
+  --color-paper-raised: #f7f6f8; /* papel con un 45 % de blanco */
 
   /* Filetes: siempre de tinta y de grosor entero */
   --rule-width: 3px;
