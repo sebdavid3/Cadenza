@@ -340,8 +340,9 @@ proxy) o `VITE_API_BASE_URL` (URL de la API que usa el navegador).
 Antes de cada fusión pasan estas puertas. `scripts/puertas.py` las pasa todas, en el orden de
 la CI, y deja una línea para el PR que dice lo que no cubrió: la web con `--sin-web`, Docker sin
 `--docker` y PostgreSQL sin `CADENZA_TEST_POSTGRES_URL` (con ella, esas pruebas se exigen como en
-la CI). En local, Vitest corre con dos procesos: con más, en una máquina cargada se agotan los
-tiempos de algunas pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
+la CI). En local, Vitest corre con dos procesos: por defecto usa tantos como hilos menos uno (15
+en un portátil de 16 hilos, frente a 3 en la CI), y con tantos se agotan los tiempos de algunas
+pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
 
 ```bash
 uv run --no-sync python scripts/puertas.py            # Python y web
@@ -364,7 +365,7 @@ Si se modificó `apps/web`, además:
 cd apps/web
 npm run lint
 npm run format:check
-npm run test       # Vitest
+npm run test       # Vitest (en local, npm run test -- --maxWorkers=2)
 npm run build      # comprobación de tipos y empaquetado
 ```
 

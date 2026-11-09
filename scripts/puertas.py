@@ -12,16 +12,23 @@ Nunca `uv sync` a secas: desinstalaría HOMR (`CLAUDE.md` §7). Hay que lanzarlo
 para que la comprobación de HOMR mire el entorno del proyecto. Pasa todas las puertas aunque
 falle una, para verlas todas de una vez, y la línea para el PR dice lo que no se cubrió.
 
-Diferencias con la CI, a propósito: Vitest corre con dos procesos (`--maxWorkers=2`), porque en
-una máquina cargada los tiempos de 5 s de algunas pruebas se agotan en paralelo (2026-11-08: con
-el valor por defecto fallaban 15 que pasan solas); y las pruebas de PostgreSQL solo corren con
-`CADENZA_TEST_POSTGRES_URL`, y entonces se exigen como en la CI (`CADENZA_REQUIRE_POSTGRES=1`).
+Diferencias con la CI, a propósito:
+- Vitest corre con dos procesos (`--maxWorkers=2`). Por defecto usa tantos como hilos menos uno:
+  15 en un portátil de 16 hilos, frente a 3 en la CI. Así, los tiempos de 5 s de algunas pruebas
+  se agotaban (2026-11-08: fallaban 15 que pasan solas). El verde local no garantiza que esos
+  tiempos aguanten en las vCPU de la CI.
+- Las pruebas de PostgreSQL solo corren con `CADENZA_TEST_POSTGRES_URL`, y entonces se exigen como
+  en la CI (`CADENZA_REQUIRE_POSTGRES=1`), con `pg_dump` y `pg_restore` de PostgreSQL 16.
+- `--docker` construye desde la carpeta de trabajo (con sus fines de línea y sus archivos
+  ignorados), no desde un checkout limpio como la CI.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
+import json
 import os
 import re
 import secrets
@@ -36,9 +43,11 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 WEB = REPO / "apps" / "web"
 CI_NODE_MAJOR = 24
+CI_POSTGRES_MAJOR = 16
 _UV = ("uv", "run", "--no-sync")
 _PYTEST_PART = re.compile(r"(\d+) (passed|failed|skipped|errors?|xfailed|xpassed)\b")
-# Como en la CI: la salida en UTF-8 y sin búfer, también con la salida a una tubería.
+# La salida de los hijos en UTF-8 (como el Linux de la CI) y sin búfer, para verla en directo
+# a través de la tubería.
 _CHILD_ENV = {"PYTHONUTF8": "1", "PYTHONUNBUFFERED": "1"}
 _INCIPIT_IN_IMAGE = (
     'test "$(id -u)" = 10001 && touch /app/data/artifacts/.prueba && '
@@ -48,12 +57,14 @@ _INCIPIT_IN_IMAGE = (
 
 @dataclass(frozen=True)
 class Gate:
-    """Una puerta: su nombre, la orden, la carpeta y las variables que añade al entorno."""
+    """Una puerta: su nombre, la orden, la carpeta, las variables que añade al entorno y la
+    puerta de la que depende (la imagen que usa): si esa falla, esta no se ejecuta."""
 
     name: str
     command: tuple[str, ...]
     cwd: Path
     env: Mapping[str, str] = field(default_factory=dict)
+    requires: str | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +114,7 @@ def _docker_gates() -> list[Gate]:
                 _INCIPIT_IN_IMAGE,
             ),
             REPO,
+            requires="docker api",
         ),
         Gate(
             "docker web",
@@ -136,11 +148,13 @@ def _docker_gates() -> list[Gate]:
                 "--version",
             ),
             REPO,
+            requires="docker copias",
         ),
         Gate(
             "docker copias: ayuda",
             ("docker", "run", "--rm", "cadenza-backup:local", "--help"),
             REPO,
+            requires="docker copias",
         ),
         Gate("compose", (*compose, "config", "--quiet"), REPO, compose_env),
         Gate(
@@ -186,16 +200,23 @@ def run_live(gate: Gate) -> tuple[int, str]:
         print(message)
         return 127, message
     lines: list[str] = []
-    with subprocess.Popen(
-        [executable, *gate.command[1:]],
-        cwd=gate.cwd,
-        env={**os.environ, **_CHILD_ENV, **gate.env},
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    ) as process:
+    try:
+        process = subprocess.Popen(
+            [executable, *gate.command[1:]],
+            cwd=gate.cwd,
+            env={**os.environ, **_CHILD_ENV, **gate.env},
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError as exc:
+        # Un fallo al lanzarla es un fallo de esa puerta, no de la pasada.
+        message = f"no se pudo ejecutar `{gate.command[0]}`: {exc}"
+        print(message)
+        return 126, message
+    with process:
         assert process.stdout is not None
         for line in process.stdout:
             print(line, end="")
@@ -204,14 +225,24 @@ def run_live(gate: Gate) -> tuple[int, str]:
 
 
 def run_gates(plan: Sequence[Gate], runner: Runner) -> list[Result]:
-    """Todas las puertas, aunque falle alguna."""
+    """Todas las puertas, aunque falle alguna; las que usan una imagen que no se construyó no se
+    ejecutan (probarían una imagen vieja, o se la bajarían)."""
 
     results = []
+    failed: set[str] = set()
     for gate in plan:
+        if gate.requires is not None and gate.requires in failed:
+            message = f"no se ejecutó: falló {gate.requires}"
+            print(f"\n=== {gate.name}: {message}", flush=True)
+            results.append(Result(gate.name, ok=False, seconds=0.0, output=message))
+            failed.add(gate.name)
+            continue
         print(f"\n=== {gate.name}: {' '.join(gate.command)}", flush=True)
         start = time.monotonic()
         code, output = runner(gate)
         results.append(Result(gate.name, code == 0, time.monotonic() - start, output))
+        if code != 0:
+            failed.add(gate.name)
     return results
 
 
@@ -258,6 +289,31 @@ def _git(*args: str) -> str:
     return done.stdout.strip()
 
 
+@dataclass(frozen=True)
+class _Tree:
+    commit: str
+    status: str
+    content: str
+
+    @property
+    def dirty(self) -> bool:
+        return bool(self.status)
+
+
+def _snapshot(git: Git) -> _Tree:
+    """El commit, el estado y una huella de los cambios sin comitear: si un archivo que ya
+    estaba modificado cambia durante la pasada, el estado es el mismo, pero la huella no."""
+
+    changes = (
+        git("diff", "HEAD", "--binary") + "\0" + git("ls-files", "--others", "--exclude-standard")
+    )
+    return _Tree(
+        commit=git("rev-parse", "--short", "HEAD"),
+        status=git("status", "--porcelain"),
+        content=hashlib.sha256(changes.encode("utf-8", "surrogateescape")).hexdigest(),
+    )
+
+
 def _homr_installed() -> bool:
     return importlib.util.find_spec("homr") is not None
 
@@ -271,15 +327,43 @@ def _node_major() -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _web_deps_outdated(web_dir: Path) -> bool:
-    """Si `package-lock.json` es más nuevo que lo instalado: tras fusionar un cambio de
-    dependencias, `npm ci` (la CI lo hace siempre)."""
+def _pg_dump_major() -> int | None:
+    pg_dump = shutil.which("pg_dump")
+    if pg_dump is None:
+        return None
+    done = subprocess.run([pg_dump, "--version"], capture_output=True, text=True, check=False)
+    match = re.search(r"(\d+)(?:\.\d+)*\s*$", done.stdout.strip())
+    return int(match.group(1)) if match else None
 
-    installed = web_dir / "node_modules" / ".package-lock.json"
-    lock = web_dir / "package-lock.json"
-    return (
-        installed.is_file() and lock.is_file() and lock.stat().st_mtime > installed.stat().st_mtime
-    )
+
+def _web_deps_outdated(web_dir: Path) -> bool:
+    """Si lo instalado no es lo que fija `package-lock.json`: tras fusionar un cambio de
+    dependencias, `npm ci` (la CI lo hace siempre).
+
+    Compara las versiones de cada paquete con las del lockfile oculto que npm deja en
+    `node_modules` (por fechas no vale: cambiar de rama reescribe `package-lock.json`). Un
+    paquete opcional que falta es el de otra plataforma, no un desfase.
+    """
+
+    lock_path = web_dir / "package-lock.json"
+    installed_path = web_dir / "node_modules" / ".package-lock.json"
+    if not lock_path.is_file() or not installed_path.is_file():
+        return False
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8")).get("packages", {})
+        installed = json.loads(installed_path.read_text(encoding="utf-8")).get("packages", {})
+    except (OSError, ValueError):
+        return True
+    for key, entry in lock.items():
+        if not key:
+            continue
+        have = installed.get(key)
+        if have is None:
+            if not entry.get("optional"):
+                return True
+        elif have.get("version") != entry.get("version"):
+            return True
+    return any(key not in lock for key in installed)
 
 
 def main(
@@ -288,6 +372,7 @@ def main(
     runner: Runner = run_live,
     homr_installed: Callable[[], bool] = _homr_installed,
     node_major: Callable[[], int | None] = _node_major,
+    pg_dump_major: Callable[[], int | None] = _pg_dump_major,
     git: Git = _git,
     web_dir: Path = WEB,
 ) -> int:
@@ -316,6 +401,12 @@ def main(
                 "Con CADENZA_TEST_POSTGRES_URL se exigen pg_dump y pg_restore (la CI usa los de "
                 "PostgreSQL 16), y no están en el PATH: la prueba de las copias fallará."
             )
+        elif (major := pg_dump_major()) != CI_POSTGRES_MAJOR:
+            notes.append(
+                f"pg_dump {major or '(versión desconocida)'}: la CI usa el de PostgreSQL "
+                f"{CI_POSTGRES_MAJOR}, y con otra versión la prueba de las copias puede no ser la "
+                "misma."
+            )
     else:
         uncovered.append("PostgreSQL (sin CADENZA_TEST_POSTGRES_URL)")
         notes.append(
@@ -333,7 +424,7 @@ def main(
             notes.append(f"Node {major or '(no encontrado)'}: la CI usa Node {CI_NODE_MAJOR}.")
         if _web_deps_outdated(web_dir):
             notes.append(
-                "package-lock.json es más nuevo que lo instalado: ejecuta `npm ci` en apps/web "
+                "Lo instalado en apps/web no es lo que fija package-lock.json: ejecuta `npm ci` "
                 "(la CI lo hace siempre)."
             )
 
@@ -348,9 +439,9 @@ def main(
         ]
         plan = [gate for gate in plan if not gate.name.startswith("npm ")]
 
-    before = (git("rev-parse", "--short", "HEAD"), git("status", "--porcelain"))
+    before = _snapshot(git)
     results = run_gates(plan, runner) + skipped
-    after = (git("rev-parse", "--short", "HEAD"), git("status", "--porcelain"))
+    after = _snapshot(git)
     if after != before:
         # Otro commit, otra rama u otra sesión en la misma carpeta: lo probado no es lo que hay.
         notes.insert(0, "El árbol cambió durante la pasada: lo probado no es lo que hay ahora.")
@@ -368,7 +459,7 @@ def main(
             print(f"- {note}")
 
     print("\nPara el PR:")
-    print(pr_line(results, commit=before[0], dirty=bool(before[1]), uncovered=uncovered))
+    print(pr_line(results, commit=before.commit, dirty=before.dirty, uncovered=uncovered))
     return 0 if all(result.ok for result in results) else 1
 
 

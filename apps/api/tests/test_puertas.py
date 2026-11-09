@@ -7,8 +7,12 @@ estricto (`mypy packages apps`) compruebe también el script.
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shlex
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import pytest
@@ -19,6 +23,7 @@ from scripts.puertas import (
     Git,
     Result,
     Runner,
+    _web_deps_outdated,
     build_plan,
     main,
     pr_line,
@@ -34,13 +39,17 @@ def _names(plan: Sequence[Gate]) -> list[str]:
     return [gate.name for gate in plan]
 
 
-def _git(commits: Sequence[str] = ("354b8b3",), status: str = "") -> Git:
-    """Un `git` falso: `rev-parse` da los commits en orden (el último se repite)."""
-    pending = list(commits)
+def _git(
+    commits: Sequence[str] = ("354b8b3",), status: str = "", diffs: Sequence[str] = ("",)
+) -> Git:
+    """Un `git` falso: `rev-parse` da los commits en orden, y `diff`, los cambios en orden (el
+    último se repite)."""
+    pending = {"rev-parse": list(commits), "diff": list(diffs)}
 
     def git(*args: str) -> str:
-        if args[0] == "rev-parse":
-            return pending.pop(0) if len(pending) > 1 else pending[0]
+        queue = pending.get(args[0])
+        if queue is not None:
+            return queue.pop(0) if len(queue) > 1 else queue[0]
         return status
 
     return git
@@ -56,6 +65,7 @@ def _main(
     runner: Runner = _ok,
     homr_installed: Callable[[], bool] = lambda: True,
     node_major: Callable[[], int | None] = lambda: 24,
+    pg_dump_major: Callable[[], int | None] = lambda: 16,
     git: Git | None = None,
     web_dir: Path = WEB,
 ) -> int:
@@ -64,6 +74,7 @@ def _main(
         runner=runner,
         homr_installed=homr_installed,
         node_major=node_major,
+        pg_dump_major=pg_dump_major,
         git=git or _git(),
         web_dir=web_dir,
     )
@@ -278,3 +289,98 @@ def test_an_old_node_is_noted(capsys: pytest.CaptureFixture[str], tmp_path: Path
     _main([], node_major=lambda: 20, web_dir=tmp_path)
 
     assert "Node 20: la CI usa Node 24" in capsys.readouterr().out
+
+
+# --- Segunda revisión ---------------------------------------------------------------------------
+
+
+def test_the_docker_gates_are_the_commands_of_the_ci() -> None:
+    """Cada paso de --docker aparece tal cual en el job `docker` de `ci.yml` (con la etiqueta
+    `:ci` en lugar de `:local`): si uno cambia sin el otro, falla."""
+    ci = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    # Las continuaciones de línea («\» y salto) y los espacios repetidos, como en la orden.
+    ci = re.sub(r"\\\r?\n\s*", " ", ci)
+    ci = re.sub(r"[ \t]+", " ", ci)
+
+    for gate in build_plan(web=False, docker=True)[4:]:
+        command = shlex.join(gate.command).replace(":local", ":ci")
+        assert command in ci, gate.name
+
+
+def test_a_step_that_uses_an_image_that_did_not_build_does_not_run() -> None:
+    calls: list[str] = []
+
+    def runner(gate: Gate) -> tuple[int, str]:
+        calls.append(gate.name)
+        return (1, "") if gate.name == "docker api" else (0, "")
+
+    results = {r.name: r for r in run_gates(build_plan(web=False, docker=True), runner)}
+
+    assert "docker api: íncipit sin root" not in calls
+    assert not results["docker api: íncipit sin root"].ok
+    assert results["docker api: íncipit sin root"].output == "no se ejecutó: falló docker api"
+    assert results["docker copias: pg_dump"].ok
+
+
+def test_a_change_in_an_already_modified_file_during_the_run_turns_it_red(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = _main(["--sin-web"], git=_git(status=" M README.md", diffs=("antes", "después")))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "El árbol cambió durante la pasada" in out
+
+
+def _lockfiles(web: Path, lock: Mapping[str, object], installed: Mapping[str, object]) -> None:
+    (web / "node_modules").mkdir(parents=True, exist_ok=True)
+    (web / "package-lock.json").write_text(json.dumps({"packages": lock}), encoding="utf-8")
+    (web / "node_modules" / ".package-lock.json").write_text(
+        json.dumps({"packages": installed}), encoding="utf-8"
+    )
+
+
+def test_the_web_dependencies_are_compared_by_version(tmp_path: Path) -> None:
+    root = {"": {"name": "web"}}
+    react = {"node_modules/react": {"version": "18.3.1"}}
+    other_os = {"node_modules/@esbuild/linux-x64": {"version": "0.25.0", "optional": True}}
+
+    _lockfiles(tmp_path, {**root, **react, **other_os}, react)
+    assert not _web_deps_outdated(tmp_path)
+    _lockfiles(tmp_path, {**root, "node_modules/react": {"version": "18.3.2"}}, react)
+    assert _web_deps_outdated(tmp_path)
+    _lockfiles(tmp_path, {**root, **react, "node_modules/zustand": {"version": "5.0.16"}}, react)
+    assert _web_deps_outdated(tmp_path)
+
+
+def test_postgres_tools_are_checked_when_its_tests_are_required(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CADENZA_TEST_POSTGRES_URL", "postgresql+psycopg2://postgres@localhost/x")
+    monkeypatch.setattr("scripts.puertas.shutil.which", lambda name: None)
+
+    _main(["--sin-web"])
+    assert "no están en el PATH" in capsys.readouterr().out
+
+    monkeypatch.setattr("scripts.puertas.shutil.which", lambda name: f"/usr/bin/{name}")
+    _main(["--sin-web"], pg_dump_major=lambda: 17)
+    assert "pg_dump 17: la CI usa el de PostgreSQL 16" in capsys.readouterr().out
+
+
+def test_the_gate_variables_reach_the_child(tmp_path: Path) -> None:
+    gate = Gate(
+        "python",
+        (
+            sys.executable,
+            "-c",
+            "import os; print(os.environ['PUERTAS_349'], os.environ['PYTHONUTF8'])",
+        ),
+        tmp_path,
+        env={"PUERTAS_349": "visto"},
+    )
+
+    code, output = run_live(gate)
+
+    assert code == 0
+    assert output.strip() == "visto 1"
+    assert "PUERTAS_349" not in os.environ
