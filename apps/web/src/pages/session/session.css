@@ -1188,7 +1188,6 @@
 /* Notación vectorial de OSMD; la trama del compás dudoso queda detrás de las notas. */
 .notation {
   position: relative;
-  container: notation / inline-size;
   padding: var(--space-4) var(--space-3);
 }
 
@@ -1377,12 +1376,29 @@
 }
 
 /* Con colores forzados el navegador quita las sombras y el fondo: la marca pasa a un contorno
-   con el color de selección del sistema, y la muestra de la barra igual. */
+   con el color de selección del sistema, y la muestra de la barra igual. El compás señalado
+   pierde su trama y su contorno, y su número quedaría suelto junto a los números de compás de la
+   partitura (#368): lleva un contorno con el color del texto, más grueso y por fuera en el elegido,
+   y su rótulo, un filete. */
 @media (forced-colors: active) {
   .notation__selection,
   .selection__readout[data-selected="true"]::before {
     outline: var(--rule-width) solid Highlight;
     outline-offset: var(--rule-width);
+  }
+
+  .notation__mark {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+
+  .notation__mark[data-selected="true"] {
+    outline-width: var(--rule-width);
+    outline-offset: 0;
+  }
+
+  .notation__tag {
+    border: 1px solid CanvasText;
   }
 }
 
