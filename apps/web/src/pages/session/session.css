@@ -1188,7 +1188,6 @@
 /* Notación vectorial de OSMD; la trama del compás dudoso queda detrás de las notas. */
 .notation {
   position: relative;
-  container: notation / inline-size;
   padding: var(--space-4) var(--space-3);
 }
 
@@ -1207,24 +1206,26 @@
   z-index: 0;
 }
 
+/* Compás señalado (#368): trama fina y contorno violeta de 2 px, para que se vea sin estorbar la
+   lectura; el elegido suma el anillo de tinta. */
 .notation__mark {
   position: absolute;
-  background: var(--halftone-accent);
-  box-shadow: inset 0 0 0 4px var(--color-accent);
+  background: var(--halftone-accent-fine);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
 }
 
 .notation__mark[data-selected="true"] {
   box-shadow:
-    inset 0 0 0 4px var(--color-accent),
+    inset 0 0 0 2px var(--color-accent),
     0 0 0 var(--rule-width) var(--color-ink);
 }
 
-/* Rótulo del hallazgo: colgado del borde superior del compás señalado. */
+/* Rótulo del hallazgo: el número del compás, colgado de su borde superior. */
 .notation__tag {
   position: absolute;
   top: 0;
   left: 0;
-  padding: 2px var(--space-2);
+  padding: 1px var(--space-1);
   background: var(--color-accent);
   color: var(--color-on-accent);
   font-weight: 700;
@@ -1375,18 +1376,29 @@
 }
 
 /* Con colores forzados el navegador quita las sombras y el fondo: la marca pasa a un contorno
-   con el color de selección del sistema, y la muestra de la barra igual. */
+   con el color de selección del sistema, y la muestra de la barra igual. El compás señalado
+   pierde su trama y su contorno, y su número quedaría suelto junto a los números de compás de la
+   partitura (#368): lleva un contorno con el color del texto, más grueso y por fuera en el elegido,
+   y su rótulo, un filete. */
 @media (forced-colors: active) {
   .notation__selection,
   .selection__readout[data-selected="true"]::before {
     outline: var(--rule-width) solid Highlight;
     outline-offset: var(--rule-width);
   }
-}
 
-@container notation (max-width: 36rem) {
-  .notation__tag-word {
-    display: none;
+  .notation__mark {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+
+  .notation__mark[data-selected="true"] {
+    outline-width: var(--rule-width);
+    outline-offset: 0;
+  }
+
+  .notation__tag {
+    border: 1px solid CanvasText;
   }
 }
 

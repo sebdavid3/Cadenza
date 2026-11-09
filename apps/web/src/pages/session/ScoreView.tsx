@@ -834,10 +834,8 @@ export function ScoreView({
                     data-selected={mark.key === selectedKey}
                     style={{ left: box.left, top: box.top, width: box.width, height: box.height }}
                   >
-                    <span className="label notation__tag">
-                      <span className="notation__tag-word">Compás </span>
-                      {mark.measureNumber}
-                    </span>
+                    {/* Solo el número (#368): la lista de posibles errores ya dice «Compás N». */}
+                    <span className="label notation__tag">{mark.measureNumber}</span>
                   </div>
                 );
               })}

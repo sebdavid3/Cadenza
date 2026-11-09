@@ -25,6 +25,10 @@
   --halftone-ink: radial-gradient(circle, var(--color-ink) 1.2px, transparent 1.4px) 0 0 / 5px 5px;
   --halftone-accent: radial-gradient(circle, var(--color-accent) 1.7px, transparent 2px) 0 0 / 7px
     7px;
+  /* La trama fina del compás señalado en la partitura (#368): puntos de 1 px de radio cada 8 px,
+     para que se vea sin competir con las cabezas ni con las líneas del pentagrama. */
+  --halftone-accent-fine: radial-gradient(circle, var(--color-accent) 1px, transparent 1.3px) 0 0 /
+    8px 8px;
   --hatch-accent: repeating-linear-gradient(
     45deg,
     var(--color-accent) 0 4px,

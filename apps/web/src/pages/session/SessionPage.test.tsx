@@ -535,7 +535,8 @@ describe("vista de una sesión", () => {
     const mark = document.querySelector<HTMLElement>(".notation__mark");
     // Segundo compás de OSMD: x = 30 unidades; en jsdom el ancho es 0 y el zoom, el de móvil.
     expect(mark?.style.left).toBe("225px");
-    expect(mark).toHaveTextContent("Compás 2");
+    // El rótulo lleva solo el número del compás (#368).
+    expect(mark).toHaveTextContent(/^2$/);
     expect(screen.getByRole("application", { name: /posibles errores: 2/i })).toBeInTheDocument();
     // OSMD recibe el MusicXML ya analizado, no una cadena que podría tomar por una URL.
     expect(osmd.loaded).toEqual(["score-partwise"]);
@@ -644,7 +645,7 @@ describe("vista de una sesión", () => {
 
     expect(button).toHaveAttribute("aria-pressed", "true");
     const selected = document.querySelector('.notation__mark[data-selected="true"]');
-    expect(selected).toHaveTextContent("Compás 3");
+    expect(selected).toHaveTextContent(/^3$/);
     expect(scrollIntoView).toHaveBeenCalled();
 
     await userEvent.click(button);
@@ -682,7 +683,7 @@ describe("vista de una sesión", () => {
     await waitFor(() => {
       expect(document.querySelectorAll(".notation__mark")).toHaveLength(1);
     });
-    expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+    expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
   });
 
   it("avisa si los posibles errores son de un estado anterior al actual", async () => {
@@ -5513,7 +5514,7 @@ describe("corregir la nota elegida", () => {
       await waitFor(() => {
         expect(markCount()).toBe(1);
       });
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
       expect(findingsStatus()).toHaveTextContent(
         "Descartado como falso positivo: Duración del compás, compás 3. La partitura no cambia.",
       );
@@ -5675,7 +5676,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(server.count(`POST /sessions/${ID}/validate`)).toBe(1);
       expect(markCount()).toBe(1);
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^3$/);
       expect(within(panel()).getByRole("button", { name: /^compás 3/i })).toHaveTextContent(
         "Altura fuera de registro",
       );
@@ -5743,7 +5744,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
       expect(markCount()).toBe(1);
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
       expect(within(panel()).queryByText(/después se editó/i)).toBeNull();
       expect(editStatus()).toHaveTextContent("Sesión recargada.");
     });
@@ -5882,7 +5883,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(findingsStatus()).not.toHaveTextContent(/otra pestaña/);
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^3$/);
     });
 
     it("si mientras se revalida la sesión avanza otra vez, lo dice y vuelve a ofrecer revalidar", async () => {
