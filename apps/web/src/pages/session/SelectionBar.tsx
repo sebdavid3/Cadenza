@@ -14,6 +14,8 @@ interface SelectionBarProps {
   announcement: string;
   /** Identificador de la leyenda de teclas, que describe la partitura. */
   keysId: string;
+  /** La leyenda de teclas se oculta tras «Atajos» (#341); sigue describiendo la partitura. */
+  keysHidden?: boolean;
   onPrevious: () => void;
   onNext: () => void;
   onClear: () => void;
@@ -48,6 +50,7 @@ export function SelectionBar({
   description,
   announcement,
   keysId,
+  keysHidden = false,
   onPrevious,
   onNext,
   onClear,
@@ -107,7 +110,7 @@ export function SelectionBar({
           Quitar
         </button>
       </div>
-      <p className="selection__keys" id={keysId}>
+      <p className="selection__keys" id={keysId} hidden={keysHidden}>
         <span>
           <KeyCap icon="arrow-left">flecha izquierda</KeyCap>
           <KeyCap icon="arrow-right">flecha derecha</KeyCap> nota

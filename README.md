@@ -443,7 +443,7 @@ Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments). Escr
 | `exp_05_edit_derivation.py` | Derivación de ediciones a partir de errores reales del OMR |
 | `exp_06_validation_metrics.py` | Precisión y *recall* del validador |
 | `exp_07_preprocessing_impact.py` | Efecto del preprocesado de imagen sobre HOMR |
-| `exp_10_effort_study.py` | Exportación del estudio de esfuerzo desde la base de datos; sin sesiones del estudio falla, y `--smoke` (datos sintéticos, marcados) no escribe en `results/` |
+| `exp_10_effort_study.py` | Exportación del estudio de esfuerzo desde la base de datos, con la fidelidad residual frente a la verdad del banco (`--bank-dir`) y el NASA-TLX de un CSV (`--nasa-tlx`); sin sesiones del estudio o sin el banco falla, y `--smoke` (datos sintéticos, marcados) no escribe en `results/` |
 | `exp_11_latency_benchmark.py` | Latencia de transcripción con HOMR en CPU y GPU |
 
 ```bash

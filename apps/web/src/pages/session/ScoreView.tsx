@@ -77,12 +77,19 @@ interface ScoreViewProps {
    */
   editor?: (
     target: EditTarget | null,
-    context: { available: boolean; focusScore: () => boolean },
+    context: {
+      available: boolean;
+      focusScore: () => boolean;
+      /** Id de la leyenda de la selección, si se muestra (#341). */
+      selectionKeysId?: string;
+    },
   ) => ReactNode;
   /** Órdenes de corrección con el teclado sobre la partitura; sin ella, las teclas no editan. */
   onCommand?: (command: EditCommand, target: EditTarget | null) => void;
   /** Leyenda de las teclas de corrección, que también describe la partitura. */
   editKeysId?: string;
+  /** Si la leyenda de teclas de la selección se oculta tras «Atajos» (#341). */
+  keysHidden?: boolean;
   /**
    * Si se pueden elegir notas sobre la partitura (ADR-0027). Sin ello es una imagen con nombre y
    * no hay barra de selección: el resultado de la portada solo se mira (#277, ADR-0053).
@@ -162,6 +169,24 @@ function drawingStore() {
   };
 }
 
+/** Lo que se ve del primer antepasado que se desplaza o, si no lo hay, de la ventana. */
+function scrollViewOf(element: Element): { top: number; bottom: number } {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflowY } = window.getComputedStyle(node);
+    if ((overflowY === "auto" || overflowY === "scroll") && node.scrollHeight > node.clientHeight) {
+      const rect = node.getBoundingClientRect();
+      return { top: Math.max(0, rect.top), bottom: Math.min(window.innerHeight, rect.bottom) };
+    }
+  }
+  // En una columna, la imagen original va fija arriba (#341): lo que queda debajo de ella no se ve.
+  const pinned = document.querySelector(".sheet--scan");
+  const top =
+    pinned && window.getComputedStyle(pinned).position === "sticky"
+      ? Math.max(0, pinned.getBoundingClientRect().bottom)
+      : 0;
+  return { top, bottom: window.innerHeight };
+}
+
 /**
  * Notación dibujada con OSMD y, detrás, la trama violeta de los compases con posibles errores.
  * Se vuelve a maquetar cuando cambia el ancho. Si OSMD falla, lo dice sin arrastrar al resto de
@@ -179,6 +204,7 @@ export function ScoreView({
   editor,
   onCommand,
   editKeysId,
+  keysHidden = false,
   notesSelectable = true,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -525,7 +551,9 @@ export function ScoreView({
     if (!layer || !element) return;
     if (previous) {
       const top = layer.getBoundingClientRect().top + previous.box.top;
-      if (top + previous.box.height <= 0 || top >= window.innerHeight) return;
+      // En la mesa (#341) la partitura se desplaza en su panel: se mira lo que se ve de él.
+      const view = scrollViewOf(layer);
+      if (top + previous.box.height <= view.top || top >= view.bottom) return;
     }
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     element.scrollIntoView({
@@ -567,6 +595,7 @@ export function ScoreView({
           description={description}
           announcement={announcement}
           keysId={keysId}
+          keysHidden={keysHidden}
           onPrevious={() => {
             move("previous");
           }}
@@ -579,7 +608,14 @@ export function ScoreView({
           }}
         />
       )}
-      {editor?.(target, { available: selectable !== null, focusScore })}
+      {editor?.(target, {
+        available: selectable !== null,
+        focusScore,
+        selectionKeysId:
+          status !== "failed" && notesSelectable && selectionStatus.kind === "ready"
+            ? keysId
+            : undefined,
+      })}
       <div className="notation" data-state={status}>
         <div className="notation__stage" id={stageId} ref={stageRef} {...stageProps}>
           {aligned && (
