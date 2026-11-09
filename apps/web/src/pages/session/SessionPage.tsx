@@ -555,16 +555,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
                   fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
                   onPreparing={setMidiPreparing}
                 />
-                {/* El PDF del MusicXML que se ve o, si aún no ha llegado, del que se está pidiendo. */}
+                {/* El PDF del MusicXML del estado que se ve, el de la caché si vale. Tras guardar
+                    los datos, el de antes ya no vale: se espera al que se está pidiendo. */}
                 <PdfDownloadButton
                   sessionId={sessionId}
                   seq={seq}
                   ready={ready}
                   makePdf={async () =>
-                    makePdf(
-                      musicXml.data ??
-                        (await queryClient.query(sessionMusicXmlQuery(api, sessionId, seq))),
-                    )
+                    makePdf(await queryClient.query(sessionMusicXmlQuery(api, sessionId, seq)))
                   }
                   onPreparing={setPdfPreparing}
                 />

@@ -15,6 +15,13 @@ const fake = vi.hoisted(() => ({
   loads: [] as Document[],
   hostWidths: [] as string[],
   hostsInPage: [] as boolean[],
+  /** Cómo está el contenedor al dibujar: oculto, sin leerse y fuera de la pantalla. */
+  hosts: [] as { hidden: string | null; visibility: string; left: string }[],
+  /** El título de reserva que recibe `load` (OSMD pone «Untitled Score» si no se le da). */
+  loadTitles: [] as (string | undefined)[],
+  /** Lo que pasa, en orden: los fotogramas que se piden y el dibujo. */
+  events: [] as string[],
+  failConvert: false,
   cleared: 0,
   rules: [] as Record<string, number>[],
   /** Lo que OSMD dibuja en cada página, además de su SVG. */
@@ -41,8 +48,9 @@ vi.mock("opensheetmusicdisplay", () => ({
       fake.options.push(options);
       fake.rules.push(this.EngravingRules);
     }
-    load(document: Document) {
+    load(document: Document, title?: string) {
       fake.loads.push(document);
+      fake.loadTitles.push(title);
       return Promise.resolve({});
     }
     IsReadyToRender() {
@@ -50,7 +58,13 @@ vi.mock("opensheetmusicdisplay", () => ({
     }
     render() {
       if (fake.failRender) throw new Error("VexFlow");
+      fake.events.push("dibujo");
       fake.hostWidths.push(this.host.style.width);
+      fake.hosts.push({
+        hidden: this.host.getAttribute("aria-hidden"),
+        visibility: this.host.style.visibility,
+        left: this.host.style.left,
+      });
       fake.hostsInPage.push(this.host.isConnected);
       const measures = fake.loads.at(-1)?.getElementsByTagName("measure").length ?? 1;
       // Como el backend SVG de OSMD: un `div` por página con su SVG dentro.
@@ -104,6 +118,14 @@ vi.mock("jspdf", () => ({
 
 vi.mock("svg2pdf.js", () => ({
   svg2pdf: (svg: Element, pdf: { record: (typeof fake.pdfs)[number] }, options: unknown) => {
+    if (fake.failConvert) {
+      // Como svg2pdf.js: mide los textos en un SVG oculto en el cuerpo, y si falla no lo quita.
+      const measuring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      measuring.style.setProperty("position", "absolute");
+      measuring.style.setProperty("visibility", "hidden");
+      document.body.appendChild(measuring);
+      return Promise.reject(new Error("svg2pdf"));
+    }
     pdf.record.svgs.push({ page: pdf.record.pages, svg, options });
     return Promise.resolve(pdf);
   },
@@ -118,6 +140,10 @@ beforeEach(() => {
     loads: [],
     hostWidths: [],
     hostsInPage: [],
+    hosts: [],
+    loadTitles: [],
+    events: [],
+    failConvert: false,
     cleared: 0,
     rules: [],
     pageContent: "",
@@ -224,6 +250,9 @@ describe("renderScorePdf", () => {
       '<text class="autor">Antonín Dvořák · Leoš Janáček – Œuvre ’1’ €</text>',
       '<text class="otro">Ωδή</text>',
       '<text class="nada">Ünsere Straße, ¿señor?</text>',
+      // Un acento que llega descompuesto (NFD), una ligadura y letras con barra.
+      '<text class="nfd">Canción ﬁnal</text>',
+      '<text class="barra">Lutosławski · Đorđe · ıta</text>',
     ].join("");
     fake.title = "Ballade für Dvořák";
     fake.composer = "Leoš Janáček";
@@ -237,6 +266,8 @@ describe("renderScorePdf", () => {
     );
     expect(svg.querySelector(".otro")?.textContent).toBe("???");
     expect(svg.querySelector(".nada")?.textContent).toBe("Ünsere Straße, ¿señor?");
+    expect(svg.querySelector(".nfd")?.textContent).toBe("Canción final");
+    expect(svg.querySelector(".barra")?.textContent).toBe("Lutoslawski · Dorde · ita");
     // Las propiedades no se dibujan: jsPDF las escribe en UTF-16 y conservan el nombre.
     expect(fake.pdfs[0]?.properties).toEqual([
       { title: "Ballade für Dvořák", author: "Leoš Janáček", creator: "Cadenza" },
@@ -266,8 +297,39 @@ describe("renderScorePdf", () => {
     await renderScorePdf(score(2));
 
     expect(fake.hostsInPage).toEqual([true]);
+    expect(fake.hosts).toEqual([{ hidden: "true", visibility: "hidden", left: "-100000px" }]);
     expect(fake.cleared).toBe(1);
     expect(document.body.querySelector("svg")).toBeNull();
+    expect(document.body.children).toHaveLength(0);
+  });
+
+  it("sin título en el MusicXML, OSMD no pone «Untitled Score»", async () => {
+    await renderScorePdf(score(1));
+
+    expect(fake.loadTitles).toEqual([""]);
+  });
+
+  it("deja pintar «Preparando el PDF…» antes de dibujar, que bloquea la página", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      fake.events.push("fotograma");
+      return setTimeout(() => {
+        callback(performance.now());
+      }, 0);
+    });
+    try {
+      await renderScorePdf(score(1));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(fake.events).toEqual(["fotograma", "dibujo"]);
+  });
+
+  it("si svg2pdf.js falla, no deja en la página el SVG en el que mide los textos", async () => {
+    fake.failConvert = true;
+
+    await expect(renderScorePdf(score(1))).rejects.toThrow("svg2pdf");
+
     expect(document.body.children).toHaveLength(0);
   });
 

@@ -30,24 +30,38 @@ const PDF_FONT = "Helvetica, Arial, sans-serif";
  */
 const WIN_ANSI_EXTRA = new Set("ƒ–—‘’‚“”„†‡•…€‰‹›ˆ™ŒœŠšŸŽž˜");
 
-function writable(char: string): boolean {
+function writableChar(char: string): boolean {
   const code = char.codePointAt(0) ?? 0;
   return code < 0x80 || (code >= 0xa0 && code <= 0xff) || WIN_ANSI_EXTRA.has(char);
 }
 
+function writable(text: string): boolean {
+  for (const char of text) {
+    if (!writableChar(char)) return false;
+  }
+  return true;
+}
+
+/** Letras latinas con barra, que Unicode no descompone en una letra y un diacrítico. */
+const BARRED: Readonly<Record<string, string>> = { ł: "l", Ł: "L", đ: "d", Đ: "D", ı: "i" };
+
 /**
  * Un texto que la Helvetica del PDF puede escribir: una letra fuera de WinAnsi pierde su
- * diacrítico (ř → r, č → c) y, si ni así cabe (otro alfabeto), pasa a «?». Con una sola letra
- * fuera, jsPDF escribía la línea entera letra a letra, separadas, y se salía de la hoja.
+ * diacrítico (ř → r, č → c, ł → l; «ﬁ» pasa a «fi») y, si ni así cabe (otro alfabeto), pasa a
+ * «?». Con una sola letra fuera, jsPDF escribía la línea entera letra a letra, separadas, y se
+ * salía de la hoja. Un acento que llega aparte de su letra (NFD) se le junta antes.
  */
 export function pdfText(text: string): string {
-  return [...text]
-    .map((char) => {
-      if (writable(char)) return char;
-      const bare = char.normalize("NFD").replace(/\p{M}/gu, "");
-      return bare && [...bare].every(writable) ? bare : "?";
-    })
-    .join("");
+  let written = "";
+  for (const char of text.normalize("NFC")) {
+    if (writableChar(char)) {
+      written += char;
+      continue;
+    }
+    const bare = BARRED[char] ?? char.normalize("NFKD").replace(/\p{M}/gu, "");
+    written += bare && writable(bare) ? bare : "?";
+  }
+  return written;
 }
 
 /** Los textos de una página (título, compositor, partes, letra) en lo que el PDF puede escribir. */
@@ -71,7 +85,7 @@ function readablePaint(value: string): string | null {
   const match = ALPHA_HEX.exec(value.trim());
   const digits = match?.[1];
   if (!digits) return null;
-  const hex = digits.length === 4 ? [...digits].map((digit) => digit + digit).join("") : digits;
+  const hex = digits.length === 4 ? digits.replace(/./g, "$&$&") : digits;
   const [red, green, blue, alpha] = [0, 2, 4, 6].map((at) => parseInt(hex.slice(at, at + 2), 16));
   if (!alpha) return "none";
   return `rgba(${String(red)}, ${String(green)}, ${String(blue)}, ${String(Math.round((alpha / 255) * 1000) / 1000)})`;
@@ -92,6 +106,29 @@ function withReadablePaint(svg: Element) {
 }
 
 /**
+ * Deja que el navegador pinte antes de seguir: lo que viene (maquetar con OSMD) bloquea la página,
+ * y sin esto «Preparando el PDF…» podría no llegar a verse. Con la pestaña oculta no hay
+ * fotogramas, y se sigue a los 100 ms.
+ */
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => setTimeout(resolve, 0));
+    setTimeout(resolve, 100);
+  });
+}
+
+/**
+ * Quita lo que svg2pdf.js deja en el cuerpo si falla: el SVG oculto en el que mide los textos, que
+ * solo quita al terminar bien.
+ */
+function removeLeftovers(before: ReadonlySet<Element>) {
+  for (const child of Array.from(document.body.children)) {
+    if (before.has(child) || !(child instanceof SVGSVGElement)) continue;
+    if (child.style.visibility === "hidden") child.remove();
+  }
+}
+
+/**
  * Lo que el PDF dice de sí mismo; lo vacío no se dice. Aquí no hace falta `pdfText`: jsPDF escribe
  * estas cadenas en UTF-16 si no caben en PDFDocEncoding.
  */
@@ -107,8 +144,8 @@ function properties(title: string, composer: string): Record<string, string> {
  * Dibuja en PDF el MusicXML de un estado (#376, ADR-0063): OSMD lo maqueta en páginas A4 con el
  * título y el compositor, fuera de la vista, y svg2pdf.js pasa cada página SVG a una del PDF, en
  * vectores. Es lo mismo que dibuja la vista, con las correcciones aplicadas, y el mismo MusicXML
- * que baja «Descargar MusicXML». OSMD, jsPDF y svg2pdf.js se cargan al pedir el PDF: la vista no
- * los paga si no se usa.
+ * que baja «Descargar MusicXML». jsPDF y svg2pdf.js se cargan al pedir el PDF (OSMD ya lo cargó la
+ * vista): la vista no los paga si no se usa.
  */
 export async function renderScorePdf(xml: string): Promise<Blob> {
   const sheet = parseMusicXml(xml);
@@ -117,6 +154,7 @@ export async function renderScorePdf(xml: string): Promise<Blob> {
     import("jspdf"),
     import("svg2pdf.js"),
   ]);
+  await nextPaint();
 
   // OSMD necesita un contenedor en la página para medir: fuera de la vista, sin que se vea ni
   // se lea, y a un ancho fijo.
@@ -131,6 +169,7 @@ export async function renderScorePdf(xml: string): Promise<Blob> {
     pointerEvents: "none",
   });
   document.body.appendChild(host);
+  const before = new Set(document.body.children);
   let osmd: InstanceType<typeof OpenSheetMusicDisplay> | null = null;
   try {
     osmd = new OpenSheetMusicDisplay(host, {
@@ -152,7 +191,8 @@ export async function renderScorePdf(xml: string): Promise<Blob> {
       PageTopMargin: PDF_MARGIN_UNITS,
       PageBottomMargin: PDF_MARGIN_UNITS,
     });
-    await osmd.load(sheet);
+    // Sin título, OSMD pondría «Untitled Score»: el PDF no lleva título si la sesión no lo tiene.
+    await osmd.load(sheet, "");
     if (!osmd.IsReadyToRender()) throw new Error("OSMD no pudo leer el MusicXML");
     osmd.render();
     const pages = osmd.Drawer.Backends.map((backend) =>
@@ -173,6 +213,7 @@ export async function renderScorePdf(xml: string): Promise<Blob> {
   } finally {
     osmd?.clear();
     host.remove();
+    removeLeftovers(before);
   }
 }
 
