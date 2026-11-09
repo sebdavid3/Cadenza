@@ -205,24 +205,29 @@ describe("lo que la mesa recuerda en el navegador", () => {
 });
 
 describe("la página de la mesa no se alarga (#355)", () => {
-  /** Las reglas de un selector en la hoja de la vista, tal como están escritas. */
-  const rulesOf = (selector: string) =>
-    [...sessionCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-      .filter(([, selectors]) =>
-        (selectors ?? "")
-          .replace(/\/\*[\s\S]*?\*\//g, "")
-          .split(",")
-          .map((part) => part.trim())
-          .includes(selector),
-      )
-      .map(([, , body]) => body ?? "");
+  const uncommented = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+  /** Lo que acaba valiendo cada propiedad de un selector en la hoja, en el orden en que se escribe. */
+  const declared = (selector: string) => {
+    const values = new Map<string, string>();
+    for (const [, selectors, body] of uncommented(sessionCss).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const parts = (selectors ?? "").split(",").map((part) => part.trim());
+      if (!parts.includes(selector)) continue;
+      for (const [, property, value] of (body ?? "").matchAll(/([a-z-]+)\s*:\s*([^;]+);/g)) {
+        values.set(property ?? "", (value ?? "").trim());
+      }
+    }
+    return values;
+  };
 
-  it("el panel de la partitura, que se desplaza por dentro, contiene a sus hijos posicionados", () => {
-    // Si no, los textos ocultos para el lector de pantalla del pie (`position: absolute`) toman
-    // un bloque contenedor fuera del panel, que no los recorta, y alargan la página entera con un
-    // espacio en blanco bajo la mesa.
-    const rules = rulesOf(".session--desk .session__sheets > .sheet--notation").join("\n");
-    expect(rules).toMatch(/overflow-y:\s*auto/);
-    expect(rules).toMatch(/position:\s*relative/);
+  // Un panel que se desplaza por dentro ha de ser el bloque contenedor de lo que lleva dentro con
+  // `position: absolute` (los textos ocultos para el lector de pantalla): si no, el panel no los
+  // recorta, quedan bajo la ventana y alargan la página entera con un espacio en blanco.
+  it.each([
+    [".session--desk .session__sheets > .sheet--notation", "overflow-y"],
+    [".session--desk .session__aside-body", "overflow"],
+  ])("%s, que se desplaza por dentro, contiene a sus hijos posicionados", (selector, overflow) => {
+    const values = declared(selector);
+    expect(values.get(overflow)).toBe("auto");
+    expect(values.get("position")).toBe("relative");
   });
 });

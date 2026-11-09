@@ -1760,7 +1760,9 @@ button.findings__item:hover {
     width: clamp(20rem, 24vw, 26rem);
   }
 
+  /* Como el panel de la partitura: contiene los textos ocultos de los posibles errores (#355). */
   .session--desk .session__aside-body {
+    position: relative;
     flex: 1 1 0;
     overflow: auto;
     overscroll-behavior: contain;
