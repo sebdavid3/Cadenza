@@ -268,6 +268,23 @@ const audio = vi.hoisted(() => {
 });
 vi.mock("./toneEngine", () => ({ createToneEngine: audio.create }));
 
+// El PDF se dibuja con OSMD y jsPDF, que no dibujan en jsdom (#376): un doble que guarda el
+// MusicXML que se le pide y da lo que diga la prueba.
+const pdfRender = vi.hoisted(() => ({
+  calls: [] as string[],
+  next: null as (() => Promise<Blob>) | null,
+}));
+vi.mock("./pdf", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./pdf")>();
+  return {
+    ...actual,
+    renderScorePdf: (xml: string) => {
+      pdfRender.calls.push(xml);
+      return pdfRender.next?.() ?? Promise.resolve(new Blob(["%PDF-1.3"]));
+    },
+  };
+});
+
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
 const INVESTIGADORA: UserRead = {
   ...ANA,
@@ -478,6 +495,13 @@ function musicXmlBlobs() {
     );
 }
 
+/** Blobs de PDF entregados a `URL.createObjectURL`. */
+function pdfBlobs() {
+  return createObjectURL.mock.calls
+    .map(([value]) => value)
+    .filter((value): value is Blob => value instanceof Blob && value.type === "application/pdf");
+}
+
 /** Blobs de MIDI entregados a `URL.createObjectURL`. */
 function midiBlobs() {
   return createObjectURL.mock.calls
@@ -491,6 +515,7 @@ const scrollIntoView = vi.fn();
 
 beforeEach(() => {
   resetAuth();
+  Object.assign(pdfRender, { calls: [], next: null });
   Object.assign(osmd, {
     measures: 3,
     fail: false,
@@ -1172,6 +1197,161 @@ describe("vista de una sesión", () => {
       expect(screen.queryByRole("button", { name: "Descargar MIDI" })).toBeNull();
     });
     late.resolve(midi());
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(saved.names).toEqual([]);
+  });
+
+  it("«Descargar PDF» va junto a las otras descargas y dibuja el MusicXML del estado que se ve (#376)", async () => {
+    api();
+    const saved = captureDownloads();
+    renderPage();
+
+    const button = await sessionAction("Descargar PDF");
+    const downloads = within(screen.getByRole("group", { name: "Datos y descargas de la sesión" }))
+      .getAllByRole("button", { name: /^Descargar / })
+      .map((control) => control.textContent);
+    expect(downloads).toEqual(["Descargar MusicXML", "Descargar MIDI", "Descargar PDF"]);
+    expect(pdfRender.calls).toEqual([]);
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    // El mismo MusicXML que dibuja la vista y que baja «Descargar MusicXML».
+    expect(pdfRender.calls).toEqual([XML]);
+    const [blob] = pdfBlobs();
+    if (!blob) throw new Error("no se guardó ningún PDF");
+    expect(await blob.text()).toBe("%PDF-1.3");
+    expect(button).not.toHaveAccessibleDescription(/pdf/i);
+  });
+
+  it("mientras prepara el PDF lo dice, no lo vuelve a preparar y «Exportar / Datos» no se cierra", async () => {
+    const pending = deferred<Blob>();
+    pdfRender.next = () => pending.promise;
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+    const toggle = screen.getByRole("button", { name: "Exportar / Datos" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el PDF…");
+    });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(button);
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(pdfRender.calls).toHaveLength(1);
+    expect(saved.names).toEqual([]);
+
+    pending.resolve(new Blob(["%PDF-1.3"]));
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAccessibleDescription(/pdf/i);
+  });
+
+  it("si el PDF falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a preparar y descarga", async () => {
+    let fail = true;
+    pdfRender.next = () =>
+      fail ? Promise.reject(new Error("VexFlow")) : Promise.resolve(new Blob(["%PDF-1.3"]));
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(
+        "No se pudo preparar el PDF. Pulsa «Descargar PDF» para volver a intentarlo.",
+      );
+    });
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((region) => /no se pudo preparar el pdf/i.test(region.textContent)),
+    ).toBe(true);
+    expect(saved.names).toEqual([]);
+
+    fail = false;
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toEqual([XML, XML]);
+    expect(screen.queryByText(/no se pudo preparar el pdf/i)).toBeNull();
+  });
+
+  it("si el PDF tarda no descarga por sorpresa: dice que está listo y el clic lo guarda sin rehacerlo", async () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    pdfRender.next = () => {
+      clock = 10_000;
+      return Promise.resolve(new Blob(["%PDF-1.3"]));
+    };
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(
+        "El PDF ya está listo. Pulsa «Descargar PDF» para guardarlo.",
+      );
+    });
+    expect(saved.names).toEqual([]);
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toHaveLength(1);
+  });
+
+  it("si el MusicXML aún no ha llegado, el PDF lo espera y no lo pide otra vez", async () => {
+    const late = deferred<Response>();
+    const { calls } = withExport(() => late.promise);
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el PDF…");
+    });
+    late.resolve(xml());
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toEqual([XML]);
+    expect(calls.filter((call) => call.key === `GET /sessions/${ID}/export`)).toHaveLength(1);
+  });
+
+  it("si se sale de la vista mientras prepara el PDF, no descarga al llegar", async () => {
+    const late = deferred<Blob>();
+    pdfRender.next = () => late.promise;
+    api();
+    const saved = captureDownloads();
+    const router = renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+    await router.navigate("/transcripcion");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Descargar PDF" })).toBeNull();
+    });
+    late.resolve(new Blob(["%PDF-1.3"]));
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(saved.names).toEqual([]);
@@ -2722,6 +2902,24 @@ describe("corregir la nota elegida", () => {
     // La descarga es la del estado nuevo, sin pedirla.
     captureDownloads();
     fireEvent.click(await sessionAction("Descargar MusicXML"));
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+  });
+
+  it("tras una corrección, el PDF es el del estado nuevo, sin pedir el MusicXML (#376)", async () => {
+    const server = editableApi();
+    captureDownloads();
+    renderPage();
+    await chooseMeasure(2);
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    fireEvent.click(await sessionAction("Descargar PDF"));
+
+    await waitFor(() => {
+      expect(pdfRender.calls).toEqual(["<score-partwise>estado 1</score-partwise>"]);
+    });
     expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
   });
 
@@ -7872,7 +8070,12 @@ describe("corregir la nota elegida", () => {
       expect(menuToggle()).toHaveAttribute("aria-expanded", "false");
       fireEvent.click(menuToggle());
       expect(menuToggle()).toHaveAttribute("aria-expanded", "true");
-      for (const name of ["Cambiar los datos", "Descargar MusicXML", "Descargar MIDI"]) {
+      for (const name of [
+        "Cambiar los datos",
+        "Descargar MusicXML",
+        "Descargar MIDI",
+        "Descargar PDF",
+      ]) {
         expect(within(banner()).getByRole("button", { name })).toBeVisible();
       }
 

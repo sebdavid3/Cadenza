@@ -4,6 +4,8 @@ import {
   midiFile,
   MUSICXML_TYPE,
   musicXmlFile,
+  PDF_TYPE,
+  pdfFile,
   REVOKE_DELAY_MS,
   saveFile,
 } from "./download";
@@ -34,6 +36,17 @@ describe("descarga del MusicXML", () => {
     expect(file.name).toBe("cadenza-3e951fef.mid");
     expect(MIDI_TYPE).toBe("audio/midi");
     expect(file.blob.type).toBe(MIDI_TYPE);
+    expect(new Uint8Array(await file.blob.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("guarda el PDF como cadenza-<8 primeros del id>.pdf, de tipo application/pdf y con sus bytes", async () => {
+    // «%PDF-», como empieza todo PDF.
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+    const file = pdfFile("3e951fef-8a58-489e-abc9-68cfc3cd405b", new Blob([bytes]));
+
+    expect(file.name).toBe("cadenza-3e951fef.pdf");
+    expect(PDF_TYPE).toBe("application/pdf");
+    expect(file.blob.type).toBe(PDF_TYPE);
     expect(new Uint8Array(await file.blob.arrayBuffer())).toEqual(bytes);
   });
 

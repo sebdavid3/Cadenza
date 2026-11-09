@@ -19,7 +19,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { FindingRead } from "../../types";
 import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
 import { listUsers, statusLabel } from "../transcription/sessions";
-import { DownloadButton, MidiDownloadButton } from "./DownloadButton";
+import { DownloadButton, MidiDownloadButton, PdfDownloadButton } from "./DownloadButton";
 import { DeskDivider } from "./DeskDivider";
 import { clampShare, SHARE_DEFAULT } from "./deskShare";
 import { EditBar, type ToolTab } from "./EditBar";
@@ -57,6 +57,7 @@ import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
 import { ScoreDataPanel } from "./ScoreDataPanel";
 import { HeaderPopover, SessionTopBar } from "./SessionHeader";
+import { createPdfMaker, renderScorePdf } from "./pdf";
 import { ScoreView, type ScoreSnapshot } from "./ScoreView";
 import { useSelectionStore } from "./selection";
 import {
@@ -317,6 +318,10 @@ function SessionView({ sessionId }: { sessionId: string }) {
   });
   const [tab, setTab] = useState<ToolTab>("note");
   const [midiPreparing, setMidiPreparing] = useState(false);
+  const [pdfPreparing, setPdfPreparing] = useState(false);
+  // El PDF se dibuja en el navegador (#376): se guarda el último, para no dibujarlo otra vez
+  // con el mismo MusicXML.
+  const [makePdf] = useState(() => createPdfMaker(renderScorePdf));
   const [keysShown, setKeysShown] = useState(false);
   const toggleKeys = useCallback(() => {
     setKeysShown((shown) => !shown);
@@ -503,8 +508,8 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const busyElsewhere =
     editor.status.kind === "saving" || editor.status.kind === "reloading" || editor.queued;
   // «Exportar / Datos» no se cierra con un clic fuera mientras se guardan los datos o se prepara
-  // el MIDI: su aviso se vería en un panel oculto.
-  const menuPinned = metadataEditor.saving || midiPreparing;
+  // el MIDI o el PDF: su aviso se vería en un panel oculto.
+  const menuPinned = metadataEditor.saving || midiPreparing || pdfPreparing;
   return (
     <div className="session session--desk">
       <SessionTopBar
@@ -549,6 +554,19 @@ function SessionView({ sessionId }: { sessionId: string }) {
                   ready={ready}
                   fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
                   onPreparing={setMidiPreparing}
+                />
+                {/* El PDF del MusicXML que se ve o, si aún no ha llegado, del que se está pidiendo. */}
+                <PdfDownloadButton
+                  sessionId={sessionId}
+                  seq={seq}
+                  ready={ready}
+                  makePdf={async () =>
+                    makePdf(
+                      musicXml.data ??
+                        (await queryClient.query(sessionMusicXmlQuery(api, sessionId, seq))),
+                    )
+                  }
+                  onPreparing={setPdfPreparing}
                 />
               </div>
             </HeaderPopover>
