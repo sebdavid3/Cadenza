@@ -8,13 +8,12 @@
   scroll-margin-top: var(--space-4);
 }
 
-/* Las columnas del titular: la explicación a la izquierda y la zona de subida a la derecha;
-   lo demás (avisos, formulario, progreso y resultado) a lo ancho, debajo. */
+/* El área de subida ocupa el centro del recuadro como acción principal. */
 .landing-upload__body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(min(100%, 300px), 480px);
-  gap: var(--space-5) var(--space-7);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: stretch;
   padding: var(--space-5);
 }
 
@@ -23,30 +22,54 @@
 }
 
 .landing-upload__body > .landing-upload__lead {
-  grid-column: 1;
-  max-width: 62ch;
+  grid-column: 1 / -1;
+  max-width: 68ch;
+  justify-self: center;
   font-size: var(--text-lead);
   line-height: 1.4;
+  text-align: center;
 }
 
-/* La zona de subida de la cola, en la columna de la derecha en lugar de su sitio en
-   /transcripcion. */
+/* Zona de arrastrar y soltar inspirada en herramientas de conversión de archivos. */
 .landing-upload__body > .landing-upload__zone,
 .landing-upload__body > .landing-upload__progress {
-  grid-column: 2;
-  grid-row: 1;
+  grid-column: 1 / -1;
+  grid-row: auto;
 }
 
-@media (max-width: 900px) {
-  .landing-upload__body {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.landing-upload .landing-upload__zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  min-width: 0;
+  min-height: clamp(220px, 30vw, 340px);
+  padding: clamp(var(--space-5), 6vw, var(--space-8));
+  border: var(--rule-width) dashed var(--color-ink-muted);
+  background: var(--color-paper);
+  text-align: center;
+  transition:
+    border-color var(--duration-quick) var(--ease-out),
+    background-color var(--duration-quick) var(--ease-out);
+}
 
-  .landing-upload__body > .landing-upload__zone,
-  .landing-upload__body > .landing-upload__progress {
-    grid-column: 1;
-    grid-row: auto;
-  }
+.landing-upload .landing-upload__zone[data-dragging="true"] {
+  border-color: var(--color-accent);
+  background: var(--halftone-accent);
+}
+
+.landing-upload__zone .button {
+  min-height: 52px;
+  padding-inline: var(--space-6);
+  font-size: var(--text-lead);
+}
+
+.landing-upload__zone .upload__hint {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-body);
 }
 
 @media (max-width: 600px) {
@@ -65,15 +88,25 @@
     padding: var(--space-4);
   }
 
+  .landing-upload__zone {
+    min-height: 220px;
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .landing-upload__zone .button {
+    max-width: 100%;
+    padding-inline: var(--space-4);
+    font-size: var(--text-body);
+  }
+
+  .landing-upload__zone .upload__hint {
+    font-size: var(--text-small);
+  }
+
   .landing-upload__form,
   .landing-upload__pending {
     width: 100%;
     padding: var(--space-4);
-  }
-
-  .landing-upload__zone {
-    width: 100%;
-    min-width: 0;
   }
 }
 
