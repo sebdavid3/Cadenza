@@ -186,8 +186,8 @@ def _restore_chord_note(
 
 
 def _with_kind(target: Event, after: Mapping[str, Any] | None) -> Event:
-    """El evento convertido en lo que dice el `after` de `SetEventKind` (ADR-0058): un hueco, un
-    silencio que se ve o una nota, con su misma figura. Un silencio no lleva ligadura de
+    """El evento convertido en lo que dice el `after` de `SetEventKind` (ADR-0058, #350): un
+    hueco, un silencio que se ve o una nota, con su misma figura. Un silencio no lleva ligadura de
     prolongación ni es nota de un acorde."""
 
     if after is None:

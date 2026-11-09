@@ -15,6 +15,7 @@ import {
   planCommand,
   rangeName,
   type Accidental,
+  type EditCommand,
   type EditTarget,
   type PlannedCommand,
 } from "./edits";
@@ -87,6 +88,11 @@ interface EditBarProps {
   /** Pestaña de herramientas que se ve (#341); sin ella, la barra recuerda la suya. */
   tab?: ToolTab;
   onTab?: (tab: ToolTab) => void;
+  /** Quién recibe las órdenes de los botones: la vista, que lleva el modo «Escribir» (#350). */
+  onCommand?: (command: EditCommand, target: EditTarget | null) => void;
+  /** El modo «Escribir» (#350): la figura con que se escribe, o null fuera de él. */
+  writing?: { figure: number; dotted: boolean } | null;
+  onToggleWriting?: () => void;
   /** Id de la leyenda de la selección, que «Atajos» también muestra y oculta. */
   selectionKeysId?: string;
   /** Si se ven las leyendas de teclas (#341); sin `onToggleKeys`, siempre se ven. */
@@ -403,6 +409,11 @@ interface CommandButtonProps {
   origin?: AnchorPayload | null;
   blocked: boolean;
   onRun: (command: PlannedCommand) => void;
+  /**
+   * Si el botón no envía ninguna edición (en el modo «Escribir», la figura elige con qué se
+   * escribe, #350): siempre se puede pulsar.
+   */
+  free?: boolean;
 }
 
 /** Botón de una orden: inactivo si ahora no se puede; pulsado si es el valor que ya tiene. */
@@ -418,17 +429,19 @@ function CommandButton({
   origin = null,
   blocked,
   onRun,
+  free = false,
 }: CommandButtonProps) {
   const plan = planCommand(command, target, score, origin);
   // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo o una
   // ligadura de prolongación que no se pueden ahí tampoco: pulsarlo dice por qué (falta el
   // inicio, una figura con puntillo, lo siguiente no es la misma nota…).
   const disabled =
-    blocked ||
-    (plan.kind === "refused" &&
-      plan.reason !== "same" &&
-      plan.reason !== "meter" &&
-      plan.reason !== "tie");
+    !free &&
+    (blocked ||
+      (plan.kind === "refused" &&
+        plan.reason !== "same" &&
+        plan.reason !== "meter" &&
+        plan.reason !== "tie"));
   return (
     <button
       type="button"
@@ -774,6 +787,9 @@ export function EditBar({
   keysShown,
   onToggleKeys,
   selectionKeysId,
+  onCommand,
+  writing = null,
+  onToggleWriting,
 }: EditBarProps) {
   const suggestionsId = useId();
   const groupId = useId();
@@ -811,7 +827,8 @@ export function EditBar({
     score,
     blocked,
     onRun: (command: PlannedCommand) => {
-      editor.run(command, target);
+      if (onCommand) onCommand(command, target);
+      else editor.run(command, target);
     },
   };
   // Hasta dónde llegan la clave y la armadura que se pongan en el compás elegido.
@@ -935,6 +952,18 @@ export function EditBar({
               ))}
             </div>
           )}
+          {editable && onToggleWriting && (
+            <button
+              type="button"
+              className="editor__write"
+              aria-pressed={writing !== null}
+              aria-keyshortcuts="W"
+              title="Escribir con el ratón (W)"
+              onClick={onToggleWriting}
+            >
+              Escribir
+            </button>
+          )}
           {editable && onToggleKeys && (
             <button
               type="button"
@@ -997,7 +1026,8 @@ export function EditBar({
                     command={{ kind: "figure", figure: index }}
                     label={figure.name}
                     icon={FIGURE_ICONS[index] ?? "figure-quarter"}
-                    pressed={current.figure === index}
+                    pressed={writing ? writing.figure === index : current.figure === index}
+                    free={writing !== null}
                     {...shared}
                   />
                 ))}
@@ -1005,7 +1035,8 @@ export function EditBar({
                   command={{ kind: "dot" }}
                   label="Puntillo"
                   icon="figure-dot"
-                  pressed={current.dotted}
+                  pressed={writing ? writing.dotted : current.dotted}
+                  free={writing !== null}
                   {...shared}
                 />
               </div>
@@ -1167,7 +1198,21 @@ export function EditBar({
           </div>
         </>
       )}
-      {editable && hint(target, available) !== null && (
+      {editable && writing && (
+        <p className="editor__hint editor__hint--writing">
+          <span className="editor__hint-pointer">
+            Escribir: elige la figura y pasa el ratón por la partitura; el fantasma enseña la nota.
+            Clic para ponerla (sobre otra figura, la cambia; entre dos, inserta) y Mayús + clic para
+            añadirla al acorde. Esc para salir.
+          </span>
+          <span className="editor__hint-touch">
+            Escribir: elige la figura y toca la partitura; el fantasma enseña la nota. Vuelve a
+            tocar en el mismo sitio para ponerla (sobre otra figura, la cambia; entre dos, inserta).
+            Pulsa «Escribir» para salir.
+          </span>
+        </p>
+      )}
+      {editable && !writing && hint(target, available) !== null && (
         <p className="editor__hint">{hint(target, available)}</p>
       )}
       <div className="editor__feedback">
@@ -1241,6 +1286,9 @@ export function EditBar({
           </span>
           <span>
             <KeyCap>U</KeyCap> ligar con la siguiente
+          </span>
+          <span>
+            <KeyCap>W</KeyCap> escribir con el ratón; <KeyCap>Esc</KeyCap> salir
           </span>
           <span>
             <KeyCap>P</KeyCap>

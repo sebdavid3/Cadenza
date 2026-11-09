@@ -8,11 +8,23 @@ import {
   useSyncExternalStore,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import type { ScoreIRPayload } from "../../types";
 import { measureSlot, slotKey, type MeasureMark, type MeasureSlot } from "./findings";
-import { editCommand, eventAt, type EditCommand, type EditTarget } from "./edits";
+import {
+  activeClef,
+  activeFifths,
+  editCommand,
+  eventAt,
+  staffPitch,
+  staffSteps,
+  type EditCommand,
+  type EditTarget,
+} from "./edits";
+import { writeSpotAt, type WriteSpot, type WritingMode } from "./writing";
+import { WriteGhost } from "./WriteGhost";
 import {
   anchorKey,
   buildNoteMap,
@@ -90,6 +102,8 @@ interface ScoreViewProps {
   editKeysId?: string;
   /** Si la leyenda de teclas de la selección se oculta tras «Atajos» (#341). */
   keysHidden?: boolean;
+  /** El modo «Escribir» (#350): con él, el puntero lleva una nota fantasma y el clic escribe. */
+  writing?: WritingMode | null;
   /**
    * Si se pueden elegir notas sobre la partitura (ADR-0027). Sin ello es una imagen con nombre y
    * no hay barra de selección: el resultado de la portada solo se mira (#277, ADR-0053).
@@ -169,6 +183,44 @@ function drawingStore() {
   };
 }
 
+/** La nota fantasma del modo «Escribir»: el sitio, la altura, si va al acorde y su clave. */
+interface Ghost {
+  spot: WriteSpot;
+  pitch: string;
+  chord: boolean;
+  key: string;
+  /** Estado dibujado en que se calculó: con otro, su geometría ya no vale. */
+  seq: number;
+  /** El punto del puntero, en px de la partitura. */
+  at: { x: number; y: number };
+}
+
+/**
+ * Cuánto puede separarse el clic del último movimiento del ratón y escribir aún lo que enseña el
+ * fantasma, en px: el navegador puede redondear distinto el punto del clic y el del movimiento.
+ */
+const GHOST_SLACK_PX = 1.5;
+
+/** La nota fantasma de un sitio y una altura; con Mayús sobre una nota, va a su acorde. */
+function ghostOf(
+  spot: WriteSpot,
+  pitch: string,
+  shift: boolean,
+  seq: number,
+  at: Ghost["at"],
+): Ghost {
+  const chord = shift && spot.aim.kind === "replace" && spot.aim.event.event.kind === "note";
+  const end = spot.aim.kind === "insert" && spot.aim.end;
+  return {
+    spot,
+    pitch,
+    chord,
+    key: [spot.aim.kind, spot.aim.event.key, String(end), pitch, String(chord)].join("|"),
+    seq,
+    at,
+  };
+}
+
 /** Lo que se ve del primer antepasado que se desplaza o, si no lo hay, de la ventana. */
 function scrollViewOf(element: Element): { top: number; bottom: number } {
   for (let node = element.parentElement; node; node = node.parentElement) {
@@ -205,6 +257,7 @@ export function ScoreView({
   onCommand,
   editKeysId,
   keysHidden = false,
+  writing = null,
   notesSelectable = true,
 }: ScoreViewProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -424,6 +477,17 @@ export function ScoreView({
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!selectable) return;
+    // Esc sale del modo «Escribir» antes que quitar la nota elegida (#350).
+    if (writing && event.key === "Escape") {
+      event.preventDefault();
+      writing.onExit();
+      return;
+    }
+    // Mayús, sin mover el ratón, ya cambia el fantasma: el clic añadirá la nota al acorde.
+    if (writing && event.key === "Shift") {
+      shiftGhost(true);
+      return;
+    }
     const command = onCommand ? editCommand(event) : null;
     if (command) {
       event.preventDefault();
@@ -443,8 +507,119 @@ export function ScoreView({
     event.preventDefault();
     move(action);
   };
+  // Escribir con el ratón (#350): la nota fantasma sigue al puntero y el clic la escribe. Solo
+  // sobre el estado que se ve dibujado: las anclas del mapa de notas son de ese estado.
+  const [ghost, setGhost] = useState<Ghost | null>(null);
+  // El último punto del puntero sobre la partitura, aunque el fantasma no cambiara al pasar por él.
+  const pointerAt = useRef<Ghost["at"] | null>(null);
+  // El puntero del último toque: donde el clic no es un PointerEvent, dice si fue el dedo.
+  const pointerKind = useRef<string | null>(null);
+  const shiftGhost = (shift: boolean) => {
+    setGhost((previous) =>
+      previous ? ghostOf(previous.spot, previous.pitch, shift, previous.seq, previous.at) : null,
+    );
+  };
+  const onKeyUp = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (writing && event.key === "Shift") shiftGhost(false);
+  };
+  const writable =
+    writing !== null &&
+    selectable !== null &&
+    score !== null &&
+    drawn !== null &&
+    drawn.seq === snapshot.seq;
+  const ghostAt = (
+    stage: HTMLElement,
+    clientX: number,
+    clientY: number,
+    shift: boolean,
+  ): Ghost | null => {
+    if (!writable) return null;
+    const origin = stage.getBoundingClientRect();
+    const at = { x: clientX - origin.left, y: clientY - origin.top };
+    // Las cabezas dibujadas, con su altura, ajustan las líneas de cada compás.
+    const noteSteps = (event: SelectableEvent) =>
+      event.event.kind === "note" && !event.grace
+        ? staffSteps(activeClef(snapshot.transcription, event.anchor), event.event.pitch)
+        : null;
+    const spot = writeSpotAt(selectable, at.x, at.y, (slot) => score.measureBox(slot), noteSteps);
+    if (!spot) return null;
+    const place = spot.aim.event.anchor;
+    const clef = activeClef(snapshot.transcription, place);
+    // Sobre una nota, en su misma línea o espacio, se conserva su alteración: cambiar solo la
+    // figura de un Fa#4 en Do mayor no lo deja en Fa4.
+    const aimed = spot.aim.event.event;
+    const own =
+      spot.aim.kind === "replace" &&
+      aimed.kind === "note" &&
+      staffSteps(clef, aimed.pitch) === spot.steps
+        ? aimed.pitch
+        : null;
+    const pitch = own ?? staffPitch(clef, activeFifths(snapshot.transcription, place), spot.steps);
+    return pitch ? ghostOf(spot, pitch, shift, snapshot.seq, at) : null;
+  };
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!writable || event.pointerType === "touch") return;
+    const next = ghostAt(event.currentTarget, event.clientX, event.clientY, event.shiftKey);
+    pointerAt.current = next?.at ?? null;
+    setGhost((previous) =>
+      previous?.key === next?.key &&
+      previous?.seq === next?.seq &&
+      previous?.spot.aim.x === next?.spot.aim.x
+        ? previous
+        : next,
+    );
+  };
+  const onPointerLeave = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") return;
+    pointerAt.current = null;
+    setGhost(null);
+  };
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    pointerKind.current = event.pointerType;
+  };
+  const writeAt = (event: MouseEvent<HTMLDivElement>, mode: WritingMode) => {
+    const stage = event.currentTarget;
+    stage.focus({ preventScroll: true });
+    let next = ghostAt(stage, event.clientX, event.clientY, event.shiftKey);
+    if (!next) {
+      setGhost(null);
+      return;
+    }
+    const pointer = (event.nativeEvent as Partial<PointerEvent>).pointerType ?? pointerKind.current;
+    // Con el ratón, el clic escribe lo que enseña el fantasma: en el borde entre dos alturas, el
+    // punto del clic, redondeado de otra forma, podría dar la de al lado.
+    const last = pointerAt.current;
+    if (
+      pointer !== "touch" &&
+      ghost?.seq === next.seq &&
+      last !== null &&
+      Math.abs(last.x - next.at.x) <= GHOST_SLACK_PX &&
+      Math.abs(last.y - next.at.y) <= GHOST_SLACK_PX
+    ) {
+      next = ghostOf(ghost.spot, ghost.pitch, event.shiftKey, ghost.seq, ghost.at);
+    }
+    // Con el dedo no hay fantasma antes de tocar: el primer toque lo enseña y el segundo, en el
+    // mismo sitio, escribe.
+    const shown = ghost?.key === next.key && ghost.seq === next.seq;
+    setGhost(next);
+    if ((pointer === "touch" && !shown) || mode.wait !== null) return;
+    const found = eventAt(snapshot.transcription, next.spot.aim.event.anchor);
+    if (!found) return;
+    const target: EditTarget = { anchor: next.spot.aim.event.anchor, ...found };
+    mode.onWrite(
+      next.spot.aim.kind === "insert"
+        ? { kind: "insert", target, pitch: next.pitch, end: next.spot.aim.end }
+        : { kind: "replace", target, pitch: next.pitch, chord: next.chord },
+    );
+  };
+
   const onClick = (event: MouseEvent<HTMLDivElement>) => {
     if (!selectable || !score) return;
+    if (writing) {
+      writeAt(event, writing);
+      return;
+    }
     const stage = event.currentTarget;
     const origin = stage.getBoundingClientRect();
     const candidate = nearestEvent(
@@ -584,6 +759,11 @@ export function ScoreView({
         "aria-busy": ahead || undefined,
         onKeyDown,
         onClick,
+        onKeyUp,
+        onPointerMove,
+        onPointerLeave,
+        onPointerDown,
+        "data-writing": writing ? "true" : undefined,
       }
     : {};
 
@@ -670,6 +850,16 @@ export function ScoreView({
                 />
               ))}
             </div>
+          )}
+          {writing && writable && ghost?.seq === drawn.seq && (
+            <WriteGhost
+              spot={ghost.spot}
+              pitch={ghost.pitch}
+              figure={writing.figure}
+              dotted={writing.dotted}
+              chord={ghost.chord}
+              wait={writing.wait}
+            />
           )}
           {/* Solo es una imagen con nombre cuando hay partitura dibujada y no se eligen notas. */}
           <div

@@ -549,3 +549,29 @@ def test_gap_edits_keep_a_session_verified() -> None:
     derived = derive_edit_events(raw, final, document_id="d")
     assert {e.op for e in derived} <= CONTENT_EDIT_OPS
     assert is_structurally_equal(materialize(raw, derived), final)
+
+
+def test_a_shown_rest_written_as_a_note_keeps_a_session_verified() -> None:
+    """Escribir con el ratón una nota sobre un silencio que se ve (`SetEventKind`, #350) tampoco
+    rompe el corpus: `derive_edit_events` reproduce el estado final solo con operaciones de
+    contenido."""
+    raw = _score(_measure(1, _note("G4"), _rest(), _note("B4", "2")))
+    where = Anchor(part=0, staff=0, measure=1, voice=0, event_index=1, staff_id="p-s0")
+    after: dict[str, Any] = {"kind": "note", "pitch": "A4", "hidden": False}
+    validate_after(raw, where, EditOp.SET_EVENT_KIND, after)
+    written = EditEvent(
+        id="e1",
+        document_id="d",
+        seq=1,
+        anchor=where,
+        op=EditOp.SET_EVENT_KIND,
+        author="ana",
+        created_at=datetime(2026, 11, 8, tzinfo=UTC),
+        before=snapshot_before(raw, where, EditOp.SET_EVENT_KIND, after),
+        after=after,
+    )
+    final = materialize(raw, [written])
+
+    derived = derive_edit_events(raw, final, document_id="d")
+    assert {e.op for e in derived} <= CONTENT_EDIT_OPS
+    assert is_structurally_equal(materialize(raw, derived), final)

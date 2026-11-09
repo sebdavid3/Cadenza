@@ -277,14 +277,14 @@ const INVESTIGADORA: UserRead = {
 };
 const ID = "3e951fef-8a58-489e-abc9-68cfc3cd405b";
 
-function measure(number: number) {
+function measure(number: number, pitch = "C4") {
   return {
     number,
     events: [
       {
         kind: "note",
         voice: 0,
-        pitch: "C4",
+        pitch,
         duration_beats: "3",
         tie: null,
         is_chord: false,
@@ -299,7 +299,12 @@ function measure(number: number) {
 
 function detail(changes: Partial<SessionDetailRead> = {}): SessionDetailRead {
   const score = {
-    parts: [{ id: "part-0", staves: [{ id: "part-0-staff-0", measures: [1, 2, 3].map(measure) }] }],
+    parts: [
+      {
+        id: "part-0",
+        staves: [{ id: "part-0-staff-0", measures: [1, 2, 3].map((number) => measure(number)) }],
+      },
+    ],
   };
   return {
     session_id: ID,
@@ -7718,6 +7723,303 @@ describe("corregir la nota elegida", () => {
 
       expect(screen.queryByRole("button", { name: "Atajos" })).toBeNull();
       expect(document.querySelector(".selection__keys")).toBeVisible();
+    });
+  });
+
+  describe("escribir con el ratón (#350)", () => {
+    // Las líneas se ajustan a las cabezas dibujadas (#350): el doble de OSMD dibuja el Do 4 de
+    // cada compás con su cabeza centrada en 52,69 px, y cada medio espacio (3,75 px) es un paso.
+    // El Sol 4 está cuatro pasos por encima del Do 4.
+    const C4 = (6.5 + 1.05 / 2) * 7.5;
+    const G4 = C4 - 4 * 3.75;
+    /** Columna de la figura del compás 2 (su cabeza va de 258 a 267 px). */
+    const COLUMN = 262.5;
+    const writeToggle = () => within(editor()).getByRole("button", { name: "Escribir" });
+    const ghostTag = () => document.querySelector(".notation__ghost-tag");
+
+    it("W entra en el modo «Escribir», abre «Nota», y Esc sale", async () => {
+      editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(within(editor()).getByRole("tab", { name: "Compás" }));
+
+      fireEvent.keyDown(region, { key: "w" });
+
+      expect(writeToggle()).toHaveAttribute("aria-pressed", "true");
+      expect(within(editor()).getByRole("tab", { name: "Nota" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      expect(region).toHaveAttribute("data-writing", "true");
+      expect(
+        within(editor()).getByText(/^Escribir: elige la figura y pasa el ratón/),
+      ).toBeVisible();
+      // Con el dedo, la indicación dice cómo se escribe tocando (la elige el CSS).
+      expect(
+        within(editor()).getByText(/^Escribir: elige la figura y toca la partitura/),
+      ).toHaveClass("editor__hint-touch");
+
+      fireEvent.keyDown(region, { key: "Escape" });
+      expect(writeToggle()).toHaveAttribute("aria-pressed", "false");
+      expect(region).not.toHaveAttribute("data-writing");
+
+      // Con el foco en la barra (tras pulsar «Escribir»), Esc también sale.
+      fireEvent.click(writeToggle());
+      expect(writeToggle()).toHaveAttribute("aria-pressed", "true");
+      fireEvent.keyDown(writeToggle(), { key: "Escape" });
+      expect(writeToggle()).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("en el modo «Escribir», la figura elige con qué se escribe y no envía nada", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(writeToggle());
+      // Empieza con la figura de la nota elegida: una blanca con puntillo.
+      expect(button("Blanca")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Puntillo")).toHaveAttribute("aria-pressed", "true");
+
+      fireEvent.click(button("Corchea"));
+      fireEvent.click(button("Puntillo"));
+      expect(button("Corchea")).toHaveAttribute("aria-pressed", "true");
+      expect(button("Puntillo")).toHaveAttribute("aria-pressed", "false");
+      fireEvent.keyDown(region, { key: "5" });
+      expect(button("Negra")).toHaveAttribute("aria-pressed", "true");
+      expect(server.bodies).toHaveLength(0);
+    });
+
+    it("el fantasma enseña la nota y la figura bajo el ratón", async () => {
+      editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 });
+
+      expect(document.querySelector(".notation__ghost")).toHaveAttribute("data-aim", "replace");
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+      fireEvent.pointerMove(region, { clientX: COLUMN + 60, clientY: G4 });
+      expect(document.querySelector(".notation__ghost")).toHaveAttribute("data-aim", "insert");
+      expect(ghostTag()).toHaveTextContent("Insertar Sol4 · negra");
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4, shiftKey: true });
+      expect(ghostTag()).toHaveTextContent("Sol4 al acorde");
+      fireEvent.pointerLeave(region);
+      expect(document.querySelector(".notation__ghost")).toBeNull();
+    });
+
+    it("un clic sobre una nota le da la altura y la figura del fantasma: dos ediciones", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4 });
+
+      await waitFor(() => {
+        expect(server.bodies.map((body) => body.op)).toEqual(["SetPitch", "SetDuration"]);
+      });
+      expect(server.bodies[0]).toMatchObject({ anchor: anchorOf(2), after: { pitch: "G4" } });
+      expect(server.bodies[1]).toMatchObject({
+        base_seq: 1,
+        anchor: anchorOf(2),
+        after: { duration_beats: "1" },
+      });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: figura negra.");
+      });
+      // La nota escrita queda elegida; el fantasma, del estado anterior, ya no se ve hasta que se
+      // mueve el ratón, y vuelve ajustado al dibujo nuevo: sobre la cabeza escrita (que el doble
+      // de OSMD dibuja donde estaba el Do 4), el Sol 4.
+      expect(screen.getByText("Sol4 · negra")).toBeVisible();
+      expect(ghostTag()).toBeNull();
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: C4 });
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+    });
+
+    it("el clic escribe lo que enseña el fantasma, aunque caiga en el borde de la altura de al lado", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      // Un paso son 3,75 px: 1,5 px sobre el Sol 4 aún es Sol 4; 2,5 px ya sería el La 4.
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 - 1.5 });
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4 - 2.5 });
+
+      await waitFor(() => {
+        expect(server.bodies.length).toBeGreaterThan(0);
+      });
+      expect(server.bodies[0]).toMatchObject({ op: "SetPitch", after: { pitch: "G4" } });
+    });
+
+    it("el clic escribe lo que enseña el fantasma aunque el ratón haya cruzado su línea sin cambiarlo", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      // Entra en el Sol 4 por su borde con el Fa 4 y sube, sin cruzar, hasta su borde con el La 4.
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 + 1.7 });
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 - 1.7 });
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4 - 2.2 });
+
+      await waitFor(() => {
+        expect(server.bodies.length).toBeGreaterThan(0);
+      });
+      expect(server.bodies[0]).toMatchObject({ op: "SetPitch", after: { pitch: "G4" } });
+    });
+
+    it("Mayús, sin mover el ratón, pasa el fantasma al acorde y soltarla lo devuelve", async () => {
+      editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 });
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+
+      fireEvent.keyDown(region, { key: "Shift", shiftKey: true });
+      expect(ghostTag()).toHaveTextContent("Sol4 al acorde");
+      fireEvent.keyUp(region, { key: "Shift" });
+      expect(ghostTag()).toHaveTextContent("Sol4 · negra");
+    });
+
+    it("sobre una nota alterada, en su línea, conserva la alteración y solo cambia la figura", async () => {
+      const sharp = [1, 2, 3].map((number) => measure(number, number === 2 ? "C#4" : "C4"));
+      const server = editableApi(
+        detail({
+          current_score: {
+            parts: [{ id: "part-0", staves: [{ id: "part-0-staff-0", measures: sharp }] }],
+          } as SessionDetailRead["current_score"],
+        }),
+      );
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: C4 });
+      expect(ghostTag()).toHaveTextContent("Do#4 · negra");
+
+      fireEvent.click(region, { clientX: COLUMN, clientY: C4 });
+
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(1);
+      });
+      expect(server.bodies[0]).toMatchObject({ op: "SetDuration", after: { duration_beats: "1" } });
+    });
+
+    it("con el dedo, el primer toque enseña el fantasma y el segundo, en el mismo sitio, escribe", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      const tap = (clientX: number, clientY: number) => {
+        const event = new MouseEvent("click", {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY,
+        });
+        Object.defineProperty(event, "pointerType", { value: "touch" });
+        fireEvent(region, event);
+      };
+
+      tap(COLUMN + 60, G4);
+      expect(ghostTag()).toHaveTextContent("Insertar Sol4 · negra");
+      expect(server.bodies).toHaveLength(0);
+      // Otro sitio: el fantasma se mueve y sigue sin escribir.
+      tap(COLUMN + 60, G4 - 7.5);
+      expect(ghostTag()).toHaveTextContent("Insertar Si4 · negra");
+      expect(server.bodies).toHaveLength(0);
+
+      tap(COLUMN + 60, G4 - 7.5);
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(1);
+      });
+      expect(server.bodies[0]).toMatchObject({ op: "InsertEvent", after: { pitch: "B4" } });
+    });
+
+    it("con la misma altura y la misma figura no se envía nada", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await chooseMeasure(2);
+      fireEvent.click(writeToggle());
+      // Do 4, blanca con puntillo: sobre su cabeza.
+      fireEvent.click(region, { clientX: COLUMN, clientY: C4 });
+
+      expect(server.bodies).toHaveLength(0);
+    });
+
+    it("Mayús + clic añade la altura al acorde de la nota", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4, shiftKey: true });
+
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(1);
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), event_index: 1 },
+        after: { kind: "note", pitch: "G4", duration_beats: "3", is_chord: true },
+      });
+    });
+
+    it("tras la última figura o antes de la primera, inserta una nota nueva con la figura elegida", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+
+      fireEvent.click(region, { clientX: COLUMN + 60, clientY: G4 });
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(1);
+      });
+      expect(server.bodies[0]).toMatchObject({
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), event_index: 1 },
+        after: { kind: "note", pitch: "G4", duration_beats: "1" },
+      });
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Guardado: inserción de Sol 4/);
+      });
+      // La nota nueva queda elegida.
+      expect(screen.getByText("Sol4 · negra")).toBeVisible();
+
+      fireEvent.click(region, { clientX: 230, clientY: G4 });
+      await waitFor(() => {
+        expect(server.bodies).toHaveLength(2);
+      });
+      expect(server.bodies[1]).toMatchObject({
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), event_index: 0 },
+      });
+    });
+
+    it("mientras se guarda otra corrección, el clic espera y el fantasma lo dice", async () => {
+      const server = editableApi();
+      renderPage();
+      const region = await findScore();
+      fireEvent.click(writeToggle());
+      const pending = deferred<Response>();
+      server.respond(() => pending.promise);
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4, shiftKey: true });
+      expect(server.bodies).toHaveLength(1);
+
+      fireEvent.pointerMove(region, { clientX: COLUMN, clientY: G4 });
+      expect(ghostTag()).toHaveTextContent("Espera: se está guardando");
+      fireEvent.click(region, { clientX: COLUMN, clientY: G4 });
+      expect(server.bodies).toHaveLength(1);
+
+      const body = server.bodies[0];
+      if (!body) throw new Error("sin edición");
+      pending.resolve(server.accept(body));
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent(/^Guardado: inserción de Sol 4 en el acorde/);
+      });
     });
   });
 });

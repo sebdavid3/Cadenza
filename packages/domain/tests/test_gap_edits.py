@@ -237,12 +237,52 @@ def test_a_voice_that_starts_with_a_gap_is_written_from_it() -> None:
 # --- Validación (ADR-0017) ---------------------------------------------------------------
 
 
-def test_only_a_gap_changes_its_kind() -> None:
+def test_only_a_rest_changes_its_kind() -> None:
     score = _score((_note("C4"), _rest(1), _gap(1)))
-    _rejected(score, _anchor(0), SHOWN_REST, "hueco")
-    _rejected(score, _anchor(1), NOTE_F4, "hueco")
+    # Una nota se corrige con las demás operaciones.
+    _rejected(score, _anchor(0), SHOWN_REST, "silencio")
+    _rejected(score, _anchor(0), NOTE_F4, "silencio")
+    # Un silencio que se ve no vuelve a hueco desde una edición (solo la compensatoria) y, si
+    # sigue siendo un silencio que se ve, no cambia nada.
+    _rejected(score, _anchor(1), GAP, "hueco")
+    _rejected(score, _anchor(1), SHOWN_REST, "no cambia nada")
     # El hueco que sigue siendo hueco no cambia nada.
     _rejected(score, _anchor(2), GAP, "no cambia nada")
+
+
+# --- Un silencio que se ve pasa a ser una nota (#350) --------------------------------------
+
+
+def test_a_shown_rest_becomes_a_note_with_its_figure_and_one_undo_brings_it_back() -> None:
+    # Escribir con el ratón sobre un silencio (#350): la nota ocupa su lugar con su figura.
+    score = _score((_note("C4", Fraction(1, 2)), _rest(Fraction(1, 2)), _note("D4", 2)))
+    edit = _edit(score, _anchor(1), KIND, NOTE_F4)
+    assert edit.before == SHOWN_REST
+    written = apply_edit(score, edit)
+    note = _events(written)[1]
+    assert (note.kind, note.pitch, note.duration_beats, note.hidden) == (
+        EventKind.NOTE,
+        "F#4",
+        Fraction(1, 2),
+        False,
+    )
+    # No mueve ningún evento ni el compás.
+    assert [event.duration_beats for event in _events(written)] == [
+        event.duration_beats for event in _events(score)
+    ]
+    assert _undo(written, edit).to_primitive() == score.to_primitive()
+
+
+def test_the_compensation_turns_the_note_back_into_the_shown_rest_it_was() -> None:
+    score = _score((_rest(1), _note("D4", 2)))
+    edit = _edit(score, _anchor(0), KIND, NOTE_F4)
+    inverse = create_inverse_edit(edit, id="u", seq=2, author="ana", created_at=NOW)
+    assert inverse.before == NOTE_F4 and inverse.after == SHOWN_REST
+    back = apply_edit(apply_edit(score, edit), inverse)
+    rest = _events(back)[0]
+    assert (rest.kind, rest.pitch, rest.hidden) == (EventKind.REST, None, False)
+    # Rehacer reenvía el mismo `after` sobre el silencio que devolvió deshacer.
+    validate_after(back, _anchor(0), KIND, NOTE_F4)
 
 
 @pytest.mark.parametrize(
