@@ -920,7 +920,8 @@ queda fuera de esta fase.
 ### 10.4 Fase 8 y plan de cierre
 
 La Fase 8 construye `apps/web` sobre la API v1 congelada. Ya permite transcribir por lotes,
-ver una sesión con la partitura (OSMD) y sus posibles errores, descargar el MusicXML,
+ver una sesión con la partitura (OSMD) y sus posibles errores, descargar el MusicXML, el MIDI
+y un PDF que se dibuja en el navegador ([#376](https://github.com/sebdavid3/Cadenza/issues/376), ADR-0063),
 reproducirla con el compás en curso resaltado, corregir la altura, la duración y la
 alteración de una nota, insertar y borrar notas y silencios, y cambiar la clave y la
 armadura de un compás ([#184](https://github.com/sebdavid3/Cadenza/issues/184), ADR-0033), y deshacer y rehacer esas correcciones,
