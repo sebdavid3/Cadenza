@@ -319,12 +319,12 @@
   font-size: var(--text-small);
 }
 
+/* Como las de la barra de edición (#331), aunque estas no llegan a desbordar. */
 .selection__keys > span {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
-  min-width: 0;
+  gap: 0 3px;
 }
 
 /* Teclas como bloques de tinta macizos, del grano de los rótulos. */
@@ -524,13 +524,13 @@
 }
 
 /* Una leyenda larga parte línea en una ventana estrecha con ratón (#331): con `nowrap`, a
-   390 px «< / > empezar o terminar regulador» desbordaba la barra. */
+   390 px «I inicio; L < > ligadura, crescendo, diminuendo hasta aquí» desbordaba la barra. Sin
+   hueco entre las líneas de una misma leyenda, que no parezcan dos. */
 .editor__keys > span {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
-  min-width: 0;
+  gap: 0 3px;
 }
 
 /* Sin teclado físico las leyendas solo estorban: quedan el toque y los botones. */
