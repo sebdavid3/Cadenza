@@ -77,3 +77,15 @@ class SqlAlchemyPreviewRepository(PreviewRepository):
             delete(PreviewRecord).where(PreviewRecord.expires_at <= now.astimezone(UTC))
         )
         return int(getattr(result, "rowcount", 0) or 0)
+
+    def purge_all(self) -> int:
+        result = self._session.execute(delete(PreviewRecord))
+        return int(getattr(result, "rowcount", 0) or 0)
+
+    def next_expiry(self, now: datetime) -> datetime | None:
+        moment = self._session.scalar(
+            select(func.min(PreviewRecord.expires_at)).where(
+                PreviewRecord.expires_at > now.astimezone(UTC)
+            )
+        )
+        return None if moment is None else _aware(moment)

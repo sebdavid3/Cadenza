@@ -634,7 +634,7 @@
           "Transcription"
         ],
         "summary": "Transcribir sin cuenta desde la portada",
-        "description": "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y mapa de tiempos), cuántos posibles errores señalan las reglas y un token para reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: si no hay uno libre, 503. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054).",
+        "description": "Transcribe una imagen sin sesión y devuelve lo que leyó HOMR (MusicXML, ScoreIR y mapa de tiempos), cuántos posibles errores señalan las reglas y un token para reclamarla al entrar con POST /previews/{id}/claim. No crea ninguna sesión: se guarda sin dueño hasta que caduca (CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS). Limitada por IP, con un tope de transcripciones guardadas, y nunca espera un hueco de HOMR: solo empieza si están libres todos; si no, 503. Desde otra web, 403. Con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado, 404 (#278, ADR-0054).",
         "operationId": "create_preview_previews_post",
         "requestBody": {
           "content": {
@@ -653,6 +653,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "La petición viene de otra web (Sec-Fetch-Site u Origin): solo se transcribe sin cuenta desde la propia web (#278)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
                 }
               }
             }
@@ -734,7 +744,7 @@
           "Transcription"
         ],
         "summary": "Reclamar una transcripción sin cuenta",
-        "description": "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la transcripción sin cuenta se borra. Una que no existe, que caducó o con otro token responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054).",
+        "description": "Convierte la transcripción sin cuenta en una sesión de la cuenta que entra, con el mismo documento y la misma imagen y sin volver a ejecutar el OMR; el autor lo fija el servidor (ADR-0012). El token vale una sola vez: tras reclamarla, la transcripción sin cuenta se borra; si la misma cuenta la reclama otra vez con el mismo token (se perdió la respuesta), recibe la misma sesión. Una que no existe, que caducó o con otro token responde 404, como con CADENZA_ANONYMOUS_PREVIEW_ENABLED apagado (#278, ADR-0054).",
         "operationId": "claim_preview_previews__preview_id__claim_post",
         "security": [
           {

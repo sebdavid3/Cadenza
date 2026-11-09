@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import secrets
 import uuid
 from dataclasses import dataclass, replace
@@ -32,6 +33,32 @@ from .transcribe_score import TranscribeResult, create_session_from_document
 
 # 32 bytes aleatorios: imposible de adivinar, y aun así solo vale con una cuenta iniciada.
 _TOKEN_BYTES = 32
+# La sesión que nace al reclamar una transcripción tiene un id que sale del de esta: si se pierde
+# la respuesta, el reintento de la misma cuenta encuentra su sesión en vez de un 404 (#278).
+_CLAIM_NAMESPACE = uuid.UUID("6f1d6c2e-7a0b-4c55-9f1e-2b8a3c4d5e6f")
+
+
+def claimed_session_id(preview_id: str, token: str) -> str:
+    """El id de la sesión que nace al reclamar `preview_id` con `token`: un reintento sin el
+    token correcto no la encuentra."""
+    return str(uuid.uuid5(_CLAIM_NAMESPACE, f"{preview_id}:{hash_claim_token(token)}"))
+
+
+def _already_claimed(
+    preview_id: str, token: str, session_repository: SessionRepository, current_user: User
+) -> TranscribeResult | None:
+    """La sesión que esta cuenta ya creó al reclamar `preview_id` con `token`, si existe."""
+    claimed = session_repository.get(claimed_session_id(preview_id, token))
+    if claimed is None or claimed.owner_id != current_user.id:
+        return None
+    return TranscribeResult(
+        session_id=claimed.id,
+        document_id=claimed.document_id,
+        omr_engine=claimed.omr_engine,
+        findings_count=len(session_repository.list_findings(claimed.id)),
+        condition=claimed.condition,
+        test_score_id=claimed.test_score_id,
+    )
 
 
 def hash_claim_token(token: str) -> str:
@@ -61,7 +88,9 @@ def ensure_preview_capacity(
     """
     preview_repository.purge_expired(now)
     if preview_repository.count_active(now) >= max_active:
-        raise PreviewCapacityExceeded(max_active)
+        oldest = preview_repository.next_expiry(now)
+        wait = 60 if oldest is None else max(1, math.ceil((oldest - now).total_seconds()))
+        raise PreviewCapacityExceeded(max_active, retry_after_seconds=wait)
 
 
 def create_preview(
@@ -142,11 +171,17 @@ def claim_preview(
     Una que no existe, que caducó o con otro token responde igual (`PreviewNotFound`): no se
     puede averiguar cuáles existen. La transcripción se borra en la misma transacción en que
     nace la sesión; si dos peticiones la reclaman a la vez, solo una la borra y la otra recibe
-    `PreviewNotFound`.
+    `PreviewNotFound`. Si ya la reclamó esta misma cuenta con el mismo token (se perdió la
+    respuesta, o el reintento se cruzó con la primera), devuelve su sesión en vez de un 404:
+    otra cuenta, u otro token, no llegan a ella.
     """
     # De paso se borran las caducadas, con su imagen (ADR-0054 §3).
     preview_repository.purge_expired(now)
     preview = preview_repository.get(preview_id)
+    if preview is None:
+        again = _already_claimed(preview_id, token, session_repository, current_user)
+        if again is not None:
+            return again
     if (
         preview is None
         or preview.expires_at <= now
@@ -154,6 +189,11 @@ def claim_preview(
     ):
         raise PreviewNotFound(preview_id)
     if not preview_repository.delete(preview_id):
+        # Otra petición la borró antes: si era un reintento de esta cuenta, ya confirmó su
+        # sesión, y se devuelve en vez de un 404 que llevaría a transcribir otra vez.
+        again = _already_claimed(preview_id, token, session_repository, current_user)
+        if again is not None:
+            return again
         raise PreviewNotFound(preview_id)
 
     image_artifact = artifact_store.put(
@@ -165,6 +205,7 @@ def claim_preview(
         session_repository=session_repository,
         current_user=current_user,
         image_artifact=image_artifact,
+        session_id=claimed_session_id(preview_id, token),
         condition="assisted",
         suggestion_model=suggestion_model,
         metadata=preview.metadata,
