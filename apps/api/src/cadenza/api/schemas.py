@@ -376,6 +376,60 @@ class TranscribeResponse(BaseModel):
     test_score_id: str | None = None
 
 
+class TranscriptionJobRead(BaseModel):
+    """Una transcripción en segundo plano y en qué está (#375, ADR-0063).
+
+    Vive en la memoria de la API: si se reinicia, el trabajo deja de existir (404).
+    """
+
+    id: str = Field(
+        ...,
+        description="Identificador del trabajo; la sesión que crea al terminar tiene el mismo",
+    )
+    stage: Literal["queued", "detecting", "reading", "reviewing", "done", "failed"] = Field(
+        ...,
+        description=(
+            "queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading`; "
+            "reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, "
+            "las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: "
+            "no se pudo (`failure`)"
+        ),
+    )
+    ahead: int | None = Field(
+        default=None,
+        description=(
+            "En cola: trabajos por delante, de todas las personas, contando el que se transcribe; "
+            "null fuera de la cola"
+        ),
+    )
+    reading: Literal["first", "piano"] | None = Field(
+        default=None,
+        description=(
+            "Al detectar o leer: first, la lectura de la página; piano, la segunda de una página "
+            "de voz y piano, con cada mano sola (#325, ADR-0060)"
+        ),
+    )
+    staff: int | None = Field(
+        default=None, description="Al leer: el pentagrama que se lee, de 1 a `staffs`"
+    )
+    staffs: int | None = Field(default=None, description="Al leer: pentagramas de esta lectura")
+    result: TranscribeResponse | None = Field(
+        default=None, description="Terminado bien: la sesión creada, como en POST /transcribe"
+    )
+    failure: Literal["unreadable", "internal"] | None = Field(
+        default=None,
+        description=(
+            "Fallido: unreadable, no se reconoció ninguna partitura en la imagen; internal, otro "
+            "error del servidor"
+        ),
+    )
+    source_filename: str | None = Field(default=None, description="Nombre del archivo subido")
+    title: str | None = Field(default=None, description="Título dado a la partitura, si se dio")
+    created_at: datetime = Field(..., description="Cuándo se puso en la cola")
+    started_at: datetime | None = Field(default=None, description="Cuándo salió de la cola")
+    finished_at: datetime | None = Field(default=None, description="Cuándo terminó")
+
+
 class PreviewResponse(BaseModel):
     """Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
     el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."""

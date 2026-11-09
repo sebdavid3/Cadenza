@@ -232,6 +232,7 @@ from .schemas import (
     TimingMapRead,
     TokenResponse,
     TranscribeResponse,
+    TranscriptionJobRead,
     UndoRequest,
     UndoResponse,
     UserCreate,
@@ -247,6 +248,14 @@ from .security import (
 )
 from .settings import Settings
 from .suggestions import load_suggestion_model
+from .transcription_jobs import (
+    JobLimitReached,
+    JobProgress,
+    JobQueueFull,
+    JobView,
+    ReportingEngine,
+    TranscriptionJobs,
+)
 from .transcription_slots import (
     RETRY_AFTER_SECONDS,
     TranscriptionSlots,
@@ -320,6 +329,36 @@ TRANSCRIBE_BUSY_503: dict[int | str, dict[str, Any]] = {
         },
     }
 }
+JOBS_PER_USER_429: dict[int | str, dict[str, Any]] = {
+    status.HTTP_429_TOO_MANY_REQUESTS: {
+        "model": ErrorDetail,
+        "description": (
+            "La persona ya tiene CADENZA_TRANSCRIBE_JOBS_PER_USER transcripciones en cola o en "
+            "curso; se puede volver a subir cuando termine alguna (ADR-0063)"
+        ),
+    }
+}
+JOBS_FULL_503: dict[int | str, dict[str, Any]] = {
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": ErrorDetail,
+        "description": (
+            "La cola de todas las personas está llena (CADENZA_TRANSCRIBE_JOBS_MAX): reintentar "
+            "tras la cabecera Retry-After (ADR-0063)"
+        ),
+        "headers": {
+            "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {"type": "integer"},
+            }
+        },
+    }
+}
+# Con la cola llena, cuánto conviene esperar: varias páginas en CPU tardan minutos (ADR-0063).
+JOBS_FULL_RETRY_AFTER_SECONDS = 60
+JOB_NOT_FOUND = (
+    "No hay ninguna transcripción con ese identificador: puede que ya no exista porque el "
+    "servidor se reinició."
+)
 UPLOAD_ERRORS: dict[int | str, dict[str, Any]] = {
     status.HTTP_413_CONTENT_TOO_LARGE: {
         "model": ErrorDetail,
@@ -499,6 +538,38 @@ async def _read_image_upload(file: UploadFile, max_bytes: int) -> bytes:
             detail="Tipo de archivo no soportado. Se requiere una imagen válida (PNG, JPEG).",
         )
     return content
+
+
+def _job_read(view: JobView) -> TranscriptionJobRead:
+    """Lo que la API dice de una transcripción en segundo plano (#375, ADR-0063)."""
+
+    result = view.result
+    return TranscriptionJobRead(
+        id=view.id,
+        stage=view.stage.value,
+        ahead=view.ahead,
+        reading=view.reading.value if view.reading is not None else None,
+        staff=view.staff,
+        staffs=view.staffs,
+        result=(
+            None
+            if result is None
+            else TranscribeResponse(
+                session_id=result.session_id,
+                document_id=result.document_id,
+                omr_engine=result.omr_engine,
+                findings_count=result.findings_count,
+                condition=result.condition,
+                test_score_id=result.test_score_id,
+            )
+        ),
+        failure=view.failure.value if view.failure is not None else None,
+        source_filename=view.source_filename,
+        title=view.title,
+        created_at=view.created_at,
+        started_at=view.started_at,
+        finished_at=view.finished_at,
+    )
 
 
 def _effective_engine(request: Request, db: DbSession, artifact_store: ArtifactStore) -> OMREngine:
@@ -849,6 +920,14 @@ def create_app(
     )
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)  # noqa: E731
     app.state.clock = clock
+    # Transcripciones en segundo plano (#375, ADR-0063): una cola en memoria que comparte los
+    # huecos de transcripción. El reloj se lee en cada uso: las pruebas lo cambian.
+    app.state.transcription_jobs = TranscriptionJobs(
+        app.state.transcription_slots,
+        max_per_user=app_settings.transcribe_jobs_per_user,
+        max_total=app_settings.transcribe_jobs_max,
+        clock=lambda: app.state.clock(),
+    )
     # Las transcripciones sin cuenta caducadas se borran también al arrancar. Con el interruptor
     # apagado (el estudio) se borran todas, también las vigentes: ninguna transcripción nueva ni
     # reclamación las borraría (ADR-0054 §3, #278).
@@ -1436,6 +1515,200 @@ def create_app(
             condition=result.condition,
             test_score_id=result.test_score_id,
         )
+
+    @app.post(
+        "/transcription-jobs",
+        response_model=TranscriptionJobRead,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["Transcription"],
+        summary="Transcribir en segundo plano",
+        description=(
+            "Pone la imagen en la cola de transcripción y responde enseguida con el trabajo; su "
+            "estado y su avance se consultan con GET /transcription-jobs/{id}, sin plazo. Admite "
+            "los mismos campos que POST /transcribe y los comprueba antes de ponerla en la cola. "
+            "La cola es de todas las personas y va en orden de llegada, de uno en uno, con los "
+            "huecos de POST /transcribe (ADR-0024). Al terminar bien, la sesión tiene el mismo "
+            "identificador que el trabajo. Con CADENZA_TRANSCRIBE_JOBS_PER_USER trabajos en cola "
+            "o en curso de la persona, 429; con CADENZA_TRANSCRIBE_JOBS_MAX de todas, 503. El "
+            "registro vive en la memoria de la API: si se reinicia, los trabajos desaparecen "
+            "(#375, ADR-0063)."
+        ),
+        responses={
+            **AUTH_401,
+            **UPLOAD_ERRORS,
+            **UNPROCESSABLE_422,
+            **JOBS_PER_USER_429,
+            **JOBS_FULL_503,
+        },
+    )
+    async def create_transcription_job(
+        request: Request,
+        db: DbDep,
+        current_user: CurrentUserDep,
+        file: Annotated[UploadFile, File()],
+        condition: Annotated[
+            str | None,
+            Form(description="Condición experimental: 'assisted' (por defecto) o 'unassisted'"),
+        ] = None,
+        test_score_id: Annotated[
+            str | None,
+            Form(description="Identificador de la partitura de prueba"),
+        ] = None,
+        title: Annotated[
+            str | None,
+            Form(
+                max_length=TITLE_MAX_LENGTH,
+                description="Título de la partitura: el nombre de la sesión (#235, #240).",
+            ),
+        ] = None,
+        composer: Annotated[
+            str | None,
+            Form(max_length=COMPOSER_MAX_LENGTH, description="Compositor (#235)."),
+        ] = None,
+        instruments: Annotated[
+            list[Instrument | Literal[""]] | None,
+            Form(description="Instrumento de cada parte, como en POST /transcribe (ADR-0041)."),
+        ] = None,
+        part_names: Annotated[
+            list[Annotated[str, Field(max_length=PART_NAME_MAX_LENGTH)]] | None,
+            Form(description="Nombre de cada parte, alineado con `instruments` (ADR-0041)."),
+        ] = None,
+    ) -> Response:
+        app_settings: Settings = request.app.state.settings
+        metadata = _transcribe_metadata(title, composer, instruments, part_names)
+        try:
+            effective_condition = normalize_condition(condition or "assisted")
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+
+        content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
+        effective_engine = _effective_engine(request, db, get_artifact_store(request, db))
+        upload_name = _upload_temp_name(file.filename, content)
+        source_filename = file.filename
+        factory: SessionFactory = request.app.state.session_factory
+        state = request.app.state
+
+        # Como en POST /transcribe: su propia sesión de base de datos y su propio directorio, y
+        # confirma antes de darse por terminado (ADR-0024). La sesión se llama como el trabajo.
+        def transcribe_job(progress: JobProgress) -> TranscribeResult:
+            with (
+                factory() as work_db,
+                tempfile.TemporaryDirectory(prefix="cadenza-job-") as work_dir,
+            ):
+                upload_path = Path(work_dir) / upload_name
+                upload_path.write_bytes(content)
+                outcome = transcribe_score_use_case(
+                    upload_path,
+                    omr_engine=ReportingEngine(effective_engine, progress),
+                    validator=state.validator,
+                    session_repository=SqlAlchemySessionRepository(work_db),
+                    current_user=current_user,
+                    session_id=progress.job_id,
+                    artifact_store=get_artifact_store(request, work_db),
+                    condition=effective_condition,
+                    test_score_id=test_score_id,
+                    suggestion_model=state.suggestion_model,
+                    metadata=metadata,
+                    source_filename=source_filename,
+                    meter_stage=state.meter_stage,
+                )
+                work_db.commit()
+                return outcome
+
+        # La sesión de la petición solo ha leído: no retiene una conexión mientras espera.
+        db.rollback()
+        jobs: TranscriptionJobs = state.transcription_jobs
+        try:
+            view = jobs.submit(
+                owner_id=current_user.id,
+                work=transcribe_job,
+                source_filename=source_filename,
+                title=metadata.title,
+            )
+        except JobLimitReached as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=(
+                    f"Ya tienes {exc.limit} transcripciones en cola o en curso, el máximo por "
+                    "persona. Podrás subir más cuando termine alguna."
+                ),
+            ) from exc
+        except JobQueueFull as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=("La cola de transcripción está llena. Vuelve a intentarlo en un minuto."),
+                headers={"Retry-After": str(JOBS_FULL_RETRY_AFTER_SECONDS)},
+            ) from exc
+        return _json_response(_job_read(view), status_code=status.HTTP_202_ACCEPTED)
+
+    @app.get(
+        "/transcription-jobs",
+        response_model=list[TranscriptionJobRead],
+        tags=["Transcription"],
+        summary="Mis transcripciones en segundo plano",
+        description=(
+            "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más "
+            "reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca "
+            "las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de "
+            "la API, la lista está vacía (#375, ADR-0063)."
+        ),
+        responses={**AUTH_401},
+    )
+    def list_transcription_jobs(
+        request: Request, current_user: CurrentUserDep
+    ) -> list[TranscriptionJobRead]:
+        jobs: TranscriptionJobs = request.app.state.transcription_jobs
+        return [_job_read(view) for view in jobs.list(current_user.id)]
+
+    @app.get(
+        "/transcription-jobs/{job_id}",
+        response_model=TranscriptionJobRead,
+        tags=["Transcription"],
+        summary="Estado y avance de una transcripción en segundo plano",
+        description=(
+            "En qué está el trabajo: en cola (con los que tiene por delante), detectando los "
+            "pentagramas, leyendo el pentagrama X de N de cada lectura, revisando, listo (con "
+            "la sesión) o fallido (con el motivo). Uno de otra persona, uno olvidado o uno de "
+            "antes de un reinicio de la API responden 404 (#375, ADR-0063, ADR-0012)."
+        ),
+        responses={**AUTH_401, **NOT_FOUND_404},
+    )
+    def get_transcription_job(
+        job_id: str, request: Request, current_user: CurrentUserDep
+    ) -> TranscriptionJobRead:
+        jobs: TranscriptionJobs = request.app.state.transcription_jobs
+        view = jobs.get(job_id, current_user.id)
+        if view is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=JOB_NOT_FOUND)
+        return _job_read(view)
+
+    @app.delete(
+        "/transcription-jobs/{job_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Transcription"],
+        summary="Quitar una transcripción en segundo plano",
+        description=(
+            "Quita un trabajo en cola, que ya no se transcribe, u olvida uno terminado; la "
+            "sesión que haya creado no se toca. Uno que se está transcribiendo no se puede "
+            "interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0063)."
+        ),
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
+    )
+    def discard_transcription_job(
+        job_id: str, request: Request, current_user: CurrentUserDep
+    ) -> Response:
+        jobs: TranscriptionJobs = request.app.state.transcription_jobs
+        removed = jobs.discard(job_id, current_user.id)
+        if removed is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=JOB_NOT_FOUND)
+        if not removed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Ya se está transcribiendo: no se puede quitar hasta que termine.",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     def require_anonymous_preview_enabled(request: Request) -> None:
         """Con la transcripción sin cuenta apagada, sus rutas responden 404 (ADR-0054)."""
