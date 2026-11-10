@@ -154,3 +154,8 @@
   padding: 0;
   border: 0;
 }
+
+/* Un `legend` no cuenta en el `gap` de la rejilla: su espacio, aparte. */
+.register__consent > legend {
+  margin-bottom: var(--space-2);
+}
