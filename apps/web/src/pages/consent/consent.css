@@ -101,48 +101,146 @@
   font-size: var(--text-small);
 }
 
-/* La página con el texto completo. */
+/* La página con el texto completo (#397): bandas a todo el ancho separadas por filetes, como el
+   diario. La cabecera con el título y la versión, y una banda por apartado con su título a la
+   izquierda, cerrado por un filete vertical, y el texto a la derecha. */
 .data-use {
+  --data-use-margin: clamp(13rem, 24vw, 21rem);
+}
+
+.data-use__head {
   display: grid;
-  gap: var(--space-6);
-  max-width: 68ch;
-  padding: var(--space-7) var(--gutter) var(--space-8);
+  gap: var(--space-4);
+  padding: var(--space-8) var(--gutter) var(--space-6);
+  border-bottom: var(--rule);
 }
 
 .data-use__title {
   font-family: var(--font-display);
-  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-size: clamp(2.5rem, 5vw, 4.25rem);
   font-weight: 700;
   line-height: 0.9;
   text-transform: uppercase;
 }
 
 .data-use__version {
-  margin-top: calc(-1 * var(--space-4));
   color: var(--color-ink-muted);
 }
 
-.data-use section {
+.data-use__band {
   display: grid;
-  gap: var(--space-3);
+  grid-template-columns: var(--data-use-margin) minmax(0, 1fr);
+  padding: 0 var(--gutter);
+  border-bottom: var(--rule);
 }
 
-.data-use h2 {
-  justify-self: start;
-  padding: 2px var(--space-3);
-  background: var(--color-ink);
-  color: var(--color-paper);
+.data-use__band > h2 {
+  padding: var(--space-7) var(--space-5) var(--space-7) 0;
+  border-right: var(--rule);
   font-family: var(--font-display);
-  font-size: var(--text-title);
+  font-size: clamp(1.375rem, 2.2vw, 1.875rem);
   font-weight: 700;
+  line-height: 1.05;
   text-transform: uppercase;
 }
 
-.data-use ul {
+.data-use__body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  /* 64ch de texto, más el aire que lo separa del filete. */
+  max-width: calc(64ch + var(--space-7));
+  padding: var(--space-7) 0 var(--space-7) var(--space-7);
+  font-size: 1.0625rem;
+  line-height: 1.6;
+}
+
+.data-use ul,
+.consent-full ul {
   display: grid;
   gap: var(--space-2);
   padding-left: 1.25rem;
   list-style: square;
+}
+
+.data-use__back {
+  padding: var(--space-6) var(--gutter) var(--space-8);
+}
+
+@media (max-width: 900px) {
+  /* En una columna, el filete vertical pasa a ser horizontal bajo el título. */
+  .data-use__band {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .data-use__band > h2 {
+    padding: var(--space-6) 0 var(--space-4);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-rule-soft);
+  }
+
+  .data-use__body {
+    padding: var(--space-5) 0 var(--space-6);
+  }
+}
+
+/* El texto completo desplegado en el registro (#397): bajo el aviso, en un recuadro de filete con
+   su propio desplazamiento, sobre papel claro para separarlo del formulario. */
+.consent-toggle {
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-ink);
+  font: inherit;
+  /* Subrayado como el de los enlaces (base.css): en «Tu cuenta» el mismo control es un enlace. */
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.22em;
+  cursor: pointer;
+}
+
+.consent-full {
+  display: grid;
+  gap: var(--space-4);
+  /* Acotado también por la ventana: en un móvil apaisado o con mucho zoom no ocupa toda la vista
+     y el desplazamiento sigue pasando a la página al llegar al final. */
+  max-height: min(26rem, 60svh);
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+  border: var(--rule);
+  background: var(--color-paper-raised);
+  font-size: var(--text-small);
+  line-height: 1.55;
+}
+
+.consent-full[hidden] {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .consent-toggle {
+    color: LinkText;
+  }
+}
+
+.consent-full__version {
+  color: var(--color-ink-muted);
+}
+
+.consent-full__part {
+  display: grid;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-rule-soft);
+}
+
+.consent-full__part > h2 {
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 
 /* El grupo del registro: sin el marco del navegador. */

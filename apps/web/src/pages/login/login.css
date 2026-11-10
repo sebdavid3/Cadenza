@@ -1,25 +1,84 @@
-/* Acceso: un titular de cartel y un formulario en la misma retícula de filetes. */
+/* Acceso: un panel tramado con el titular de cartel y un formulario en la misma retícula de
+   filetes. */
 .login {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 520px);
   min-height: calc(100vh - 97px);
 }
 
-.login__title {
-  align-self: stretch;
+/* El panel: la trama de tinta de siempre, que el lienzo de encima imprime como el retrato de un
+   compositor (#392). Sin lienzo, queda la trama. */
+.login__plate {
+  position: relative;
+  /* El titular mide su cuerpo por el ancho de la columna (cqi), para que la palabra más larga
+     («Registro») quepa también en las columnas estrechas, de 861 a 1050 px de ventana. */
+  container-type: inline-size;
   display: flex;
   align-items: flex-end;
   padding: var(--space-7) var(--gutter);
   border-right: var(--rule);
   background: var(--halftone-ink);
+}
+
+.portrait {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+}
+
+.portrait__dots {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Pie de lámina: quién es y de quién es el retrato, en un bloque de papel sobre el mismo eje que
+   el titular. */
+.portrait__caption {
+  position: absolute;
+  top: var(--space-7);
+  left: var(--gutter);
+  display: grid;
+  gap: var(--space-1);
+  max-width: min(46ch, calc(100% - 2 * var(--gutter)));
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-paper);
+}
+
+.portrait__name {
+  font-family: var(--font-label);
+  font-size: var(--text-label);
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.portrait__credit {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+@media (forced-colors: active) {
+  .portrait {
+    display: none;
+  }
+}
+
+.login__title {
+  position: relative;
   font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-size: min(var(--text-display), 19cqi);
   font-weight: 700;
   line-height: 0.86;
   text-transform: uppercase;
 }
 
+/* Un solo bloque de papel, del ancho de la palabra más larga: con el titular en dos líneas
+   («Crear cuenta»), el fondo de cada línea tapaba el pie de la anterior (#392). */
 .login__title span {
+  display: inline-block;
+  width: min-content;
   padding: var(--space-2) var(--space-3) 0;
   background: var(--color-paper);
 }
@@ -132,11 +191,21 @@
     min-height: 0;
   }
 
-  .login__title {
-    min-height: 9rem;
+  /* En la franja, la cara sube por encima del titular y no cabe el pie. */
+  .login__plate {
+    --portrait-eye-line: 0.22;
+    min-height: 13rem;
+    padding-block: var(--space-5);
     border-right: 0;
     border-bottom: var(--rule);
-    font-size: clamp(3.5rem, 18vw, 6rem);
+  }
+
+  .portrait__caption {
+    display: none;
+  }
+
+  .login__title {
+    font-size: min(clamp(2.75rem, 14vw, 5rem), 19cqi);
   }
 
   .login__form {
