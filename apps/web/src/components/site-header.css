@@ -8,13 +8,9 @@
   border-bottom: var(--rule);
 }
 
+/* El logo con celdas de 4 px: 212 × 28 px (#383); de 3 px por debajo de 860 px. */
 .site-header__brand {
-  font-family: var(--font-display);
-  font-size: clamp(1.75rem, 3.2vw, 2.875rem);
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  text-transform: uppercase;
+  --brand-cell: 4px;
 }
 
 .site-header__tagline {
@@ -42,13 +38,20 @@
   padding-block: var(--space-2);
 }
 
-@media (max-width: 1100px) {
+/* Con el logo de 4 px, el lema solo cabe en la fila desde unos 1140 px (#383). */
+@media (max-width: 1140px) {
   .site-header__tagline {
     display: none;
   }
 }
 
+/* Con celdas de 4 px, la marca, las anclas y «Entrar» no caben en una fila hasta unos 800 px; con
+   3 px (159 × 21 px), una tableta de 768 px sigue en una sola fila. */
 @media (max-width: 860px) {
+  .site-header__brand {
+    --brand-cell: 3px;
+  }
+
   .site-header__nav {
     gap: var(--space-3) var(--space-5);
   }
@@ -56,9 +59,11 @@
 
 /* En pantallas estrechas: marca y «Entrar» en la primera fila; las anclas, debajo. */
 @media (max-width: 600px) {
+  /* Con 40 px entre la marca y «Entrar», no caben en una fila a 360 px (#383). */
   .site-header {
     min-height: 0;
     row-gap: var(--space-4);
+    column-gap: var(--space-4);
   }
 
   .site-header__brand {

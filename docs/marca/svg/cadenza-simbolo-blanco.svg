@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">Cadenza</title>
+  <path id="letras" fill="#ffffff" d="M128 44H176V68H200V92H224V212H176V92H152V68H104V92H80V212H32V92H56V68H80V44H104Z"/>
+  <path id="punto" fill="#ffffff" d="M152 140V164H104V116H152Z"/>
+</svg>

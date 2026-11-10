@@ -419,53 +419,19 @@
   outline-color: var(--color-on-accent);
 }
 
-/* Pie: la marca repetida a varios tamaños y rotulada, como en un muestrario */
+/* Pie: el logo una sola vez, con celdas de 6 px (318 × 42 px), sobre la línea de créditos (#383). */
 .site-footer {
+  --brand-cell: 6px;
   display: grid;
   gap: var(--space-5);
   padding: var(--space-8) var(--gutter) var(--space-7);
 }
 
-.site-footer__specimen {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-4) var(--space-7);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.site-footer__specimen li {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.site-footer__word {
-  font-family: var(--font-display);
-  font-weight: 700;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.site-footer__size {
-  color: var(--color-ink-muted);
-}
-
-.site-footer__specimen li:nth-child(1) .site-footer__word {
-  font-size: 6rem;
-}
-
-.site-footer__specimen li:nth-child(2) .site-footer__word {
-  font-size: 3rem;
-}
-
-.site-footer__specimen li:nth-child(3) .site-footer__word {
-  font-size: 1.5rem;
-}
-
-.site-footer__specimen li:nth-child(4) .site-footer__word {
-  font-size: 0.75rem;
+/* Donde no cabe a 6 px, a 4 px (212 × 28 px): una celda entera más pequeña, no una fraccionaria. */
+@media (max-width: 399.98px) {
+  .site-footer {
+    --brand-cell: 4px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -517,13 +483,5 @@
 
   .demo__index li:nth-child(3) {
     border-left: 0;
-  }
-
-  .site-footer__specimen li:nth-child(1) .site-footer__word {
-    font-size: 3.5rem;
-  }
-
-  .site-footer__specimen li:nth-child(2) .site-footer__word {
-    font-size: 2rem;
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import { AccountControls } from "../../components/AccountControls";
+import { BrandWordmark } from "../../components/BrandWordmark";
 import { PixelIcon } from "../../components/PixelIcon";
 
 /** La vuelta a la lista de sesiones. */
@@ -30,7 +31,7 @@ export function SessionTopBar({ children, actions }: SessionTopBarProps) {
     <header className="session__head">
       <div className="session__start">
         <Link className="session__brand" to="/" aria-label="Cadenza, página pública">
-          Cadenza
+          <BrandWordmark />
         </Link>
         <BackLink />
         {children}
