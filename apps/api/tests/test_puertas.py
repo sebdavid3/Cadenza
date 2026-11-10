@@ -429,3 +429,76 @@ def test_the_snapshot_reads_uncommitted_changes_that_are_not_ascii(
     assert b"\x8d" in diff.encode("utf-8", "surrogateescape")
     (repo / "estado.md").write_bytes("Íncipit\n".encode() + b"\x8e\n")
     assert puertas._snapshot(puertas._git).content != first.content
+
+
+# --- Repetir solo las que fallaron (#382) ------------------------------------------------------
+
+
+def test_only_runs_the_named_gates_and_says_the_run_is_partial(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    (tmp_path / "node_modules").mkdir()
+    calls: list[str] = []
+
+    def runner(gate: Gate) -> tuple[int, str]:
+        calls.append(gate.name)
+        return 0, "2245 passed, 41 skipped" if gate.name == "pytest" else ""
+
+    # Las de la web, con su nombre corto o con el de la puerta.
+    code = _main(["--solo", "pytest, test,npm build"], runner=runner, web_dir=tmp_path)
+
+    out = capsys.readouterr().out
+    assert code == 0
+    assert calls == ["pytest", "npm test", "npm build"]
+    assert "Puertas locales en verde, parciales sobre 354b8b3" in out
+    assert "pytest (2245 passed, 41 skipped), npm test, npm build." in out
+    assert "las demás puertas (--solo)" in out
+
+
+def test_after_a_failure_it_says_how_to_repeat_only_the_failed_gates(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    (tmp_path / "node_modules").mkdir()
+
+    def runner(gate: Gate) -> tuple[int, str]:
+        return (1, "") if gate.name in {"mypy", "npm test"} else (0, "")
+
+    code = _main([], runner=runner, web_dir=tmp_path)
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "uv run --no-sync python scripts/puertas.py --solo mypy,test" in out
+
+
+def test_a_green_run_does_not_suggest_repeating_anything(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    (tmp_path / "node_modules").mkdir()
+
+    assert _main([], web_dir=tmp_path) == 0
+    assert "--solo" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["--solo", "pytets"], "pytets"),
+        (["--sin-web", "--solo", "test"], "--sin-web"),
+        (["--solo", "docker api"], "--docker"),
+    ],
+)
+def test_an_unknown_or_unavailable_gate_is_refused_before_running_anything(
+    argv: list[str], message: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[str] = []
+
+    def runner(gate: Gate) -> tuple[int, str]:
+        calls.append(gate.name)
+        return 0, ""
+
+    with pytest.raises(SystemExit) as exit_info:
+        _main(argv, runner=runner)
+
+    assert exit_info.value.code == 2
+    assert calls == []
+    assert message in capsys.readouterr().err

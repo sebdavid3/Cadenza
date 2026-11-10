@@ -156,6 +156,7 @@ Procedimientos, en el servidor y dentro de `/opt/docker/cadenza`:
 DC="docker compose -f docker-compose.prod.yml --env-file .env"
 
 # Actualizar: copia antes, código nuevo y reconstrucción. La API aplica las migraciones al arrancar.
+# En un comando, desde un equipo con el repositorio: ver «Desplegar dev en un comando», abajo.
 $DC --profile backup run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
 git pull --ff-only
 $DC up -d --build
@@ -170,6 +171,16 @@ $DC up -d
 sudo tailscale funnel --https=443 off
 sudo tailscale funnel --bg 8380
 ```
+
+#### Desplegar `dev` en un comando ([#382](https://github.com/sebdavid3/Cadenza/issues/382))
+
+`deploy/desplegar.sh` hace el «Actualizar» de arriba de una vez: copia previa con `verify --archive`, avance en *fast-forward* hasta el commit esperado de `origin/dev`, `up -d --build`, imagen de copias, limpieza y espera a `/api/health` (5 minutos como mucho). Desde un equipo con el repositorio, tras fusionar:
+
+```bash
+git fetch origin && ssh r2d2-cf "sh -s $(git rev-parse origin/dev)" < deploy/desplegar.sh
+```
+
+(`r2d2` en vez de `r2d2-cf` si Tailscale responde.) Se para sin tocar nada si `origin/dev` en el servidor no es el commit esperado (otra fusión entretanto: volver a lanzarlo), si el árbol del servidor tiene cambios sin comitear o si la copia no se verifica. Si la API no queda sana, lo dice, enseña sus últimas líneas y sale con 2, sin volver atrás: se vuelve a mano con la copia que nombra (§4.2). El 2026-11-09 desplegar así tardó unos 2,5 minutos. Los guiones de shell se sacan siempre con LF (`.gitattributes`): con CRLF, `sh` fallaría en el servidor.
 
 - La primera actualización a una versión con #192 necesita además, una sola vez, la migración del volumen de artefactos (sección anterior). En el homelab se hizo la noche del 2026-10-23, hora de Colombia ([#203](https://github.com/sebdavid3/Cadenza/issues/203)): ninguna entrada quedó con otro dueño y la API arrancó `healthy` como `cadenza`.
 - Para restaurar una copia, ver la §4.2.
