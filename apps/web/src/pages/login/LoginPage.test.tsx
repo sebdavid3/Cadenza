@@ -56,6 +56,8 @@ describe("vista de acceso", () => {
     expect(screen.getByText(/y entra en el momento/i)).toBeVisible();
     expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.getByText(/no hay recuperación de contraseña por correo/i)).toBeVisible();
+    // Con el registro abierto no se habla del equipo ni de los investigadores (#392).
+    expect(screen.queryByText(/investigador|el equipo/i)).toBeNull();
   });
 
   it("sin registro abierto en el build no lo enlaza", () => {

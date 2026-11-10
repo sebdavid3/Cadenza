@@ -9,6 +9,7 @@ import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
 import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { AccessPanel } from "./AccessPanel";
 import "./login.css";
 
 type Field = "username" | "password";
@@ -75,9 +76,7 @@ export function LoginPage() {
     <>
       <SiteHeader showSections={false} showEnter={false} />
       <main className="login">
-        <h1 className="login__title">
-          <span>Entrar</span>
-        </h1>
+        <AccessPanel title="Entrar" />
         <form className="login__form" onSubmit={(event) => void submit(event)} noValidate>
           {expiredNotice && !error && (
             <p className="login__notice" role="status" ref={noticeRef} tabIndex={-1}>
@@ -151,8 +150,7 @@ export function LoginPage() {
             ) : (
               "Las cuentas las crea un investigador del proyecto. "
             )}
-            No hay recuperación de contraseña por correo: una cuenta que te dio el equipo puede
-            recibir una contraseña nueva de un investigador; una creada en el registro, no.
+            No hay recuperación de contraseña por correo.
           </p>
         </form>
       </main>
