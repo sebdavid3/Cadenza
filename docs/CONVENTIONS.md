@@ -30,7 +30,7 @@
 2. Se crea una rama dedicada para cada issue: `<tipo>/<número>-<descripción-corta>`.
 3. Ramas de vida corta: si `dev` avanzó durante el desarrollo, se actualiza la rama antes de abrir el PR.
 4. La integración a `dev` se realiza exclusivamente mediante **Pull Request** fusionado con *squash* y eliminación de la rama.
-5. `main` se actualiza únicamente por promoción manual desde `dev` en hitos verificados.
+5. `main` se actualiza únicamente promoviendo `dev`, cuando lo pide el responsable: un PR de `dev` a `main` fusionado con commit de fusión (`gh pr merge --merge`), como pide el despliegue continuo (ADR-0062).
 
 ```text
 main  ←── (release / hito) ────────┐
@@ -139,7 +139,7 @@ chore(ci): configurar pipeline de github actions
 Un issue o tarea se considera **terminada** únicamente cuando:
 
 1. Cumple **todos los criterios de aceptación** del issue, demostrados con evidencia.
-2. Pasan sin errores ni omisiones:
+2. Pasan sin errores ni omisiones las puertas que pide su nivel (§5.1); en un cambio de código que toca Python y la web, todas:
    - `uv run --no-sync pytest`
    - `uv run --no-sync mypy packages apps`
    - `uv run --no-sync ruff check .`
@@ -153,4 +153,22 @@ Un issue o tarea se considera **terminada** únicamente cuando:
    - `README.md` si se modifica la forma de uso o configuración.
    - Nuevo documento en `docs/adr/` si se adoptó una decisión estructural.
 5. El PR es fusionado hacia `dev` y el issue correspondiente en GitHub queda cerrado.
+
+### 5.1 Tres niveles según lo que toca el cambio
+
+Decisión del responsable del 2026-11-10 ([#382](https://github.com/sebdavid3/Cadenza/issues/382)): los cambios sencillos han de ser rápidos, y las puertas y la revisión se gastan donde protegen algo. Ante la duda, o si un cambio mezcla niveles, manda el más alto. Elegir un nivel más bajo del que toca para saltarse una puerta va contra la regla de integridad.
+
+| Nivel | Qué toca | Qué pide | Tiempo |
+|---|---|---|---|
+| 1. Operar sin código | Desplegar `dev` (`deploy/desplegar.sh`), promover a `main`, cambiar una variable del `.env` de producción, hacer o restaurar una copia | El procedimiento de `docs/infra/operacion_backend.md` y comprobarlo en producción (salud y lo que cambió). Sin rama, PR ni puertas; la línea de la bitácora va en el siguiente PR, o en uno de nivel 2 si no hay otro | ~1 min |
+| 2. Solo documentación | Solo archivos `.md` fuera de `apps/web` | Rama, PR y *squash*, sin puertas ni revisión con subagente. Ninguna prueba lee esos archivos salvo `docs/experimentos/protocolo_medicion_esfuerzo.md`: con él, `pytest apps/api/tests/test_prepare_study_participant.py` | ~1 min |
+| 3. Código | Cualquier otro archivo | TDD y las puertas de lo que se tocó (abajo). Revisión independiente con subagente solo si toca la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas, o pasa de unas 200 líneas sin contar las pruebas; si no, basta releer uno mismo el diff | 5–10 min con el despliegue |
+
+Las puertas de un cambio de código, con `uv run --no-sync python scripts/puertas.py`:
+
+- **Python** (`packages`, `apps/api`, `ml`, `scripts`, `deploy`, las migraciones, `pyproject.toml`, `uv.lock`): `--solo ruff,black,mypy,pytest` (~4 min).
+- **Solo `apps/web`**, sin tocar `types.ts`: `--solo lint,format:check,test,build` (~3 min).
+- **Las dos**, el contrato (`openapi.json` y `types.ts`, cuya sincronía comprueba `pytest`) o las dependencias de la web: todas, sin `--solo` (~6 min). Con `Dockerfile*`, el compose o `deploy/`, conviene además `--docker`.
+
+Si falla una puerta, se repite solo esa (`--solo`). No se comitea a mitad de una pasada: `puertas.py` lo detecta como «árbol sin cambios» en rojo.
 
