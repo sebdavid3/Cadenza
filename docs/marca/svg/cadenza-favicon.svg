@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16" shape-rendering="crispEdges" role="img" aria-labelledby="title">
+  <title id="title">Cadenza</title>
+  <style>.letras{fill:#0a0a0a}@media (prefers-color-scheme:dark){.letras{fill:#f0eff2}}</style>
+  <path class="letras" d="M8 1H12V3H14V5H16V15H12V5H10V3H6V5H4V15H0V5H2V3H4V1H6Z"/>
+  <path fill="#7a2cf0" d="M10 9V11H6V7H10Z"/>
+</svg>
