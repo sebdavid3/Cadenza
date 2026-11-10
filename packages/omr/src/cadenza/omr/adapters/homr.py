@@ -27,7 +27,8 @@ from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from ..engine import OMREngine
 from ..errors import OMRTranscriptionError
 from ..preprocessing import PreprocessingConfig, preprocess_image_file
-from . import homr_grand_staff, homr_piano
+from ..progress import Reading
+from . import homr_grand_staff, homr_piano, homr_progress
 from .homr_grand_staff import PianoReading
 
 ENGINE_ID = "homr"
@@ -87,6 +88,7 @@ def _import_homr() -> Any:
     try:
         from homr import main as homr_main
         from homr import model as homr_model
+        from homr import staff_parsing as homr_staff_parsing
     except ImportError as exc:  # pragma: no cover - depende del entorno
         raise RuntimeError(_HOMR_EXTRA_HINT) from exc
 
@@ -101,6 +103,8 @@ def _import_homr() -> Any:
         homr_main.detect_title = _no_title_detection
 
     homr_grand_staff.install(homr_model.MultiStaff)
+    # Los avisos de avance por pentagrama (#375, ADR-0064): sin ellos, HOMR lee igual.
+    homr_progress.install(homr_staff_parsing)
     return homr_main
 
 
@@ -225,14 +229,20 @@ def _run_homr(
                     transformer_use_gpu=use_gpu,
                     coreml_encoder=False,
                 )
-            with homr_grand_staff.reading(PianoReading.PAIRED) as paired:
+            with (
+                homr_grand_staff.reading(PianoReading.PAIRED) as paired,
+                homr_progress.reading(Reading.FIRST),
+            ):
                 paired_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
             # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
             if [1, 2] not in paired.piano_pairs:
                 return paired_xml
             # Cualquier fallo de la segunda lectura deja la emparejada, que con #239 salía.
             try:
-                with homr_grand_staff.reading(PianoReading.ALONE):
+                with (
+                    homr_grand_staff.reading(PianoReading.ALONE),
+                    homr_progress.reading(Reading.PIANO),
+                ):
                     alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
             except Exception:
                 _LOGGER.exception("Falló la lectura del piano solo; queda la emparejada")

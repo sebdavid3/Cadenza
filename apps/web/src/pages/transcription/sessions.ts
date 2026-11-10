@@ -168,10 +168,15 @@ export const sessionImageQuery = (api: ApiClient, sessionId: string) =>
  */
 const queueThumbnailSlots = createLimiter(2);
 
-export const queueImageQuery = (itemId: string, file: File) =>
+export const queueImageQuery = (itemId: string, file: File | undefined) =>
   queryOptions({
     queryKey: ["queue-image", itemId],
-    queryFn: ({ signal }) => queueThumbnailSlots(() => shrinkForThumbnail(file), signal),
+    queryFn: ({ signal }) =>
+      queueThumbnailSlots(() => {
+        // Sin archivo (recuperada del servidor) la consulta no se habilita.
+        if (!file) return Promise.reject(new Error("Sin imagen"));
+        return shrinkForThumbnail(file);
+      }, signal),
     staleTime: Infinity,
   });
 

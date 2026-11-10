@@ -72,7 +72,11 @@ export function TranscriptionPage() {
   if (restored && !preparing) setRestored(false);
   const running = useQueueStore((state) => state.running);
   const paused = useQueueStore((state) => state.paused);
-  const hasQueued = useQueueStore((state) => state.items.some((item) => item.status === "queued"));
+  // Imágenes por subir o transcripciones que siguen en el servidor (#375).
+  const hasWork = useQueueStore((state) =>
+    state.items.some((item) => item.status === "queued" || item.status === "transcribing"),
+  );
+  const ownerId = useAuthStore((state) => state.user?.id ?? null);
   // El recuento de la cola se anuncia desde aquí: la cola solo existe con imágenes, y una región
   // viva que aparece ya llena no se anuncia (una imagen rechazada con la cola vacía).
   const summary = useQueueStore((state) =>
@@ -88,14 +92,21 @@ export function TranscriptionPage() {
     title.focus();
   });
 
-  // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto. Tras
-  // cada envío se actualiza el listado, también si falló: la sesión puede haberse creado.
+  // Al entrar en la vista, o con otra persona dentro: las transcripciones suyas que siguen en el
+  // servidor, también las de antes de recargar la página o de la portada (#375).
   useEffect(() => {
-    if (!hasQueued || running || paused) return;
+    if (ownerId === null) return;
+    void useQueueStore.getState().restore(api);
+  }, [ownerId]);
+
+  // La cola avanza sola mientras haya pendientes; la interfaz sigue disponible entretanto. Cada
+  // vez que una transcripción termina se actualiza el listado, también si falló.
+  useEffect(() => {
+    if (!hasWork || running || paused) return;
     void useQueueStore.getState().run(api, () => {
       refreshSessions(queryClient);
     });
-  }, [hasQueued, running, paused, queryClient]);
+  }, [hasWork, running, paused, queryClient]);
 
   return (
     <main className="transcription" aria-labelledby="transcription-title">

@@ -829,6 +829,40 @@ export interface TranscribeResponse {
 }
 
 /**
+ * Una transcripción en segundo plano y en qué está (#375, ADR-0064).
+ * 
+ * Vive en la memoria de la API: si se reinicia, el trabajo deja de existir (404).
+ */
+export interface TranscriptionJobRead {
+  /** Identificador del trabajo; la sesión que crea al terminar tiene el mismo */
+  id: string;
+  /** queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` (con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: no se pudo (`failure`) */
+  stage: "queued" | "detecting" | "reading" | "reviewing" | "done" | "failed";
+  /** En cola: trabajos por delante, de todas las personas, contando el que se transcribe; null fuera de la cola */
+  ahead?: number | null;
+  /** Al detectar o leer: first, la lectura de la página; piano, la segunda de una página de voz y piano, con cada mano sola (#325, ADR-0060) */
+  reading?: "first" | "piano" | null;
+  /** Al leer: el pentagrama que se lee, de 1 a `staffs` */
+  staff?: number | null;
+  /** Al leer: pentagramas de esta lectura */
+  staffs?: number | null;
+  /** Terminado bien: la sesión creada, como en POST /transcribe */
+  result?: TranscribeResponse | null;
+  /** Fallido: unreadable, no se reconoció ninguna partitura en la imagen; internal, otro error del servidor */
+  failure?: "unreadable" | "internal" | null;
+  /** Nombre del archivo subido */
+  source_filename?: string | null;
+  /** Título dado a la partitura, si se dio */
+  title?: string | null;
+  /** Cuándo se puso en la cola */
+  created_at: string;
+  /** Cuándo salió de la cola */
+  started_at?: string | null;
+  /** Cuándo terminó */
+  finished_at?: string | null;
+}
+
+/**
  * Payload opcional para deshacer una edición con validación de concurrencia (#35, #48).
  */
 export interface UndoRequest {
