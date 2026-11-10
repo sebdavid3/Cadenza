@@ -175,9 +175,9 @@ function abortError() {
 
 /**
  * Analiza el MusicXML antes de dárselo a OSMD: con una cadena corta que no empieza por `<?xml`,
- * OSMD la trataría como una URL que descargar.
+ * OSMD la trataría como una URL que descargar. El PDF lo lee igual que la vista (#376).
  */
-function parseMusicXml(xml: string): Document {
+export function parseMusicXml(xml: string): Document {
   const document = new DOMParser().parseFromString(xml, "application/xml");
   if (document.getElementsByTagName("parsererror").length > 0) {
     throw new Error("El MusicXML no es XML válido");
