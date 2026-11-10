@@ -46,7 +46,7 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 ## 3. Manejo de Contexto y Persistencia
 
 1. **Memoria en el repo y en GitHub:** vive en los archivos versionados y en los issues/PR, no en la conversación.
-2. **Actualización permanente:** al cerrar cada issue se actualizan la deuda y la bitácora en `docs/PROJECT_STATE.md`.
+2. **Actualización permanente:** al cerrar cada issue se actualizan la deuda y la bitácora en `docs/PROJECT_STATE.md`. Lo que se opera sin código (nivel 1, §4) se anota en el siguiente PR.
 3. **Protocolo de arranque:** `git status`, `git fetch origin` y `git branch -a`, `gh pr list`, issues abiertos del milestone en curso y cabecera de `docs/PROJECT_STATE.md`. Si hay una rama o un PR a medias, se concluye antes de empezar otra cosa.
 4. **Carga mínima por issue:** leer solo el issue, los ADR y secciones que cita y los paquetes afectados.
 5. **Subagentes para lo voluminoso:** exploraciones amplias de código y revisión de diffs antes de cada fusión.
@@ -56,14 +56,20 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 
 ## 4. Flujo de Trabajo por Issue
 
+**Tres niveles, según lo que toque el cambio** (decisión del responsable del 2026-11-10, #382): los cambios sencillos han de ser rápidos. Ante la duda, o si un cambio mezcla niveles, manda el más alto. Detalle en `docs/CONVENTIONS.md` §5.1.
+
+- **Nivel 1, operar sin código** (~1 min): desplegar `dev` (`deploy/desplegar.sh`), promover a `main`, cambiar una variable del `.env` de producción o hacer una copia. Se sigue `docs/infra/operacion_backend.md` y se comprueba en producción. Sin rama, PR ni puertas: la línea de la bitácora va en el siguiente PR, o en uno de nivel 2 si no hay otro.
+- **Nivel 2, solo documentación** (~1 min): solo archivos `.md` fuera de `apps/web`. Rama, PR y *squash*, sin puertas ni revisión con subagente: ninguna prueba lee esos archivos, salvo `docs/experimentos/protocolo_medicion_esfuerzo.md` (con él, `pytest apps/api/tests/test_prepare_study_participant.py`).
+- **Nivel 3, código** (5–10 min con el despliegue): cualquier otro archivo. El flujo de abajo entero, con las puertas solo de lo que se tocó (§6) y la revisión con subagente solo si toca la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas, o pasa de unas 200 líneas sin contar las pruebas; si no, basta releer uno mismo el diff.
+
 1. **Sincronizar:** `git switch dev`, `git pull --ff-only`, árbol limpio.
 2. **Estudiar:** leer el issue completo y la documentación y el código que cita.
 3. **Ramificar:** rama `<tipo>/<número>-<descripción-corta>`.
-4. **TDD:** primero las pruebas que expresan los criterios de aceptación, después el código. En los fallos, reproducir el fallo con un test antes de corregirlo.
-5. **Verificar calidad:** todas las puertas de la sección 6.
-6. **Revisión independiente:** revisar el diff con un subagente de contexto limpio y subsanar los hallazgos.
+4. **TDD (nivel 3):** primero las pruebas que expresan los criterios de aceptación, después el código. En los fallos, reproducir el fallo con un test antes de corregirlo.
+5. **Verificar calidad:** las puertas que pide su nivel (§6). Si falla una, se repite solo esa (`--solo`). No se comitea a mitad de una pasada.
+6. **Revisión:** la que pide su nivel; la independiente, con un subagente de contexto limpio, y subsanando los hallazgos.
 7. **Documentar:** `docs/PROJECT_STATE.md` (deuda y bitácora), `docs/ARCHITECTURE.md` §10 si cambia el estado, README si cambia el uso y un ADR nuevo si hubo una decisión arquitectónica.
-8. **PR y fusión:** PR hacia `dev`, CI en verde, fusión con *squash* y borrado de la rama.
+8. **PR y fusión:** PR hacia `dev` con la línea de las puertas (sustituye a la CI mientras esté bloqueada, D69), fusión con *squash* y borrado de la rama. Si hay que desplegar, `deploy/desplegar.sh` (nivel 1).
 9. **Cierre:** cerrar el issue a mano con `gh issue close <N> --comment "..."` y actualizar el issue de seguimiento si lo hay.
 
 ---
@@ -71,7 +77,7 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 ## 5. Política de Ramas, Commits, PRs y Migraciones
 
 ### Ramas
-- `main` es intocable (sin push, merge directo ni PR). La promoción de `dev` a `main` la hace el responsable del proyecto.
+- `main` solo se actualiza promoviendo `dev`, cuando lo pide el responsable: un PR de `dev` a `main` fusionado con commit de fusión (`gh pr merge --merge`, título `release: promover dev a main (#261)`), nunca con push directo ni *squash*.
 - `dev` es la única rama de integración y solo recibe cambios mediante PR.
 - Formato: `<tipo>/<número>-<descripción-corta>`, con tipos `feature`, `fix`, `refactor`, `docs`, `chore`.
 - Ramas de vida corta. Prohibido reescribir historia publicada o forzar push.
@@ -88,7 +94,7 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 ### Pull Requests
 - Título: `<tipo>(<scope>): <descripción> (#N)`.
 - Cuerpo: resumen, criterios de aceptación con su evidencia, decisiones técnicas y `Closes #N`.
-- Fusión mediante *squash* y borrado de la rama, de forma autónoma cuando linters, tests, CI y revisión estén en verde.
+- Fusión mediante *squash* y borrado de la rama, de forma autónoma cuando estén en verde las puertas y la revisión que pide su nivel (§4).
 
 ### Migraciones
 - Alembic, numeración secuencial, una por PR, con `upgrade()` y `downgrade()`.
@@ -99,12 +105,10 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 
 Un issue está terminado únicamente cuando:
 1. Todos los criterios de aceptación se cumplen con evidencia demostrable.
-2. Pasan sin errores:
-   - `uv run --no-sync pytest`
-   - `uv run --no-sync mypy packages apps`
-   - `uv run --no-sync ruff check .`
-   - `uv run --no-sync black --check .`
-   - Si se modificó `apps/web`, incluido `apps/web/src/types.ts` al regenerar el contrato: `npm run test` y `npm run build` en `apps/web` (la CI pasa además `npm run lint` y `npm run format:check`). La sincronía de `types.ts` con el contrato la comprueba también `pytest`.
+2. En un cambio de código (nivel 3, §4), pasan sin errores las puertas de lo que se tocó, con `uv run --no-sync python scripts/puertas.py`; los niveles 1 y 2 no pasan puertas:
+   - Python (`packages`, `apps/api`, `ml`, `scripts`, `deploy`, las migraciones, `pyproject.toml`, `uv.lock`): `--solo ruff,black,mypy,pytest` (~4 min).
+   - Solo `apps/web`, sin tocar `types.ts`: `--solo lint,format:check,test,build` (~3 min).
+   - Las dos, el contrato (`openapi.json`, `types.ts`, que comprueba `pytest`) o las dependencias de la web: todas, sin `--solo` (~6 min). Con `Dockerfile*`, el compose o `deploy/`, conviene además `--docker`.
 3. Documentación actualizada e issue cerrado a mano en GitHub.
 4. **Regla de integridad:** prohibido rebajar puertas, silenciar tests, debilitar el tipado estricto o insertar `# type: ignore` sin justificación explícita.
 
