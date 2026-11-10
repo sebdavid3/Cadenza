@@ -50,7 +50,7 @@ Al 15 de noviembre de 2026:
 | Fuera | Por qué | Issue |
 |---|---|---|
 | Matices reconocidos automáticamente (Audiveris) | HOMR 0.7.0 no los reconoce; Audiveris acierta poco en las dinámicas sin OCR y tarda 35–51 s por página real en CPU, 75 s un autógrafo ([INV-0002](../../investigaciones/INV-0002-audiveris-frente-a-homr.md)). Los matices se ponen a mano | [#262](https://github.com/sebdavid3/Cadenza/issues/262); a mano, [#214](https://github.com/sebdavid3/Cadenza/issues/214) |
-| Reintento con preprocesado y HOMR en la GPU de producción | Recortados el 2026-10-27 por el responsable: es el único punto que se aplica del orden de recorte (#272). El estudio se hace con HOMR en CPU, y [#269](https://github.com/sebdavid3/Cadenza/issues/269) mide la latencia de las páginas completas y fija el tamaño máximo de página | [#267](https://github.com/sebdavid3/Cadenza/issues/267), [#268](https://github.com/sebdavid3/Cadenza/issues/268) |
+| Reintento con preprocesado y HOMR en la GPU de producción | Recortados el 2026-10-27 por el responsable: es el único punto que se aplica del orden de recorte (#272). [#269](https://github.com/sebdavid3/Cadenza/issues/269) midió en CPU la latencia de las páginas completas y fijó el tamaño máximo de página. El responsable retomó la GPU el 2026-11-10 ([ADR-0066](../../adr/ADR-0066-homr-en-la-gpu-de-produccion.md)): producción transcribe en ella | [#267](https://github.com/sebdavid3/Cadenza/issues/267), [#268](https://github.com/sebdavid3/Cadenza/issues/268) |
 | Cambiar de motor (Transcoda) | Una prueba exploratoria del 2026-10-26, no citable, salió peor que HOMR en nuestras páginas: en *Mondnacht* entra en bucles y lee mal el compás, y en 10 incipits de PrIMuS (líneas sueltas, fuera de su tipo de entrada) también queda por detrás. Queda como trabajo futuro con ajuste fino | [#273](https://github.com/sebdavid3/Cadenza/issues/273) |
 | Reentrenar HOMR (D14) y la imagen del plano offline (D53) | Necesita el código de entrenamiento de HOMR, GPU y muchos más datos que las 32 sesiones del estudio (8 participantes por 4 partituras); no cabe en el plazo. «Aprender de las correcciones» se cubre con la capa de [#256](https://github.com/sebdavid3/Cadenza/issues/256) | [#103](https://github.com/sebdavid3/Cadenza/issues/103) |
 | Evaluar sobre SMB y MUSCIMA++ (D34) | Plazo | [#102](https://github.com/sebdavid3/Cadenza/issues/102) |
@@ -95,7 +95,7 @@ Cada carril trabaja en el orden de sus códigos (A1, A2…; B1, B2…; C1, C2…
 responsable; T1 para todos). «Tras X» marca una dependencia. #234, #256 y #257 tienen varias
 etapas, con un código cada una. Las casillas están en [#231](https://github.com/sebdavid3/Cadenza/issues/231), y cada issue lleva el suyo en
 la sección «Plan». Hechos: #232 (este plan) y #233 (INV-0002). A8 (#267) y R5 (#268) se
-recortaron el 27 de octubre (#272).
+recortaron el 27 de octubre (#272); R5 se retomó el 10 de noviembre (ADR-0066).
 
 | Semana | Carril A | Carril B | Carril C | Responsable y todos |
 |---|---|---|---|---|
