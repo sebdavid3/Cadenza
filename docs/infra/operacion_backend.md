@@ -241,6 +241,15 @@ $DC build web
 $DC up -d api web
 ```
 
+#### Encender el registro con el permiso de uso de los datos ([#378](https://github.com/sebdavid3/Cadenza/issues/378))
+
+El registro pide ahora, con una casilla obligatoria, el permiso de uso de los datos ([ADR-0064](../adr/ADR-0064-permiso-de-uso-de-los-datos-al-registrarse.md)): la cuenta guarda cuándo se dio y qué versión del texto (`/uso-de-los-datos`). **No se enciende hasta que el responsable apruebe el texto.** Encenderlo son dos variables y reconstruir la web:
+
+1. **`CADENZA_REGISTRATION_ENABLED=true`** (API): abre `POST /auth/register`. La API la lee al arrancar y aplica la migración `0017_users_data_consent` si falta.
+2. **`VITE_REGISTRATION_ENABLED=true`** (web): enseña los enlaces al registro y el formulario con el aviso y la casilla. Se fija al construir la imagen: en `docker-compose.prod.yml` la recibe del mismo `CADENZA_REGISTRATION_ENABLED` del `.env` como argumento del build, así que en el servidor basta la línea del `.env`, pero **hay que reconstruir `web`**; en otro despliegue, se pasa como argumento del build (`Dockerfile.web`).
+
+Con el bloque de arriba («Reabrir»: la línea del `.env` a `true`, `$DC build web` y `$DC up -d api web`). Comprobar después: el `curl` de arriba da 422 (abierto), `/registro` enseña «Uso de tus datos» con la casilla y el enlace al texto completo, `/uso-de-los-datos` responde 200, y una cuenta creada así tiene `data_consent: true` en `GET /api/auth/me`. Desde «Tu cuenta» se retira y se vuelve a dar.
+
 Después de cerrarlo:
 - **En el navegador**, en escritorio y en móvil: la landing y `/entrar` sin «Créala» ni «Crear una cuenta», y `/registro` con «Registro cerrado». `index.html` no se guarda en caché, pero una pestaña que ya estaba abierta conserva la interfaz anterior hasta recargarla.
 - **Las cuentas que ya se crearon desde el registro siguen activas**: cerrar no las borra ni las desactiva, así que pueden entrar y ocupar los huecos de transcripción ([ADR-0024](../adr/ADR-0024-transcripciones-simultaneas.md)). Un investigador las revisa en `/cuentas` (origen «Registro») y desactiva las que no deban entrar durante el estudio. Desactivar es reversible y no borra sus sesiones; un token ya emitido deja de valer en la petición siguiente. Sus sesiones ya quedan fuera del dataset del plano offline (`build-dataset` excluye las cuentas autorregistradas). Las de los participantes las crea el investigador ([#249](https://github.com/sebdavid3/Cadenza/issues/249)).

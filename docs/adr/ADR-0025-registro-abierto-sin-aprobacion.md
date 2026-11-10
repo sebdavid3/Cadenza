@@ -1,6 +1,6 @@
 # ADR-0025: Registro abierto: la cuenta queda activa al crearse
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (enmendado por [ADR-0064](ADR-0064-permiso-de-uso-de-los-datos-al-registrarse.md): al registrarse se da el permiso de uso de los datos, que la cuenta guarda con la versión del texto y se puede retirar desde «Tu cuenta»)
 - **Fecha:** 2026-10-23
 - **Decisores:** Dirección del proyecto Cadenza (decisión del responsable el 2026-10-23), Equipo de Desarrollo
 - **Relacionado:** [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) (enmienda sus §4 y §9), [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0023](ADR-0023-despliegue-publico-con-tailscale-funnel.md), [ADR-0024](ADR-0024-transcripciones-simultaneas.md)

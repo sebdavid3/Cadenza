@@ -431,6 +431,14 @@ Ampliación compatible del contrato: ningún campo existente cambia. Son datos d
 - **Cambiarlos**: `PATCH /sessions/{id}` con `SessionMetadataUpdate` (`title`, `composer`, `instruments` como `PartInstrumentWrite[]`). Lo que no se envía no cambia; `null` lo borra; `instruments` sustituye la lista entera. Responde `SessionMetadataRead`. Solo el dueño: 404 a un transcriptor ajeno, 403 a un investigador ajeno; 422 si un texto es demasiado largo, si hay más instrumentos que partes o si sobra un campo. Se admite con la sesión finalizada. No es una edición: no cambia `current_seq`, el log, el estado ni las métricas de esfuerzo, y no lleva `base_seq`. Tras él, `GET /sessions/{id}/export` ya lleva los datos nuevos; el MusicXML que la vista tenga es el de antes. El texto se normaliza (sin caracteres de control ni espacios de sobra; vacío es `null`): mostrar lo que devuelve la respuesta.
 - **Lo exportado**: el MusicXML lleva `work/work-title`, `identification/creator type="composer"` y, en cada `score-part` con datos, `part-name`, `score-instrument` (con `instrument-sound`) y `midi-instrument` (canal y programa General MIDI); el MIDI, el programa de cada parte. La vista no los dibuja en la partitura (`osmd.ts` apaga `drawTitle`, `drawComposer` y `drawPartNames`): los enseña en su cabecera ([#240](https://github.com/sebdavid3/Cadenza/issues/240), [ADR-0045](../adr/ADR-0045-nombre-e-instrumentos-de-la-sesion-en-la-web.md) §4; véase §6). Sin datos, lo exportado es lo de siempre.
 
+### 5.11. Permiso de uso de los datos (#378, ADR-0064)
+
+- `POST /auth/register` acepta `data_consent_version`, la versión del texto que la persona aceptó (opcional: sin ella, la cuenta se crea sin permiso). Si no es la vigente, **409** con `detail: "stale_data_consent"` y no se crea la cuenta; un usuario ocupado sigue siendo 409 con otro `detail`.
+- `PUT /auth/data-consent` con `{"granted": true, "version": "..."}` o `{"granted": false}` lo da o lo retira para la propia cuenta y devuelve `UserRead`. Con una versión que no es la vigente, 409 `stale_data_consent`.
+- `UserRead` lleva `data_consent` (vigente: dado para la versión actual), `data_consent_at` y `data_consent_version`.
+- El texto vive en la web (`apps/web/src/pages/consent/`) con `DATA_CONSENT_VERSION`, la misma que la API; una prueba de `pytest` comprueba que coinciden. Si el texto cambia, cambian las dos.
+- El permiso solo se guarda: no cambia qué datos se usan.
+
 ## 6. Estado Actual de `apps/web` (Fase 8)
 
 `apps/web` se construyó desde cero en la Fase 8 ([#129](https://github.com/sebdavid3/Cadenza/issues/129) retiró la base anterior); el plan de la fase y su criterio de cierre están en [`docs/phases/phase_8_web_interface/README.md`](../phases/phase_8_web_interface/README.md). La base ([#144](https://github.com/sebdavid3/Cadenza/issues/144), [ADR-0019](../adr/ADR-0019-base-del-cliente-web.md)) aporta:
