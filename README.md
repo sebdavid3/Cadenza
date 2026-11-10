@@ -348,6 +348,7 @@ pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
 uv run --no-sync python scripts/puertas.py            # Python y web
 uv run --no-sync python scripts/puertas.py --sin-web  # solo Python
 uv run --no-sync python scripts/puertas.py --docker   # y el job de Docker de la CI
+uv run --no-sync python scripts/puertas.py --solo pytest,test  # repetir solo esas (#382)
 ```
 
 Una a una:

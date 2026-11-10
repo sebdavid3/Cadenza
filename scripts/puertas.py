@@ -7,6 +7,7 @@ nota en el PR, que este script deja lista para pegar. Desde la raíz del reposit
     uv run --no-sync python scripts/puertas.py             # Python y web, como la CI
     uv run --no-sync python scripts/puertas.py --sin-web   # solo Python
     uv run --no-sync python scripts/puertas.py --docker    # y además el job de Docker de la CI
+    uv run --no-sync python scripts/puertas.py --solo pytest,test   # repetir solo esas (#382)
 
 Nunca `uv sync` a secas: desinstalaría HOMR (`CLAUDE.md` §7). Hay que lanzarlo con `uv run`,
 para que la comprobación de HOMR mire el entorno del proyecto. Pasa todas las puertas aunque
@@ -32,6 +33,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -189,6 +191,27 @@ def build_plan(
     if docker:
         plan += _docker_gates()
     return plan
+
+
+def short_name(name: str) -> str:
+    """El nombre de una puerta para `--solo`: las de la web, sin «npm » («test», «build»)."""
+
+    return name.removeprefix("npm ")
+
+
+def select_gates(plan: Sequence[Gate], wanted: str) -> list[Gate]:
+    """Las puertas de `plan` que nombra `wanted` (separadas por comas, con su nombre o el corto),
+    en el orden del plan. Un nombre que no está en el plan lanza `ValueError` con ese nombre."""
+
+    names = [name.strip() for name in wanted.split(",") if name.strip()]
+    if not names:
+        raise ValueError("(ninguna)")
+    by_name = {gate.name: gate for gate in plan} | {short_name(gate.name): gate for gate in plan}
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise ValueError(", ".join(unknown))
+    chosen = {by_name[name].name for name in names}
+    return [gate for gate in plan if gate.name in chosen]
 
 
 def run_live(gate: Gate) -> tuple[int, str]:
@@ -406,6 +429,14 @@ def main(
     )
     parser.add_argument("--sin-web", action="store_true", help="Solo las puertas de Python")
     parser.add_argument("--docker", action="store_true", help="También el job de Docker de la CI")
+    parser.add_argument(
+        "--solo",
+        metavar="PUERTAS",
+        help=(
+            "Solo estas puertas, separadas por comas: ruff, black, mypy, pytest, lint, "
+            "format:check, test, build (y las de --docker). Para repetir las que fallaron (#382)."
+        ),
+    )
     args = parser.parse_args(argv)
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
@@ -454,6 +485,18 @@ def main(
             )
 
     plan = build_plan(web=web, docker=args.docker, postgres=postgres, web_dir=web_dir)
+    if args.solo is not None:
+        try:
+            plan = select_gates(plan, args.solo)
+        except ValueError as exc:
+            hints = []
+            if not web:
+                hints.append("las de la web no van con --sin-web")
+            if not args.docker:
+                hints.append("las de Docker necesitan --docker")
+            extra = f" ({'; '.join(hints)})" if hints else ""
+            parser.error(f"--solo: no hay ninguna puerta «{exc}» en esta pasada{extra}")
+        uncovered.insert(0, "las demás puertas (--solo)")
     skipped: list[Result] = []
     if web and not (web_dir / "node_modules").is_dir():
         message = f"faltan las dependencias de la web: ejecuta `npm ci` en {web_dir}"
@@ -485,6 +528,16 @@ def main(
 
     print("\nPara el PR:")
     print(pr_line(results, commit=before.commit, dirty=before.dirty, uncovered=uncovered))
+    gate_names = {gate.name for gate in plan} | {result.name for result in skipped}
+    failed = [r.name for r in results if not r.ok and r.name in gate_names]
+    if failed:
+        flags = " --docker" if args.docker else ""
+        print("\nPara repetir solo las que fallaron:")
+        print(
+            f"  uv run --no-sync python scripts/puertas.py{flags} --solo "
+            # Las de Docker llevan espacios y dos puntos: entre comillas para la shell.
+            + shlex.quote(",".join(short_name(name) for name in failed))
+        )
     return 0 if all(result.ok for result in results) else 1
 
 
