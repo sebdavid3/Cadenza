@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -45,18 +47,109 @@ def test_effective_device_cpu_by_default() -> None:
     assert HOMREngine(use_gpu=False).device == "cpu"
 
 
-def test_effective_device_with_mocked_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+def _fake_cuda_onnxruntime(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     import types
-
-    from cadenza.omr.adapters.homr import get_effective_device
 
     fake_ort = types.ModuleType("onnxruntime")
     fake_ort.get_available_providers = lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
 
+
+def test_effective_device_with_mocked_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cadenza.omr.adapters import homr
+    from cadenza.omr.adapters.homr import get_effective_device
+
+    _fake_cuda_onnxruntime(monkeypatch)
+    monkeypatch.setattr(homr, "_cuda_device_present", lambda: True)
+
     assert get_effective_device(use_gpu=True) == "cuda"
     assert HOMREngine(use_gpu=True).device == "cuda"
+
+
+def test_effective_device_is_cpu_when_cuda_sees_no_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ONNX Runtime con CUDA declara su proveedor aunque el contenedor arranque sin GPU: el
+    # dispositivo que se informa (en /health y en la procedencia) es la CPU (ADR-0066).
+    from cadenza.omr.adapters import homr
+    from cadenza.omr.adapters.homr import get_effective_device
+
+    _fake_cuda_onnxruntime(monkeypatch)
+    monkeypatch.setattr(homr, "_cuda_device_present", lambda: False)
+
+    assert get_effective_device(use_gpu=True) == "cpu"
+    assert HOMREngine(use_gpu=True).device == "cpu"
+
+
+def test_homr_runs_on_the_cpu_when_cuda_sees_no_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cadenza.omr.adapters import homr
+
+    class _CudaHomr:
+        @staticmethod
+        def cuda_available() -> bool:
+            return True
+
+    monkeypatch.setattr(homr, "_cuda_device_present", lambda: False)
+    assert homr._gpu_available(_CudaHomr()) is False
+
+    monkeypatch.setattr(homr, "_cuda_device_present", lambda: True)
+    assert homr._gpu_available(_CudaHomr()) is True
+
+
+class _FakeCudaDriver:
+    """El controlador de CUDA (`libcuda`) con `cuInit` y `cuDeviceGetCount`."""
+
+    def __init__(self, init_result: int, devices: int) -> None:
+        self._init_result = init_result
+        self._devices = devices
+
+    def cuInit(self, flags: int) -> int:
+        return self._init_result
+
+    def cuDeviceGetCount(self, count: ctypes.c_int) -> int:
+        count.value = self._devices
+        return 0
+
+
+class _DriverWithoutSymbols:
+    """Una biblioteca que carga, pero sin las funciones del controlador."""
+
+
+@pytest.mark.parametrize(
+    ("driver", "present"),
+    [
+        (_FakeCudaDriver(init_result=0, devices=1), True),
+        # CUDA_ERROR_NO_DEVICE: el controlador está, pero no ve ninguna GPU.
+        (_FakeCudaDriver(init_result=100, devices=0), False),
+        (_FakeCudaDriver(init_result=0, devices=0), False),
+        (_DriverWithoutSymbols(), False),
+        (None, False),
+    ],
+)
+def test_cuda_device_present_asks_the_driver(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    driver: object | None,
+    present: bool,
+) -> None:
+    from cadenza.omr.adapters import homr
+
+    def load(name: str) -> object:
+        # Sin GPU en el contenedor, el runtime de NVIDIA no monta libcuda: no se puede cargar.
+        if driver is None:
+            raise OSError(f"{name}: cannot open shared object file")
+        return driver
+
+    monkeypatch.setattr(ctypes, "CDLL", load)
+    # El controlador de verdad recibe un puntero; el doble, el entero mismo.
+    monkeypatch.setattr(ctypes, "byref", lambda value: value)
+    homr._cuda_device_present.cache_clear()
+    try:
+        with caplog.at_level(logging.WARNING, logger=homr.__name__):
+            assert homr._cuda_device_present() is present
+    finally:
+        homr._cuda_device_present.cache_clear()
+    # Si ONNX Runtime trae CUDA y no hay GPU, el registro lo dice.
+    assert ("CUDA sin GPU" in caplog.text) is not present
 
 
 class _FakeMultiStaff:
