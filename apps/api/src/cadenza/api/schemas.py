@@ -6,7 +6,6 @@ from datetime import datetime
 from typing import Any, Literal
 
 from cadenza.application import (
-    DATA_CONSENT_VERSION,
     EffortMetricsData,
     PersistedFinding,
     PersistedSuggestion,
@@ -737,8 +736,7 @@ class UserRead(BaseModel):
         default=False,
         description=(
             "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión "
-            f"actual del texto ({DATA_CONSENT_VERSION}). Solo se guarda: no cambia qué datos se "
-            "usan (#378, ADR-0064)."
+            "actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064)."
         ),
     )
     data_consent_at: datetime | None = Field(

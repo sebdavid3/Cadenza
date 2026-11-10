@@ -70,9 +70,30 @@
   background: var(--color-on-accent);
 }
 
-.consent-switch input:disabled {
+.consent-switch input[aria-disabled="true"] {
   cursor: progress;
   opacity: 0.6;
+}
+
+/* En alto contraste, el bloque y la pista con los colores del sistema: encendido se distingue. */
+@media (forced-colors: active) {
+  .consent-switch input {
+    forced-color-adjust: none;
+    border-color: ButtonText;
+    background: Canvas;
+  }
+
+  .consent-switch input::before {
+    background: ButtonText;
+  }
+
+  .consent-switch input:checked {
+    background: Highlight;
+  }
+
+  .consent-switch input:checked::before {
+    background: HighlightText;
+  }
 }
 
 .consent-status {

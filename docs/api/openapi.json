@@ -5465,7 +5465,7 @@
           "data_consent": {
             "type": "boolean",
             "title": "Data Consent",
-            "description": "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto (2026-11-09). Solo se guarda: no cambia qué datos se usan (#378, ADR-0064).",
+            "description": "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064).",
             "default": false
           },
           "data_consent_at": {

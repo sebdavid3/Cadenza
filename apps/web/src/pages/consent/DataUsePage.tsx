@@ -3,7 +3,7 @@ import { useAuthStore } from "../../auth/store";
 import { SiteHeader } from "../../components/SiteHeader";
 import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { STORED_DATA } from "./consent";
+import { consentVersionLabel, STORED_DATA } from "./consent";
 import "./consent.css";
 
 /**
@@ -21,7 +21,7 @@ export function DataUsePage() {
         <h1 id="data-use-title" className="data-use__title">
           Uso de tus datos
         </h1>
-        <p className="label data-use__version">Versión del 9 de noviembre de 2026</p>
+        <p className="label data-use__version">Versión del {consentVersionLabel()}</p>
 
         <section aria-labelledby="data-use-what">
           <h2 id="data-use-what">Qué se guarda</h2>
@@ -30,12 +30,17 @@ export function DataUsePage() {
             {STORED_DATA.map((item) => (
               <li key={item}>{item.charAt(0).toUpperCase() + item.slice(1)}.</li>
             ))}
+            <li>
+              Los datos que das de cada partitura (título, compositor e instrumentos) y los posibles
+              errores que descartas o restauras.
+            </li>
           </ul>
           <p>
             Todo va unido a tu cuenta, que se identifica por su nombre de usuario: no te pedimos tu
             nombre ni tu correo, y el usuario puede ser un seudónimo. Hace falta guardarlo para que
             puedas volver a tus transcripciones; el permiso decide si, además, se puede usar para lo
-            que sigue.
+            que sigue. Como cualquier web, el servidor guarda además un registro técnico de las
+            peticiones, con su dirección IP, que solo sirve para que funcione y se va borrando.
           </p>
         </section>
 
@@ -89,6 +94,11 @@ export function DataUsePage() {
           <p>
             Si este texto cambia, el permiso que diste para esta versión deja de valer hasta que
             leas el nuevo y lo vuelvas a dar.
+          </p>
+          <p>
+            Este permiso es el de las cuentas que se crean en el registro. Si tu cuenta te la dio el
+            equipo del proyecto para participar en el estudio, el uso de tus datos se rige por el
+            consentimiento que firmaste para el estudio.
           </p>
         </section>
 

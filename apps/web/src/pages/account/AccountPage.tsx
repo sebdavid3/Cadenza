@@ -246,14 +246,20 @@ function consentDate(value: string): string {
 function DataConsentSection() {
   const user = useAuthStore((state) => state.user);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [changed, setChanged] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  if (!user) return null;
+  // Es el permiso de las cuentas del registro: a los participantes del estudio les rige el
+  // consentimiento del estudio, y los datos de sus cuentas no dependen de este (ADR-0064 §5).
+  if (!user?.self_registered) return null;
   const granted = user.data_consent ?? false;
   // Dado para una versión anterior del texto: no está vigente hasta que se vuelva a dar.
   const outdated = !granted && Boolean(user.data_consent_version);
 
   const toggle = async (next: boolean) => {
+    // Mientras se guarda, el interruptor no se deshabilita (perdería el foco): se ignora.
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     setChanged(null);
@@ -264,6 +270,7 @@ function DataConsentSection() {
     } catch (caught) {
       setError(consentErrorMessage(caught));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -286,7 +293,7 @@ function DataConsentSection() {
           type="checkbox"
           role="switch"
           checked={granted}
-          disabled={saving}
+          aria-disabled={saving}
           aria-describedby="account-consent-notice account-consent-state"
           onChange={(event) => {
             void toggle(event.target.checked);

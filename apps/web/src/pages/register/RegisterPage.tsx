@@ -281,7 +281,7 @@ function RegisterForm() {
             </div>
             <fieldset className="field register__consent">
               <legend className="label">Uso de tus datos</legend>
-              <DataConsentNotice id="register-consent-notice" />
+              <DataConsentNotice id="register-consent-notice" newTab />
               <div className="consent-check">
                 <input
                   ref={consentRef}

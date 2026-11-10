@@ -9,6 +9,17 @@ import type { UserRead } from "../../types";
  */
 export const DATA_CONSENT_VERSION = "2026-11-09";
 
+/** La versión del texto en palabras: «9 de noviembre de 2026». */
+export function consentVersionLabel(version: string = DATA_CONSENT_VERSION): string {
+  const [year, month, day] = version.split("-").map(Number);
+  return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1)).toLocaleDateString("es", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 /** La página con el texto completo, pública: se lee antes de crear la cuenta. */
 export const DATA_USE_PATH = "/uso-de-los-datos";
 

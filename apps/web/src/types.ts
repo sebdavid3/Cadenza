@@ -875,7 +875,7 @@ export interface UserRead {
   created_at?: string | null;
   /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
   self_registered?: boolean;
-  /** Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto (2026-11-09). Solo se guarda: no cambia qué datos se usan (#378, ADR-0064). */
+  /** Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064). */
   data_consent?: boolean;
   /** Cuándo se dio el permiso; null, sin permiso */
   data_consent_at?: string | null;

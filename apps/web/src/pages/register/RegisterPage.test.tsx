@@ -255,7 +255,9 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     renderAt();
 
     const consent = await screen.findByRole("group", { name: "Uso de tus datos" });
-    expect(consent).toHaveTextContent(/con tu seudónimo y sin tu nombre ni tu correo/i);
+    expect(consent).toHaveTextContent(
+      /con tu nombre de usuario \(puede ser un seudónimo\) y sin tu correo/i,
+    );
     for (const stored of [
       "las imágenes de partituras que subes",
       "lo que HOMR leyó en ellas",
@@ -268,10 +270,12 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(consent).toHaveTextContent(
       /investigar y para mejorar el modelo que transcribe y el que sugiere correcciones/i,
     );
-    expect(screen.getByRole("link", { name: "Leer el texto completo" })).toHaveAttribute(
-      "href",
-      "/uso-de-los-datos",
-    );
+    // En otra pestaña: una navegación interna borraría lo escrito en el formulario.
+    const full = screen.getByRole("link", {
+      name: "Leer el texto completo (se abre en otra pestaña)",
+    });
+    expect(full).toHaveAttribute("href", "/uso-de-los-datos");
+    expect(full).toHaveAttribute("target", "_blank");
     const checkbox = screen.getByRole("checkbox", { name: CONSENT_LABEL });
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toHaveAccessibleDescription(/forma parte de una investigación/i);

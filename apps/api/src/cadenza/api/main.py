@@ -1234,6 +1234,7 @@ def create_app(
     def update_data_consent(
         payload: DataConsentUpdate, request: Request, db: DbDep, current_user: CurrentUserDep
     ) -> UserRead:
+        before = (current_user.data_consent_at, current_user.data_consent_version)
         updated = set_data_consent_use_case(
             current_user.id,
             granted=payload.granted,
@@ -1241,12 +1242,15 @@ def create_app(
             now=request.app.state.clock(),
             user_repository=SqlAlchemyUserRepository(db),
         )
-        logger.info(
-            "data_consent_changed user_id=%s granted=%s version=%s source=account",
-            updated.id,
-            "true" if payload.granted else "false",
-            updated.data_consent_version or "-",
-        )
+        # El registro es la historia de los cambios (ADR-0064 §1): solo cuando cambia algo, y al
+        # retirarlo, con la versión que se retira.
+        if (updated.data_consent_at, updated.data_consent_version) != before:
+            logger.info(
+                "data_consent_changed user_id=%s granted=%s version=%s source=account",
+                updated.id,
+                "true" if payload.granted else "false",
+                (updated.data_consent_version if payload.granted else before[1]) or "-",
+            )
         return UserRead.from_user(updated)
 
     @app.post(

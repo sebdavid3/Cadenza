@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from cadenza.application import DuplicateUsername, Role, User, UserNotFound, UserRepository
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from .models import UserRecord
+
+
+def _aware(moment: datetime | None) -> datetime | None:
+    """SQLite devuelve las fechas sin zona: se leen como UTC, que es como se guardan."""
+    if moment is None or moment.tzinfo is not None:
+        return moment
+    return moment.replace(tzinfo=UTC)
 
 
 class SqlAlchemyUserRepository(UserRepository):
@@ -82,6 +91,6 @@ class SqlAlchemyUserRepository(UserRepository):
             active=record.active,
             created_at=record.created_at,
             self_registered=record.self_registered,
-            data_consent_at=record.data_consent_at,
+            data_consent_at=_aware(record.data_consent_at),
             data_consent_version=record.data_consent_version,
         )

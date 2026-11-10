@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from cadenza.api import Settings, create_app
 from cadenza.application import DATA_CONSENT_VERSION, Role, User
 from cadenza.persistence import (
@@ -229,3 +231,39 @@ def test_changing_the_password_or_the_account_keeps_the_permission() -> None:
     me = client.get("/auth/me", headers=headers).json()
     assert me["data_consent"] is True
     assert me["data_consent_version"] == DATA_CONSENT_VERSION
+
+
+def test_the_date_of_the_permission_keeps_its_time_zone() -> None:
+    app = _app()
+    client = TestClient(app)
+    user = _register(client, "ana", data_consent_version=DATA_CONSENT_VERSION)
+    headers = {"Authorization": f"Bearer {_token(app, str(user['id']))}"}
+
+    # Con SQLite, la fecha vuelve de la base sin zona: se lee como UTC.
+    at = client.get("/auth/me", headers=headers).json()["data_consent_at"]
+
+    assert datetime.fromisoformat(at.replace("Z", "+00:00")) == NOW
+
+
+def test_each_change_of_the_permission_leaves_one_line_in_the_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = _app()
+    client = TestClient(app)
+    user = _register(client, "ana")
+    headers = {"Authorization": f"Bearer {_token(app, str(user['id']))}"}
+    caplog.set_level(logging.INFO, logger="cadenza.api")
+
+    def put(body: dict[str, object]) -> None:
+        assert client.put("/auth/data-consent", json=body, headers=headers).status_code == 200
+
+    put({"granted": False})  # no tenía: nada cambia
+    put({"granted": True, "version": DATA_CONSENT_VERSION})
+    put({"granted": True, "version": DATA_CONSENT_VERSION})  # ya lo tenía
+    put({"granted": False})
+
+    lines = [r.getMessage() for r in caplog.records if "data_consent_changed" in r.getMessage()]
+    assert len(lines) == 2
+    assert "granted=true" in lines[0] and f"version={DATA_CONSENT_VERSION}" in lines[0]
+    # Al retirarlo, la versión que se retira.
+    assert "granted=false" in lines[1] and f"version={DATA_CONSENT_VERSION}" in lines[1]

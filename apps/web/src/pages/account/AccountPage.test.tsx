@@ -293,6 +293,13 @@ describe("cambiar la contraseña (#190)", () => {
 
 describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
   const SWITCH = { name: "Permitir que se usen mis datos así" };
+  const REGISTERED = { ...ANA, self_registered: true };
+
+  function renderAs(user: typeof ANA) {
+    signInAs(user);
+    const router = createMemoryRouter(routes, { initialEntries: ["/cuenta"] });
+    render(<RouterProvider router={router} />);
+  }
 
   /** Lo que dice el estado del permiso, en su región viva. */
   function consentState(panel: HTMLElement): HTMLElement {
@@ -304,7 +311,7 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
 
   it("se da y se retira con el mismo interruptor, y el perfil de la sesión cambia", async () => {
     const given = {
-      ...ANA,
+      ...REGISTERED,
       data_consent: true,
       data_consent_at: "2026-11-09T18:30:00Z",
       data_consent_version: DATA_CONSENT_VERSION,
@@ -318,11 +325,16 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
         return jsonResponse(
           granted
             ? given
-            : { ...ANA, data_consent: false, data_consent_at: null, data_consent_version: null },
+            : {
+                ...REGISTERED,
+                data_consent: false,
+                data_consent_at: null,
+                data_consent_version: null,
+              },
         );
       },
     });
-    renderAt();
+    renderAs(REGISTERED);
     const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
     const toggle = within(panel).getByRole("switch", SWITCH);
     expect(toggle).not.toBeChecked();
@@ -335,6 +347,8 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
     });
     expect(consentState(panel)).toHaveTextContent("Has dado tu permiso.");
     expect(useAuthStore.getState().user?.data_consent).toBe(true);
+    // El foco sigue en el interruptor: no se deshabilita mientras guarda.
+    expect(toggle).toHaveFocus();
 
     await userEvent.click(toggle);
     await waitFor(() => {
@@ -344,11 +358,38 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
     expect(bodies).toEqual([{ granted: true, version: DATA_CONSENT_VERSION }, { granted: false }]);
   });
 
+  it("mientras guarda, un segundo toque no envía otra petición ni quita el foco", async () => {
+    const pending = deferred<Response>();
+    const { calls } = mockApi({ "PUT /auth/data-consent": () => pending.promise });
+    renderAs(REGISTERED);
+    const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
+    const toggle = within(panel).getByRole("switch", SWITCH);
+
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-disabled", "true");
+    expect(toggle).toBeEnabled();
+    await userEvent.click(toggle);
+
+    expect(calls.filter((call) => call.key === "PUT /auth/data-consent")).toHaveLength(1);
+    expect(toggle).toHaveFocus();
+    pending.resolve(jsonResponse({ ...REGISTERED, data_consent: true }));
+    await waitFor(() => {
+      expect(toggle).toHaveAttribute("aria-disabled", "false");
+    });
+  });
+
+  it("no se ofrece a las cuentas que crea el equipo: les rige el consentimiento del estudio", async () => {
+    mockApi({});
+    renderAs(ANA);
+
+    expect(await screen.findByRole("heading", { name: "Tu cuenta" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Uso de tus datos" })).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+  });
+
   it("un permiso dado para un texto anterior no está vigente y se pide releerlo", async () => {
     mockApi({});
-    signInAs({ ...ANA, data_consent: false, data_consent_version: "2020-01-01" });
-    const router = createMemoryRouter(routes, { initialEntries: ["/cuenta"] });
-    render(<RouterProvider router={router} />);
+    renderAs({ ...REGISTERED, data_consent: false, data_consent_version: "2020-01-01" });
 
     const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
 
@@ -360,7 +401,7 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
     mockApi({
       "PUT /auth/data-consent": () => jsonResponse({ detail: "stale_data_consent" }, 409),
     });
-    renderAt();
+    renderAs(REGISTERED);
     const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
     const toggle = within(panel).getByRole("switch", SWITCH);
 
