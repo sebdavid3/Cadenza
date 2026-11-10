@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  choosePortrait,
   coverCrop,
   DOT_MAX_RADIUS,
   dotRadius,
@@ -8,10 +9,12 @@ import {
   PORTRAITS,
   readLastPortrait,
   rememberPortrait,
+  VISIT_PORTRAIT_KEY,
 } from "./portraits";
 
 afterEach(() => {
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("retratos del acceso", () => {
@@ -63,6 +66,36 @@ describe("retratos del acceso", () => {
     expect(() => {
       rememberPortrait(1);
     }).not.toThrow();
+  });
+});
+
+describe("retrato de la visita", () => {
+  it("la primera vista del acceso avanza la rotación; las siguientes de la visita, no", () => {
+    window.localStorage.setItem(PORTRAIT_STORAGE_KEY, "2");
+
+    expect(choosePortrait()).toBe(3);
+    expect(choosePortrait()).toBe(3);
+    expect(window.localStorage.getItem(PORTRAIT_STORAGE_KEY)).toBe("3");
+    expect(window.sessionStorage.getItem(VISIT_PORTRAIT_KEY)).toBe("3");
+  });
+
+  it("una visita nueva sigue la rotación donde la dejó la anterior", () => {
+    window.localStorage.setItem(PORTRAIT_STORAGE_KEY, "4");
+
+    expect(choosePortrait()).toBe(0);
+    window.sessionStorage.clear();
+    expect(choosePortrait()).toBe(1);
+  });
+
+  it("sin almacenamiento elige uno al azar y no falla", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("bloqueado");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("bloqueado");
+    });
+
+    expect(choosePortrait(() => 0.5)).toBe(2);
   });
 });
 

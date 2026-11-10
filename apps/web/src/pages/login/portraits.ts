@@ -60,6 +60,8 @@ export const PORTRAITS: readonly Portrait[] = [
 
 /** Dónde recuerda el navegador el último retrato mostrado: una comodidad, no un dato. */
 export const PORTRAIT_STORAGE_KEY = "cadenza.acceso.retrato";
+/** El retrato de esta visita (la sesión de la pestaña): ir de entrar al registro no lo cambia. */
+export const VISIT_PORTRAIT_KEY = "cadenza.acceso.retrato-de-la-visita";
 
 /**
  * El retrato de esta visita: el siguiente al último que se mostró y, en la primera visita (o si
@@ -91,12 +93,38 @@ export function rememberPortrait(index: number): void {
   }
 }
 
+/**
+ * El retrato de esta visita: el que ya se eligió en esta pestaña o, si es la primera vista del
+ * acceso en ella, el siguiente de la rotación, que se recuerda para la próxima visita. Se puede
+ * llamar más de una vez (los efectos dobles de React en desarrollo): devuelve el mismo.
+ */
+export function choosePortrait(random: () => number = Math.random): number {
+  let visit: string | null;
+  try {
+    visit = window.sessionStorage.getItem(VISIT_PORTRAIT_KEY);
+  } catch {
+    visit = null;
+  }
+  if (visit !== null && /^\d+$/.test(visit) && Number(visit) < PORTRAITS.length) {
+    return Number(visit);
+  }
+  const index = pickPortraitIndex(readLastPortrait(), PORTRAITS.length, random);
+  rememberPortrait(index);
+  try {
+    window.sessionStorage.setItem(VISIT_PORTRAIT_KEY, String(index));
+  } catch {
+    // Sin almacenamiento de sesión, cada vista del acceso avanza la rotación.
+  }
+  return index;
+}
+
 /** Paso de la trama: el mismo de `--halftone-ink`, para que el retrato salga de ella. */
 export const DOT_PITCH = 5;
-/** Radio del punto en el negro: los puntos casi se tocan, sin cerrar un bloque macizo. */
-export const DOT_MAX_RADIUS = 2.6;
-/** Radio de los puntos de la trama de siempre, mientras el retrato no se ha impreso. */
-export const FIELD_DOT_RADIUS = 1.3;
+/**
+ * Radio del punto en el negro: medio paso, de modo que los puntos se tocan sin cerrar un bloque
+ * macizo y ninguno invade la fila de al lado (la impresión pinta una banda de filas cada vez).
+ */
+export const DOT_MAX_RADIUS = DOT_PITCH / 2;
 /** Altura del panel (en fracción) a la que caen los ojos, salvo que la hoja diga otra. */
 export const EYE_LINE = 0.36;
 

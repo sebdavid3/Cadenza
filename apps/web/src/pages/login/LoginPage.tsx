@@ -150,8 +150,7 @@ export function LoginPage() {
             ) : (
               "Las cuentas las crea un investigador del proyecto. "
             )}
-            No hay recuperación de contraseña por correo: una cuenta que te dio el equipo puede
-            recibir una contraseña nueva de un investigador; una creada en el registro, no.
+            No hay recuperación de contraseña por correo.
           </p>
         </form>
       </main>

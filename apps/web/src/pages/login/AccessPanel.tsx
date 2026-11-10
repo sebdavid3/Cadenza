@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  choosePortrait,
   coverCrop,
   DOT_PITCH,
   dotRadius,
   EYE_LINE,
-  FIELD_DOT_RADIUS,
-  pickPortraitIndex,
-  PORTRAITS,
   portraitAt,
-  readLastPortrait,
-  rememberPortrait,
   type Portrait,
 } from "./portraits";
 import "./login.css";
@@ -21,9 +17,15 @@ const PRINT_STEPS = 28;
 // Por debajo de este radio el punto no se ve: se deja el papel.
 const MIN_RADIUS = 0.15;
 
+function mediaMatches(query: string): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia(query).matches;
+}
+
+/** Sin `matchMedia` no se sabe si se pidió menos movimiento: se imprime de una vez. */
 function motionAllowed(): boolean {
-  if (typeof window.matchMedia !== "function") return false;
-  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    typeof window.matchMedia === "function" && !mediaMatches("(prefers-reduced-motion: reduce)")
+  );
 }
 
 function tokenColor(element: Element, name: string, fallback: string): string {
@@ -69,27 +71,22 @@ function sampleCells(
 }
 
 /**
- * El panel del acceso (#392): la trama de tinta de siempre, cuyos puntos crecen con la sombra
- * hasta formar el retrato de un compositor, uno por visita y en rotación, con su pie de lámina.
- * El retrato es decorativo: el titular sigue siendo el `h1` de la vista. Sin canvas, sin la
- * imagen o con colores forzados, queda la trama de CSS.
+ * El panel del acceso (#392): la trama de tinta de siempre, que un lienzo encima imprime, banda a
+ * banda, como el retrato de un compositor en semitono, uno por visita y en rotación, con su pie de
+ * lámina. El retrato es decorativo: el titular sigue siendo el `h1` de la vista. Lo que no se ha
+ * impreso deja ver la trama de CSS; sin canvas o sin la imagen, queda la trama, y con colores
+ * forzados no se descarga el retrato.
  */
 export function AccessPanel({ title }: { title: string }) {
-  const [index] = useState(() =>
-    pickPortraitIndex(readLastPortrait(), PORTRAITS.length, Math.random),
-  );
+  const [index] = useState(() => choosePortrait());
   const portrait = portraitAt(index);
   const [printed, setPrinted] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    rememberPortrait(index);
-  }, [index]);
-
-  useEffect(() => {
     const canvas = canvasRef.current;
     const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
+    if (!canvas || !context || mediaMatches("(forced-colors: active)")) return;
 
     const image = new Image();
     const paper = tokenColor(canvas, "--color-paper", "#f0eff2");
@@ -97,41 +94,45 @@ export function AccessPanel({ title }: { title: string }) {
     let loaded = false;
     let disposed = false;
     let cells: Float32Array | null = null;
-    let grid = "";
+    let layout = "";
     let progress = 0;
+    let printedRows = 0;
     let printFrame = 0;
-    let resizeFrame = 0;
+    let redrawFrame = 0;
 
-    // Dibuja la trama entera: las filas ya impresas con el retrato y el resto con el punto fijo.
-    const paint = () => {
+    // Imprime las filas que tocan según `progress` y aún no están en el lienzo: papel en su banda
+    // y, encima, sus puntos. Si el panel cambió de tamaño o de densidad de píxeles, vacía el lienzo
+    // y vuelve a imprimir desde arriba.
+    const draw = () => {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       if (width === 0 || height === 0) return;
+      const ratio = window.devicePixelRatio || 1;
       const cols = Math.ceil(width / DOT_PITCH);
       const rows = Math.ceil(height / DOT_PITCH);
       const eyes = eyeLine(canvas);
-      const layout = `${String(cols)}×${String(rows)}@${String(eyes)}`;
-      if (grid !== layout) {
-        grid = layout;
-        cells = sampleCells(image, portrait, cols, rows, eyes);
-      }
-      if (!cells) return;
-      const ratio = window.devicePixelRatio || 1;
       const pixelWidth = Math.round(width * ratio);
       const pixelHeight = Math.round(height * ratio);
-      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
-      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+      const key = `${String(pixelWidth)}×${String(pixelHeight)}@${String(eyes)}`;
+      if (key !== layout) {
+        layout = key;
+        cells = sampleCells(image, portrait, cols, rows, eyes);
+        canvas.width = pixelWidth;
+        canvas.height = pixelHeight;
+        printedRows = 0;
+      }
+      if (!cells) return;
+      const target = Math.ceil(rows * progress);
+      if (target <= printedRows) return;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.fillStyle = paper;
-      context.fillRect(0, 0, width, height);
+      context.fillRect(0, printedRows * DOT_PITCH, width, (target - printedRows) * DOT_PITCH);
       context.fillStyle = ink;
       context.beginPath();
-      const printedRows = Math.ceil(rows * progress);
-      for (let row = 0; row < rows; row += 1) {
+      for (let row = printedRows; row < target; row += 1) {
         const y = row * DOT_PITCH + DOT_PITCH / 2;
         for (let col = 0; col < cols; col += 1) {
-          const radius =
-            row < printedRows ? dotRadius(cells[row * cols + col] ?? 1) : FIELD_DOT_RADIUS;
+          const radius = dotRadius(cells[row * cols + col] ?? 1);
           if (radius < MIN_RADIUS) continue;
           const x = col * DOT_PITCH + DOT_PITCH / 2;
           context.moveTo(x + radius, y);
@@ -139,6 +140,13 @@ export function AccessPanel({ title }: { title: string }) {
         }
       }
       context.fill();
+      printedRows = target;
+    };
+
+    const redraw = () => {
+      if (!loaded) return;
+      cancelAnimationFrame(redrawFrame);
+      redrawFrame = requestAnimationFrame(draw);
     };
 
     let start = 0;
@@ -153,7 +161,7 @@ export function AccessPanel({ title }: { title: string }) {
       if (step !== lastStep) {
         lastStep = step;
         progress = step / PRINT_STEPS;
-        paint();
+        draw();
       }
       if (step < PRINT_STEPS) printFrame = requestAnimationFrame(print);
       else setPrinted(true);
@@ -167,18 +175,25 @@ export function AccessPanel({ title }: { title: string }) {
         return;
       }
       progress = 1;
-      paint();
+      draw();
       setPrinted(true);
     };
 
-    const observer =
-      typeof ResizeObserver === "function"
-        ? new ResizeObserver(() => {
-            if (!loaded) return;
-            cancelAnimationFrame(resizeFrame);
-            resizeFrame = requestAnimationFrame(paint);
-          })
-        : null;
+    // Al pasar la ventana a una pantalla de otra densidad, el tamaño no cambia: se vigila aparte.
+    let ratioQuery: MediaQueryList | null = null;
+    const watchRatio = () => {
+      if (typeof window.matchMedia !== "function") return;
+      ratioQuery = window.matchMedia(`(resolution: ${String(window.devicePixelRatio)}dppx)`);
+      ratioQuery.addEventListener("change", onRatioChange);
+    };
+    const onRatioChange = () => {
+      ratioQuery?.removeEventListener("change", onRatioChange);
+      watchRatio();
+      redraw();
+    };
+    watchRatio();
+
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(redraw) : null;
     observer?.observe(canvas);
     image.decoding = "async";
     image.src = portrait.src;
@@ -187,7 +202,8 @@ export function AccessPanel({ title }: { title: string }) {
       disposed = true;
       image.onload = null;
       cancelAnimationFrame(printFrame);
-      cancelAnimationFrame(resizeFrame);
+      cancelAnimationFrame(redrawFrame);
+      ratioQuery?.removeEventListener("change", onRatioChange);
       observer?.disconnect();
     };
   }, [portrait]);

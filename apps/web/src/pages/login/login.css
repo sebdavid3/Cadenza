@@ -10,9 +10,11 @@
    compositor (#392). Sin lienzo, queda la trama. */
 .login__plate {
   position: relative;
+  /* El titular mide su cuerpo por el ancho de la columna (cqi), para que la palabra más larga
+     («Registro») quepa también en las columnas estrechas, de 861 a 1050 px de ventana. */
+  container-type: inline-size;
   display: flex;
   align-items: flex-end;
-  overflow: hidden;
   padding: var(--space-7) var(--gutter);
   border-right: var(--rule);
   background: var(--halftone-ink);
@@ -66,13 +68,17 @@
 .login__title {
   position: relative;
   font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-size: min(var(--text-display), 19cqi);
   font-weight: 700;
   line-height: 0.86;
   text-transform: uppercase;
 }
 
+/* Un solo bloque de papel, del ancho de la palabra más larga: con el titular en dos líneas
+   («Crear cuenta»), el fondo de cada línea tapaba el pie de la anterior (#392). */
 .login__title span {
+  display: inline-block;
+  width: min-content;
   padding: var(--space-2) var(--space-3) 0;
   background: var(--color-paper);
 }
@@ -199,7 +205,7 @@
   }
 
   .login__title {
-    font-size: clamp(2.75rem, 14vw, 5rem);
+    font-size: min(clamp(2.75rem, 14vw, 5rem), 19cqi);
   }
 
   .login__form {
