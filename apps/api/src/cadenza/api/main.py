@@ -44,6 +44,7 @@ from cadenza.application import (
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
+    StaleDataConsent,
     StaleSuggestion,
     SuggestionConflict,
     SuggestionModel,
@@ -132,6 +133,9 @@ from cadenza.application import (
     revalidate as revalidate_use_case,
 )
 from cadenza.application import (
+    set_data_consent as set_data_consent_use_case,
+)
+from cadenza.application import (
     transcribe_score as transcribe_score_use_case,
 )
 from cadenza.application import (
@@ -202,6 +206,7 @@ from .schemas import (
     AnchorIndexPayload,
     AnchorPayload,
     ChangePasswordRequest,
+    DataConsentUpdate,
     DismissFindingRequest,
     EditAppliedRead,
     EditEventCreate,
@@ -1069,6 +1074,14 @@ def create_app(
             content={"detail": str(exc)},
         )
 
+    @app.exception_handler(StaleDataConsent)
+    def stale_data_consent_handler(request: Request, exc: StaleDataConsent) -> JSONResponse:
+        # Un código, como `stale_suggestion`: la web lo distingue de un usuario ocupado (409).
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={"detail": StaleDataConsent.detail},
+        )
+
     @app.exception_handler(UserNotFound)
     def user_not_found_handler(request: Request, exc: UserNotFound) -> JSONResponse:
         return JSONResponse(
@@ -1153,8 +1166,11 @@ def create_app(
         description=(
             "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede "
             "iniciar sesión en el momento, y un investigador puede desactivarla con "
-            "PATCH /users/{id} (ADR-0022, ADR-0025). Solo usuario y contraseña. Limitado por IP "
-            "(red /64 en IPv6); si el registro está desactivado en la configuración, responde 404."
+            "PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión "
+            "del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la "
+            "cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0064). "
+            "Limitado por IP (red /64 en IPv6); si el registro está desactivado en la "
+            "configuración, responde 404."
         ),
         responses={
             **NOT_FOUND_404,
@@ -1177,7 +1193,15 @@ def create_app(
             payload.password,
             user_repository=SqlAlchemyUserRepository(db),
             password_hasher=request.app.state.password_hasher,
+            data_consent_version=payload.data_consent_version,
+            now=request.app.state.clock(),
         )
+        if user.data_consent_at is not None:
+            logger.info(
+                "data_consent_changed user_id=%s granted=true version=%s source=register",
+                user.id,
+                user.data_consent_version,
+            )
         return UserRead.from_user(user)
 
     @app.get(
@@ -1193,6 +1217,37 @@ def create_app(
     def get_me(current_user: CurrentUserDep) -> UserRead:
         """Devuelve el perfil del usuario autenticado."""
         return UserRead.from_user(current_user)
+
+    @app.put(
+        "/auth/data-consent",
+        response_model=UserRead,
+        tags=["Auth"],
+        summary="Dar o retirar el permiso de uso de los datos",
+        description=(
+            "Da (con la versión del texto que se leyó) o retira el permiso de uso de los datos "
+            "de la propia cuenta y devuelve el perfil. Volver a darlo con el mismo texto conserva "
+            "la fecha de la primera vez; retirarlo deja la cuenta sin permiso. Si la versión no es "
+            "la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064)."
+        ),
+        responses={**AUTH_401, **CONFLICT_409, **UNPROCESSABLE_422},
+    )
+    def update_data_consent(
+        payload: DataConsentUpdate, request: Request, db: DbDep, current_user: CurrentUserDep
+    ) -> UserRead:
+        updated = set_data_consent_use_case(
+            current_user.id,
+            granted=payload.granted,
+            version=payload.version,
+            now=request.app.state.clock(),
+            user_repository=SqlAlchemyUserRepository(db),
+        )
+        logger.info(
+            "data_consent_changed user_id=%s granted=%s version=%s source=account",
+            updated.id,
+            "true" if payload.granted else "false",
+            updated.data_consent_version or "-",
+        )
+        return UserRead.from_user(updated)
 
     @app.post(
         "/auth/password",
