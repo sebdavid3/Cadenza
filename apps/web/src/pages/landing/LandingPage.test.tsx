@@ -237,3 +237,20 @@ describe("demostración", () => {
     expect(motion.animate).not.toHaveBeenCalled();
   });
 });
+
+describe("el pie (#383)", () => {
+  it("cierra con el logo una sola vez, sin muestrario de tamaños ni rótulos", () => {
+    renderLanding();
+
+    const footer = screen.getByRole("contentinfo");
+    const logos = footer.querySelectorAll("svg.brand-wordmark");
+    expect(logos).toHaveLength(1);
+    // Es un adorno: el nombre ya está en la línea de créditos.
+    expect(logos[0]).toHaveAttribute("aria-hidden", "true");
+    expect(footer.querySelector("ul")).toBeNull();
+    expect(footer).not.toHaveTextContent(/\d+ px/);
+    expect(
+      within(footer).getByRole("link", { name: "github.com/sebdavid3/Cadenza" }),
+    ).toHaveAttribute("href", "https://github.com/sebdavid3/Cadenza");
+  });
+});

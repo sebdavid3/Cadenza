@@ -20,6 +20,7 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 | [`investigaciones/`](investigaciones/) | Investigaciones técnicas: coordenadas y confianza de HOMR (INV-0001) y Audiveris frente a HOMR (INV-0002). |
 | [`api/`](api/) | Contrato congelado de la API v1 (`openapi.json`) y guía de integración del frontend (`frontend-handoff.md`). |
 | [`infra/`](infra/) | Operación: despliegue local y público, salud, registros, copias de seguridad y GPU. |
+| [`marca/`](marca/) | El logo de Cadenza: guía de uso ([`GUIA-DE-USO.md`](marca/GUIA-DE-USO.md)) y SVG maestros de la palabra, el símbolo y el apilado. |
 | [`adr/`](adr/) | Registro de decisiones arquitectónicas (ADR): contexto, decisión, consecuencias y alternativas de cada elección de diseño. |
 | [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
 | [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques alineada con `ARCHITECTURE.md` v1.2, que es el diseño técnico vigente. |

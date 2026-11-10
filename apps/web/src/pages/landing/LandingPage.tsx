@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { BrandWordmark } from "../../components/BrandWordmark";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
@@ -19,8 +20,6 @@ const STEP_FIGURES = [
   <IncipitStaff key="hallazgo" measures={OMR_READING} mark="flagged" />,
   <IncipitStaff key="correccion" measures={CORRECTED} mark="resolved" />,
 ];
-
-const SPECIMEN_SIZES = ["96 px", "48 px", "24 px", "12 px"];
 
 export function LandingPage() {
   useDocumentTitle();
@@ -158,14 +157,7 @@ export function LandingPage() {
       </main>
 
       <footer className="site-footer">
-        <ul className="site-footer__specimen" aria-hidden="true">
-          {SPECIMEN_SIZES.map((size) => (
-            <li key={size}>
-              <span className="site-footer__word">Cadenza</span>
-              <span className="label site-footer__size">{size}</span>
-            </li>
-          ))}
-        </ul>
+        <BrandWordmark />
         <p className="label">
           Cadenza · digitalización asistida de partituras ·{" "}
           <a href={REPOSITORY_URL}>github.com/sebdavid3/Cadenza</a>
