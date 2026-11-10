@@ -1,0 +1,126 @@
+/* El permiso de uso de los datos (#378, ADR-0064): el aviso breve, la casilla del registro, el
+   interruptor de «Tu cuenta» y la página con el texto completo. Plano, con filete de tinta. */
+
+.consent-notice {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 52ch;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-ink);
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.5;
+}
+
+.consent-notice a {
+  color: var(--color-ink);
+}
+
+/* La casilla del registro: cuadrada, de tinta y violeta al marcarla. */
+.consent-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-3);
+}
+
+.consent-check input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--color-accent);
+}
+
+/* El interruptor de «Tu cuenta»: una pista de tinta con un bloque que se desplaza; encendido, la
+   pista es violeta. Sin transición que no sea la del color del sistema. */
+.consent-switch {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.consent-switch input {
+  appearance: none;
+  position: relative;
+  width: 48px;
+  height: 26px;
+  margin: 0;
+  border: 2px solid var(--color-ink);
+  background: var(--color-paper);
+  cursor: pointer;
+  transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.consent-switch input::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: var(--color-ink);
+}
+
+.consent-switch input:checked {
+  background: var(--color-accent);
+}
+
+.consent-switch input:checked::before {
+  left: 24px;
+  background: var(--color-on-accent);
+}
+
+.consent-switch input:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.consent-status {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* La página con el texto completo. */
+.data-use {
+  display: grid;
+  gap: var(--space-6);
+  max-width: 68ch;
+  padding: var(--space-7) var(--gutter) var(--space-8);
+}
+
+.data-use__title {
+  font-family: var(--font-display);
+  font-size: clamp(2.25rem, 4.6vw, 3.5rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.data-use__version {
+  margin-top: calc(-1 * var(--space-4));
+  color: var(--color-ink-muted);
+}
+
+.data-use section {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.data-use h2 {
+  justify-self: start;
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.data-use ul {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 1.25rem;
+  list-style: square;
+}

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
 import { ANA, deferred, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import { DATA_CONSENT_VERSION } from "../consent/consent";
 
 // Contraseñas generadas en cada ejecución: ninguna prueba depende de su valor (GitGuardian).
 const CURRENT = crypto.randomUUID();
@@ -287,5 +288,89 @@ describe("cambiar la contraseña (#190)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /puede que la contraseña llegara a cambiarse/i,
     );
+  });
+});
+
+describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
+  const SWITCH = { name: "Permitir que se usen mis datos así" };
+
+  /** Lo que dice el estado del permiso, en su región viva. */
+  function consentState(panel: HTMLElement): HTMLElement {
+    const state = panel.querySelector<HTMLElement>("#account-consent-state");
+    if (!state) throw new Error("falta el estado del permiso");
+    expect(state).toHaveAttribute("aria-live", "polite");
+    return state;
+  }
+
+  it("se da y se retira con el mismo interruptor, y el perfil de la sesión cambia", async () => {
+    const given = {
+      ...ANA,
+      data_consent: true,
+      data_consent_at: "2026-11-09T18:30:00Z",
+      data_consent_version: DATA_CONSENT_VERSION,
+    };
+    const bodies: unknown[] = [];
+    let granted = false;
+    mockApi({
+      "PUT /auth/data-consent": (init) => {
+        bodies.push(JSON.parse(init?.body as string));
+        granted = !granted;
+        return jsonResponse(
+          granted
+            ? given
+            : { ...ANA, data_consent: false, data_consent_at: null, data_consent_version: null },
+        );
+      },
+    });
+    renderAt();
+    const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
+    const toggle = within(panel).getByRole("switch", SWITCH);
+    expect(toggle).not.toBeChecked();
+    expect(consentState(panel)).toHaveTextContent("No has dado tu permiso.");
+    expect(within(panel).getByRole("link", { name: "Leer el texto completo" })).toBeVisible();
+
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(toggle).toBeChecked();
+    });
+    expect(consentState(panel)).toHaveTextContent(
+      /has dado tu permiso\. diste tu permiso el 9 de noviembre de 2026/i,
+    );
+    expect(useAuthStore.getState().user?.data_consent).toBe(true);
+
+    await userEvent.click(toggle);
+    await waitFor(() => {
+      expect(toggle).not.toBeChecked();
+    });
+    expect(consentState(panel)).toHaveTextContent(/has retirado tu permiso/i);
+    expect(bodies).toEqual([{ granted: true, version: DATA_CONSENT_VERSION }, { granted: false }]);
+  });
+
+  it("un permiso dado para un texto anterior no está vigente y se pide releerlo", async () => {
+    mockApi({});
+    signInAs({ ...ANA, data_consent: false, data_consent_version: "2020-01-01" });
+    const router = createMemoryRouter(routes, { initialEntries: ["/cuenta"] });
+    render(<RouterProvider router={router} />);
+
+    const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
+
+    expect(within(panel).getByRole("switch", SWITCH)).not.toBeChecked();
+    expect(consentState(panel)).toHaveTextContent(/versión anterior de este texto/i);
+  });
+
+  it("si no se puede guardar, lo dice y el interruptor no cambia", async () => {
+    mockApi({
+      "PUT /auth/data-consent": () => jsonResponse({ detail: "stale_data_consent" }, 409),
+    });
+    renderAt();
+    const panel = await screen.findByRole("region", { name: "Uso de tus datos" });
+    const toggle = within(panel).getByRole("switch", SWITCH);
+
+    await userEvent.click(toggle);
+
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(
+      /el texto del permiso ha cambiado/i,
+    );
+    expect(toggle).not.toBeChecked();
   });
 });

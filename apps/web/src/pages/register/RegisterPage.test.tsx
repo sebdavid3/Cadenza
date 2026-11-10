@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../router";
 import { ANA, fakeJwt, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
 import type { UserRead } from "../../types";
+import { DATA_CONSENT_VERSION } from "../consent/consent";
 
 // Contraseñas generadas en cada ejecución: ninguna prueba depende de su valor.
 const PASSWORD = crypto.randomUUID();
@@ -17,13 +18,22 @@ function renderAt(path = "/registro") {
   return router;
 }
 
-async function fill(username: string, password: string, confirmation = password) {
+/** Rellena el registro y lo envía; por defecto, marcando la casilla del permiso (#378). */
+async function fill(
+  username: string,
+  password: string,
+  confirmation = password,
+  { consent = true }: { consent?: boolean } = {},
+) {
   const user = userEvent.setup();
   await user.type(await screen.findByLabelText("Usuario"), username);
   await user.type(screen.getByLabelText("Contraseña"), password);
   await user.type(screen.getByLabelText("Repite la contraseña"), confirmation);
+  if (consent) await user.click(screen.getByRole("checkbox", { name: CONSENT_LABEL }));
   await user.click(screen.getByRole("button", { name: /crear cuenta/i }));
 }
+
+const CONSENT_LABEL = "Doy mi permiso para que se usen mis datos así.";
 
 // La cuenta nace activa (ADR-0025).
 const CREATED: UserRead = {
@@ -61,9 +71,11 @@ describe("registro de cuentas", () => {
       expect(router.state.location.pathname).toBe("/transcripcion");
     });
     const call = calls.find((entry) => entry.key === "POST /auth/register");
+    // Con el permiso, la versión del texto que se leyó (#378, ADR-0064).
     expect(JSON.parse(call?.init?.body as string)).toEqual({
       username: "ana",
       password: PASSWORD,
+      data_consent_version: DATA_CONSENT_VERSION,
     });
     expect(new Headers(call?.init?.headers).get("Authorization")).toBeNull();
     const login = calls.find((entry) => entry.key === "POST /auth/login");
@@ -234,6 +246,83 @@ describe("registro de cuentas", () => {
     expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
     expect(screen.queryByText(/pendiente|activarla/i)).toBeNull();
     expect(screen.queryByDisplayValue(PASSWORD)).toBeNull();
+  });
+});
+
+describe("permiso de uso de los datos al registrarse (#378)", () => {
+  it("el aviso dice qué se guarda, para qué y con seudónimo, y enlaza al texto completo", async () => {
+    mockApi({});
+    renderAt();
+
+    const consent = await screen.findByRole("group", { name: "Uso de tus datos" });
+    expect(consent).toHaveTextContent(/con tu seudónimo y sin tu nombre ni tu correo/i);
+    for (const stored of [
+      "las imágenes de partituras que subes",
+      "lo que HOMR leyó en ellas",
+      "tus correcciones",
+      "el tiempo que trabajas en cada partitura",
+      "lo que respondes a las sugerencias",
+    ]) {
+      expect(consent).toHaveTextContent(stored);
+    }
+    expect(consent).toHaveTextContent(
+      /investigar y para mejorar el modelo que transcribe y el que sugiere correcciones/i,
+    );
+    expect(screen.getByRole("link", { name: "Leer el texto completo" })).toHaveAttribute(
+      "href",
+      "/uso-de-los-datos",
+    );
+    const checkbox = screen.getByRole("checkbox", { name: CONSENT_LABEL });
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toHaveAccessibleDescription(/forma parte de una investigación/i);
+  });
+
+  it("sin marcar la casilla no envía nada, lo dice y lleva el foco a ella", async () => {
+    const { fetchMock } = mockApi({});
+    renderAt();
+
+    await fill("ana", PASSWORD, PASSWORD, { consent: false });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Para crear la cuenta, marca la casilla del permiso de uso de los datos.",
+    );
+    expect(screen.getByRole("checkbox", { name: CONSENT_LABEL })).toHaveFocus();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("si el texto del permiso cambió en el servidor, pide recargar y releerlo", async () => {
+    mockApi({
+      "POST /auth/register": () => jsonResponse({ detail: "stale_data_consent" }, 409),
+    });
+    renderAt();
+
+    await fill("ana", PASSWORD);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /el texto del permiso de uso de los datos ha cambiado/i,
+    );
+    expect(screen.getByRole("checkbox", { name: CONSENT_LABEL })).toHaveFocus();
+  });
+
+  it("el texto completo se lee sin cuenta y dice su versión", async () => {
+    mockApi({});
+    renderAt("/uso-de-los-datos");
+
+    expect(
+      await screen.findByRole("heading", { name: "Uso de tus datos", level: 1 }),
+    ).toBeVisible();
+    expect(screen.getByText("Versión del 9 de noviembre de 2026")).toBeVisible();
+    for (const section of [
+      "Qué se guarda",
+      "Para qué, con tu permiso",
+      "Dar y retirar el permiso",
+    ]) {
+      expect(screen.getByRole("heading", { name: section, level: 2 })).toBeVisible();
+    }
+    expect(screen.getByRole("link", { name: "Volver a crear una cuenta" })).toHaveAttribute(
+      "href",
+      "/registro",
+    );
   });
 });
 

@@ -4,6 +4,9 @@ import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { consentErrorMessage, setDataConsent } from "../consent/consent";
+import "../consent/consent.css";
+import { DataConsentNotice } from "../consent/DataConsentNotice";
 import "../login/login.css";
 import { MIN_PASSWORD, passwordLength } from "../register/register";
 import {
@@ -19,7 +22,8 @@ import "./account.css";
 
 /**
  * Tu cuenta (#190): quien tiene sesión cambia su contraseña. No hay recuperación por correo
- * (PRODUCT.md) y la web no la restablece (#155).
+ * (PRODUCT.md) y la web no la restablece (#155). Aquí se da o se retira también el permiso de
+ * uso de los datos, con el mismo texto que en el registro (#378, ADR-0064).
  */
 export function AccountPage() {
   useDocumentTitle("Tu cuenta");
@@ -37,6 +41,7 @@ export function AccountPage() {
           </p>
         )}
       </header>
+      <DataConsentSection />
       <section className="account__panel" aria-labelledby="password-title">
         <h2 id="password-title" className="account__subtitle">
           Cambiar la contraseña
@@ -217,5 +222,83 @@ function PasswordForm({ username }: { username: string }) {
         {submitting ? "Cambiando la contraseña…" : "Cambiar la contraseña"}
       </button>
     </form>
+  );
+}
+
+/** El día en que se dio el permiso, en español: «9 de noviembre de 2026». */
+function consentDate(value: string): string {
+  return new Date(value).toLocaleDateString("es", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/**
+ * El permiso de uso de los datos (#378, ADR-0064): el mismo aviso que en el registro y un
+ * interruptor que lo da o lo retira con un solo gesto. Lo que se guarda vuelve en el perfil, que
+ * pasa a ser el de la sesión.
+ */
+function DataConsentSection() {
+  const user = useAuthStore((state) => state.user);
+  const [saving, setSaving] = useState(false);
+  const [changed, setChanged] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  if (!user) return null;
+  const granted = user.data_consent ?? false;
+  // Dado para una versión anterior del texto: no está vigente hasta que se vuelva a dar.
+  const outdated = !granted && Boolean(user.data_consent_version);
+
+  const toggle = async (next: boolean) => {
+    setSaving(true);
+    setError(null);
+    setChanged(null);
+    try {
+      const updated = await setDataConsent(api, next);
+      useAuthStore.setState({ user: updated });
+      setChanged(next ? "Has dado tu permiso." : "Has retirado tu permiso.");
+    } catch (caught) {
+      setError(consentErrorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const state = granted
+    ? `Diste tu permiso el ${consentDate(user.data_consent_at ?? "")}.`
+    : outdated
+      ? "Diste tu permiso para una versión anterior de este texto: léelo y, si estás de acuerdo, vuelve a darlo."
+      : "No has dado tu permiso.";
+
+  return (
+    <section className="account__panel" aria-labelledby="consent-title">
+      <h2 id="consent-title" className="account__subtitle">
+        Uso de tus datos
+      </h2>
+      <DataConsentNotice id="account-consent-notice" />
+      <div className="consent-switch">
+        <input
+          id="account-consent"
+          type="checkbox"
+          role="switch"
+          checked={granted}
+          disabled={saving}
+          aria-describedby="account-consent-notice account-consent-state"
+          onChange={(event) => {
+            void toggle(event.target.checked);
+          }}
+        />
+        <label htmlFor="account-consent">Permitir que se usen mis datos así</label>
+      </div>
+      {/* Región viva sin rol «status»: el aviso de la contraseña ya lo es. */}
+      <p id="account-consent-state" className="consent-status" aria-live="polite">
+        {changed ? `${changed} ${state}` : state}
+      </p>
+      {error && (
+        <p className="login__error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
