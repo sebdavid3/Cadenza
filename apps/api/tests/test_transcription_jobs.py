@@ -86,6 +86,12 @@ class _HeldMeterStage:
         return document
 
 
+@pytest.fixture(autouse=True)
+def _artifacts_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Las imágenes subidas van al `./data/artifacts` por defecto: aquí, en el temporal."""
+    monkeypatch.chdir(tmp_path)
+
+
 def _db(path: Path) -> Any:
     db = create_engine_for_url(f"sqlite+pysqlite:///{path.as_posix()}")
     create_schema(db)

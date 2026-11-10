@@ -143,3 +143,42 @@ def test_a_voice_and_piano_page_reports_its_second_reading(
         OMRProgress(Reading.PIANO, staffs=6, staff=staff) for staff in range(1, 7)
     ]
     assert events == first + piano
+
+
+def _homr_available() -> bool:
+    try:
+        from homr import main  # noqa: F401
+
+        return True
+    except (ImportError, RuntimeError):
+        return False
+
+
+@pytest.mark.skipif(not _homr_available(), reason="requiere el extra opcional 'homr'")
+def test_following_the_progress_does_not_change_what_homr_reads() -> None:
+    import json
+
+    from cadenza.omr import HOMREngine
+
+    # La imagen del manifiesto del corpus, como la prueba de punta a punta de la API (#97).
+    manifest = Path(__file__).resolve().parents[3] / "data" / "manifest.json"
+    if not manifest.is_file():
+        pytest.skip("no hay data/manifest.json para ejecutar inferencia real de HOMR")
+    image = (
+        manifest.parent / json.loads(manifest.read_text(encoding="utf-8"))["entries"][0]["image"]
+    )
+    if not image.is_file():
+        pytest.skip(f"no existe la imagen del manifiesto: {image}")
+    engine = HOMREngine(use_gpu=False)
+    events: list[OMRProgress] = []
+
+    plain = engine.transcribe_musicxml(image)
+    with listening(events.append):
+        followed = engine.transcribe_musicxml(image)
+
+    assert followed == plain
+    assert events[0] == OMRProgress(Reading.FIRST)
+    first = [event for event in events if event.reading is Reading.FIRST and event.staffs]
+    assert first, events
+    total = first[0].staffs
+    assert [event.staff for event in first] == list(range(1, (total or 0) + 1))
