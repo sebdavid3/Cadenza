@@ -69,6 +69,9 @@ services:
       CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE: ${CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE:-20}
       # Transcripciones en curso a la vez; sin hueco, 503 (ADR-0024).
       CADENZA_TRANSCRIBE_MAX_CONCURRENCY: ${CADENZA_TRANSCRIBE_MAX_CONCURRENCY:-2}
+      # Transcripciones en segundo plano: topes por persona (429) y global (503) (ADR-0063).
+      CADENZA_TRANSCRIBE_JOBS_PER_USER: ${CADENZA_TRANSCRIBE_JOBS_PER_USER:-10}
+      CADENZA_TRANSCRIBE_JOBS_MAX: ${CADENZA_TRANSCRIBE_JOBS_MAX:-30}
       # Capa de sugerencias que aprende de las correcciones (ADR-0036, enmienda 19). Apagada por
       # defecto; al encenderla muestra solo las sugerencias de alteración de confianza alta (#244).
       CADENZA_SUGGESTIONS_ENABLED: ${CADENZA_SUGGESTIONS_ENABLED:-false}

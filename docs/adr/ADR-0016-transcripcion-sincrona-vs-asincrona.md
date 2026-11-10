@@ -7,6 +7,12 @@
 
 ---
 
+> **Enmienda del 2026-11-09 ([ADR-0063](ADR-0063-transcripcion-en-segundo-plano-con-su-avance.md), #375).**
+> Una página real completa puede pasar de 30 s (#269), así que la web deja de esperar a
+> `POST /transcribe`: sube la imagen a `POST /transcription-jobs` (202) y consulta su estado y su
+> avance, sin plazo. `POST /transcribe` sigue síncrono y sin cambios (§1), y sigue sin haber
+> brokers ni Celery (§3): la cola vive en la memoria del único proceso de la API.
+
 > **Revisión del 2026-10-13 (Cierre definitivo de #106).** Se completó la resolución de los
 > picos de latencia en dos etapas:
 > 

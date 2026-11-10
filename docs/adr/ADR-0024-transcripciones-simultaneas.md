@@ -7,6 +7,12 @@
 
 ---
 
+> **Enmienda del 2026-11-09 ([ADR-0063](ADR-0063-transcripcion-en-segundo-plano-con-su-avance.md), #375).**
+> Las transcripciones en segundo plano (`POST /transcription-jobs`) usan los mismos huecos, pero
+> no reciben el 503 de §5: esperan su turno en una cola en orden de llegada, sin plazo, y la
+> responde un hilo propio de la API, de uno en uno. El 503 de §5 sigue para `POST /transcribe`;
+> la cola tiene sus propios topes (429 por persona y 503 con la cola llena).
+
 ## Contexto
 
 `POST /transcribe` es síncrono (ADR-0016): ejecuta HOMR en un hilo con `asyncio.to_thread` y responde al terminar. Antes del despliegue público, las pruebas en el servidor (#156) destaparon dos problemas cuando llegan varias transcripciones a la vez:
