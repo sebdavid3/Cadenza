@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -250,7 +250,7 @@ describe("registro de cuentas", () => {
 });
 
 describe("permiso de uso de los datos al registrarse (#378)", () => {
-  it("el aviso dice qué se guarda, para qué y con seudónimo, y enlaza al texto completo", async () => {
+  it("el aviso dice qué se guarda, para qué y con seudónimo, y ofrece el texto completo", async () => {
     mockApi({});
     renderAt();
 
@@ -270,15 +270,57 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(consent).toHaveTextContent(
       /investigar y para mejorar el modelo que transcribe y el que sugiere correcciones/i,
     );
-    // En otra pestaña: una navegación interna borraría lo escrito en el formulario.
-    const full = screen.getByRole("link", {
-      name: "Leer el texto completo (se abre en otra pestaña)",
-    });
-    expect(full).toHaveAttribute("href", "/uso-de-los-datos");
-    expect(full).toHaveAttribute("target", "_blank");
+    // Se despliega en el mismo formulario: ni otra pestaña ni navegación (#397).
+    expect(screen.queryByRole("link", { name: /texto completo/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Leer el texto completo" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     const checkbox = screen.getByRole("checkbox", { name: CONSENT_LABEL });
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toHaveAccessibleDescription(/forma parte de una investigación/i);
+    // Solo el aviso: ni el botón del texto completo ni el texto desplegado (#397).
+    expect(checkbox).not.toHaveAccessibleDescription(/texto completo/i);
+  });
+
+  it("despliega el texto completo en el formulario sin perder lo escrito (#397)", async () => {
+    mockApi({});
+    renderAt();
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Usuario"), "ana");
+
+    const toggle = screen.getByRole("button", { name: "Leer el texto completo" });
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Ocultar el texto completo");
+    const full = screen.getByRole("region", { name: "Texto completo del permiso" });
+    expect(toggle).toHaveAttribute("aria-controls", full.id);
+    // Con desplazamiento propio: se enfoca para recorrerlo con el teclado.
+    expect(full).toHaveAttribute("tabindex", "0");
+    expect(full).toHaveTextContent("Versión del 9 de noviembre de 2026");
+    for (const section of [
+      "Qué se guarda",
+      "Para qué, con tu permiso",
+      "Derechos de autor de las partituras",
+      "Dar y retirar el permiso",
+      "Dudas",
+    ]) {
+      expect(within(full).getByRole("heading", { name: section })).toBeVisible();
+    }
+    expect(full).toHaveTextContent(
+      /de dominio público, tuyas o con permiso de quien tiene sus derechos/i,
+    );
+    expect(screen.getByLabelText("Usuario")).toHaveValue("ana");
+    // La casilla se sigue describiendo con el aviso breve, no con el texto entero.
+    expect(screen.getByRole("checkbox", { name: CONSENT_LABEL })).not.toHaveAccessibleDescription(
+      /derechos de autor/i,
+    );
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName("Leer el texto completo");
+    expect(screen.queryByRole("region", { name: "Texto completo del permiso" })).toBeNull();
   });
 
   it("sin marcar la casilla no envía nada, lo dice y lleva el foco a ella", async () => {

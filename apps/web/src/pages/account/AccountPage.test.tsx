@@ -339,7 +339,11 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
     const toggle = within(panel).getByRole("switch", SWITCH);
     expect(toggle).not.toBeChecked();
     expect(consentState(panel)).toHaveTextContent("No has dado tu permiso.");
-    expect(within(panel).getByRole("link", { name: "Leer el texto completo" })).toBeVisible();
+    const full = within(panel).getByRole("link", { name: "Leer el texto completo" });
+    expect(full).toBeVisible();
+    // Desde «Tu cuenta» no hay formulario que perder: enlaza a la página (#397).
+    expect(full).toHaveAttribute("href", "/uso-de-los-datos");
+    expect(full).not.toHaveAttribute("target");
 
     await userEvent.click(toggle);
     await waitFor(() => {
