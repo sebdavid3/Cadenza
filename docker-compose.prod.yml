@@ -40,6 +40,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # HOMR en la GPU NVIDIA del servidor, con los pesos de la CPU para volver a ella (ADR-0066).
+      args:
+        CADENZA_OMR_DEVICE: gpu
     image: cadenza-api:prod
     restart: unless-stopped
     depends_on:
@@ -50,7 +53,8 @@ services:
       CADENZA_AUTH_SECRET_KEY: ${CADENZA_AUTH_SECRET_KEY:?falta CADENZA_AUTH_SECRET_KEY}
       CADENZA_ARTIFACTS_DIR: /app/data/artifacts
       CADENZA_AUTO_CREATE_SCHEMA: "false"
-      CADENZA_OMR_USE_GPU: "false"
+      # Encendida salvo que se apague: con false, HOMR lee en la CPU aunque tenga la GPU.
+      CADENZA_OMR_USE_GPU: ${CADENZA_OMR_USE_GPU:-true}
       # El navegador llama a la API en el mismo origen, bajo /api.
       CADENZA_CORS_ORIGINS: ${CADENZA_PUBLIC_ORIGIN:?falta CADENZA_PUBLIC_ORIGIN}
       CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS: ${CADENZA_LOGIN_RATE_LIMIT_MAX_ATTEMPTS:-5}
@@ -84,7 +88,17 @@ services:
       - artifacts_data:/app/data/artifacts
     networks:
       - cadenza
-    # HOMR en CPU ocupa unos 600 MiB en reposo; el tope impide que una transcripción se lleve la
+    # La GPU, compartida con Immich (ADR-0066): sin ella, Docker no arranca la API. Con
+    # CADENZA_API_GPUS=0 en el .env, el contenedor arranca sin GPU y HOMR lee en la CPU.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${CADENZA_API_GPUS:-1}
+              capabilities: [gpu]
+    # HOMR en CPU ocupa unos 600 MiB en reposo, y leyendo una página de voz y piano llega a 1,5 GiB
+    # en la CPU y a 1,6 GiB en la GPU (ADR-0066); el tope impide que una transcripción se lleve la
     # memoria del servidor, que comparte con otros servicios.
     mem_limit: 3g
     # La imagen corre con el usuario cadenza (UID 10001), sin root (ADR-0029). Un volumen de
@@ -99,7 +113,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 3
-      # Migraciones y carga de los modelos de HOMR en CPU antes de responder.
+      # Migraciones y carga de los modelos de HOMR antes de responder.
       start_period: 120s
 
   web:

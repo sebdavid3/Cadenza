@@ -1,6 +1,6 @@
 # ADR-0023: Despliegue público en el homelab con Tailscale Funnel
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (§6 enmendado por [ADR-0066](ADR-0066-homr-en-la-gpu-de-produccion.md): la API transcribe en la GPU)
 - **Fecha:** 2026-10-23
 - **Decisores:** Dirección del proyecto Cadenza (decisión aprobada por el responsable el 2026-10-23), Equipo de Desarrollo
 - **Relacionado:** [ADR-0015](ADR-0015-operacion-y-despliegue-del-backend.md) (concreta su §1), [ADR-0016](ADR-0016-transcripcion-sincrona-vs-asincrona.md), [ADR-0019](ADR-0019-base-del-cliente-web.md), [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md)

@@ -396,7 +396,8 @@ Docker Compose sí lee `.env` para sustituir variables en `docker-compose.yml`. 
 (`docker compose --profile batch run --rm ml-batch --help`).
 
 La imagen de la API incluye HOMR en CPU con sus pesos ya descargados, así que transcribe sin
-acceso a la red. Crea el primer usuario dentro del contenedor:
+acceso a la red. Con `--build-arg CADENZA_OMR_DEVICE=gpu`, como la construye el compose de
+producción, lleva además ONNX Runtime con CUDA y los pesos de la GPU (ADR-0066). Crea el primer usuario dentro del contenedor:
 
 ```bash
 docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>

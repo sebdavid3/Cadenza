@@ -13,7 +13,8 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_DATABASE_URL` | `str` | `sqlite+pysqlite:///./cadenza.db` | URL de conexión SQLAlchemy (SQLite o PostgreSQL). |
 | `CADENZA_AUTH_SECRET_KEY` | `str` | *(vacío)* | Clave secreta para la firma de los tokens JWT, de 32 bytes como mínimo ([#193](https://github.com/sebdavid3/Cadenza/issues/193)). Con una más corta, la API no arranca y el error dice su longitud, nunca la clave; vacía, tampoco arranca. |
 | `CADENZA_AUTH_TOKEN_EXPIRE_MINUTES` | `int` | `30` | Minutos de expiración para tokens de acceso. |
-| `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para la inferencia de HOMR, único motor OMR (ADR-0018), en el plano online. |
+| `CADENZA_OMR_USE_GPU` | `bool` | `false` | Activa aceleración GPU (CUDA) para la inferencia de HOMR, único motor OMR (ADR-0018), en el plano online. Con CUDA, además, el controlador de NVIDIA ha de ver una GPU; si no, HOMR lee en la CPU y `/health` y la procedencia dicen `cpu` ([ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md)). En `docker-compose.prod.yml`, `true` salvo que se apague. |
+| `CADENZA_API_GPUS` | `int` | `1` | Solo en `docker-compose.prod.yml` (no la lee la API): GPU NVIDIA que se reservan para el contenedor de la API ([ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md)). Con `0`, arranca sin GPU y HOMR lee en la CPU; es la salida si Docker no puede darle la GPU. |
 | `CADENZA_OMR_METER_FEATURES` | `str` | `numerator,symbol,implicit_tuplets` | Rasgos de la etapa del compás que corre tras HOMR ([ADR-0059](../adr/ADR-0059-compas-por-tramos-c-y-cortado-y-tresillos-implicitos-tras-homr.md)), separados por comas: `numerator` (el numerador de cada tramo, de lo que suman sus compases), `symbol` (4/4 como C y 2/2 como ¢) e `implicit_tuplets` (los tresillos sin marcar), o `all` / `none`. Un nombre desconocido impide arrancar. Lo que decidió queda en la procedencia de la sesión (`provenance.omr_stages`). |
 | `CADENZA_ARTIFACTS_DIR` | `path` | `./data/artifacts` | Ruta raíz para el almacenamiento de archivos del `ArtifactStore`. |
 | `CADENZA_AUTO_CREATE_SCHEMA` | `bool` | `false` | Si es `true`, crea DDL al arrancar (solo tests/dev). En producción usar Alembic. |
@@ -55,7 +56,7 @@ docker compose ps
 
 El servicio `api` cuenta con un `healthcheck` automatizado que invoca periódicamente `GET /health`.
 
-La imagen de la API (`Dockerfile`) instala el paquete `cadenza-api` con el extra `homr` desde `uv.lock` y descarga los pesos de HOMR al construirse (`homr --init`): transcribe en CPU sin acceso a la red. El build falla si la API, HOMR u OpenCV no se pueden importar, y el job `docker` de la CI lo construye en cada PR. HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)); la imagen no incluye `onnxruntime-gpu`. El primer usuario se crea dentro del contenedor:
+La imagen de la API (`Dockerfile`) instala el paquete `cadenza-api` con el extra `homr` desde `uv.lock` y descarga los pesos de HOMR al construirse (`homr --init`): transcribe en CPU sin acceso a la red. El build falla si la API, HOMR u OpenCV no se pueden importar, y el job `docker` de la CI lo construye en cada PR. HOMR es el único motor OMR ([ADR-0018](../adr/ADR-0018-homr-como-unico-motor-omr.md)). Con `--build-arg CADENZA_OMR_DEVICE=gpu`, como la construye `docker-compose.prod.yml`, la imagen cambia `onnxruntime` por `onnxruntime-gpu[cuda,cudnn]==1.26.0` y añade los pesos fp16 que HOMR usa con CUDA, sin quitar los de la CPU ([ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md)); por defecto, y en la CI y el compose de desarrollo, sigue siendo la de CPU. El build falla también si ONNX Runtime no es el que se pidió. El primer usuario se crea dentro del contenedor:
 
 ```bash
 docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>
@@ -72,7 +73,7 @@ El despliegue público ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailsc
 | Servicio | Imagen | Puertos | Función |
 |---|---|---|---|
 | `postgres` | `postgres:16.15-alpine3.24` | ninguno | Base de datos, volumen `postgres_data` |
-| `api` | `Dockerfile` (`cadenza-api:prod`) | ninguno | FastAPI con HOMR en CPU, con el usuario `cadenza` (UID 10001), sin root; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
+| `api` | `Dockerfile` (`cadenza-api:prod`, con `CADENZA_OMR_DEVICE=gpu`) | ninguno | FastAPI con HOMR en la GPU NVIDIA (ADR-0066; en la CPU con `CADENZA_API_GPUS=0`), con el usuario `cadenza` (UID 10001), sin root; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
 | `web` | `Dockerfile.web` (`cadenza-web:prod`) | `127.0.0.1:${CADENZA_WEB_PORT:-8380}` | Nginx sin privilegios: sirve `apps/web/dist` (con `index.html` para las rutas de la interfaz) y reenvía `/api/*` a `api:8000` quitando el prefijo (`deploy/nginx/`) |
 
 Puesta en marcha en el servidor:
@@ -293,6 +294,33 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8380/api/previ
 - **Límites:** la API admite como mucho una transcripción sin cuenta a la vez y nunca espera un hueco de HOMR (sin hueco libre, 503); cuenta `CADENZA_ANONYMOUS_PREVIEW_RATE_LIMIT_MAX_ATTEMPTS` (5) por IP en `…_WINDOW_SECONDS` (3600), y guarda como mucho `CADENZA_ANONYMOUS_PREVIEW_MAX_ACTIVE` (20) a la vez. Nginx añade una por minuto por visitante (no admite tasas por hora), con ráfagas de tres, y una conexión abierta (`location = /api/previews`).
 - **Caducidad:** cada transcripción sin cuenta caduca a la hora (`CADENZA_ANONYMOUS_PREVIEW_TTL_SECONDS`) y se borra, con su imagen, al llegar la siguiente o al reclamar una; al arrancar, la API borra solo las caducadas, así que las vigentes al apagar el interruptor se quedan hasta un reinicio posterior a su caducidad (anotado en #278). Vive en la tabla `previews` (migración 0016), con la imagen en la fila: entra en las copias de seguridad de la base de esa hora.
 - **Al reclamarla** pasa a ser una sesión de la cuenta que entra, como cualquier otra: si es una cuenta del registro, queda fuera del dataset como las demás autorregistradas.
+
+#### HOMR en la GPU ([#268](https://github.com/sebdavid3/Cadenza/issues/268), [ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md))
+
+La API transcribe en la RTX 2060 (6 GB) del servidor, que comparte con Immich: el compose construye la imagen de GPU y reserva una con el runtime de NVIDIA. `/api/health` dice `"device": "cuda"`, y cada sesión lo guarda en su procedencia. Si el contenedor arranca sin GPU, HOMR lee en la CPU con sus pesos de siempre y todo dice `cpu`, y el registro de la API lo avisa una vez (`CUDA sin GPU: …`).
+
+- **La API depende ahora de la pila de NVIDIA para arrancar.** Si Docker no puede darle la GPU (el controlador roto tras una actualización sin reiniciar, el runtime `nvidia` desinstalado), el contenedor no arranca y `/api` da 502, aunque PostgreSQL y la web sigan en pie. La salida es `CADENZA_API_GPUS=0`, abajo: con 0, Docker pide la GPU `void` y el runtime de NVIDIA, según su documentación, hace lo mismo que `runc` sin tocar el controlador (comprobado solo con el controlador sano).
+- **Sin memoria de vídeo** (Immich ocupando la tarjeta), la transcripción en curso falla y la persona la ve fallida; las siguientes lo vuelven a intentar. Si se repite, `CADENZA_OMR_USE_GPU=false` o `CADENZA_API_GPUS=0`.
+
+Volver a la CPU sin cambiar el código:
+
+```bash
+cd /opt/docker/cadenza
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+
+# Sin GPU en el contenedor (también si el controlador de NVIDIA falla y la API no arrancaría)
+if grep -q '^CADENZA_API_GPUS=' .env; then
+  sed -i 's/^CADENZA_API_GPUS=.*/CADENZA_API_GPUS=0/' .env
+else
+  printf '\nCADENZA_API_GPUS=0\n' >> .env
+fi
+$DC up -d api
+curl -fsS http://127.0.0.1:8380/api/health    # "device":"cpu"
+
+# Volver a la GPU: CADENZA_API_GPUS=1 (o quitar la línea) y otra vez up -d api
+```
+
+Recrear `api` corta las transcripciones en curso, como en las demás operaciones. `nvidia-smi` en el servidor enseña la memoria de vídeo de la API (`python`) y la de Immich (`immich_machine_learning`).
 
 #### Activar la capa de sugerencias (congelado, [#252](https://github.com/sebdavid3/Cadenza/issues/252), [#333](https://github.com/sebdavid3/Cadenza/issues/333))
 

@@ -6,6 +6,12 @@
 # reinstala las dependencias, no vuelve a descargar los pesos de HOMR ni copia otra vez a la
 # etapa final el entorno virtual, de 1,2 GB. Cada reconstrucción deja así en la caché unos
 # megas en lugar de unos 2,5 GB.
+#
+# HOMR transcribe en CPU (`cpu`, por defecto: la CI y el compose de desarrollo) o en una GPU NVIDIA
+# (`gpu`, el compose de producción, ADR-0066): esta imagen lleva entonces ONNX Runtime con CUDA y
+# los pesos de las dos, para volver a la CPU si el contenedor arranca sin GPU.
+ARG CADENZA_OMR_DEVICE=cpu
+
 FROM python:3.12.15-slim-bookworm AS deps
 
 COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /uvx /bin/
@@ -35,6 +41,20 @@ RUN uv sync --frozen --no-dev --package cadenza-api --extra homr --no-install-wo
 # Descarga los pesos de HOMR en la imagen para no depender de la red al transcribir.
 # También descarga los de RapidOCR, aunque el adaptador desactiva el OCR de título.
 RUN /app/.venv/bin/homr --init
+
+FROM deps AS deps-cpu
+
+# En la GPU, ONNX Runtime con CUDA 12 y cuDNN 9 de los wheels de NVIDIA (la versión que mide el
+# README, fuera del lockfile) y los pesos fp16 que HOMR usa con CUDA; los fp32 de la CPU siguen.
+# Sin la caché de uv, que repetiría en la capa los varios GB de los wheels de NVIDIA.
+FROM deps AS deps-gpu
+
+RUN uv pip uninstall --python /app/.venv/bin/python onnxruntime \
+    && uv pip install --no-cache --python /app/.venv/bin/python "onnxruntime-gpu[cuda,cudnn]==1.26.0" \
+    && /app/.venv/bin/python -c "from homr.main import download_weights; \
+download_weights(segnet_use_gpu=True, transformer_use_gpu=True, coreml_encoder=False)"
+
+FROM deps-${CADENZA_OMR_DEVICE} AS venv
 
 # El código y, con él, los paquetes del workspace, en modo editable.
 FROM deps AS builder
@@ -67,7 +87,7 @@ RUN groupadd --system --gid 10001 cadenza \
 
 # El entorno virtual de las dependencias se reutiliza mientras no cambien; los paquetes del
 # workspace y el código, que cambian con cada versión, van en capas pequeñas aparte (#205).
-COPY --from=deps /app/.venv /app/.venv
+COPY --from=venv /app/.venv /app/.venv
 COPY --from=builder /workspace-site/ /app/.venv/lib/python3.12/site-packages/
 COPY --from=builder /app/apps /app/apps
 COPY --from=builder /app/packages /app/packages
@@ -76,6 +96,13 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 # Falla al construir si la API o HOMR no se pueden importar en la imagen final (#135)
 RUN python -c "import cadenza.api.main, homr.main, cv2, onnxruntime"
+
+# Y si ONNX Runtime no es el que se pidió: con CUDA en la imagen de GPU, sin él en la de CPU.
+ARG CADENZA_OMR_DEVICE
+RUN python -c "import sys, onnxruntime as ort; \
+cuda = 'CUDAExecutionProvider' in ort.get_available_providers(); \
+assert cuda == (sys.argv[1] == 'gpu'), (sys.argv[1], ort.get_available_providers())" \
+    "$CADENZA_OMR_DEVICE"
 
 # Falla también si falta algún archivo de los paquetes del workspace: de su instalación solo se
 # copian los dist-info y los .pth, y un script de consola, por ejemplo, se quedaría atrás (#205).

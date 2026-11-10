@@ -10,6 +10,8 @@ importa sin tenerlo instalado (las pruebas y la CI usan el doble
 from __future__ import annotations
 
 import contextlib
+import ctypes
+import functools
 import hashlib
 import logging
 import os
@@ -43,15 +45,54 @@ _HOMR_EXTRA_HINT = (
 )
 
 
+@functools.cache
+def _cuda_device_present() -> bool:
+    """Si el controlador de NVIDIA está y ve alguna GPU (ADR-0066).
+
+    ONNX Runtime con CUDA declara `CUDAExecutionProvider` aunque no haya GPU: en un contenedor
+    que arranca sin ella, el runtime de NVIDIA no monta `libcuda` y HOMR caería en sus modelos
+    fp16 sobre la CPU, más lentos que los fp32, mientras `/health` y la procedencia dirían
+    `cuda`. Se pregunta al controlador una vez por proceso.
+    """
+    names = ("nvcuda.dll",) if os.name == "nt" else ("libcuda.so.1", "libcuda.so")
+    for name in names:
+        try:
+            driver = ctypes.CDLL(name)
+        except OSError:
+            continue
+        count = ctypes.c_int(0)
+        try:
+            init = driver.cuInit(0)
+            listed = driver.cuDeviceGetCount(ctypes.byref(count)) if init == 0 else None
+        except (AttributeError, OSError) as exc:
+            _LOGGER.warning("CUDA sin GPU: %s no responde (%s); HOMR lee en la CPU", name, exc)
+            return False
+        if init == 0 and listed == 0 and count.value > 0:
+            return True
+        _LOGGER.warning(
+            "CUDA sin GPU: cuInit=%s, cuDeviceGetCount=%s, GPU=%s; HOMR lee en la CPU",
+            init,
+            listed,
+            count.value,
+        )
+        return False
+    _LOGGER.warning("CUDA sin GPU: no se encuentra el controlador de NVIDIA; HOMR lee en la CPU")
+    return False
+
+
 def get_effective_device(use_gpu: bool = False) -> str:
-    """Obtiene el dispositivo efectivo sondeando `onnxruntime.get_available_providers()`."""
+    """Obtiene el dispositivo efectivo sondeando `onnxruntime.get_available_providers()`.
+
+    Con CUDA, además, el controlador ha de ver una GPU (`_cuda_device_present`)."""
     if not use_gpu:
         return "cpu"
     try:
         import onnxruntime
 
         providers = onnxruntime.get_available_providers()
-        if "CUDAExecutionProvider" in providers or "ROCMExecutionProvider" in providers:
+        if "ROCMExecutionProvider" in providers:
+            return "cuda"
+        if "CUDAExecutionProvider" in providers and _cuda_device_present():
             return "cuda"
     except Exception:
         pass
@@ -109,8 +150,13 @@ def _import_homr() -> Any:
 
 
 def _gpu_available(homr_main: Any) -> bool:
+    """Si HOMR puede usar la GPU; sin ella, lee en la CPU con los modelos fp32 (ADR-0066)."""
     try:
-        return bool(homr_main.cuda_available() or homr_main.rocm_available())
+        if homr_main.cuda_available() and _cuda_device_present():
+            return True
+        # HOMR 0.7 no tiene `rocm_available`.
+        rocm_available = getattr(homr_main, "rocm_available", None)
+        return bool(rocm_available is not None and rocm_available())
     except Exception:  # pragma: no cover - detección best-effort
         return False
 

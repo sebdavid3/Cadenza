@@ -27,7 +27,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 El detalle y las fechas, en `docs/PROJECT_STATE.md`. Lo que no cambia de una sesión a otra:
 
 - **Fase:** plan de cierre en curso; el estudio con participantes está aplazado (2026-11-08), con fechas nuevas por decidir y un piloto antes. Cuando se fijen, del congelado al final del estudio no se despliega nada, salvo un arreglo que lo bloquee y con decisión del responsable. El estandarte del proyecto es la capa de sugerencias que aprende de las correcciones (Fase 11, etiqueta `estandarte`).
-- **Producción** sigue la rama `dev`: un clon en `/opt/docker/cadenza` del servidor `r2d2` (`ssh r2d2`, o `ssh r2d2-cf` si Tailscale no responde), publicado en `https://r2d2.tailcacb19.ts.net` y `https://cadenza.sebdavid.dev`. Se despliega con `deploy/desplegar.sh` (nivel 1, §4). HOMR corre en CPU.
+- **Producción** sigue la rama `dev`: un clon en `/opt/docker/cadenza` del servidor `r2d2` (`ssh r2d2`, o `ssh r2d2-cf` si Tailscale no responde), publicado en `https://r2d2.tailcacb19.ts.net` y `https://cadenza.sebdavid.dev`. Se despliega con `deploy/desplegar.sh` (nivel 1, §4). HOMR corre en la GPU del servidor (ADR-0066); con `CADENZA_API_GPUS=0` en el `.env`, en la CPU.
 - **`main`** es la versión publicada: se promueve desde `dev` cuando lo pide el responsable (§5). El despliegue continuo desde `main` (ADR-0062) está listo pero sin activar.
 - **La CI de GitHub no arranca** (D69, un cobro pendiente de la cuenta): las puertas locales de `scripts/puertas.py` la sustituyen, con su línea en el PR.
 - **Interruptores de producción** (`.env` del servidor): cada uno se enciende o se apaga solo cuando lo pide el responsable, con el procedimiento de `operacion_backend.md` §2.2.
