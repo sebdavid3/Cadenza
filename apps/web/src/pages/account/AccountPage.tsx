@@ -4,6 +4,10 @@ import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { consentErrorMessage, setDataConsent } from "../consent/consent";
+import "../consent/consent.css";
+import { DataConsentNotice } from "../consent/DataConsentNotice";
+import { parseUtc } from "../transcription/sessions";
 import "../login/login.css";
 import { MIN_PASSWORD, passwordLength } from "../register/register";
 import {
@@ -19,7 +23,8 @@ import "./account.css";
 
 /**
  * Tu cuenta (#190): quien tiene sesión cambia su contraseña. No hay recuperación por correo
- * (PRODUCT.md) y la web no la restablece (#155).
+ * (PRODUCT.md) y la web no la restablece (#155). Aquí se da o se retira también el permiso de
+ * uso de los datos, con el mismo texto que en el registro (#378, ADR-0065).
  */
 export function AccountPage() {
   useDocumentTitle("Tu cuenta");
@@ -37,6 +42,7 @@ export function AccountPage() {
           </p>
         )}
       </header>
+      <DataConsentSection />
       <section className="account__panel" aria-labelledby="password-title">
         <h2 id="password-title" className="account__subtitle">
           Cambiar la contraseña
@@ -217,5 +223,93 @@ function PasswordForm({ username }: { username: string }) {
         {submitting ? "Cambiando la contraseña…" : "Cambiar la contraseña"}
       </button>
     </form>
+  );
+}
+
+/**
+ * El día en que se dio el permiso, en la hora local y en español: «9 de noviembre de 2026». Con
+ * SQLite la fecha llega sin zona, pero es UTC, como `created_at` (`parseUtc`).
+ */
+function consentDate(value: string): string {
+  return parseUtc(value).toLocaleDateString("es", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+/**
+ * El permiso de uso de los datos (#378, ADR-0065): el mismo aviso que en el registro y un
+ * interruptor que lo da o lo retira con un solo gesto. Lo que se guarda vuelve en el perfil, que
+ * pasa a ser el de la sesión.
+ */
+function DataConsentSection() {
+  const user = useAuthStore((state) => state.user);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [changed, setChanged] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Es el permiso de las cuentas del registro: a los participantes del estudio les rige el
+  // consentimiento del estudio, y los datos de sus cuentas no dependen de este (ADR-0065 §5).
+  if (!user?.self_registered) return null;
+  const granted = user.data_consent ?? false;
+  // Dado para una versión anterior del texto: no está vigente hasta que se vuelva a dar.
+  const outdated = !granted && Boolean(user.data_consent_version);
+
+  const toggle = async (next: boolean) => {
+    // Mientras se guarda, el interruptor no se deshabilita (perdería el foco): se ignora.
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError(null);
+    setChanged(null);
+    try {
+      const updated = await setDataConsent(api, next);
+      useAuthStore.setState({ user: updated });
+      setChanged(next ? "Has dado tu permiso." : "Has retirado tu permiso.");
+    } catch (caught) {
+      setError(consentErrorMessage(caught));
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const state = granted
+    ? `Diste tu permiso el ${consentDate(user.data_consent_at ?? "")}.`
+    : outdated
+      ? "Diste tu permiso para una versión anterior de este texto: léelo y, si estás de acuerdo, vuelve a darlo."
+      : "No has dado tu permiso.";
+
+  return (
+    <section className="account__panel" aria-labelledby="consent-title">
+      <h2 id="consent-title" className="account__subtitle">
+        Uso de tus datos
+      </h2>
+      <DataConsentNotice id="account-consent-notice" />
+      <div className="consent-switch">
+        <input
+          id="account-consent"
+          type="checkbox"
+          role="switch"
+          checked={granted}
+          aria-disabled={saving}
+          aria-describedby="account-consent-notice account-consent-state"
+          onChange={(event) => {
+            void toggle(event.target.checked);
+          }}
+        />
+        <label htmlFor="account-consent">Permitir que se usen mis datos así</label>
+      </div>
+      {/* Región viva sin rol «status»: el aviso de la contraseña ya lo es. */}
+      <p id="account-consent-state" className="consent-status" aria-live="polite">
+        {changed ?? state}
+      </p>
+      {error && (
+        <p className="login__error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }

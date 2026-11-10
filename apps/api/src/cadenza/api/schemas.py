@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from cadenza.application import EffortMetricsData, PersistedFinding, PersistedSuggestion, User
+from cadenza.application import (
+    EffortMetricsData,
+    PersistedFinding,
+    PersistedSuggestion,
+    User,
+    has_current_data_consent,
+)
 from cadenza.domain import (
     COMPOSER_MAX_LENGTH,
     MAX_PARTS,
@@ -781,6 +787,19 @@ class UserRead(BaseModel):
             "no forma parte de los datos del estudio."
         ),
     )
+    data_consent: bool = Field(
+        default=False,
+        description=(
+            "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión "
+            "actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065)."
+        ),
+    )
+    data_consent_at: datetime | None = Field(
+        default=None, description="Cuándo se dio el permiso; null, sin permiso"
+    )
+    data_consent_version: str | None = Field(
+        default=None, description="Versión del texto del permiso que se aceptó; null, sin permiso"
+    )
 
     @classmethod
     def from_user(cls, user: User) -> UserRead:
@@ -791,13 +810,17 @@ class UserRead(BaseModel):
             active=user.active,
             created_at=user.created_at,
             self_registered=user.self_registered,
+            data_consent=has_current_data_consent(user),
+            data_consent_at=user.data_consent_at,
+            data_consent_version=user.data_consent_version,
         )
 
 
 class RegisterRequest(BaseModel):
     """Registro de una cuenta por la propia persona (ADR-0022, #154).
 
-    Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
+    siempre transcriptor y cualquier otro campo se rechaza.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -813,6 +836,31 @@ class RegisterRequest(BaseModel):
         ),
     )
     password: str = Field(min_length=8)
+    data_consent_version: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Versión del texto del permiso de uso de los datos que la persona aceptó al "
+            "registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con "
+            "detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065)."
+        ),
+    )
+
+
+class DataConsentUpdate(BaseModel):
+    """Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    granted: bool = Field(..., description="true lo da; false lo retira")
+    version: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Al darlo, la versión del texto que se leyó; si no es la vigente, 409 con detail "
+            "'stale_data_consent'. Al retirarlo no hace falta."
+        ),
+    )
 
 
 class UserCreate(BaseModel):

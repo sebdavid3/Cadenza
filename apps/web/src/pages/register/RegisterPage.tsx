@@ -11,8 +11,11 @@ import { SiteHeader } from "../../components/SiteHeader";
 import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { UserRead } from "../../types";
+import "../consent/consent.css";
+import { DataConsentNotice } from "../consent/DataConsentNotice";
 import "../login/login.css";
 import {
+  CONSENT_REQUIRED,
   MIN_PASSWORD,
   passwordLength,
   registerErrorMessage,
@@ -81,19 +84,26 @@ function RegisterForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [consent, setConsent] = useState(false);
   const [error, setError] = useState<RegisterError | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [created, setCreated] = useState<{ user: UserRead; notice: string } | null>(null);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const confirmationRef = useRef<HTMLInputElement>(null);
+  const consentRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLParagraphElement>(null);
   const doneRef = useRef<HTMLHeadingElement>(null);
 
   // Tras un error, el foco va al campo que hay que corregir o, si no es de un campo, al aviso.
   useEffect(() => {
     if (!error) return;
-    const fields = { username: usernameRef, password: passwordRef, confirmation: confirmationRef };
+    const fields = {
+      username: usernameRef,
+      password: passwordRef,
+      confirmation: confirmationRef,
+      consent: consentRef,
+    };
     (error.field ? fields[error.field] : errorRef).current?.focus();
   }, [error]);
 
@@ -122,11 +132,16 @@ function RegisterForm() {
       setError({ message: "Las dos contraseñas no coinciden.", field: "confirmation" });
       return;
     }
+    // La casilla del permiso es obligatoria para crear la cuenta (#378, ADR-0065).
+    if (!consent) {
+      setError({ message: CONSENT_REQUIRED, field: "consent" });
+      return;
+    }
     setSubmitting(true);
     setError(null);
     let user: UserRead;
     try {
-      user = await registerUser(api, name, password);
+      user = await registerUser(api, name, password, consent);
     } catch (caught) {
       // Los fallos pasajeros (límite, red, servidor) no obligan a escribirla de nuevo.
       setError(registerErrorMessage(caught));
@@ -264,6 +279,29 @@ function RegisterForm() {
                 required
               />
             </div>
+            <fieldset className="field register__consent">
+              <legend className="label">Uso de tus datos</legend>
+              <DataConsentNotice id="register-consent-notice" newTab />
+              <div className="consent-check">
+                <input
+                  ref={consentRef}
+                  id="register-consent"
+                  name="data_consent"
+                  type="checkbox"
+                  checked={consent}
+                  onChange={(event) => {
+                    setConsent(event.target.checked);
+                  }}
+                  disabled={submitting}
+                  aria-invalid={error?.field === "consent"}
+                  aria-describedby={describedBy("consent", "register-consent-notice")}
+                  required
+                />
+                <label htmlFor="register-consent">
+                  Doy mi permiso para que se usen mis datos así.
+                </label>
+              </div>
+            </fieldset>
             <button
               className="button button--primary login__submit"
               type="submit"

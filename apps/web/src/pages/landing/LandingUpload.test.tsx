@@ -587,6 +587,10 @@ describe("recuadro de la portada sin sesión (#277)", () => {
     await userEvent.type(screen.getByLabelText("Usuario"), "ana");
     await userEvent.type(screen.getByLabelText("Contraseña"), password);
     await userEvent.type(screen.getByLabelText("Repite la contraseña"), password);
+    // La casilla del permiso de uso de los datos es obligatoria (#378).
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Doy mi permiso para que se usen mis datos así." }),
+    );
     await userEvent.click(screen.getByRole("button", { name: /crear cuenta y entrar/i }));
 
     await waitFor(() => {
