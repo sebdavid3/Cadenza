@@ -13,13 +13,9 @@
   border-bottom: var(--rule);
 }
 
+/* El logo con celdas de 3 px: 159 × 21 px (#383). */
 .app-header__brand {
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  text-transform: uppercase;
+  --brand-cell: 3px;
 }
 
 .app-header__nav {

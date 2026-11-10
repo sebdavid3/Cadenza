@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useMatch } from "react-router";
 import { useAuthStore } from "../auth/store";
 import { AccountControls } from "./AccountControls";
 import "./app-layout.css";
+import { BrandWordmark } from "./BrandWordmark";
 import "./button.css";
 
 /**
@@ -18,7 +19,7 @@ export function AppLayout() {
       {!ownHeader && (
         <header className="app-header">
           <Link className="app-header__brand" to="/" aria-label="Cadenza, página pública">
-            Cadenza
+            <BrandWordmark />
           </Link>
           <nav className="app-header__nav" aria-label="Zona de trabajo">
             <NavLink className="label" to="/transcripcion">

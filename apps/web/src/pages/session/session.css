@@ -28,15 +28,11 @@
   min-width: 0;
 }
 
+/* El logo con celdas de 3 px (159 × 21 px, #383), y un filete a su derecha. */
 .session__brand {
+  --brand-cell: 3px;
   padding-right: var(--space-4);
   border-right: var(--rule);
-  font-family: var(--font-display);
-  font-size: 1.375rem;
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  text-transform: uppercase;
 }
 
 .session__back {
@@ -2159,10 +2155,15 @@ button.findings__item:hover {
 }
 
 /* En una mesa estrecha, la franja cede lo que se puede leer en otro sitio: el rol de la cuenta y,
-   más abajo, la marca (la vuelta a las sesiones sigue). */
+   más abajo, la marca (la vuelta a las sesiones sigue). Antes de desaparecer, el logo pasa a
+   celdas de 2 px (106 × 14 px, #383): con 3 px, a 1100 px, al título le quedaban 50 px. */
 @media (min-width: 960px) and (max-width: 1279.98px) {
   .session--desk .app-header__role {
     display: none;
+  }
+
+  .session--desk .session__brand {
+    --brand-cell: 2px;
   }
 }
 

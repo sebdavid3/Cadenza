@@ -419,7 +419,8 @@
   outline-color: var(--color-on-accent);
 }
 
-/* Pie: la marca repetida a varios tamaños y rotulada, como en un muestrario */
+/* Pie: el logo repetido a varios tamaños y rotulado con su altura, como en un muestrario. Cada
+   tamaño fija su celda en el propio elemento (`--brand-cell`, en píxeles enteros, #383). */
 .site-footer {
   display: grid;
   gap: var(--space-5);
@@ -441,31 +442,16 @@
   gap: var(--space-2);
 }
 
-.site-footer__word {
-  font-family: var(--font-display);
-  font-weight: 700;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
 .site-footer__size {
   color: var(--color-ink-muted);
 }
 
-.site-footer__specimen li:nth-child(1) .site-footer__word {
-  font-size: 6rem;
-}
-
-.site-footer__specimen li:nth-child(2) .site-footer__word {
-  font-size: 3rem;
-}
-
-.site-footer__specimen li:nth-child(3) .site-footer__word {
-  font-size: 1.5rem;
-}
-
-.site-footer__specimen li:nth-child(4) .site-footer__word {
-  font-size: 0.75rem;
+/* El mayor mide 636 px de ancho: donde no cabe, se quita en vez de encogerlo, que lo difuminaría
+   y desmentiría su rótulo. */
+@media (max-width: 719.98px) {
+  .site-footer__specimen li:first-child {
+    display: none;
+  }
 }
 
 @media (max-width: 900px) {
@@ -517,13 +503,5 @@
 
   .demo__index li:nth-child(3) {
     border-left: 0;
-  }
-
-  .site-footer__specimen li:nth-child(1) .site-footer__word {
-    font-size: 3.5rem;
-  }
-
-  .site-footer__specimen li:nth-child(2) .site-footer__word {
-    font-size: 2rem;
   }
 }

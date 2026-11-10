@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 import { REPOSITORY_URL } from "../config";
+import { BrandWordmark } from "./BrandWordmark";
 import "./button.css";
 import "./site-header.css";
 
@@ -14,7 +15,7 @@ export function SiteHeader({
   return (
     <header className="site-header">
       <Link className="site-header__brand" to="/" aria-label="Cadenza, inicio">
-        Cadenza
+        <BrandWordmark />
       </Link>
       <span className="label site-header__tagline">Partituras impresas, notación editable</span>
       <nav className="site-header__nav" aria-label="Principal">

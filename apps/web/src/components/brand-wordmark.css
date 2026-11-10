@@ -1,0 +1,22 @@
+/* El logo (#383): la palabra en una rejilla de 53 × 7 celdas. Cada sitio fija su celda con
+   `--brand-cell`, siempre en píxeles enteros: con celdas fraccionarias (rem, vw) los bordes de los
+   píxeles se difuminan. Mide exactamente su rejilla; no encoge con el contenedor. */
+.brand-wordmark {
+  display: block;
+  flex: none;
+  width: calc(53 * var(--brand-cell, 3px));
+  height: calc(7 * var(--brand-cell, 3px));
+  max-width: none;
+}
+
+/* El punto del calderón es lo único violeta del logo. */
+.brand-wordmark__dot {
+  fill: var(--color-accent);
+}
+
+/* Con colores forzados, el punto toma el color del texto del sistema. */
+@media (forced-colors: active) {
+  .brand-wordmark__dot {
+    fill: CanvasText;
+  }
+}

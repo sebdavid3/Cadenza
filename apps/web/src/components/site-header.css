@@ -8,13 +8,9 @@
   border-bottom: var(--rule);
 }
 
+/* El logo con celdas de 4 px: 212 × 28 px (#383); de 3 px por debajo de 860 px. */
 .site-header__brand {
-  font-family: var(--font-display);
-  font-size: clamp(1.75rem, 3.2vw, 2.875rem);
-  font-weight: 700;
-  line-height: 1;
-  text-decoration: none;
-  text-transform: uppercase;
+  --brand-cell: 4px;
 }
 
 .site-header__tagline {
@@ -48,7 +44,13 @@
   }
 }
 
+/* Con celdas de 4 px, la marca, las anclas y «Entrar» no caben en una fila hasta unos 800 px; con
+   3 px (159 × 21 px), una tableta de 768 px sigue en una sola fila. */
 @media (max-width: 860px) {
+  .site-header__brand {
+    --brand-cell: 3px;
+  }
+
   .site-header__nav {
     gap: var(--space-3) var(--space-5);
   }

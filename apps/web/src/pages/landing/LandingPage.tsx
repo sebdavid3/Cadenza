@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
+import { BrandWordmark } from "../../components/BrandWordmark";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
@@ -20,7 +22,9 @@ const STEP_FIGURES = [
   <IncipitStaff key="correccion" measures={CORRECTED} mark="resolved" />,
 ];
 
-const SPECIMEN_SIZES = ["96 px", "48 px", "24 px", "12 px"];
+// El muestrario del pie: el logo a cuatro celdas enteras, en píxeles (#383). El rótulo es su
+// altura real, siete celdas.
+const SPECIMEN_CELLS = [12, 6, 3, 2];
 
 export function LandingPage() {
   useDocumentTitle();
@@ -159,10 +163,10 @@ export function LandingPage() {
 
       <footer className="site-footer">
         <ul className="site-footer__specimen" aria-hidden="true">
-          {SPECIMEN_SIZES.map((size) => (
-            <li key={size}>
-              <span className="site-footer__word">Cadenza</span>
-              <span className="label site-footer__size">{size}</span>
+          {SPECIMEN_CELLS.map((cell) => (
+            <li key={cell} style={{ "--brand-cell": `${String(cell)}px` } as CSSProperties}>
+              <BrandWordmark />
+              <span className="label site-footer__size">{7 * cell} px</span>
             </li>
           ))}
         </ul>

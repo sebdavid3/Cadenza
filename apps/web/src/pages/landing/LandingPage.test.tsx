@@ -237,3 +237,31 @@ describe("demostración", () => {
     expect(motion.animate).not.toHaveBeenCalled();
   });
 });
+
+describe("el muestrario del pie (#383)", () => {
+  it("repite el logo a cuatro celdas enteras, rotulado con su altura real", () => {
+    renderLanding();
+
+    const specimen = screen.getByRole("contentinfo").querySelector("ul");
+    if (!specimen) throw new Error("falta el muestrario");
+    // Es un adorno: el lector de pantalla no lo lee.
+    expect(specimen).toHaveAttribute("aria-hidden", "true");
+    const items = Array.from(specimen.querySelectorAll("li"));
+    expect(
+      items.map((item) => ({
+        cell: item.style.getPropertyValue("--brand-cell"),
+        label: item.textContent,
+      })),
+    ).toEqual([
+      { cell: "12px", label: "84 px" },
+      { cell: "6px", label: "42 px" },
+      { cell: "3px", label: "21 px" },
+      { cell: "2px", label: "14 px" },
+    ]);
+    for (const item of items) {
+      expect(item.querySelector("svg.brand-wordmark")).toHaveAttribute("viewBox", "0 0 53 7");
+    }
+    // La palabra ya no se escribe con una fuente: se dibuja.
+    expect(within(specimen).queryByText(/cadenza/i)).toBeNull();
+  });
+});
