@@ -363,7 +363,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
       // Se pregunta hasta que acaba. Un fallo pasajero (sin conexión, un 5xx, un plazo) no corta
       // el seguimiento: se vuelve a preguntar, y solo tras muchos seguidos se dice.
       let failures = 0;
-      let result: TranscribeResponse | null = null;
+      let result: TranscribeResponse | null;
       try {
         while (job.stage !== "done" && job.stage !== "failed") {
           set({ stage: { kind: "transcribing", startedAt, job } });
