@@ -196,3 +196,36 @@ def test_the_web_shows_the_same_version_of_the_text() -> None:
 
     assert match is not None
     assert match.group(1) == DATA_CONSENT_VERSION
+
+
+def test_changing_the_password_or_the_account_keeps_the_permission() -> None:
+    app = _app()
+    client = TestClient(app)
+    user = _register(client, "ana", data_consent_version=DATA_CONSENT_VERSION)
+    headers = {"Authorization": f"Bearer {_token(app, str(user['id']))}"}
+    new_password = secrets.token_urlsafe(12)
+
+    changed = client.post(
+        "/auth/password",
+        json={"current_password": PASSWORD, "new_password": new_password},
+        headers=headers,
+    )
+    assert changed.status_code == 200, changed.text
+    with app.state.session_factory() as db:
+        SqlAlchemyUserRepository(db).add(
+            User(id="inv-1", username="investigadora", password_hash="-", role=Role.INVESTIGADOR)
+        )
+        db.commit()
+    researcher = app.state.token_service.create_access_token(
+        user_id="inv-1", role=Role.INVESTIGADOR
+    )
+    edited = client.patch(
+        f"/users/{user['id']}",
+        json={"active": True},
+        headers={"Authorization": f"Bearer {researcher}"},
+    )
+    assert edited.status_code == 200, edited.text
+
+    me = client.get("/auth/me", headers=headers).json()
+    assert me["data_consent"] is True
+    assert me["data_consent_version"] == DATA_CONSENT_VERSION

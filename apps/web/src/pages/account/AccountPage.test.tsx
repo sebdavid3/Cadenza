@@ -333,9 +333,7 @@ describe("permiso de uso de los datos en «Tu cuenta» (#378)", () => {
     await waitFor(() => {
       expect(toggle).toBeChecked();
     });
-    expect(consentState(panel)).toHaveTextContent(
-      /has dado tu permiso\. diste tu permiso el 9 de noviembre de 2026/i,
-    );
+    expect(consentState(panel)).toHaveTextContent("Has dado tu permiso.");
     expect(useAuthStore.getState().user?.data_consent).toBe(true);
 
     await userEvent.click(toggle);

@@ -7,6 +7,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { consentErrorMessage, setDataConsent } from "../consent/consent";
 import "../consent/consent.css";
 import { DataConsentNotice } from "../consent/DataConsentNotice";
+import { parseUtc } from "../transcription/sessions";
 import "../login/login.css";
 import { MIN_PASSWORD, passwordLength } from "../register/register";
 import {
@@ -225,9 +226,12 @@ function PasswordForm({ username }: { username: string }) {
   );
 }
 
-/** El día en que se dio el permiso, en español: «9 de noviembre de 2026». */
+/**
+ * El día en que se dio el permiso, en la hora local y en español: «9 de noviembre de 2026». Con
+ * SQLite la fecha llega sin zona, pero es UTC, como `created_at` (`parseUtc`).
+ */
 function consentDate(value: string): string {
-  return new Date(value).toLocaleDateString("es", {
+  return parseUtc(value).toLocaleDateString("es", {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -292,7 +296,7 @@ function DataConsentSection() {
       </div>
       {/* Región viva sin rol «status»: el aviso de la contraseña ya lo es. */}
       <p id="account-consent-state" className="consent-status" aria-live="polite">
-        {changed ? `${changed} ${state}` : state}
+        {changed ?? state}
       </p>
       {error && (
         <p className="login__error" role="alert">

@@ -1,12 +1,11 @@
 /* El permiso de uso de los datos (#378, ADR-0064): el aviso breve, la casilla del registro, el
-   interruptor de «Tu cuenta» y la página con el texto completo. Plano, con filete de tinta. */
+   interruptor de «Tu cuenta» y la página con el texto completo. Plano: el aviso es texto, sin
+   filete ni marco. */
 
 .consent-notice {
   display: grid;
   gap: var(--space-2);
   max-width: 52ch;
-  padding: var(--space-3) var(--space-4);
-  border-left: 3px solid var(--color-ink);
   color: var(--color-ink-muted);
   font-size: var(--text-small);
   line-height: 1.5;
@@ -123,4 +122,14 @@
   gap: var(--space-2);
   padding-left: 1.25rem;
   list-style: square;
+}
+
+/* El grupo del registro: sin el marco del navegador. */
+.register__consent {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
