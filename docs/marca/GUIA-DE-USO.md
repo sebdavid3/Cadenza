@@ -27,9 +27,6 @@ Alrededor del logo se deja libre, como mínimo, **el doble del lado del punto**,
 lados. Esa distancia crece y decrece con el logo. Los SVG de la palabra ya llevan 2 celdas de margen; añade el resto
 al maquetar.
 
-La excepción es el muestrario del pie de la web, que repite la palabra a varios tamaños, rotulados con su altura, como
-una muestra tipográfica: no es una aparición de la marca y sus piezas van más juntas.
-
 ## 3. Tamaño mínimo y nitidez
 
 El logo es un bitmap, así que en pantalla se ve nítido cuando cada celda mide un número entero de píxeles.
@@ -105,10 +102,9 @@ apps/web/src/components/
 ```
 
 La web usa la palabra en la cabecera pública (celda de 4 px, y de 3 px por debajo de 860 px), en la de la zona
-privada y en la de la vista de una sesión (3 px; en la sesión, 2 px entre 1100 y 1280 px de ancho) y en el muestrario
-del pie de la portada (12, 6, 3 y 2 px, rotulados con su altura: 84, 42, 21 y 14 px; en pantallas estrechas se quitan
-los mayores en vez de encogerlos). El símbolo solo aparece en el favicon y los iconos. `DESIGN.md` describe la marca
-dentro del sistema visual.
+privada y en la de la vista de una sesión (3 px; en la sesión, 2 px entre 1100 y 1280 px de ancho) y, una sola vez,
+en el pie de la portada (6 px, y 4 px por debajo de 400 px). El símbolo solo aparece en el favicon y los iconos.
+`DESIGN.md` describe la marca dentro del sistema visual.
 
 Fuera del repositorio, en el kit que se entregó al responsable (`cadenza-logo-kit.zip`), quedan los PNG de
 `png/`, los `favicon-16/32/48.png` sueltos (van dentro de `favicon.ico`), las fuentes SVG de los iconos
@@ -130,4 +126,4 @@ Fuera del repositorio, en el kit que se entregó al responsable (`cadenza-logo-k
 - Elegir el Pantone del violeta con una guía física.
 
 **Integrado en `apps/web` (#383):** el favicon, los iconos y el manifiesto, y la palabra en las tres cabeceras y
-en el muestrario del pie, en lugar de la corchea del favicon y del nombre escrito en Pixelify Sans (ver §7).
+en el pie, en lugar de la corchea del favicon y del nombre escrito en Pixelify Sans (ver §7).

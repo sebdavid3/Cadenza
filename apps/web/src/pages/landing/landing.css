@@ -419,45 +419,18 @@
   outline-color: var(--color-on-accent);
 }
 
-/* Pie: el logo repetido a varios tamaños y rotulado con su altura, como en un muestrario. Cada
-   tamaño fija su celda en el propio elemento (`--brand-cell`, en píxeles enteros, #383). */
+/* Pie: el logo una sola vez, con celdas de 6 px (318 × 42 px), sobre la línea de créditos (#383). */
 .site-footer {
+  --brand-cell: 6px;
   display: grid;
   gap: var(--space-5);
   padding: var(--space-8) var(--gutter) var(--space-7);
 }
 
-.site-footer__specimen {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-4) var(--space-7);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.site-footer__specimen li {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.site-footer__size {
-  color: var(--color-ink-muted);
-}
-
-/* El mayor mide 636 px de ancho: donde no cabe, se quita en vez de encogerlo, que lo difuminaría
-   y desmentiría su rótulo. */
-@media (max-width: 719.98px) {
-  .site-footer__specimen li:first-child {
-    display: none;
-  }
-}
-
-/* Y el de 42 px, de 318 px de ancho, donde tampoco cabe: la página no se desplaza en horizontal. */
-@media (max-width: 359.98px) {
-  .site-footer__specimen li:nth-child(2) {
-    display: none;
+/* Donde no cabe a 6 px, a 4 px (212 × 28 px): una celda entera más pequeña, no una fraccionaria. */
+@media (max-width: 399.98px) {
+  .site-footer {
+    --brand-cell: 4px;
   }
 }
 

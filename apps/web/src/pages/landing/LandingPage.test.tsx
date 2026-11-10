@@ -238,30 +238,19 @@ describe("demostración", () => {
   });
 });
 
-describe("el muestrario del pie (#383)", () => {
-  it("repite el logo a cuatro celdas enteras, rotulado con su altura real", () => {
+describe("el pie (#383)", () => {
+  it("cierra con el logo una sola vez, sin muestrario de tamaños ni rótulos", () => {
     renderLanding();
 
-    const specimen = screen.getByRole("contentinfo").querySelector("ul");
-    if (!specimen) throw new Error("falta el muestrario");
-    // Es un adorno: el lector de pantalla no lo lee.
-    expect(specimen).toHaveAttribute("aria-hidden", "true");
-    const items = Array.from(specimen.querySelectorAll("li"));
+    const footer = screen.getByRole("contentinfo");
+    const logos = footer.querySelectorAll("svg.brand-wordmark");
+    expect(logos).toHaveLength(1);
+    // Es un adorno: el nombre ya está en la línea de créditos.
+    expect(logos[0]).toHaveAttribute("aria-hidden", "true");
+    expect(footer.querySelector("ul")).toBeNull();
+    expect(footer).not.toHaveTextContent(/\d+ px/);
     expect(
-      items.map((item) => ({
-        cell: item.style.getPropertyValue("--brand-cell"),
-        label: item.textContent,
-      })),
-    ).toEqual([
-      { cell: "12px", label: "84 px" },
-      { cell: "6px", label: "42 px" },
-      { cell: "3px", label: "21 px" },
-      { cell: "2px", label: "14 px" },
-    ]);
-    for (const item of items) {
-      expect(item.querySelector("svg.brand-wordmark")).toHaveAttribute("viewBox", "0 0 53 7");
-    }
-    // La palabra ya no se escribe con una fuente: se dibuja.
-    expect(within(specimen).queryByText(/cadenza/i)).toBeNull();
+      within(footer).getByRole("link", { name: "github.com/sebdavid3/Cadenza" }),
+    ).toHaveAttribute("href", "https://github.com/sebdavid3/Cadenza");
   });
 });

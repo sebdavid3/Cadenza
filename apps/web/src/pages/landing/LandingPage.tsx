@@ -1,4 +1,3 @@
-import type { CSSProperties } from "react";
 import { Link } from "react-router";
 import { BrandWordmark } from "../../components/BrandWordmark";
 import "../../components/button.css";
@@ -21,10 +20,6 @@ const STEP_FIGURES = [
   <IncipitStaff key="hallazgo" measures={OMR_READING} mark="flagged" />,
   <IncipitStaff key="correccion" measures={CORRECTED} mark="resolved" />,
 ];
-
-// El muestrario del pie: el logo a cuatro celdas enteras, en píxeles (#383). El rótulo es su
-// altura real, siete celdas.
-const SPECIMEN_CELLS = [12, 6, 3, 2];
 
 export function LandingPage() {
   useDocumentTitle();
@@ -162,14 +157,7 @@ export function LandingPage() {
       </main>
 
       <footer className="site-footer">
-        <ul className="site-footer__specimen" aria-hidden="true">
-          {SPECIMEN_CELLS.map((cell) => (
-            <li key={cell} style={{ "--brand-cell": `${String(cell)}px` } as CSSProperties}>
-              <BrandWordmark />
-              <span className="label site-footer__size">{7 * cell} px</span>
-            </li>
-          ))}
-        </ul>
+        <BrandWordmark />
         <p className="label">
           Cadenza · digitalización asistida de partituras ·{" "}
           <a href={REPOSITORY_URL}>github.com/sebdavid3/Cadenza</a>
