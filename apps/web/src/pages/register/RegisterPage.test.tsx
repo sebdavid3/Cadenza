@@ -315,10 +315,15 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     for (const section of [
       "Qué se guarda",
       "Para qué, con tu permiso",
+      "Derechos de autor de las partituras",
       "Dar y retirar el permiso",
     ]) {
       expect(screen.getByRole("heading", { name: section, level: 2 })).toBeVisible();
     }
+    // Solo partituras que se puedan usar; subirlas no cede sus derechos.
+    expect(
+      screen.getByRole("region", { name: "Derechos de autor de las partituras" }),
+    ).toHaveTextContent(/de dominio público, tuyas o con permiso de quien tiene sus derechos/i);
     expect(screen.getByRole("link", { name: "Volver a crear una cuenta" })).toHaveAttribute(
       "href",
       "/registro",

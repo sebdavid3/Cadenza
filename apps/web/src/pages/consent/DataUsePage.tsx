@@ -57,6 +57,26 @@ export function DataUsePage() {
           </p>
         </section>
 
+        <section aria-labelledby="data-use-copyright">
+          <h2 id="data-use-copyright">Derechos de autor de las partituras</h2>
+          <p>
+            Sube solo partituras que puedas usar: de dominio público, tuyas o con permiso de quien
+            tiene sus derechos. Una partitura impresa puede tener derechos de autor por la obra, por
+            el arreglo o por la edición, aunque la música sea antigua.
+          </p>
+          <p>
+            Subirla no cede sus derechos a Cadenza ni a nadie: siguen siendo de quien los tenga.
+            Cadenza no publica ni comparte las imágenes que subes: las ves tú desde tu cuenta y el
+            equipo del proyecto, que las necesita para investigar. Con tu permiso, se usan solo
+            dentro del proyecto, para la investigación y para entrenar los modelos; lo que se
+            publique serán cifras de conjunto, no las partituras.
+          </p>
+          <p>
+            Si alguien con derechos sobre una partitura que se ha subido pide retirarla, el equipo
+            del proyecto la borrará.
+          </p>
+        </section>
+
         <section aria-labelledby="data-use-withdraw">
           <h2 id="data-use-withdraw">Dar y retirar el permiso</h2>
           <p>
