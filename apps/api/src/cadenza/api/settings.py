@@ -230,6 +230,26 @@ class Settings(BaseSettings):
             "(ADR-0024)."
         ),
     )
+    transcribe_jobs_per_user: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description=(
+            "Transcripciones en segundo plano que una persona puede tener en cola o en curso; "
+            "con el tope, POST /transcription-jobs responde 429 hasta que termine alguna "
+            "(ADR-0064)."
+        ),
+    )
+    transcribe_jobs_max: int = Field(
+        default=30,
+        ge=1,
+        le=500,
+        description=(
+            "Transcripciones en segundo plano en cola o en curso, de todas las personas; cada una "
+            "guarda su imagen en memoria hasta transcribirse. Con el tope, POST "
+            "/transcription-jobs responde 503 (ADR-0064)."
+        ),
+    )
     score_cache_max_entries: int = Field(
         default=32,
         ge=0,

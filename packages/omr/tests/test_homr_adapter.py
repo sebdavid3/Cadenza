@@ -72,6 +72,12 @@ def _fake_model(monkeypatch: pytest.MonkeyPatch, fake_homr: Any) -> Any:
     fake_model.MultiStaff = type("MultiStaff", (_FakeMultiStaff,), {})
     fake_homr.model = fake_model
     monkeypatch.setitem(sys.modules, "homr.model", fake_model)
+    # `_import_homr` envuelve también la lectura de cada pentagrama, por el avance (#375).
+    fake_parsing: Any = types.ModuleType("homr.staff_parsing")
+    fake_parsing._get_number_of_voices = lambda staffs: 1
+    fake_parsing.parse_staff_image = lambda *args: []
+    fake_homr.staff_parsing = fake_parsing
+    monkeypatch.setitem(sys.modules, "homr.staff_parsing", fake_parsing)
     return fake_model
 
 

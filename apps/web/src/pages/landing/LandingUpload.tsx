@@ -4,7 +4,8 @@ import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { anonymousPreviewEnabled, registrationEnabled } from "../../config";
-import { formatSize } from "../transcription/format";
+import { formatSize, jobProgress, jobStageAnnouncement } from "../transcription/format";
+import { JobProgressLine } from "../transcription/JobProgressLine";
 import { Elapsed } from "../transcription/Elapsed";
 import { ScoreDataFields, type PartField } from "../transcription/ScoreDataFields";
 import { nonBlank } from "../transcription/scoreData";
@@ -266,9 +267,19 @@ export function LandingUpload() {
                   Transcribiendo «{name}»
                   <Elapsed since={stage.startedAt} />
                 </p>
+                {/* Al lector de pantalla, solo los cambios de etapa: no cada pentagrama. */}
+                <span className="visually-hidden">{jobStageAnnouncement(stage.job)}</span>
+                <div aria-hidden="true">
+                  <JobProgressLine
+                    progress={
+                      (stage.job && jobProgress(stage.job)) ?? { text: "Subiendo la imagen" }
+                    }
+                  />
+                </div>
                 <p className="landing-upload__progress-note">
-                  HOMR lee la imagen y propone la partitura; suele tardar unos segundos y puede
-                  llegar a 30. No hace falta quedarse mirando: el resultado aparecerá aquí.
+                  HOMR lee la imagen y propone la partitura; una página entera puede tardar más de
+                  un minuto. No hace falta quedarse mirando: el resultado aparecerá aquí, y la
+                  sesión, en tus transcripciones aunque salgas.
                 </p>
               </>
             )}
@@ -322,10 +333,10 @@ export function LandingUpload() {
             {stage.kind === "failed" && (
               <p className="landing-upload__error" role="alert" ref={failureRef} tabIndex={-1}>
                 {stage.message}
-                {stage.timedOut && (
+                {stage.mayExist && (
                   <>
                     {" "}
-                    <Link to="/transcripcion">Ver tus sesiones</Link>
+                    <Link to="/transcripcion">Ver tus transcripciones</Link>
                   </>
                 )}
               </p>

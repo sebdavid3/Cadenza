@@ -1,0 +1,27 @@
+/* En qué está una transcripción del servidor (#375, DESIGN.md §Diario y láminas). */
+.job-progress {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.job-progress__text {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+/* Los pentagramas ya leídos de la lectura en curso: un filete de tinta que se llena de violeta,
+   a saltos, sin transición que finja un avance continuo. */
+.job-progress__meter {
+  display: block;
+  height: 3px;
+  background: var(--color-rule-soft);
+  overflow: hidden;
+}
+
+.job-progress__meter > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}

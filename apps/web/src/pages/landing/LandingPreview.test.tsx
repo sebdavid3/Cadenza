@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { routes } from "../../router";
-import { ANA, fakeJwt, jsonResponse, mockApi, resetAuth, signInAs } from "../../test/auth-helpers";
+import { ANA, fakeJwt, jsonResponse, resetAuth, signInAs } from "../../test/auth-helpers";
+import { mockApiWithInstantJobs } from "../../test/jobs";
 import type { PreviewResponse } from "../../types";
 import { PENDING_CLAIM_KEY, useLandingUpload } from "./uploadStore";
 
@@ -172,7 +173,9 @@ afterEach(() => {
 
 describe("transcribir sin cuenta desde la portada (#278)", () => {
   it("sin sesión transcribe sin token y enseña el resultado en solo lectura, con «Entrar para editarla»", async () => {
-    const { calls } = mockApi({ "POST /previews": () => jsonResponse(previewResponse(), 201) });
+    const { calls } = mockApiWithInstantJobs({
+      "POST /previews": () => jsonResponse(previewResponse(), 201),
+    });
     renderAt();
 
     await userEvent.upload(fileInput(), png());
@@ -195,11 +198,11 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
     } | null;
     expect(stored).toMatchObject({ id: PREVIEW_ID, token: CLAIM_TOKEN });
     expect(sessionStorage.getItem(PENDING_CLAIM_KEY)).not.toMatch(/data:|base64/);
-    expect(calls.some((candidate) => candidate.key === "POST /transcribe")).toBe(false);
+    expect(calls.some((candidate) => candidate.key === "POST /transcription-jobs")).toBe(false);
   });
 
   it("«Entrar para editarla» lleva a entrar y, al volver, la reclama y abre su sesión", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /previews": () => jsonResponse(previewResponse(), 201),
       [`POST /previews/${PREVIEW_ID}/claim`]: claimed,
       ...loginRoutes,
@@ -236,7 +239,7 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
         name: "Minueto",
       }),
     );
-    mockApi({ [`POST /previews/${PREVIEW_ID}/claim`]: claimed });
+    mockApiWithInstantJobs({ [`POST /previews/${PREVIEW_ID}/claim`]: claimed });
     signInAs(ANA);
 
     const router = renderAt("/#transcribir");
@@ -256,7 +259,7 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
         name: "Minueto",
       }),
     );
-    mockApi({});
+    mockApiWithInstantJobs({});
     renderAt("/#transcribir");
 
     const pending = within(box()).getByRole("region", { name: /transcripción sin cuenta/i });
@@ -265,7 +268,7 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
   });
 
   it("con el servidor sin transcripción sin cuenta (404), vuelve a pedir que se entre", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /previews": () => jsonResponse({ detail: "Not Found" }, 404),
     });
     renderAt();
@@ -282,7 +285,7 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
   });
 
   it("si la transcripción sin cuenta caducó al reclamarla, ofrece transcribir la imagen con la cuenta", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /previews": () => jsonResponse(previewResponse(), 201),
       [`POST /previews/${PREVIEW_ID}/claim`]: () => jsonResponse({ detail: "x" }, 404),
       "POST /transcribe": () =>
@@ -310,12 +313,12 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
     expect(await within(box()).findByText(/ya no está: caduca a la hora/i)).toBeVisible();
     await userEvent.click(within(box()).getByRole("button", { name: "Volver a intentarlo" }));
     await waitFor(() => {
-      expect(calls.some((call) => call.key === "POST /transcribe")).toBe(true);
+      expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(true);
     });
   });
 
   it("el límite por conexión dice cuándo volver a probar", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /previews": () =>
         new Response(JSON.stringify({ detail: "x" }), {
           status: 429,
@@ -334,7 +337,7 @@ describe("transcribir sin cuenta desde la portada (#278)", () => {
 
   it("sin el build que lo abre, sin sesión se pide entrar como antes", async () => {
     vi.stubEnv("VITE_ANONYMOUS_PREVIEW_ENABLED", "");
-    mockApi({});
+    mockApiWithInstantJobs({});
     renderAt();
 
     await userEvent.upload(fileInput(), png());
