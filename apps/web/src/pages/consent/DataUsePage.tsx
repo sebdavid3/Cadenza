@@ -8,8 +8,8 @@ import "./consent.css";
 
 /**
  * El texto completo del permiso de uso de los datos (#378, ADR-0064), versión del 9 de noviembre
- * de 2026. Es público: se puede leer antes de crear la cuenta. Es una propuesta que aprueba el
- * responsable del proyecto; si cambia, cambia también `DATA_CONSENT_VERSION`.
+ * de 2026. Es público: se puede leer antes de crear la cuenta. Lo aprobó el responsable del
+ * proyecto el 2026-11-09; si cambia, cambia también `DATA_CONSENT_VERSION`.
  */
 export function DataUsePage() {
   useDocumentTitle("Uso de tus datos");

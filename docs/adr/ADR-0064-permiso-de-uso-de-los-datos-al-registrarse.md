@@ -1,6 +1,6 @@
 # ADR-0064: Permiso de uso de los datos al registrarse
 
-- **Estado:** Aceptado (el texto del permiso es una propuesta que aprueba el responsable antes de fusionar)
+- **Estado:** Aceptado (el responsable aprobó el texto del permiso el 2026-11-09)
 - **Fecha:** 2026-11-09
 - **Decisores:** Responsable del proyecto (que cualquiera pueda crear una cuenta y que quede guardado si dio permiso para usar sus datos, 2026-11-09) y Equipo de Desarrollo
 - **Enmienda:** [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) y [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md)
@@ -39,6 +39,6 @@
 - Cambiar el texto obliga a cambiar la versión, y los permisos antiguos dejan de contar sin tocar la base.
 
 ### Negativas / Riesgos
-- El texto es una propuesta: hasta que el responsable lo apruebe, no debe encenderse el registro.
+- El texto lo aprobó el responsable el 2026-11-09, sin un contacto para las dudas («habla con el equipo del proyecto»): si se abre el registro al público, conviene añadirlo, y cambiarlo es cambiar la versión.
 - Sin historial en la base, saber cuándo se retiró un permiso exige el registro de la API.
 - La casilla es obligatoria para crear la cuenta, pero se puede retirar justo después: el issue que use el permiso tiene que tratar igual las cuentas sin permiso vigente.
