@@ -9,6 +9,7 @@ import { PixelIcon } from "../../components/PixelIcon";
 import { SiteHeader } from "../../components/SiteHeader";
 import { registrationEnabled } from "../../config";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { AccessPanel } from "./AccessPanel";
 import "./login.css";
 
 type Field = "username" | "password";
@@ -75,9 +76,7 @@ export function LoginPage() {
     <>
       <SiteHeader showSections={false} showEnter={false} />
       <main className="login">
-        <h1 className="login__title">
-          <span>Entrar</span>
-        </h1>
+        <AccessPanel title="Entrar" />
         <form className="login__form" onSubmit={(event) => void submit(event)} noValidate>
           {expiredNotice && !error && (
             <p className="login__notice" role="status" ref={noticeRef} tabIndex={-1}>
