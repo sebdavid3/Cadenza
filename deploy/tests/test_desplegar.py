@@ -19,6 +19,10 @@ SCRIPT = Path(__file__).resolve().parents[1] / "desplegar.sh"
 
 FAKE_DOCKER = """#!/bin/sh
 echo "docker $*" >> "$FAKE_LOG"
+# Como `docker compose run` sin -T: lee la entrada estándar, que es por donde llega el guion.
+case " $* " in
+    *" run "*) cat > /dev/null ;;
+esac
 if [ -n "${FAKE_DOCKER_FALLA:-}" ]; then
     case " $* " in
         *"$FAKE_DOCKER_FALLA"*) exit 1 ;;
@@ -162,11 +166,55 @@ def test_despliega_el_commit_esperado_con_copia_verificada_y_salud(entorno: Ento
     assert "sana tras" in resultado.stdout
 
 
-def test_sin_el_commit_esperado_no_hace_nada(entorno: Entorno) -> None:
-    resultado = entorno.desplegar("")
+@pytest.mark.parametrize("esperado", ["", "1", "abc12", "0123abz", "HEAD~1"])
+def test_sin_un_commit_esperado_valido_no_hace_nada(entorno: Entorno, esperado: str) -> None:
+    resultado = entorno.desplegar(esperado)
 
     assert resultado.returncode == 64
     assert entorno.llamadas() == []
+
+
+def test_un_docker_que_lee_la_entrada_no_se_come_el_resto_del_guion(entorno: Entorno) -> None:
+    # El guion llega por la entrada estándar (`sh -s`): con todo dentro de `main` y la entrada
+    # cerrada, el falso `docker compose run`, que la lee, no lo corta tras la copia.
+    nuevo = entorno.publicar("v2")
+
+    resultado = entorno.desplegar(nuevo)
+
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+    assert "sana tras" in resultado.stdout
+    assert any("verify --archive" in c for c in entorno.llamadas())
+
+
+def test_fuera_de_la_rama_no_hace_nada(entorno: Entorno) -> None:
+    nuevo = entorno.publicar("v2")
+    _git(entorno.produccion, "switch", "-q", "--detach")
+
+    resultado = entorno.desplegar(nuevo)
+
+    assert resultado.returncode == 1
+    assert "no está en la rama dev" in resultado.stdout
+    assert entorno.llamadas() == []
+
+
+def test_si_no_se_reconstruye_lo_dice_y_nombra_la_copia(entorno: Entorno) -> None:
+    nuevo = entorno.publicar("v2")
+
+    resultado = entorno.desplegar(nuevo, docker_falla="up -d --build")
+
+    assert resultado.returncode == 2
+    assert "los contenedores no se" in resultado.stdout
+    assert "la copia previa es cadenza-" in resultado.stdout
+
+
+def test_sin_imagen_de_copias_avisa_y_sigue_hasta_la_salud(entorno: Entorno) -> None:
+    nuevo = entorno.publicar("v2")
+
+    resultado = entorno.desplegar(nuevo, docker_falla="build backup")
+
+    assert resultado.returncode == 0, resultado.stdout + resultado.stderr
+    assert "AVISO: no se reconstruyó la imagen de copias" in resultado.stdout
+    assert "sana tras" in resultado.stdout
 
 
 def test_si_origin_dev_no_es_el_esperado_no_hace_nada(entorno: Entorno) -> None:

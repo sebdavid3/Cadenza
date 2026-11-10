@@ -485,6 +485,7 @@ def test_a_green_run_does_not_suggest_repeating_anything(
         (["--solo", "pytets"], "pytets"),
         (["--sin-web", "--solo", "test"], "--sin-web"),
         (["--solo", "docker api"], "--docker"),
+        (["--solo", " , "], "ninguna"),
     ],
 )
 def test_an_unknown_or_unavailable_gate_is_refused_before_running_anything(
@@ -502,3 +503,22 @@ def test_an_unknown_or_unavailable_gate_is_refused_before_running_anything(
     assert exit_info.value.code == 2
     assert calls == []
     assert message in capsys.readouterr().err
+
+
+def test_the_command_to_repeat_docker_gates_is_quoted_for_the_shell(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    (tmp_path / "node_modules").mkdir()
+    failing = {"mypy", "compose con copias"}
+
+    def runner(gate: Gate) -> tuple[int, str]:
+        return (1, "") if gate.name in failing else (0, "")
+
+    _main(["--docker"], runner=runner, web_dir=tmp_path)
+
+    command = next(
+        line.strip() for line in capsys.readouterr().out.splitlines() if "--solo" in line
+    )
+    argv = shlex.split(command)
+    assert argv[argv.index("--solo") + 1] == "mypy,compose con copias"
+    assert "--docker" in argv

@@ -33,6 +33,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -203,6 +204,8 @@ def select_gates(plan: Sequence[Gate], wanted: str) -> list[Gate]:
     en el orden del plan. Un nombre que no está en el plan lanza `ValueError` con ese nombre."""
 
     names = [name.strip() for name in wanted.split(",") if name.strip()]
+    if not names:
+        raise ValueError("(ninguna)")
     by_name = {gate.name: gate for gate in plan} | {short_name(gate.name): gate for gate in plan}
     unknown = [name for name in names if name not in by_name]
     if unknown:
@@ -532,7 +535,8 @@ def main(
         print("\nPara repetir solo las que fallaron:")
         print(
             f"  uv run --no-sync python scripts/puertas.py{flags} --solo "
-            + ",".join(short_name(name) for name in failed)
+            # Las de Docker llevan espacios y dos puntos: entre comillas para la shell.
+            + shlex.quote(",".join(short_name(name) for name in failed))
         )
     return 0 if all(result.ok for result in results) else 1
 
