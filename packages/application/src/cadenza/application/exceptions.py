@@ -93,6 +93,20 @@ class WeakPassword(ApplicationError):
         self.min_length = min_length
 
 
+class StaleDataConsent(ApplicationError):
+    """El permiso de uso de los datos se dio para otro texto que el vigente (#378, ADR-0064):
+    la web pide releerlo."""
+
+    detail = "stale_data_consent"
+
+    def __init__(self, given: str | None, current: str) -> None:
+        super().__init__(
+            "El texto del permiso de uso de los datos ha cambiado: vuelve a leerlo antes de darlo"
+        )
+        self.given = given
+        self.current = current
+
+
 class SessionClosed(ApplicationError):
     """La sesión está finalizada y no admite más ediciones sin reapertura explícita.
 

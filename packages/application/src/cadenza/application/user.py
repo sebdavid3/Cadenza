@@ -26,3 +26,7 @@ class User:
     created_at: datetime | None = None
     # Cuenta creada desde el registro público (ADR-0022): queda fuera del estudio.
     self_registered: bool = False
+    # Permiso de uso de los datos (#378, ADR-0064): cuándo se dio y qué versión del texto se
+    # leyó; los dos None, sin permiso. Solo se guarda: usarlo será otro issue.
+    data_consent_at: datetime | None = None
+    data_consent_version: str | None = None

@@ -24,6 +24,8 @@ class SqlAlchemyUserRepository(UserRepository):
             role=user.role.value,
             active=user.active,
             self_registered=user.self_registered,
+            data_consent_at=user.data_consent_at,
+            data_consent_version=user.data_consent_version,
         )
         try:
             with self._session.begin_nested():
@@ -61,6 +63,8 @@ class SqlAlchemyUserRepository(UserRepository):
         record.password_hash = user.password_hash
         record.role = user.role.value
         record.active = user.active
+        record.data_consent_at = user.data_consent_at
+        record.data_consent_version = user.data_consent_version
         try:
             with self._session.begin_nested():
                 self._session.flush()
@@ -78,4 +82,6 @@ class SqlAlchemyUserRepository(UserRepository):
             active=record.active,
             created_at=record.created_at,
             self_registered=record.self_registered,
+            data_consent_at=record.data_consent_at,
+            data_consent_version=record.data_consent_version,
         )
