@@ -1,4 +1,4 @@
-"""Avance de una transcripción del motor OMR, para decir en qué está (#375, ADR-0063).
+"""Avance de una transcripción del motor OMR, para decir en qué está (#375, ADR-0064).
 
 El motor avisa de lo que de verdad ha hecho: que empieza una lectura de la página (detectando los
 pentagramas) y qué pentagrama de cuántos empieza a leer. Quien quiera seguirlo abre

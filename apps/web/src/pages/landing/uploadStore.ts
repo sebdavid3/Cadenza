@@ -324,7 +324,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
       body.append("file", file, file.name);
       appendScoreData(body, draft);
       // La imagen sube a la cola del servidor y se pregunta en qué está hasta que acaba, sin
-      // plazo (#375, ADR-0063).
+      // plazo (#375, ADR-0064).
       let job: TranscriptionJobRead;
       try {
         job = await api.request<TranscriptionJobRead>("/transcription-jobs", {

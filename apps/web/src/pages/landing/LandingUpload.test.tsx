@@ -415,7 +415,7 @@ describe("recuadro de la portada (#277)", () => {
     mockApi({
       "POST /transcription-jobs": () => jsonResponse(job({ id: ID }), 202),
       [`GET /transcription-jobs/${ID}`]: () => jsonResponse({ detail: "no" }, 404),
-      // La sesión, con el mismo identificador que el trabajo (ADR-0063).
+      // La sesión, con el mismo identificador que el trabajo (ADR-0064).
       ...sessionRoutes(),
     });
     signInAs(ANA);

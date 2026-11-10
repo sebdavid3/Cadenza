@@ -237,7 +237,7 @@ class Settings(BaseSettings):
         description=(
             "Transcripciones en segundo plano que una persona puede tener en cola o en curso; "
             "con el tope, POST /transcription-jobs responde 429 hasta que termine alguna "
-            "(ADR-0063)."
+            "(ADR-0064)."
         ),
     )
     transcribe_jobs_max: int = Field(
@@ -247,7 +247,7 @@ class Settings(BaseSettings):
         description=(
             "Transcripciones en segundo plano en cola o en curso, de todas las personas; cada una "
             "guarda su imagen en memoria hasta transcribirse. Con el tope, POST "
-            "/transcription-jobs responde 503 (ADR-0063)."
+            "/transcription-jobs responde 503 (ADR-0064)."
         ),
     )
     score_cache_max_entries: int = Field(

@@ -285,7 +285,7 @@ y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad
 | Ciclo de vida | `POST /sessions/{id}/finalize` · `POST /sessions/{id}/reopen` |
 | Esfuerzo | `POST /sessions/{id}/effort` · `GET /sessions/{id}/effort` · `PUT /sessions/{id}/effort/segments/{segment_id}` |
 
-`POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)); la web transcribe en segundo plano con `POST /transcription-jobs` y consulta el avance de cada imagen, sin plazo ([ADR-0063](docs/adr/ADR-0063-transcripcion-en-segundo-plano-con-su-avance.md)).
+`POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)); la web transcribe en segundo plano con `POST /transcription-jobs` y consulta el avance de cada imagen, sin plazo ([ADR-0064](docs/adr/ADR-0064-transcripcion-en-segundo-plano-con-su-avance.md)).
 El contrato se genera desde el código y no se edita a mano:
 
 ```bash

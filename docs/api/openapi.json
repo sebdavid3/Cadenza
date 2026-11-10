@@ -634,7 +634,7 @@
           "Transcription"
         ],
         "summary": "Mis transcripciones en segundo plano",
-        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0063).",
+        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
         "operationId": "list_transcription_jobs_transcription_jobs_get",
         "responses": {
           "200": {
@@ -673,7 +673,7 @@
           "Transcription"
         ],
         "summary": "Transcribir en segundo plano",
-        "description": "Pone la imagen en la cola de transcripción y responde enseguida con el trabajo; su estado y su avance se consultan con GET /transcription-jobs/{id}, sin plazo. Admite los mismos campos que POST /transcribe y los comprueba antes de ponerla en la cola. La cola es de todas las personas y va en orden de llegada, de uno en uno, con los huecos de POST /transcribe (ADR-0024). Al terminar bien, la sesión tiene el mismo identificador que el trabajo. Con CADENZA_TRANSCRIBE_JOBS_PER_USER trabajos en cola o en curso de la persona, 429; con CADENZA_TRANSCRIBE_JOBS_MAX de todas, 503. El registro vive en la memoria de la API: si se reinicia, los trabajos desaparecen (#375, ADR-0063).",
+        "description": "Pone la imagen en la cola de transcripción y responde enseguida con el trabajo; su estado y su avance se consultan con GET /transcription-jobs/{id}, sin plazo. Admite los mismos campos que POST /transcribe y los comprueba antes de ponerla en la cola. La cola es de todas las personas y va en orden de llegada, de uno en uno, con los huecos de POST /transcribe (ADR-0024). Al terminar bien, la sesión tiene el mismo identificador que el trabajo. Con CADENZA_TRANSCRIBE_JOBS_PER_USER trabajos en cola o en curso de la persona, 429; con CADENZA_TRANSCRIBE_JOBS_MAX de todas, 503. El registro vive en la memoria de la API: si se reinicia, los trabajos desaparecen (#375, ADR-0064).",
         "operationId": "create_transcription_job_transcription_jobs_post",
         "requestBody": {
           "content": {
@@ -737,7 +737,7 @@
             }
           },
           "429": {
-            "description": "La persona ya tiene CADENZA_TRANSCRIBE_JOBS_PER_USER transcripciones en cola o en curso; se puede volver a subir cuando termine alguna (ADR-0063)",
+            "description": "La persona ya tiene CADENZA_TRANSCRIBE_JOBS_PER_USER transcripciones en cola o en curso; se puede volver a subir cuando termine alguna (ADR-0064)",
             "content": {
               "application/json": {
                 "schema": {
@@ -747,7 +747,7 @@
             }
           },
           "503": {
-            "description": "La cola de todas las personas está llena (CADENZA_TRANSCRIBE_JOBS_MAX): reintentar tras la cabecera Retry-After (ADR-0063)",
+            "description": "La cola de todas las personas está llena (CADENZA_TRANSCRIBE_JOBS_MAX): reintentar tras la cabecera Retry-After (ADR-0064)",
             "headers": {
               "Retry-After": {
                 "description": "Segundos que conviene esperar antes de reintentar",
@@ -778,7 +778,7 @@
           "Transcription"
         ],
         "summary": "Estado y avance de una transcripción en segundo plano",
-        "description": "En qué está el trabajo: en cola (con los que tiene por delante), detectando los pentagramas, leyendo el pentagrama X de N de cada lectura, revisando, listo (con la sesión) o fallido (con el motivo). Uno de otra persona, uno olvidado o uno de antes de un reinicio de la API responden 404 (#375, ADR-0063, ADR-0012).",
+        "description": "En qué está el trabajo: en cola (con los que tiene por delante), detectando los pentagramas, leyendo el pentagrama X de N de cada lectura, revisando, listo (con la sesión) o fallido (con el motivo). Uno de otra persona, uno olvidado o uno de antes de un reinicio de la API responden 404 (#375, ADR-0064, ADR-0012).",
         "operationId": "get_transcription_job_transcription_jobs__job_id__get",
         "security": [
           {
@@ -844,7 +844,7 @@
           "Transcription"
         ],
         "summary": "Quitar una transcripción en segundo plano",
-        "description": "Quita un trabajo en cola, que ya no se transcribe, u olvida uno terminado; la sesión que haya creado no se toca. Uno que se está transcribiendo no se puede interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0063).",
+        "description": "Quita un trabajo en cola, que ya no se transcribe, u olvida uno terminado; la sesión que haya creado no se toca. Uno que se está transcribiendo no se puede interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0064).",
         "operationId": "discard_transcription_job_transcription_jobs__job_id__delete",
         "security": [
           {
@@ -5727,7 +5727,7 @@
           "created_at"
         ],
         "title": "TranscriptionJobRead",
-        "description": "Una transcripción en segundo plano y en qué está (#375, ADR-0063).\n\nVive en la memoria de la API: si se reinicia, el trabajo deja de existir (404)."
+        "description": "Una transcripción en segundo plano y en qué está (#375, ADR-0064).\n\nVive en la memoria de la API: si se reinicia, el trabajo deja de existir (404)."
       },
       "UndoRequest": {
         "properties": {

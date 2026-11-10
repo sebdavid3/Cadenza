@@ -377,7 +377,7 @@ class TranscribeResponse(BaseModel):
 
 
 class TranscriptionJobRead(BaseModel):
-    """Una transcripción en segundo plano y en qué está (#375, ADR-0063).
+    """Una transcripción en segundo plano y en qué está (#375, ADR-0064).
 
     Vive en la memoria de la API: si se reinicia, el trabajo deja de existir (404).
     """

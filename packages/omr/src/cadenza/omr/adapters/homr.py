@@ -103,7 +103,7 @@ def _import_homr() -> Any:
         homr_main.detect_title = _no_title_detection
 
     homr_grand_staff.install(homr_model.MultiStaff)
-    # Los avisos de avance por pentagrama (#375, ADR-0063): sin ellos, HOMR lee igual.
+    # Los avisos de avance por pentagrama (#375, ADR-0064): sin ellos, HOMR lee igual.
     homr_progress.install(homr_staff_parsing)
     return homr_main
 

@@ -1,4 +1,4 @@
-# ADR-0063: Transcripción en segundo plano, con su estado y su avance
+# ADR-0064: Transcripción en segundo plano, con su estado y su avance
 
 - **Estado:** Aceptado
 - **Fecha:** 2026-11-09

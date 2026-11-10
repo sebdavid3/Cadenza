@@ -7,7 +7,7 @@
 
 ---
 
-> **Enmienda del 2026-11-09 ([ADR-0063](ADR-0063-transcripcion-en-segundo-plano-con-su-avance.md), #375).**
+> **Enmienda del 2026-11-09 ([ADR-0064](ADR-0064-transcripcion-en-segundo-plano-con-su-avance.md), #375).**
 > Las transcripciones en segundo plano (`POST /transcription-jobs`) usan los mismos huecos, pero
 > no reciben el 503 de §5: esperan su turno en una cola en orden de llegada, sin plazo, y la
 > responde un hilo propio de la API, de uno en uno. El 503 de §5 sigue para `POST /transcribe`;

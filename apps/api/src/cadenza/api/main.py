@@ -334,7 +334,7 @@ JOBS_PER_USER_429: dict[int | str, dict[str, Any]] = {
         "model": ErrorDetail,
         "description": (
             "La persona ya tiene CADENZA_TRANSCRIBE_JOBS_PER_USER transcripciones en cola o en "
-            "curso; se puede volver a subir cuando termine alguna (ADR-0063)"
+            "curso; se puede volver a subir cuando termine alguna (ADR-0064)"
         ),
     }
 }
@@ -343,7 +343,7 @@ JOBS_FULL_503: dict[int | str, dict[str, Any]] = {
         "model": ErrorDetail,
         "description": (
             "La cola de todas las personas está llena (CADENZA_TRANSCRIBE_JOBS_MAX): reintentar "
-            "tras la cabecera Retry-After (ADR-0063)"
+            "tras la cabecera Retry-After (ADR-0064)"
         ),
         "headers": {
             "Retry-After": {
@@ -353,7 +353,7 @@ JOBS_FULL_503: dict[int | str, dict[str, Any]] = {
         },
     }
 }
-# Con la cola llena, cuánto conviene esperar: varias páginas en CPU tardan minutos (ADR-0063).
+# Con la cola llena, cuánto conviene esperar: varias páginas en CPU tardan minutos (ADR-0064).
 JOBS_FULL_RETRY_AFTER_SECONDS = 60
 JOB_NOT_FOUND = (
     "No hay ninguna transcripción con ese identificador: puede que ya no exista porque el "
@@ -541,7 +541,7 @@ async def _read_image_upload(file: UploadFile, max_bytes: int) -> bytes:
 
 
 def _job_read(view: JobView) -> TranscriptionJobRead:
-    """Lo que la API dice de una transcripción en segundo plano (#375, ADR-0063)."""
+    """Lo que la API dice de una transcripción en segundo plano (#375, ADR-0064)."""
 
     result = view.result
     return TranscriptionJobRead(
@@ -920,7 +920,7 @@ def create_app(
     )
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)  # noqa: E731
     app.state.clock = clock
-    # Transcripciones en segundo plano (#375, ADR-0063): una cola en memoria que comparte los
+    # Transcripciones en segundo plano (#375, ADR-0064): una cola en memoria que comparte los
     # huecos de transcripción. El reloj se lee en cada uso: las pruebas lo cambian.
     app.state.transcription_jobs = TranscriptionJobs(
         app.state.transcription_slots,
@@ -1531,7 +1531,7 @@ def create_app(
             "identificador que el trabajo. Con CADENZA_TRANSCRIBE_JOBS_PER_USER trabajos en cola "
             "o en curso de la persona, 429; con CADENZA_TRANSCRIBE_JOBS_MAX de todas, 503. El "
             "registro vive en la memoria de la API: si se reinicia, los trabajos desaparecen "
-            "(#375, ADR-0063)."
+            "(#375, ADR-0064)."
         ),
         responses={
             **AUTH_401,
@@ -1652,7 +1652,7 @@ def create_app(
             "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más "
             "reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca "
             "las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de "
-            "la API, la lista está vacía (#375, ADR-0063)."
+            "la API, la lista está vacía (#375, ADR-0064)."
         ),
         responses={**AUTH_401},
     )
@@ -1671,7 +1671,7 @@ def create_app(
             "En qué está el trabajo: en cola (con los que tiene por delante), detectando los "
             "pentagramas, leyendo el pentagrama X de N de cada lectura, revisando, listo (con "
             "la sesión) o fallido (con el motivo). Uno de otra persona, uno olvidado o uno de "
-            "antes de un reinicio de la API responden 404 (#375, ADR-0063, ADR-0012)."
+            "antes de un reinicio de la API responden 404 (#375, ADR-0064, ADR-0012)."
         ),
         responses={**AUTH_401, **NOT_FOUND_404},
     )
@@ -1692,7 +1692,7 @@ def create_app(
         description=(
             "Quita un trabajo en cola, que ya no se transcribe, u olvida uno terminado; la "
             "sesión que haya creado no se toca. Uno que se está transcribiendo no se puede "
-            "interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0063)."
+            "interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0064)."
         ),
         responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )

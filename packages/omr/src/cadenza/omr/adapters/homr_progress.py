@@ -1,4 +1,4 @@
-"""Avisos de avance desde dentro de HOMR (#375, ADR-0063).
+"""Avisos de avance desde dentro de HOMR (#375, ADR-0064).
 
 HOMR 0.7 lee una página en dos pasos dentro de `homr.main.process_image`: detecta los pentagramas
 (la segmentación y la búsqueda de los sistemas) y después lee cada uno con el transformer en

@@ -1,5 +1,5 @@
 """Transcripciones en segundo plano: una cola en memoria, de una en una y con su avance (#375,
-ADR-0063).
+ADR-0064).
 
 `POST /transcription-jobs` deja el trabajo en la cola y responde enseguida; un hilo propio los
 transcribe en orden de llegada, de todas las personas, cada uno con un hueco de transcripción
@@ -11,7 +11,7 @@ el mismo identificador que el trabajo, o el motivo del fallo.
 
 El registro vive en la memoria del proceso: sin tabla ni migración. Si la API se reinicia, lo que
 estaba en curso desaparece y su identificador deja de existir (404); por eso supone un único
-proceso de la API, como el despliegue (ADR-0063 §5). Los terminados se guardan un rato
+proceso de la API, como el despliegue (ADR-0064 §5). Los terminados se guardan un rato
 (`KEEP_FINISHED_SECONDS`) para que la persona vea cómo acabaron aunque vuelva más tarde.
 """
 

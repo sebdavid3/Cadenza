@@ -1,4 +1,4 @@
-"""Transcripción en segundo plano, con su estado y su avance (#375, ADR-0063)."""
+"""Transcripción en segundo plano, con su estado y su avance (#375, ADR-0064)."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Avance de HOMR por pentagrama, para la transcripción en segundo plano (#375, ADR-0063)."""
+"""Avance de HOMR por pentagrama, para la transcripción en segundo plano (#375, ADR-0064)."""
 
 from __future__ import annotations
 

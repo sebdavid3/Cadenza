@@ -13,7 +13,7 @@ const ACCEPTED_TYPES = new Set(["image/png", "image/jpeg"]);
 const ACCEPTED_EXTENSIONS = /\.(png|jpe?g)$/i;
 
 /**
- * Cada cuánto se pregunta en qué están las transcripciones en curso (#375, ADR-0063). Es un objeto
+ * Cada cuánto se pregunta en qué están las transcripciones en curso (#375, ADR-0064). Es un objeto
  * para que las pruebas puedan acortarlo.
  */
 export const JOB_POLLING = { intervalMs: 1000 };
@@ -206,7 +206,7 @@ export function forget(ownerId: string, jobIds: Iterable<string>) {
 
 /**
  * Una transcripción que ya no está en el servidor: lista si creó su sesión (que se llama como el
- * trabajo, ADR-0063); si no, se interrumpió. Null si no se pudo saber (sin conexión, otro error).
+ * trabajo, ADR-0064); si no, se interrumpió. Null si no se pudo saber (sin conexión, otro error).
  */
 export async function settleMissing(
   api: ApiClient,
