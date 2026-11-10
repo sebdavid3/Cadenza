@@ -4,6 +4,7 @@
 - **Fecha:** 2026-11-09
 - **Decisores:** Responsable del proyecto (que cualquiera pueda crear una cuenta y que quede guardado si dio permiso para usar sus datos, 2026-11-09) y Equipo de Desarrollo
 - **Enmienda:** [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) y [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md)
+- **Enmendado por:** la enmienda de [#397](https://github.com/sebdavid3/Cadenza/issues/397), que despliega el texto completo en el mismo formulario del registro en lugar de abrirlo en otra pestaña (§4)
 - **Relacionado:** [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0036](ADR-0036-capa-de-sugerencias-aprendida.md), [#378](https://github.com/sebdavid3/Cadenza/issues/378), [#248](https://github.com/sebdavid3/Cadenza/issues/248), [#194](https://github.com/sebdavid3/Cadenza/issues/194)
 
 ---
@@ -42,3 +43,15 @@
 - El texto lo aprobó el responsable el 2026-11-09, sin un contacto para las dudas («habla con el equipo del proyecto»): si se abre el registro al público, conviene añadirlo, y cambiarlo es cambiar la versión.
 - Sin historial en la base, saber cuándo se retiró un permiso exige el registro de la API.
 - La casilla es obligatoria para crear la cuenta, pero se puede retirar justo después: el issue que use el permiso tiene que tratar igual las cuentas sin permiso vigente.
+
+## Enmienda de #397 (2026-11-10): el texto completo, desplegado en el registro
+
+**El problema.** Desde el registro, el enlace al texto completo se abría en otra pestaña (`target="_blank"`), para que una navegación interna no desmontara el formulario y se perdiera lo escrito. Al responsable no le gustó que el texto aclaratorio abriera otra ventana, y la página `/uso-de-los-datos` le parecía rara (una columna estrecha con la mitad derecha vacía).
+
+**Decisión.** §4 cambia en cómo se lee el texto completo desde el registro; lo demás sigue igual. El responsable eligió entre maquetas:
+
+- En `/registro`, «Leer el texto completo» es un botón (`aria-expanded`, `aria-controls`) que despliega el texto bajo el aviso, antes de la casilla, en un recuadro con su propio desplazamiento y enfocable con el teclado; «Ocultar el texto completo» lo pliega. No abre otra pestaña ni navega, así que lo escrito se conserva. La casilla se sigue describiendo solo con el aviso breve.
+- «Tu cuenta» sigue enlazando a la página, que sigue siendo pública. La página pasa a bandas con filetes (el título de cada apartado a la izquierda y el texto a la derecha), según `DESIGN.md`.
+- La redacción no cambia, ni su versión: el texto vive en un solo componente (`DataUseText`), que usan la página y el desplegable.
+
+**Alternativas descartadas.** Un diálogo encima del formulario (interrumpe más, y el acceso no usa ventanas modales) y el texto desplegado entero, sin desplazamiento propio (el formulario se alargaba mucho y la casilla quedaba lejos).

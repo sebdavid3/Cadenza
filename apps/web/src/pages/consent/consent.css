@@ -148,7 +148,8 @@
   display: grid;
   align-content: start;
   gap: var(--space-4);
-  max-width: 64ch;
+  /* 64ch de texto, más el aire que lo separa del filete. */
+  max-width: calc(64ch + var(--space-7));
   padding: var(--space-7) 0 var(--space-7) var(--space-7);
   font-size: 1.0625rem;
   line-height: 1.6;
@@ -186,24 +187,26 @@
 /* El texto completo desplegado en el registro (#397): bajo el aviso, en un recuadro de filete con
    su propio desplazamiento, sobre papel claro para separarlo del formulario. */
 .consent-toggle {
-  justify-self: start;
   min-height: 44px;
   padding: 0;
   border: 0;
   background: none;
   color: var(--color-ink);
   font: inherit;
+  /* Subrayado como el de los enlaces (base.css): en «Tu cuenta» el mismo control es un enlace. */
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.22em;
   cursor: pointer;
 }
 
 .consent-full {
   display: grid;
   gap: var(--space-4);
-  max-height: 26rem;
+  /* Acotado también por la ventana: en un móvil apaisado o con mucho zoom no ocupa toda la vista
+     y el desplazamiento sigue pasando a la página al llegar al final. */
+  max-height: min(26rem, 60svh);
   overflow: auto;
-  overscroll-behavior: contain;
   padding: var(--space-4) var(--space-5);
   border: var(--rule);
   background: var(--color-paper-raised);
@@ -213,6 +216,12 @@
 
 .consent-full[hidden] {
   display: none;
+}
+
+@media (forced-colors: active) {
+  .consent-toggle {
+    color: LinkText;
+  }
 }
 
 .consent-full__version {

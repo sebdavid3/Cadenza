@@ -279,6 +279,8 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     const checkbox = screen.getByRole("checkbox", { name: CONSENT_LABEL });
     expect(checkbox).not.toBeChecked();
     expect(checkbox).toHaveAccessibleDescription(/forma parte de una investigación/i);
+    // Solo el aviso: ni el botón del texto completo ni el texto desplegado (#397).
+    expect(checkbox).not.toHaveAccessibleDescription(/texto completo/i);
   });
 
   it("despliega el texto completo en el formulario sin perder lo escrito (#397)", async () => {

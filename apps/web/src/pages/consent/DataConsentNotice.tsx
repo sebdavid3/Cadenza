@@ -10,9 +10,9 @@ import { DataUseText } from "./DataUseText";
  *
  * Desde el registro (`expandable`), el texto completo se despliega bajo el aviso, en un recuadro
  * con su propio desplazamiento (#397): ni otra pestaña ni una navegación, que desmontaría el
- * formulario y se perdería lo escrito. Va fuera del elemento del aviso porque la casilla se
- * describe con el aviso, y la descripción debe seguir siendo breve. Desde «Tu cuenta», enlaza a
- * la página.
+ * formulario y se perdería lo escrito. El `id` va en el párrafo del aviso, y el texto desplegado
+ * fuera de él, porque la casilla se describe con el aviso y la descripción debe seguir siendo
+ * breve. Desde «Tu cuenta», enlaza a la página.
  */
 export function DataConsentNotice({
   id,
@@ -25,8 +25,8 @@ export function DataConsentNotice({
   const fullId = useId();
   return (
     <>
-      <div className="consent-notice" id={id}>
-        <p>
+      <div className="consent-notice">
+        <p id={id}>
           Cadenza forma parte de una investigación. Al usarlo se guardan, con tu nombre de usuario
           (puede ser un seudónimo) y sin tu correo, {STORED_DATA.slice(0, -1).join(", ")} y{" "}
           {STORED_DATA.at(-1)}. Con tu permiso, se podrán usar para investigar y para mejorar el
