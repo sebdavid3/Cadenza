@@ -29,7 +29,7 @@ def register_user(
     nombre ya existe.
 
     Con `data_consent_version`, la versión del texto del permiso de uso de los datos que la
-    persona aceptó, guarda el permiso con la fecha `now` (#378, ADR-0064); si no es la vigente,
+    persona aceptó, guarda el permiso con la fecha `now` (#378, ADR-0065); si no es la vigente,
     lanza `StaleDataConsent` y no crea la cuenta. Sin ella, la cuenta nace sin permiso.
     """
 

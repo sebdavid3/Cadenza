@@ -65,7 +65,7 @@ export interface ClefPayload {
 }
 
 /**
- * Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0064).
+ * Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065).
  */
 export interface DataConsentUpdate {
   /** true lo da; false lo retira */
@@ -549,14 +549,14 @@ export interface ProvenancePayload {
 /**
  * Registro de una cuenta por la propia persona (ADR-0022, #154).
  * 
- * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0064): el rol es
+ * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
  * siempre transcriptor y cualquier otro campo se rechaza.
  */
 export interface RegisterRequest {
   /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
   username: string;
   password: string;
-  /** Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0064). */
+  /** Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065). */
   data_consent_version?: string | null;
 }
 
@@ -875,7 +875,7 @@ export interface UserRead {
   created_at?: string | null;
   /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
   self_registered?: boolean;
-  /** Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064). */
+  /** Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065). */
   data_consent?: boolean;
   /** Cuándo se dio el permiso; null, sin permiso */
   data_consent_at?: string | null;

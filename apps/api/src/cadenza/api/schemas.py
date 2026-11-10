@@ -736,7 +736,7 @@ class UserRead(BaseModel):
         default=False,
         description=(
             "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión "
-            "actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064)."
+            "actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065)."
         ),
     )
     data_consent_at: datetime | None = Field(
@@ -764,7 +764,7 @@ class UserRead(BaseModel):
 class RegisterRequest(BaseModel):
     """Registro de una cuenta por la propia persona (ADR-0022, #154).
 
-    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0064): el rol es
+    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
     siempre transcriptor y cualquier otro campo se rechaza.
     """
 
@@ -787,13 +787,13 @@ class RegisterRequest(BaseModel):
         description=(
             "Versión del texto del permiso de uso de los datos que la persona aceptó al "
             "registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con "
-            "detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0064)."
+            "detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065)."
         ),
     )
 
 
 class DataConsentUpdate(BaseModel):
-    """Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0064)."""
+    """Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065)."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -1,4 +1,4 @@
-"""Pruebas de la migración Alembic 0017_users_data_consent (#378, ADR-0064)."""
+"""Pruebas de la migración Alembic 0017_users_data_consent (#378, ADR-0065)."""
 
 from __future__ import annotations
 

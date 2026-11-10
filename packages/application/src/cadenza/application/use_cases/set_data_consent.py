@@ -1,4 +1,4 @@
-"""Caso de uso: dar o retirar el permiso de uso de los datos (#378, ADR-0064)."""
+"""Caso de uso: dar o retirar el permiso de uso de los datos (#378, ADR-0065)."""
 
 from __future__ import annotations
 

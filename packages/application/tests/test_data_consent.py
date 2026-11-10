@@ -1,4 +1,4 @@
-"""Permiso de uso de los datos al registrarse y desde «Tu cuenta» (#378, ADR-0064).
+"""Permiso de uso de los datos al registrarse y desde «Tu cuenta» (#378, ADR-0065).
 
 El permiso solo se guarda: cuándo se dio y qué versión del texto se leyó. Usarlo para incluir
 datos será otro issue.

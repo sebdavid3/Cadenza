@@ -1,4 +1,4 @@
-"""El permiso de uso de los datos solo se guarda (#378, ADR-0064).
+"""El permiso de uso de los datos solo se guarda (#378, ADR-0065).
 
 El dataset de correcciones (`ml build-dataset`) y la exportación del estudio (`exp_10`) dan lo
 mismo con el permiso que sin él: las cuentas del registro público siguen fuera, lo hayan dado o no.

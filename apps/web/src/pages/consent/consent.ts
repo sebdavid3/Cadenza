@@ -3,7 +3,7 @@ import { ApiError } from "../../api/errors";
 import type { UserRead } from "../../types";
 
 /**
- * Versión del texto del permiso de uso de los datos (#378, ADR-0064): la fecha en que se redactó.
+ * Versión del texto del permiso de uso de los datos (#378, ADR-0065): la fecha en que se redactó.
  * Es la misma que `DATA_CONSENT_VERSION` de la API, y una prueba lo comprueba. Si el texto cambia,
  * cambian las dos, y los permisos dados para el texto anterior dejan de estar vigentes.
  */

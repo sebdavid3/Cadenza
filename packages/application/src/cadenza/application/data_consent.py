@@ -1,4 +1,4 @@
-"""Permiso de uso de los datos de una cuenta (#378, ADR-0064).
+"""Permiso de uso de los datos de una cuenta (#378, ADR-0065).
 
 El texto del permiso vive en la web (`apps/web/src/pages/consent/consent.ts`), con la misma
 versión que esta: una prueba comprueba que coinciden. Al cambiar el texto, se cambian las dos, y

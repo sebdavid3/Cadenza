@@ -71,7 +71,7 @@ describe("registro de cuentas", () => {
       expect(router.state.location.pathname).toBe("/transcripcion");
     });
     const call = calls.find((entry) => entry.key === "POST /auth/register");
-    // Con el permiso, la versión del texto que se leyó (#378, ADR-0064).
+    // Con el permiso, la versión del texto que se leyó (#378, ADR-0065).
     expect(JSON.parse(call?.init?.body as string)).toEqual({
       username: "ana",
       password: PASSWORD,

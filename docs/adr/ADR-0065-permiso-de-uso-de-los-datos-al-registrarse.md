@@ -1,4 +1,4 @@
-# ADR-0064: Permiso de uso de los datos al registrarse
+# ADR-0065: Permiso de uso de los datos al registrarse
 
 - **Estado:** Aceptado (el responsable aprobó el texto del permiso el 2026-11-09)
 - **Fecha:** 2026-11-09

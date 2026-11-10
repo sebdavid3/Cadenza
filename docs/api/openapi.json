@@ -121,7 +121,7 @@
           "Auth"
         ],
         "summary": "Registro de una cuenta por la propia persona",
-        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0064). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
+        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -230,7 +230,7 @@
           "Auth"
         ],
         "summary": "Dar o retirar el permiso de uso de los datos",
-        "description": "Da (con la versión del texto que se leyó) o retira el permiso de uso de los datos de la propia cuenta y devuelve el perfil. Volver a darlo con el mismo texto conserva la fecha de la primera vez; retirarlo deja la cuenta sin permiso. Si la versión no es la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064).",
+        "description": "Da (con la versión del texto que se leyó) o retira el permiso de uso de los datos de la propia cuenta y devuelve el perfil. Volver a darlo con el mismo texto conserva la fecha de la primera vez; retirarlo deja la cuenta sin permiso. Si la versión no es la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065).",
         "operationId": "update_data_consent_auth_data_consent_put",
         "requestBody": {
           "content": {
@@ -3009,7 +3009,7 @@
           "granted"
         ],
         "title": "DataConsentUpdate",
-        "description": "Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0064)."
+        "description": "Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065)."
       },
       "DismissFindingRequest": {
         "properties": {
@@ -4331,7 +4331,7 @@
               }
             ],
             "title": "Data Consent Version",
-            "description": "Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0064)."
+            "description": "Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065)."
           }
         },
         "additionalProperties": false,
@@ -4341,7 +4341,7 @@
           "password"
         ],
         "title": "RegisterRequest",
-        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0064): el rol es\nsiempre transcriptor y cualquier otro campo se rechaza."
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es\nsiempre transcriptor y cualquier otro campo se rechaza."
       },
       "ReopenResponse": {
         "properties": {
@@ -5465,7 +5465,7 @@
           "data_consent": {
             "type": "boolean",
             "title": "Data Consent",
-            "description": "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064).",
+            "description": "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065).",
             "default": false
           },
           "data_consent_at": {

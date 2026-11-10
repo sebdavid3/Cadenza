@@ -60,7 +60,7 @@ class UserRecord(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-    # Permiso de uso de los datos (#378, ADR-0064, migración 0017): cuándo y qué versión del
+    # Permiso de uso de los datos (#378, ADR-0065, migración 0017): cuándo y qué versión del
     # texto; nulos, sin permiso.
     data_consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     data_consent_version: Mapped[str | None] = mapped_column(String(32), nullable=True)

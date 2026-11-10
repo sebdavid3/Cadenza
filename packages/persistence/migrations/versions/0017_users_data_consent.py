@@ -1,4 +1,4 @@
-"""Añadir el permiso de uso de los datos a la tabla users (#378, ADR-0064).
+"""Añadir el permiso de uso de los datos a la tabla users (#378, ADR-0065).
 
 Dos columnas: cuándo se dio el permiso (`data_consent_at`) y qué versión del texto se leyó
 (`data_consent_version`). Las dos nulas, sin permiso: así quedan las cuentas que ya existen. El

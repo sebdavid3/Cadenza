@@ -2,7 +2,7 @@ import { Link } from "react-router";
 import { DATA_USE_PATH, STORED_DATA } from "./consent";
 
 /**
- * El aviso breve del permiso de uso de los datos (#378, ADR-0064): qué se guarda, para qué y con
+ * El aviso breve del permiso de uso de los datos (#378, ADR-0065): qué se guarda, para qué y con
  * qué nombre, con el enlace al texto completo. Lo comparten el registro y «Tu cuenta», así que
  * dicen lo mismo. Lo aprobó el responsable del proyecto el 2026-11-09.
  *

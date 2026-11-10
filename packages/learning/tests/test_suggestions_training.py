@@ -492,7 +492,7 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     )
     assert left_out == {ids[2]: "cuenta del registro público"}
     assert {r["session_id"] for r in records} == {ids[0], ids[1]}
-    # El permiso de uso de los datos solo se guarda (#378, ADR-0064): con él, todo igual, y la
+    # El permiso de uso de los datos solo se guarda (#378, ADR-0065): con él, todo igual, y la
     # cuenta del registro sigue fuera.
     consented = InMemoryUserRepository(
         [

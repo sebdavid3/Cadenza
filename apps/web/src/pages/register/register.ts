@@ -20,7 +20,7 @@ export function passwordLength(password: string): number {
 
 /**
  * `POST /auth/register` (ADR-0022): público, sin token. Con el permiso de uso de los datos, la
- * versión del texto que se leyó (#378, ADR-0064).
+ * versión del texto que se leyó (#378, ADR-0065).
  */
 export function registerUser(
   api: ApiClient,

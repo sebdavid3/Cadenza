@@ -1,4 +1,4 @@
-"""Permiso de uso de los datos al registrarse y desde «Tu cuenta» (#378, ADR-0064)."""
+"""Permiso de uso de los datos al registrarse y desde «Tu cuenta» (#378, ADR-0065)."""
 
 from __future__ import annotations
 
@@ -192,7 +192,7 @@ def test_a_permission_for_an_older_text_is_no_longer_current() -> None:
 
 
 def test_the_web_shows_the_same_version_of_the_text() -> None:
-    # El texto vive en la web; si cambia, cambian las dos versiones (ADR-0064).
+    # El texto vive en la web; si cambia, cambian las dos versiones (ADR-0065).
     source = WEB_CONSENT.read_text(encoding="utf-8")
     match = re.search(r'export const DATA_CONSENT_VERSION = "([^"]+)";', source)
 

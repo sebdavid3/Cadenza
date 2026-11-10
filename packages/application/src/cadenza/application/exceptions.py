@@ -94,7 +94,7 @@ class WeakPassword(ApplicationError):
 
 
 class StaleDataConsent(ApplicationError):
-    """El permiso de uso de los datos se dio para otro texto que el vigente (#378, ADR-0064):
+    """El permiso de uso de los datos se dio para otro texto que el vigente (#378, ADR-0065):
     la web pide releerlo."""
 
     detail = "stale_data_consent"

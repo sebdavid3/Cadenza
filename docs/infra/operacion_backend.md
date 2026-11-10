@@ -243,7 +243,7 @@ $DC up -d api web
 
 #### Encender el registro con el permiso de uso de los datos ([#378](https://github.com/sebdavid3/Cadenza/issues/378))
 
-El registro pide ahora, con una casilla obligatoria, el permiso de uso de los datos ([ADR-0064](../adr/ADR-0064-permiso-de-uso-de-los-datos-al-registrarse.md)): la cuenta guarda cuándo se dio y qué versión del texto (`/uso-de-los-datos`). El responsable aprobó el texto el 2026-11-09; **encenderlo en producción sigue siendo decisión suya**. Encenderlo son dos variables y reconstruir la web:
+El registro pide ahora, con una casilla obligatoria, el permiso de uso de los datos ([ADR-0065](../adr/ADR-0065-permiso-de-uso-de-los-datos-al-registrarse.md)): la cuenta guarda cuándo se dio y qué versión del texto (`/uso-de-los-datos`). El responsable aprobó el texto el 2026-11-09; **encenderlo en producción sigue siendo decisión suya**. Encenderlo son dos variables y reconstruir la web:
 
 1. **`CADENZA_REGISTRATION_ENABLED=true`** (API): abre `POST /auth/register`. La API la lee al arrancar y aplica la migración `0017_users_data_consent` si falta.
 2. **`VITE_REGISTRATION_ENABLED=true`** (web): enseña los enlaces al registro y el formulario con el aviso y la casilla. Se fija al construir la imagen: en `docker-compose.prod.yml` la recibe del mismo `CADENZA_REGISTRATION_ENABLED` del `.env` como argumento del build, así que en el servidor basta la línea del `.env`, pero **hay que reconstruir `web`**; en otro despliegue, se pasa como argumento del build (`Dockerfile.web`).

@@ -1168,7 +1168,7 @@ def create_app(
             "iniciar sesión en el momento, y un investigador puede desactivarla con "
             "PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión "
             "del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la "
-            "cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0064). "
+            "cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). "
             "Limitado por IP (red /64 en IPv6); si el registro está desactivado en la "
             "configuración, responde 404."
         ),
@@ -1227,7 +1227,7 @@ def create_app(
             "Da (con la versión del texto que se leyó) o retira el permiso de uso de los datos "
             "de la propia cuenta y devuelve el perfil. Volver a darlo con el mismo texto conserva "
             "la fecha de la primera vez; retirarlo deja la cuenta sin permiso. Si la versión no es "
-            "la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0064)."
+            "la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065)."
         ),
         responses={**AUTH_401, **CONFLICT_409, **UNPROCESSABLE_422},
     )
@@ -1242,7 +1242,7 @@ def create_app(
             now=request.app.state.clock(),
             user_repository=SqlAlchemyUserRepository(db),
         )
-        # El registro es la historia de los cambios (ADR-0064 §1): solo cuando cambia algo, y al
+        # El registro es la historia de los cambios (ADR-0065 §1): solo cuando cambia algo, y al
         # retirarlo, con la versión que se retira.
         if (updated.data_consent_at, updated.data_consent_version) != before:
             logger.info(

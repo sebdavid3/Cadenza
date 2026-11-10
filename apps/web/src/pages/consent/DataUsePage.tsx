@@ -7,7 +7,7 @@ import { consentVersionLabel, STORED_DATA } from "./consent";
 import "./consent.css";
 
 /**
- * El texto completo del permiso de uso de los datos (#378, ADR-0064), versión del 9 de noviembre
+ * El texto completo del permiso de uso de los datos (#378, ADR-0065), versión del 9 de noviembre
  * de 2026. Es público: se puede leer antes de crear la cuenta. Lo aprobó el responsable del
  * proyecto el 2026-11-09; si cambia, cambia también `DATA_CONSENT_VERSION`.
  */

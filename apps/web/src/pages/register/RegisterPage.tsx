@@ -132,7 +132,7 @@ function RegisterForm() {
       setError({ message: "Las dos contraseñas no coinciden.", field: "confirmation" });
       return;
     }
-    // La casilla del permiso es obligatoria para crear la cuenta (#378, ADR-0064).
+    // La casilla del permiso es obligatoria para crear la cuenta (#378, ADR-0065).
     if (!consent) {
       setError({ message: CONSENT_REQUIRED, field: "consent" });
       return;

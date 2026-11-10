@@ -24,7 +24,7 @@ import "./account.css";
 /**
  * Tu cuenta (#190): quien tiene sesión cambia su contraseña. No hay recuperación por correo
  * (PRODUCT.md) y la web no la restablece (#155). Aquí se da o se retira también el permiso de
- * uso de los datos, con el mismo texto que en el registro (#378, ADR-0064).
+ * uso de los datos, con el mismo texto que en el registro (#378, ADR-0065).
  */
 export function AccountPage() {
   useDocumentTitle("Tu cuenta");
@@ -239,7 +239,7 @@ function consentDate(value: string): string {
 }
 
 /**
- * El permiso de uso de los datos (#378, ADR-0064): el mismo aviso que en el registro y un
+ * El permiso de uso de los datos (#378, ADR-0065): el mismo aviso que en el registro y un
  * interruptor que lo da o lo retira con un solo gesto. Lo que se guarda vuelve en el perfil, que
  * pasa a ser el de la sesión.
  */
@@ -250,7 +250,7 @@ function DataConsentSection() {
   const [changed, setChanged] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Es el permiso de las cuentas del registro: a los participantes del estudio les rige el
-  // consentimiento del estudio, y los datos de sus cuentas no dependen de este (ADR-0064 §5).
+  // consentimiento del estudio, y los datos de sus cuentas no dependen de este (ADR-0065 §5).
   if (!user?.self_registered) return null;
   const granted = user.data_consent ?? false;
   // Dado para una versión anterior del texto: no está vigente hasta que se vuelva a dar.
