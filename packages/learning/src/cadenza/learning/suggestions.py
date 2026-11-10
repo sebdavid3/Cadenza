@@ -859,8 +859,12 @@ def session_records(
     split_seed: int,
     test_fraction: float,
     include_self_registered: bool = False,
+    include_unfinished: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Los registros del corpus de las sesiones finalizadas, y las que se dejan fuera y por qué.
+
+    Con `include_unfinished`, también las que no se finalizaron (para `ml export-tables`): su
+    estado final es el último del log, no uno que la persona dio por bueno.
 
     Para cada sesión, `build_correction_records(estado 0, estado final)`, verificados con la
     misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su página de
@@ -870,7 +874,7 @@ def session_records(
     """
     records: list[dict[str, Any]] = []
     left_out: dict[str, str] = {}
-    for session in session_repository.list(status="finalized"):
+    for session in session_repository.list(status=None if include_unfinished else "finalized"):
         if not include_self_registered:
             owner = user_repository.get(session.owner_id)
             if owner is not None and owner.self_registered:

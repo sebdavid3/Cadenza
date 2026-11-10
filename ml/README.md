@@ -455,6 +455,36 @@ Entre el congelado (#252) y el final del estudio no se promueve ninguna versión
 El coste en línea se mide con `scripts/measure_suggestion_cost.py` sobre una página real (no
 escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
 
+### Tablas para analizar los errores de HOMR (`ml export-tables`, #400)
+
+Las estadísticas que permiten reconocer los errores de HOMR se calculan fuera de la plataforma
+(pandas, R, hojas de cálculo). `export-tables` escribe en `--output-dir` (obligatorio) un CSV por
+tabla y un `run_info.json` con el commit, la fecha, los filtros, las sesiones que quedan fuera y
+por qué, los recuentos y el sha256 de cada CSV. No escribe nada por defecto en `results/` ni en
+`data/`, y se ejecuta sobre una copia de la base, nunca sobre la de producción.
+
+```powershell
+# Base: sesiones finalizadas, sin cuentas del registro público (opciones para incluirlas).
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
+  --split-seed <semilla de la partición> [--include-unfinished] [--include-self-registered]
+
+# Corpus JSONL (el de PrIMuS de exp_12 o el de `suggestions build-dataset`), mismas columnas.
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl>
+```
+
+| Tabla | Una fila por | Orígenes |
+|---|---|---|
+| `partituras` | sesión (o incipit de PrIMuS) | base y corpus |
+| `notas` | evento leído, con su resultado (`bien`, `corregida`, `borrada`, `sin_alinear`) y su contexto | base y corpus |
+| `faltantes` | evento que faltaba | base y corpus |
+| `clave_armadura` | compás con la clave o la armadura corregidas | base y corpus |
+| `compases` | compás, comparando lectura y estado final | base |
+| `sugerencias` | sugerencia, con su respuesta (un rechazo heredado se marca) | base (y corpus de `build-dataset`) |
+| `avisos` | posible error, unido a la corrección de su compás | base |
+
+Cada columna, su origen, sus valores y las limitaciones están en
+[`docs/experimentos/diccionario_tablas.md`](../docs/experimentos/diccionario_tablas.md).
+
 ## Experimentos retirados y datos simulados (#271)
 
 - **`exp_09` (SMB y MUSCIMA++) se retiró en [#271](https://github.com/sebdavid3/Cadenza/issues/271).**

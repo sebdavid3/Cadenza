@@ -11,6 +11,9 @@ Comandos implementados:
   - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
                     (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
                     red de `PyTorchTrainer`, retirada del código en #271.
+  - export-tables : exporta a CSV planos, con su `run_info.json`, la lectura de HOMR, sus
+                    correcciones, los posibles errores y las sugerencias, para analizarlos fuera
+                    de la plataforma (`ml/export_tables_cli.py`).
 """
 
 from __future__ import annotations
@@ -926,6 +929,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     suggestions_cli.add_parser(subparsers)
 
+    # 9. export-tables (CSV para analizar los errores de HOMR fuera de la plataforma)
+    from ml import export_tables_cli
+
+    export_tables_cli.add_parser(subparsers)
+
     return parser
 
 
@@ -976,6 +984,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import suggestions_cli
 
         return suggestions_cli.run(args)
+    if args.subcommand == "export-tables":
+        from ml import export_tables_cli
+
+        return export_tables_cli.export_tables_command(args)
 
     parser.print_help()
     return 1
