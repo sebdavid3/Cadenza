@@ -4,8 +4,13 @@ Las dependencias y los pesos de HOMR se instalan antes de copiar el código, y l
 copia el entorno virtual aparte del código: así un cambio de código no los reinstala ni vuelve a
 copiar el entorno virtual, y la caché de construcción del servidor no crece unos 2,5 GB en cada
 despliegue.
+
+La imagen se construye para la CPU por defecto (la CI y el compose de desarrollo) o para una GPU
+NVIDIA, con ONNX Runtime con CUDA y los pesos de las dos; el compose de producción la construye con
+GPU, reserva una y deja volver a la CPU desde el .env (#268, ADR-0066).
 """
 
+import re
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
@@ -96,10 +101,11 @@ def test_the_final_stage_copies_the_environment_apart_from_the_code() -> None:
     runner = _stage("runner")
     copies = [instruction for instruction in runner if instruction.startswith("COPY --from=")]
 
-    # El entorno virtual de las dependencias sale de deps, que no cambia con el código: sus capas
-    # se reutilizan. Los paquetes del workspace y el código, que sí cambian, van aparte.
+    # El entorno virtual de las dependencias sale de deps (venv es deps con CPU o con GPU,
+    # ADR-0066), que no cambia con el código: sus capas se reutilizan. Los paquetes del workspace y
+    # el código, que sí cambian, van aparte.
     assert copies == [
-        "COPY --from=deps /app/.venv /app/.venv",
+        "COPY --from=venv /app/.venv /app/.venv",
         "COPY --from=builder /workspace-site/ /app/.venv/lib/python3.12/site-packages/",
         "COPY --from=builder /app/apps /app/apps",
         "COPY --from=builder /app/packages /app/packages",
@@ -117,3 +123,76 @@ def test_the_build_fails_if_a_workspace_file_is_left_behind() -> None:
     assert "startswith('cadenza-')" in runner[check]
     # Distribution.files omite lo que no existe desde Python 3.12: la lista sale del RECORD.
     assert "read_text('RECORD')" in runner[check]
+
+
+def _dockerfile() -> list[str]:
+    return [
+        line.strip()
+        for line in (ROOT / "Dockerfile").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _api_service() -> str:
+    """El bloque del servicio api de docker-compose.prod.yml, sin comentarios."""
+    text = (ROOT / "docker-compose.prod.yml").read_text(encoding="utf-8")
+    block = text.split("\n  api:\n", 1)[1].split("\n  web:\n", 1)[0]
+    return "\n".join(line for line in block.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_the_image_is_built_for_the_cpu_unless_asked() -> None:
+    lines = _dockerfile()
+
+    # El ARG global va antes del primer FROM, para que FROM lo pueda usar.
+    assert lines[0] == "ARG CADENZA_OMR_DEVICE=cpu"
+    assert "FROM deps AS deps-cpu" in lines
+    assert "FROM deps AS deps-gpu" in lines
+    assert "FROM deps-${CADENZA_OMR_DEVICE} AS venv" in lines
+
+
+def test_the_gpu_environment_brings_cuda_and_the_weights_of_both_devices() -> None:
+    deps = _stage("deps")
+    gpu = _stage("deps-gpu")
+
+    # Los pesos fp32 de la CPU, en deps; los fp16 de CUDA, además, en deps-gpu.
+    assert any("homr --init" in instruction for instruction in deps)
+    (install,) = gpu
+    assert "uv pip uninstall --python /app/.venv/bin/python onnxruntime" in install
+    gpu_runtime = '"onnxruntime-gpu[cuda,cudnn]==1.26.0"'
+    # Sin la caché de uv, que repetiría los wheels de NVIDIA en la capa.
+    assert f"uv pip install --no-cache --python /app/.venv/bin/python {gpu_runtime}" in install
+    assert (
+        "download_weights(segnet_use_gpu=True, transformer_use_gpu=True, coreml_encoder=False)"
+        in install
+    )
+    assert _stage("deps-cpu") == []
+
+
+def test_the_build_checks_that_onnxruntime_matches_the_device() -> None:
+    runner = _stage("runner")
+
+    check = _only(runner, lambda instruction: "CUDAExecutionProvider" in instruction)
+    assert runner[check - 1] == "ARG CADENZA_OMR_DEVICE"
+    assert "(sys.argv[1] == 'gpu')" in runner[check]
+    assert runner[check].endswith('"$CADENZA_OMR_DEVICE"')
+
+
+def test_prod_builds_for_the_gpu_and_reserves_one() -> None:
+    api = _api_service()
+
+    assert re.search(r"\n {6}args:\n {8}CADENZA_OMR_DEVICE: gpu\n", api)
+    assert "CADENZA_OMR_USE_GPU: ${CADENZA_OMR_USE_GPU:-true}" in api
+    # Con CADENZA_API_GPUS=0 el contenedor arranca sin GPU (también si falla el controlador).
+    assert re.search(
+        r"\n {4}deploy:\n {6}resources:\n {8}reservations:\n {10}devices:\n"
+        r" {12}- driver: nvidia\n {14}count: \$\{CADENZA_API_GPUS:-1\}\n"
+        r" {14}capabilities: \[gpu\]\n",
+        api,
+    )
+
+
+def test_the_development_compose_stays_on_the_cpu() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert "CADENZA_OMR_DEVICE" not in compose
+    assert "driver: nvidia" not in compose.split("\n  ml-batch:", 1)[0]
