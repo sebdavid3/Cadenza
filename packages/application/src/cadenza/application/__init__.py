@@ -1,5 +1,6 @@
 """Capa de aplicación hexagonal de Cadenza (ADR-0009)."""
 
+from .data_consent import DATA_CONSENT_VERSION, has_current_data_consent
 from .effort import (
     EFFORT_CLASSES,
     MeasureInterventionComparison,
@@ -28,6 +29,7 @@ from .exceptions import (
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
+    StaleDataConsent,
     StaleSuggestion,
     SuggestionConflict,
     SuggestionNotFound,
@@ -135,6 +137,7 @@ from .use_cases import (
     reopen_session,
     restore_finding,
     revalidate,
+    set_data_consent,
     transcribe_score,
     undo_edit,
     update_session_metadata,
@@ -144,6 +147,7 @@ from .user import Role, User
 
 __all__ = [
     "ACCEPTED",
+    "DATA_CONSENT_VERSION",
     "EFFORT_CLASSES",
     "MAX_EFFORT_SEGMENTS",
     "REJECTED",
@@ -214,6 +218,7 @@ __all__ = [
     "SessionRepository",
     "SessionStatus",
     "SessionSummary",
+    "StaleDataConsent",
     "StaleSuggestion",
     "SuggestionConflict",
     "SuggestionModel",
@@ -254,6 +259,7 @@ __all__ = [
     "get_session",
     "get_session_image",
     "get_timing",
+    "has_current_data_consent",
     "hash_claim_token",
     "interventions_by_class",
     "is_image_content",
@@ -270,6 +276,7 @@ __all__ = [
     "reopen_session",
     "restore_finding",
     "revalidate",
+    "set_data_consent",
     "time_to_first_edit_ms",
     "timed_stage",
     "total_active_ms",

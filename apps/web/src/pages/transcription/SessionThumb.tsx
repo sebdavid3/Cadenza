@@ -91,8 +91,13 @@ export function SessionThumb({ sessionId }: { sessionId: string }) {
 
 /** Miniatura de una imagen de la cola (#370): el archivo elegido, reducido en el navegador. */
 export function QueueThumb({ item }: { item: QueueItem }) {
-  // Un archivo rechazado antes de enviarlo (no es PNG ni JPEG) no se intenta dibujar.
-  const image = useQuery({ ...queueImageQuery(item.id, item.file), enabled: !item.rejected });
+  // Un archivo rechazado antes de enviarlo (no es PNG ni JPEG) no se intenta dibujar, y una
+  // transcripción recuperada del servidor al volver a la vista no trae su imagen (#375).
+  const { file } = item;
+  const image = useQuery({
+    ...queueImageQuery(item.id, file),
+    enabled: !item.rejected && file !== undefined,
+  });
   // La imagen de la sesión es la que se subió: la lámina que ocupa el sitio de esta no la vuelve
   // a descargar ni aparece en blanco mientras llega.
   const queryClient = useQueryClient();
@@ -103,5 +108,10 @@ export function QueueThumb({ item }: { item: QueueItem }) {
     const { queryKey } = sessionImageQuery(api, sessionId);
     if (queryClient.getQueryData(queryKey) === undefined) queryClient.setQueryData(queryKey, blob);
   }, [sessionId, blob, queryClient]);
-  return <Thumb blob={image.data} failed={image.isError || item.rejected === true} />;
+  return (
+    <Thumb
+      blob={image.data}
+      failed={image.isError || item.rejected === true || file === undefined}
+    />
+  );
 }

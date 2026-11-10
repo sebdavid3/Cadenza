@@ -65,6 +65,16 @@ export interface ClefPayload {
 }
 
 /**
+ * Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065).
+ */
+export interface DataConsentUpdate {
+  /** true lo da; false lo retira */
+  granted: boolean;
+  /** Al darlo, la versión del texto que se leyó; si no es la vigente, 409 con detail 'stale_data_consent'. Al retirarlo no hace falta. */
+  version?: string | null;
+}
+
+/**
  * Payload opcional para descartar un hallazgo como falso positivo (#36).
  */
 export interface DismissFindingRequest {
@@ -539,12 +549,15 @@ export interface ProvenancePayload {
 /**
  * Registro de una cuenta por la propia persona (ADR-0022, #154).
  * 
- * Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+ * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
+ * siempre transcriptor y cualquier otro campo se rechaza.
  */
 export interface RegisterRequest {
   /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
   username: string;
   password: string;
+  /** Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065). */
+  data_consent_version?: string | null;
 }
 
 /**
@@ -816,6 +829,40 @@ export interface TranscribeResponse {
 }
 
 /**
+ * Una transcripción en segundo plano y en qué está (#375, ADR-0064).
+ * 
+ * Vive en la memoria de la API: si se reinicia, el trabajo deja de existir (404).
+ */
+export interface TranscriptionJobRead {
+  /** Identificador del trabajo; la sesión que crea al terminar tiene el mismo */
+  id: string;
+  /** queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` (con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: no se pudo (`failure`) */
+  stage: "queued" | "detecting" | "reading" | "reviewing" | "done" | "failed";
+  /** En cola: trabajos por delante, de todas las personas, contando el que se transcribe; null fuera de la cola */
+  ahead?: number | null;
+  /** Al detectar o leer: first, la lectura de la página; piano, la segunda de una página de voz y piano, con cada mano sola (#325, ADR-0060) */
+  reading?: "first" | "piano" | null;
+  /** Al leer: el pentagrama que se lee, de 1 a `staffs` */
+  staff?: number | null;
+  /** Al leer: pentagramas de esta lectura */
+  staffs?: number | null;
+  /** Terminado bien: la sesión creada, como en POST /transcribe */
+  result?: TranscribeResponse | null;
+  /** Fallido: unreadable, no se reconoció ninguna partitura en la imagen; internal, otro error del servidor */
+  failure?: "unreadable" | "internal" | null;
+  /** Nombre del archivo subido */
+  source_filename?: string | null;
+  /** Título dado a la partitura, si se dio */
+  title?: string | null;
+  /** Cuándo se puso en la cola */
+  created_at: string;
+  /** Cuándo salió de la cola */
+  started_at?: string | null;
+  /** Cuándo terminó */
+  finished_at?: string | null;
+}
+
+/**
  * Payload opcional para deshacer una edición con validación de concurrencia (#35, #48).
  */
 export interface UndoRequest {
@@ -862,6 +909,12 @@ export interface UserRead {
   created_at?: string | null;
   /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
   self_registered?: boolean;
+  /** Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065). */
+  data_consent?: boolean;
+  /** Cuándo se dio el permiso; null, sin permiso */
+  data_consent_at?: string | null;
+  /** Versión del texto del permiso que se aceptó; null, sin permiso */
+  data_consent_version?: string | null;
 }
 
 /**

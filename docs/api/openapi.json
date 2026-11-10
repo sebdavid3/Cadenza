@@ -121,7 +121,7 @@
           "Auth"
         ],
         "summary": "Registro de una cuenta por la propia persona",
-        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Solo usuario y contraseña. Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
+        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -208,6 +208,73 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/auth/data-consent": {
+      "put": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Dar o retirar el permiso de uso de los datos",
+        "description": "Da (con la versión del texto que se leyó) o retira el permiso de uso de los datos de la propia cuenta y devuelve el perfil. Volver a darlo con el mismo texto conserva la fecha de la primera vez; retirarlo deja la cuenta sin permiso. Si la versión no es la vigente, 409. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065).",
+        "operationId": "update_data_consent_auth_data_consent_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataConsentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
             "content": {
               "application/json": {
                 "schema": {
@@ -621,6 +688,287 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transcription-jobs": {
+      "get": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Mis transcripciones en segundo plano",
+        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
+        "operationId": "list_transcription_jobs_transcription_jobs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TranscriptionJobRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Transcription Jobs Transcription Jobs Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Transcribir en segundo plano",
+        "description": "Pone la imagen en la cola de transcripción y responde enseguida con el trabajo; su estado y su avance se consultan con GET /transcription-jobs/{id}, sin plazo. Admite los mismos campos que POST /transcribe y los comprueba antes de ponerla en la cola. La cola es de todas las personas y va en orden de llegada, de uno en uno, con los huecos de POST /transcribe (ADR-0024). Al terminar bien, la sesión tiene el mismo identificador que el trabajo. Con CADENZA_TRANSCRIBE_JOBS_PER_USER trabajos en cola o en curso de la persona, 429; con CADENZA_TRANSCRIBE_JOBS_MAX de todas, 503. El registro vive en la memoria de la API: si se reinicia, los trabajos desaparecen (#375, ADR-0064).",
+        "operationId": "create_transcription_job_transcription_jobs_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_transcription_job_transcription_jobs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJobRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "El archivo excede el tamaño máximo permitido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Tipo de archivo no soportado (se requiere imagen PNG o JPEG)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Entidad no procesable o violación de validación de negocio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "La persona ya tiene CADENZA_TRANSCRIBE_JOBS_PER_USER transcripciones en cola o en curso; se puede volver a subir cuando termine alguna (ADR-0064)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "La cola de todas las personas está llena (CADENZA_TRANSCRIBE_JOBS_MAX): reintentar tras la cabecera Retry-After (ADR-0064)",
+            "headers": {
+              "Retry-After": {
+                "description": "Segundos que conviene esperar antes de reintentar",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/transcription-jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Estado y avance de una transcripción en segundo plano",
+        "description": "En qué está el trabajo: en cola (con los que tiene por delante), detectando los pentagramas, leyendo el pentagrama X de N de cada lectura, revisando, listo (con la sesión) o fallido (con el motivo). Uno de otra persona, uno olvidado o uno de antes de un reinicio de la API responden 404 (#375, ADR-0064, ADR-0012).",
+        "operationId": "get_transcription_job_transcription_jobs__job_id__get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionJobRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Transcription"
+        ],
+        "summary": "Quitar una transcripción en segundo plano",
+        "description": "Quita un trabajo en cola, que ya no se transcribe, u olvida uno terminado; la sesión que haya creado no se toca. Uno que se está transcribiendo no se puede interrumpir: 409. Uno de otra persona o que no existe: 404 (#375, ADR-0064).",
+        "operationId": "discard_transcription_job_transcription_jobs__job_id__delete",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2706,6 +3054,109 @@
         ],
         "title": "Body_create_preview_previews_post"
       },
+      "Body_create_transcription_job_transcription_jobs_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition",
+            "description": "Condición experimental: 'assisted' (por defecto) o 'unassisted'"
+          },
+          "test_score_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Score Id",
+            "description": "Identificador de la partitura de prueba"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título de la partitura: el nombre de la sesión (#235, #240)."
+          },
+          "composer": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composer",
+            "description": "Compositor (#235)."
+          },
+          "instruments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Instrument"
+                    },
+                    {
+                      "type": "string",
+                      "const": ""
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruments",
+            "description": "Instrumento de cada parte, como en POST /transcribe (ADR-0041)."
+          },
+          "part_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Part Names",
+            "description": "Nombre de cada parte, alineado con `instruments` (ADR-0041)."
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_create_transcription_job_transcription_jobs_post"
+      },
       "Body_login_auth_login_post": {
         "properties": {
           "grant_type": {
@@ -2914,6 +3365,35 @@
         ],
         "title": "ClefPayload",
         "description": "Clave musical (p. ej. Sol, Fa, Do)."
+      },
+      "DataConsentUpdate": {
+        "properties": {
+          "granted": {
+            "type": "boolean",
+            "title": "Granted",
+            "description": "true lo da; false lo retira"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version",
+            "description": "Al darlo, la versión del texto que se leyó; si no es la vigente, 409 con detail 'stale_data_consent'. Al retirarlo no hace falta."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "granted"
+        ],
+        "title": "DataConsentUpdate",
+        "description": "Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065)."
       },
       "DismissFindingRequest": {
         "properties": {
@@ -4223,6 +4703,19 @@
             "type": "string",
             "minLength": 8,
             "title": "Password"
+          },
+          "data_consent_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Consent Version",
+            "description": "Versión del texto del permiso de uso de los datos que la persona aceptó al registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065)."
           }
         },
         "additionalProperties": false,
@@ -4232,7 +4725,7 @@
           "password"
         ],
         "title": "RegisterRequest",
-        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nSolo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza."
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es\nsiempre transcriptor y cualquier otro campo se rechaza."
       },
       "ReopenResponse": {
         "properties": {
@@ -5180,6 +5673,171 @@
         ],
         "title": "TranscribeResponse"
       },
+      "TranscriptionJobRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Identificador del trabajo; la sesión que crea al terminar tiene el mismo"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "detecting",
+              "reading",
+              "reviewing",
+              "done",
+              "failed"
+            ],
+            "title": "Stage",
+            "description": "queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` (con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: no se pudo (`failure`)"
+          },
+          "ahead": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ahead",
+            "description": "En cola: trabajos por delante, de todas las personas, contando el que se transcribe; null fuera de la cola"
+          },
+          "reading": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "first",
+                  "piano"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reading",
+            "description": "Al detectar o leer: first, la lectura de la página; piano, la segunda de una página de voz y piano, con cada mano sola (#325, ADR-0060)"
+          },
+          "staff": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff",
+            "description": "Al leer: el pentagrama que se lee, de 1 a `staffs`"
+          },
+          "staffs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staffs",
+            "description": "Al leer: pentagramas de esta lectura"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TranscribeResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Terminado bien: la sesión creada, como en POST /transcribe"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "unreadable",
+                  "internal"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure",
+            "description": "Fallido: unreadable, no se reconoció ninguna partitura en la imagen; internal, otro error del servidor"
+          },
+          "source_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Filename",
+            "description": "Nombre del archivo subido"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title",
+            "description": "Título dado a la partitura, si se dio"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Cuándo se puso en la cola"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "Cuándo salió de la cola"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Cuándo terminó"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "stage",
+          "created_at"
+        ],
+        "title": "TranscriptionJobRead",
+        "description": "Una transcripción en segundo plano y en qué está (#375, ADR-0064).\n\nVive en la memoria de la API: si se reinicia, el trabajo deja de existir (404)."
+      },
       "UndoRequest": {
         "properties": {
           "base_seq": {
@@ -5352,6 +6010,37 @@
             "title": "Self Registered",
             "description": "Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio.",
             "default": false
+          },
+          "data_consent": {
+            "type": "boolean",
+            "title": "Data Consent",
+            "description": "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065).",
+            "default": false
+          },
+          "data_consent_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Consent At",
+            "description": "Cuándo se dio el permiso; null, sin permiso"
+          },
+          "data_consent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Consent Version",
+            "description": "Versión del texto del permiso que se aceptó; null, sin permiso"
           }
         },
         "type": "object",

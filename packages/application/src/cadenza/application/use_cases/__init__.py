@@ -32,6 +32,7 @@ from .reject_suggestion import reject_suggestion
 from .reopen_session import ReopenResult, reopen_session
 from .restore_finding import restore_finding
 from .revalidate import RevalidateResult, revalidate
+from .set_data_consent import set_data_consent
 from .transcribe_score import (
     TranscribeResult,
     create_session_from_document,
@@ -84,6 +85,7 @@ __all__ = [
     "reopen_session",
     "restore_finding",
     "revalidate",
+    "set_data_consent",
     "transcribe_score",
     "undo_edit",
     "update_session_metadata",

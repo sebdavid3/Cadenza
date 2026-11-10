@@ -1,11 +1,22 @@
 import { create } from "zustand";
 import type { ApiClient } from "../../api/client";
-import { TRANSCRIBE_TIMEOUT_MS } from "../../api/config";
+import { PREVIEW_TIMEOUT_MS, UPLOAD_TIMEOUT_MS } from "../../api/config";
 import { ApiError } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
 import { registerPendingWork } from "../../pendingWork";
-import type { PreviewResponse, TranscribeResponse } from "../../types";
-import { precheck, PREPARED_PARTS, transcribeErrorMessage } from "../transcription/queue";
+import type { PreviewResponse, TranscribeResponse, TranscriptionJobRead } from "../../types";
+import {
+  forget,
+  INTERRUPTED_MESSAGE,
+  JOB_POLLING,
+  jobFailureMessage,
+  precheck,
+  PREPARED_PARTS,
+  remember,
+  settleMissing,
+  transcribeErrorMessage,
+  uploadErrorMessage,
+} from "../transcription/queue";
 import {
   appendScoreData,
   emptyDraft,
@@ -23,6 +34,12 @@ import {
  * `POST /previews`: el resultado se ve igual y, para editarlo, se entra y se reclama con su token,
  * que se apunta en `sessionStorage` (no la imagen) para poder reclamarlo también tras una recarga.
  */
+
+/** Los fallos al preguntar por la transcripción que no cortan el seguimiento (#375). */
+const PASSING_FAILURES = new Set<ApiError["kind"]>(["network", "server", "timeout"]);
+
+/** Fallos pasajeros seguidos tras los que se deja de preguntar y se dice. */
+export const MAX_POLL_FAILURES = 10;
 
 /** Ancla de la sección en la portada: adonde se vuelve tras entrar. */
 export const LANDING_UPLOAD_HASH = "#transcribir";
@@ -47,14 +64,15 @@ export type LandingStage =
   | { kind: "empty" }
   /** Con la imagen elegida y sus datos, antes de transcribir. */
   | { kind: "chosen" }
-  | { kind: "transcribing"; startedAt: number }
+  /** Subiéndose o transcribiéndose; `job`, en qué está en el servidor (#375). */
+  | { kind: "transcribing"; startedAt: number; job?: TranscriptionJobRead }
   /**
    * Transcrita: la sesión es de `ownerId`; `name`, el nombre que tendrá (el dado o el del
    * archivo), mientras llega el de la sesión.
    */
   | { kind: "done"; result: TranscribeResponse; ownerId: string; name: string }
-  /** `timedOut`: venció la espera y la sesión puede haberse creado igualmente. */
-  | { kind: "failed"; message: string; timedOut: boolean }
+  /** `mayExist`: la transcripción puede seguir en el servidor y crear su sesión igualmente. */
+  | { kind: "failed"; message: string; mayExist: boolean }
   /**
    * Transcrita sin cuenta (#278): lo que leyó HOMR, para verlo, y cómo reclamarlo. Sin `preview`
    * tras una recarga: solo queda el token.
@@ -174,6 +192,7 @@ export function previewErrorMessage(error: unknown): string {
       : "Has transcrito varias imágenes sin cuenta desde tu conexión. Vuelve a probar más tarde o entra con tu cuenta.";
   }
   if (error instanceof ApiError && error.kind === "timeout") {
+    // La transcripción sin cuenta sigue siendo síncrona y está apagada (#278).
     return "La transcripción tardó más de 30 s. Vuelve a intentarlo en un momento.";
   }
   return transcribeErrorMessage(error);
@@ -290,59 +309,130 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
         return;
       }
       const runGeneration = generation;
+      const current = () => runGeneration === generation;
       const controller = new AbortController();
       inFlight = controller;
       markPending(null);
+      const startedAt = Date.now();
       set({
-        stage: { kind: "transcribing", startedAt: Date.now() },
+        stage: { kind: "transcribing", startedAt },
         resumeAfterAuth: false,
         expired: false,
       });
+      const name = nonBlank(draft.title) ?? file.name;
       const body = new FormData();
       body.append("file", file, file.name);
       appendScoreData(body, draft);
+      // La imagen sube a la cola del servidor y se pregunta en qué está hasta que acaba, sin
+      // plazo (#375, ADR-0064).
+      let job: TranscriptionJobRead;
       try {
-        const result = await api.request<TranscribeResponse>("/transcribe", {
+        job = await api.request<TranscriptionJobRead>("/transcription-jobs", {
           method: "POST",
           body,
           token,
           signal: controller.signal,
-          timeoutMs: TRANSCRIBE_TIMEOUT_MS,
-        });
-        if (runGeneration !== generation) return;
-        // La imagen ya está en el servidor: no se guarda más tiempo del necesario.
-        set({
-          file: null,
-          chooserId: null,
-          draft: emptyDraft(PREPARED_PARTS),
-          stage: {
-            kind: "done",
-            result,
-            ownerId: user.id,
-            name: nonBlank(draft.title) ?? file.name,
-          },
+          timeoutMs: UPLOAD_TIMEOUT_MS,
         });
       } catch (error) {
-        if (runGeneration !== generation) return;
+        if (inFlight === controller) inFlight = null;
+        if (!current()) return;
         if (error instanceof ApiError && error.kind === "unauthorized") {
           // La sesión caducó: la imagen se conserva y se transcribe al volver a entrar.
           set({ stage: { kind: "chosen" }, expired: true });
           return;
         }
         const timedOut = error instanceof ApiError && error.kind === "timeout";
+        const ownLimit = error instanceof ApiError && error.status === 429;
         set({
           stage: {
             kind: "failed",
             // Aquí no hay listado a la vista: se dice dónde buscar la sesión.
             message: timedOut
-              ? "La transcripción tardó más de 30 s. Puede que la sesión se haya creado: búscala en tus sesiones antes de volver a intentarlo."
-              : transcribeErrorMessage(error),
-            timedOut,
+              ? "La subida tardó demasiado. Puede que la imagen llegara: búscala en tus transcripciones antes de volver a intentarlo."
+              : ownLimit
+                ? "Ya tienes el máximo de transcripciones en curso. Vuelve a intentarlo cuando termine alguna."
+                : uploadErrorMessage(error),
+            mayExist: timedOut,
           },
         });
+        return;
+      }
+      if (!current()) return;
+      remember(user.id, { id: job.id, name });
+      // Se pregunta hasta que acaba. Un fallo pasajero (sin conexión, un 5xx, un plazo) no corta
+      // el seguimiento: se vuelve a preguntar, y solo tras muchos seguidos se dice.
+      let failures = 0;
+      let result: TranscribeResponse | null;
+      try {
+        while (job.stage !== "done" && job.stage !== "failed") {
+          set({ stage: { kind: "transcribing", startedAt, job } });
+          await new Promise((resolve) => setTimeout(resolve, JOB_POLLING.intervalMs));
+          if (!current()) return;
+          // Solo con la sesión de quien la subió (ADR-0012).
+          const { token: pollToken, user: pollUser } = useAuthStore.getState();
+          if (!pollToken || pollUser?.id !== user.id) throw new ApiError("unauthorized", 401);
+          try {
+            job = await api.request<TranscriptionJobRead>(
+              `/transcription-jobs/${encodeURIComponent(job.id)}`,
+              { token: pollToken, signal: controller.signal },
+            );
+            failures = 0;
+          } catch (error) {
+            if (!(error instanceof ApiError) || !PASSING_FAILURES.has(error.kind)) throw error;
+            failures += 1;
+            if (failures >= MAX_POLL_FAILURES) throw error;
+          }
+          if (!current()) return;
+        }
+        result = job.result ?? null;
+      } catch (error) {
+        if (!current()) return;
+        if (error instanceof ApiError && error.kind === "not-found") {
+          // Ya no está en el servidor: puede que creara su sesión justo antes de desaparecer.
+          const token = useAuthStore.getState().token;
+          const outcome = token ? await settleMissing(api, token, job.id) : null;
+          if (!current()) return;
+          if (outcome && "result" in outcome) {
+            forget(user.id, [job.id]);
+            result = outcome.result;
+          } else {
+            if (outcome) forget(user.id, [job.id]);
+            // La imagen sigue aquí para volver a subirla.
+            set({ stage: { kind: "failed", message: INTERRUPTED_MESSAGE, mayExist: true } });
+            return;
+          }
+        } else {
+          // Sin sesión o sin conexión: la transcripción sigue en el servidor.
+          set({
+            stage: {
+              kind: "failed",
+              message:
+                error instanceof ApiError && error.kind === "unauthorized"
+                  ? "Tu sesión caducó, pero la transcripción sigue en el servidor: al volver a entrar la verás en tus transcripciones."
+                  : "Se perdió la conexión con el servidor, pero la transcripción sigue allí: la verás en tus transcripciones.",
+              mayExist: true,
+            },
+          });
+          return;
+        }
       } finally {
         if (inFlight === controller) inFlight = null;
       }
+      forget(user.id, [job.id]);
+      if (!result) {
+        set({
+          stage: { kind: "failed", message: jobFailureMessage(job.failure), mayExist: false },
+        });
+        return;
+      }
+      // La imagen ya está en el servidor: no se guarda más tiempo del necesario.
+      set({
+        file: null,
+        chooserId: null,
+        draft: emptyDraft(PREPARED_PARTS),
+        stage: { kind: "done", result, ownerId: user.id, name },
+      });
     },
     preview: async (api) => {
       const { file, draft, stage } = get();
@@ -365,7 +455,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
           body,
           auth: false,
           signal: controller.signal,
-          timeoutMs: TRANSCRIBE_TIMEOUT_MS,
+          timeoutMs: PREVIEW_TIMEOUT_MS,
         });
         if (runGeneration !== generation) return;
         const claim: PendingClaim = {
@@ -386,7 +476,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
           return;
         }
         set({
-          stage: { kind: "failed", message: previewErrorMessage(error), timedOut: false },
+          stage: { kind: "failed", message: previewErrorMessage(error), mayExist: false },
         });
       } finally {
         if (inFlight === controller) inFlight = null;
@@ -434,7 +524,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
                 kind: "failed",
                 message:
                   "La transcripción sin cuenta ya no está: caduca a la hora, solo se puede editar una vez y el servidor puede haber dejado de ofrecerla. Vuelve a transcribir la imagen con tu cuenta.",
-                timedOut: false,
+                mayExist: false,
               },
             });
           } else {
@@ -470,7 +560,7 @@ function errorMessageOf(error: unknown): string {
 }
 
 export const LANDING_LEAVE_WARNING =
-  "La imagen de la portada se está transcribiendo. Si sales, puede que la sesión llegue a crearse igualmente. ¿Salir?";
+  "La imagen de la portada se está subiendo o transcribiendo. Si ya llegó al servidor, la transcripción sigue y la verás en tus transcripciones. ¿Salir?";
 
 registerPendingWork(() => {
   const { kind } = useLandingUpload.getState().stage;

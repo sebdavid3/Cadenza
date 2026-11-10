@@ -5,7 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from cadenza.application import EffortMetricsData, PersistedFinding, PersistedSuggestion, User
+from cadenza.application import (
+    EffortMetricsData,
+    PersistedFinding,
+    PersistedSuggestion,
+    User,
+    has_current_data_consent,
+)
 from cadenza.domain import (
     COMPOSER_MAX_LENGTH,
     MAX_PARTS,
@@ -376,6 +382,61 @@ class TranscribeResponse(BaseModel):
     test_score_id: str | None = None
 
 
+class TranscriptionJobRead(BaseModel):
+    """Una transcripción en segundo plano y en qué está (#375, ADR-0064).
+
+    Vive en la memoria de la API: si se reinicia, el trabajo deja de existir (404).
+    """
+
+    id: str = Field(
+        ...,
+        description="Identificador del trabajo; la sesión que crea al terminar tiene el mismo",
+    )
+    stage: Literal["queued", "detecting", "reading", "reviewing", "done", "failed"] = Field(
+        ...,
+        description=(
+            "queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` "
+            "(con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); "
+            "reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, "
+            "las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: "
+            "no se pudo (`failure`)"
+        ),
+    )
+    ahead: int | None = Field(
+        default=None,
+        description=(
+            "En cola: trabajos por delante, de todas las personas, contando el que se transcribe; "
+            "null fuera de la cola"
+        ),
+    )
+    reading: Literal["first", "piano"] | None = Field(
+        default=None,
+        description=(
+            "Al detectar o leer: first, la lectura de la página; piano, la segunda de una página "
+            "de voz y piano, con cada mano sola (#325, ADR-0060)"
+        ),
+    )
+    staff: int | None = Field(
+        default=None, description="Al leer: el pentagrama que se lee, de 1 a `staffs`"
+    )
+    staffs: int | None = Field(default=None, description="Al leer: pentagramas de esta lectura")
+    result: TranscribeResponse | None = Field(
+        default=None, description="Terminado bien: la sesión creada, como en POST /transcribe"
+    )
+    failure: Literal["unreadable", "internal"] | None = Field(
+        default=None,
+        description=(
+            "Fallido: unreadable, no se reconoció ninguna partitura en la imagen; internal, otro "
+            "error del servidor"
+        ),
+    )
+    source_filename: str | None = Field(default=None, description="Nombre del archivo subido")
+    title: str | None = Field(default=None, description="Título dado a la partitura, si se dio")
+    created_at: datetime = Field(..., description="Cuándo se puso en la cola")
+    started_at: datetime | None = Field(default=None, description="Cuándo salió de la cola")
+    finished_at: datetime | None = Field(default=None, description="Cuándo terminó")
+
+
 class PreviewResponse(BaseModel):
     """Transcripción sin cuenta de la portada (#278, ADR-0054): lo que leyó HOMR, para verlo, y
     el token para reclamarla al entrar. No es una sesión: no tiene dueño ni log, y caduca."""
@@ -726,6 +787,19 @@ class UserRead(BaseModel):
             "no forma parte de los datos del estudio."
         ),
     )
+    data_consent: bool = Field(
+        default=False,
+        description=(
+            "Si la cuenta tiene vigente el permiso de uso de sus datos: dado para la versión "
+            "actual del texto. Solo se guarda: no cambia qué datos se usan (#378, ADR-0065)."
+        ),
+    )
+    data_consent_at: datetime | None = Field(
+        default=None, description="Cuándo se dio el permiso; null, sin permiso"
+    )
+    data_consent_version: str | None = Field(
+        default=None, description="Versión del texto del permiso que se aceptó; null, sin permiso"
+    )
 
     @classmethod
     def from_user(cls, user: User) -> UserRead:
@@ -736,13 +810,17 @@ class UserRead(BaseModel):
             active=user.active,
             created_at=user.created_at,
             self_registered=user.self_registered,
+            data_consent=has_current_data_consent(user),
+            data_consent_at=user.data_consent_at,
+            data_consent_version=user.data_consent_version,
         )
 
 
 class RegisterRequest(BaseModel):
     """Registro de una cuenta por la propia persona (ADR-0022, #154).
 
-    Solo usuario y contraseña: el rol es siempre transcriptor y cualquier otro campo se rechaza.
+    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
+    siempre transcriptor y cualquier otro campo se rechaza.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -758,6 +836,31 @@ class RegisterRequest(BaseModel):
         ),
     )
     password: str = Field(min_length=8)
+    data_consent_version: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Versión del texto del permiso de uso de los datos que la persona aceptó al "
+            "registrarse; sin él, la cuenta se crea sin permiso. Si no es la vigente, 409 con "
+            "detail 'stale_data_consent' y no se crea la cuenta (#378, ADR-0065)."
+        ),
+    )
+
+
+class DataConsentUpdate(BaseModel):
+    """Dar o retirar el permiso de uso de los datos de la propia cuenta (#378, ADR-0065)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    granted: bool = Field(..., description="true lo da; false lo retira")
+    version: str | None = Field(
+        default=None,
+        max_length=32,
+        description=(
+            "Al darlo, la versión del texto que se leyó; si no es la vigente, 409 con detail "
+            "'stale_data_consent'. Al retirarlo no hace falta."
+        ),
+    )
 
 
 class UserCreate(BaseModel):
