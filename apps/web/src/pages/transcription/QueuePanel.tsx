@@ -193,7 +193,9 @@ export function QueuePanel({ listed }: QueuePanelProps) {
           </div>
         )}
       {hold && !paused && items.some((item) => item.status === "queued" && !item.job) && (
-        <p className="queue__hold">{HOLD_NOTICE[hold]}</p>
+        <p className="queue__hold" role="status">
+          {HOLD_NOTICE[hold]}
+        </p>
       )}
       {visible.length > 0 && (
         // role="list": sin viñetas, Safari y VoiceOver dejan de tratarla como lista.

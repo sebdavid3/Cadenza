@@ -356,6 +356,76 @@ describe("recuadro de la portada (#277)", () => {
     expect(useLandingUpload.getState().file).toBeNull();
   });
 
+  it("un fallo pasajero al preguntar no corta el seguimiento (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    let polls = 0;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-portada" }), 202),
+      "GET /transcription-jobs/s-portada": () => {
+        polls += 1;
+        if (polls === 1) return Promise.reject(new TypeError("Failed to fetch"));
+        if (polls === 2) return jsonResponse({ detail: "x" }, 500);
+        return jsonResponse(doneJob(transcribed()));
+      },
+      ...sessionRoutes(),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
+    expect(polls).toBe(3);
+  });
+
+  it("una transcripción fallida dice por qué y deja volver a intentarlo (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-mala" }), 202),
+      "GET /transcription-jobs/s-mala": () =>
+        jsonResponse(job({ id: "s-mala", stage: "failed", ahead: null, failure: "unreadable" })),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    const alert = await within(box()).findByRole("alert");
+    expect(alert).toHaveTextContent("No se reconoció ninguna partitura en la imagen.");
+    expect(within(alert).queryByRole("link")).toBeNull();
+    expect(within(box()).getByRole("button", { name: "Volver a intentarlo" })).toBeVisible();
+  });
+
+  it("con el máximo de transcripciones en curso (429), lo dice sin subirla (#375)", async () => {
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse({ detail: "tope" }, 429),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    expect(await within(box()).findByRole("alert")).toHaveTextContent(
+      /ya tienes el máximo de transcripciones en curso/i,
+    );
+  });
+
+  it("si desaparece tras crear su sesión, enseña el resultado y no pide subirla otra vez (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: ID }), 202),
+      [`GET /transcription-jobs/${ID}`]: () => jsonResponse({ detail: "no" }, 404),
+      // La sesión, con el mismo identificador que el trabajo (ADR-0063).
+      ...sessionRoutes(),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
+  });
+
   it("si el servidor se reinicia a mitad, dice que se interrumpió y deja volver a subirla (#375)", async () => {
     JOB_POLLING.intervalMs = 1;
     const { calls } = mockApi({

@@ -760,6 +760,46 @@ describe("transcripción en segundo plano (#375)", () => {
     expect(readRemembered(ANA.id)).toEqual([]);
   });
 
+  it("recuperar con una subida en vuelo no duplica la imagen", async () => {
+    // El servidor ya tiene el trabajo, pero la respuesta de la subida aún no ha llegado.
+    const posted = deferred<Response>();
+    let listed = 0;
+    mockApi({
+      "POST /transcription-jobs": () => posted.promise,
+      "GET /transcription-jobs": () => {
+        listed += 1;
+        return jsonResponse(
+          listed === 1
+            ? [
+                job({
+                  id: "j1",
+                  stage: "reading",
+                  ahead: null,
+                  reading: "first",
+                  staff: 1,
+                  staffs: 2,
+                }),
+              ]
+            : [doneJob(transcribed("j1"))],
+        );
+      },
+    });
+    const store = useQueueStore.getState();
+    store.add([png("una.png")]);
+    const running = store.run(api);
+    await vi.waitFor(() => {
+      expect(useQueueStore.getState().items[0]?.uploading).toBe(true);
+    });
+
+    await store.restore(api);
+    expect(useQueueStore.getState().items).toHaveLength(2);
+    posted.resolve(jsonResponse(job({ id: "j1", ahead: 0 }), 202));
+    await running;
+
+    const items = useQueueStore.getState().items;
+    expect(items.map((item) => [item.name, item.status])).toEqual([["una.png", "done"]]);
+  });
+
   it("lo apuntado es de cada persona y se olvida al terminar", () => {
     remember(ANA.id, { id: "j1", name: "a.png" });
     remember("otra", { id: "j2", name: "b.png" });

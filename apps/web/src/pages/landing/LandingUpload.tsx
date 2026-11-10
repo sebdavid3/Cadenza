@@ -4,7 +4,7 @@ import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { anonymousPreviewEnabled, registrationEnabled } from "../../config";
-import { formatSize, jobProgress } from "../transcription/format";
+import { formatSize, jobProgress, jobStageAnnouncement } from "../transcription/format";
 import { JobProgressLine } from "../transcription/JobProgressLine";
 import { Elapsed } from "../transcription/Elapsed";
 import { ScoreDataFields, type PartField } from "../transcription/ScoreDataFields";
@@ -267,9 +267,15 @@ export function LandingUpload() {
                   Transcribiendo «{name}»
                   <Elapsed since={stage.startedAt} />
                 </p>
-                <JobProgressLine
-                  progress={(stage.job && jobProgress(stage.job)) ?? { text: "Subiendo la imagen" }}
-                />
+                {/* Al lector de pantalla, solo los cambios de etapa: no cada pentagrama. */}
+                <span className="visually-hidden">{jobStageAnnouncement(stage.job)}</span>
+                <div aria-hidden="true">
+                  <JobProgressLine
+                    progress={
+                      (stage.job && jobProgress(stage.job)) ?? { text: "Subiendo la imagen" }
+                    }
+                  />
+                </div>
                 <p className="landing-upload__progress-note">
                   HOMR lee la imagen y propone la partitura; una página entera puede tardar más de
                   un minuto. No hace falta quedarse mirando: el resultado aparecerá aquí, y la

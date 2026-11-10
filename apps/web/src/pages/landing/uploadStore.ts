@@ -13,6 +13,7 @@ import {
   precheck,
   PREPARED_PARTS,
   remember,
+  settleMissing,
   transcribeErrorMessage,
   uploadErrorMessage,
 } from "../transcription/queue";
@@ -33,6 +34,12 @@ import {
  * `POST /previews`: el resultado se ve igual y, para editarlo, se entra y se reclama con su token,
  * que se apunta en `sessionStorage` (no la imagen) para poder reclamarlo también tras una recarga.
  */
+
+/** Los fallos al preguntar por la transcripción que no cortan el seguimiento (#375). */
+const PASSING_FAILURES = new Set<ApiError["kind"]>(["network", "server", "timeout"]);
+
+/** Fallos pasajeros seguidos tras los que se deja de preguntar y se dice. */
+export const MAX_POLL_FAILURES = 10;
 
 /** Ancla de la sección en la portada: adonde se vuelve tras entrar. */
 export const LANDING_UPLOAD_HASH = "#transcribir";
@@ -353,45 +360,67 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
       }
       if (!current()) return;
       remember(user.id, { id: job.id, name });
+      // Se pregunta hasta que acaba. Un fallo pasajero (sin conexión, un 5xx, un plazo) no corta
+      // el seguimiento: se vuelve a preguntar, y solo tras muchos seguidos se dice.
+      let failures = 0;
+      let result: TranscribeResponse | null = null;
       try {
         while (job.stage !== "done" && job.stage !== "failed") {
           set({ stage: { kind: "transcribing", startedAt, job } });
           await new Promise((resolve) => setTimeout(resolve, JOB_POLLING.intervalMs));
           if (!current()) return;
-          const pollToken = useAuthStore.getState().token;
-          if (!pollToken) throw new ApiError("unauthorized", 401);
-          job = await api.request<TranscriptionJobRead>(
-            `/transcription-jobs/${encodeURIComponent(job.id)}`,
-            { token: pollToken, signal: controller.signal },
-          );
+          // Solo con la sesión de quien la subió (ADR-0012).
+          const { token: pollToken, user: pollUser } = useAuthStore.getState();
+          if (!pollToken || pollUser?.id !== user.id) throw new ApiError("unauthorized", 401);
+          try {
+            job = await api.request<TranscriptionJobRead>(
+              `/transcription-jobs/${encodeURIComponent(job.id)}`,
+              { token: pollToken, signal: controller.signal },
+            );
+            failures = 0;
+          } catch (error) {
+            if (!(error instanceof ApiError) || !PASSING_FAILURES.has(error.kind)) throw error;
+            failures += 1;
+            if (failures >= MAX_POLL_FAILURES) throw error;
+          }
           if (!current()) return;
         }
+        result = job.result ?? null;
       } catch (error) {
         if (!current()) return;
         if (error instanceof ApiError && error.kind === "not-found") {
-          // El servidor se reinició y la transcripción ya no está: la imagen sigue aquí para
-          // volver a subirla.
-          forget(user.id, [job.id]);
-          set({ stage: { kind: "failed", message: INTERRUPTED_MESSAGE, mayExist: true } });
+          // Ya no está en el servidor: puede que creara su sesión justo antes de desaparecer.
+          const token = useAuthStore.getState().token;
+          const outcome = token ? await settleMissing(api, token, job.id) : null;
+          if (!current()) return;
+          if (outcome && "result" in outcome) {
+            forget(user.id, [job.id]);
+            result = outcome.result;
+          } else {
+            if (outcome) forget(user.id, [job.id]);
+            // La imagen sigue aquí para volver a subirla.
+            set({ stage: { kind: "failed", message: INTERRUPTED_MESSAGE, mayExist: true } });
+            return;
+          }
+        } else {
+          // Sin sesión o sin conexión: la transcripción sigue en el servidor.
+          set({
+            stage: {
+              kind: "failed",
+              message:
+                error instanceof ApiError && error.kind === "unauthorized"
+                  ? "Tu sesión caducó, pero la transcripción sigue en el servidor: al volver a entrar la verás en tus transcripciones."
+                  : "Se perdió la conexión con el servidor, pero la transcripción sigue allí: la verás en tus transcripciones.",
+              mayExist: true,
+            },
+          });
           return;
         }
-        // Sin sesión o sin conexión: la transcripción sigue en el servidor.
-        set({
-          stage: {
-            kind: "failed",
-            message:
-              error instanceof ApiError && error.kind === "unauthorized"
-                ? "Tu sesión caducó, pero la transcripción sigue en el servidor: al volver a entrar la verás en tus transcripciones."
-                : "Se perdió la conexión con el servidor, pero la transcripción sigue allí: la verás en tus transcripciones.",
-            mayExist: true,
-          },
-        });
-        return;
       } finally {
         if (inFlight === controller) inFlight = null;
       }
       forget(user.id, [job.id]);
-      if (job.stage === "failed" || !job.result) {
+      if (!result) {
         set({
           stage: { kind: "failed", message: jobFailureMessage(job.failure), mayExist: false },
         });
@@ -402,7 +431,7 @@ export const useLandingUpload = create<LandingUploadState>()((set, get) => {
         file: null,
         chooserId: null,
         draft: emptyDraft(PREPARED_PARTS),
-        stage: { kind: "done", result: job.result, ownerId: user.id, name },
+        stage: { kind: "done", result, ownerId: user.id, name },
       });
     },
     preview: async (api) => {

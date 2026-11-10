@@ -823,7 +823,7 @@ export interface TranscribeResponse {
 export interface TranscriptionJobRead {
   /** Identificador del trabajo; la sesión que crea al terminar tiene el mismo */
   id: string;
-  /** queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading`; reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: no se pudo (`failure`) */
+  /** queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` (con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: no se pudo (`failure`) */
   stage: "queued" | "detecting" | "reading" | "reviewing" | "done" | "failed";
   /** En cola: trabajos por delante, de todas las personas, contando el que se transcribe; null fuera de la cola */
   ahead?: number | null;

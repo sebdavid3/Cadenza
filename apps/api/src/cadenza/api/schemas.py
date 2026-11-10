@@ -389,7 +389,8 @@ class TranscriptionJobRead(BaseModel):
     stage: Literal["queued", "detecting", "reading", "reviewing", "done", "failed"] = Field(
         ...,
         description=(
-            "queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading`; "
+            "queued: en cola; detecting: HOMR detecta los pentagramas de la lectura `reading` "
+            "(con `reading` null, aún se prepara: guarda la imagen y espera su turno en HOMR); "
             "reading: lee el pentagrama `staff` de `staffs`; reviewing: la etapa del compás, "
             "las reglas y guardar la sesión; done: la sesión está creada (`result`); failed: "
             "no se pudo (`failure`)"

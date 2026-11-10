@@ -118,7 +118,7 @@ export function jobFailureMessage(failure: TranscriptionJobRead["failure"]): str
 
 /** La transcripción ya no está en el servidor y no creó su sesión: la API se reinició. */
 export const INTERRUPTED_MESSAGE =
-  "Se interrumpió porque el servidor se reinició. Vuelve a subirla.";
+  "Se interrumpió: ya no está en el servidor y no llegó a crear su sesión (el servidor pudo reiniciarse). Vuelve a subirla.";
 
 /** Si la transcripción ya terminó en el servidor, bien o mal. */
 function finished(job: TranscriptionJobRead): boolean {
@@ -202,6 +202,38 @@ export function forget(ownerId: string, jobIds: Iterable<string>) {
   const entries = readRemembered(ownerId);
   const kept = entries.filter((entry) => !gone.has(entry.id));
   if (kept.length !== entries.length) writeRemembered(ownerId, kept);
+}
+
+/**
+ * Una transcripción que ya no está en el servidor: lista si creó su sesión (que se llama como el
+ * trabajo, ADR-0063); si no, se interrumpió. Null si no se pudo saber (sin conexión, otro error).
+ */
+export async function settleMissing(
+  api: ApiClient,
+  token: string,
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<{ result: TranscribeResponse } | { interrupted: true } | null> {
+  try {
+    const session = await api.request<SessionViewRead>(`/sessions/${encodeURIComponent(jobId)}`, {
+      query: { fields: "view" },
+      token,
+      signal,
+    });
+    return {
+      result: {
+        session_id: session.session_id,
+        document_id: session.document_id,
+        omr_engine: session.omr_engine,
+        findings_count: session.findings.length,
+        condition: session.condition,
+        test_score_id: session.test_score_id ?? null,
+      },
+    };
+  } catch (error) {
+    if (error instanceof ApiError && error.kind === "not-found") return { interrupted: true };
+    return null;
+  }
 }
 
 let nextId = 0;
@@ -301,35 +333,6 @@ export const useQueueStore = create<QueueState>()((set, get) => {
   const tokenOfOwner = () => {
     const { token, user } = useAuthStore.getState();
     return token && user?.id === get().ownerId ? token : null;
-  };
-
-  /** Una transcripción que ya no está en el servidor: lista si creó su sesión; si no, se cortó. */
-  const settleMissing = async (
-    api: ApiClient,
-    token: string,
-    jobId: string,
-    signal: AbortSignal,
-  ): Promise<{ result: TranscribeResponse } | { interrupted: true } | null> => {
-    try {
-      const session = await api.request<SessionViewRead>(`/sessions/${encodeURIComponent(jobId)}`, {
-        query: { fields: "view" },
-        token,
-        signal,
-      });
-      return {
-        result: {
-          session_id: session.session_id,
-          document_id: session.document_id,
-          omr_engine: session.omr_engine,
-          findings_count: session.findings.length,
-          condition: session.condition,
-          test_score_id: session.test_score_id ?? null,
-        },
-      };
-    } catch (error) {
-      if (error instanceof ApiError && error.kind === "not-found") return { interrupted: true };
-      return null;
-    }
   };
 
   const restoredItem = (job: TranscriptionJobRead): QueueItem => {
@@ -626,6 +629,13 @@ export const useQueueStore = create<QueueState>()((set, get) => {
                 timeoutMs: UPLOAD_TIMEOUT_MS,
               });
               if (!current()) return;
+              // Si al volver a la vista ya se recuperó del servidor con la subida en vuelo,
+              // esa copia sobra: la sigue la imagen que se subió.
+              set((state) => ({
+                items: state.items.filter(
+                  (candidate) => candidate.id === next.id || candidate.job?.id !== job.id,
+                ),
+              }));
               const item = get().items.find((candidate) => candidate.id === next.id);
               if (item) patch(next.id, fromJob(item, job));
               if (finished(job)) {

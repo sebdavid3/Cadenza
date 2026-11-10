@@ -272,51 +272,68 @@ class TranscriptionJobs:
         self._worker.start()
 
     def _work_forever(self) -> None:
+        # Nada de lo que haga un trabajo mata el hilo, ni siquiera un `SystemExit` dentro de una
+        # dependencia: los demás trabajos siguen. (En un hilo que no es el principal, salir del
+        # proceso no es cosa suya; Ctrl+C llega al hilo principal.)
         while True:
-            with self._lock:
-                while not self._queue:
-                    self._lock.wait()
-            # Un hueco de transcripción, como `POST /transcribe` (ADR-0024), pero sin plazo: el
-            # trabajo sigue en cola, el primero, hasta que lo hay.
-            self._slots.semaphore.acquire()
             try:
-                with self._lock:
-                    if not self._queue:
-                        continue
-                    job = self._jobs[self._queue.popleft()]
-                    self._running = job.id
-                    job.stage = JobStage.DETECTING
-                    job.started_at = self._clock()
-                    job.marks.append(("detecting", time.monotonic()))
-                    work = job.work
-                self._run(job, work)
-            finally:
-                with self._lock:
-                    self._running = None
-                self._slots.semaphore.release()
+                self._work_one()
+            except BaseException:
+                logger.exception("transcription_jobs_worker_failed")
+
+    def _work_one(self) -> None:
+        """Espera un trabajo, le busca hueco y lo transcribe. Sus variables mueren al volver:
+        la imagen del trabajo no se queda en memoria mientras el hilo espera al siguiente."""
+
+        with self._lock:
+            while not self._queue:
+                self._lock.wait()
+        # Un hueco de transcripción, como `POST /transcribe` (ADR-0024), pero sin plazo: el
+        # trabajo sigue en cola, el primero, hasta que lo hay.
+        self._slots.semaphore.acquire()
+        try:
+            with self._lock:
+                if not self._queue:
+                    return
+                job = self._jobs[self._queue.popleft()]
+                self._running = job.id
+                job.stage = JobStage.DETECTING
+                job.started_at = self._clock()
+                job.marks.append(("detecting", time.monotonic()))
+                # La imagen y lo demás salen del registro: solo las retiene esta vuelta.
+                work, job.work = job.work, None
+            self._run(job, work)
+        finally:
+            with self._lock:
+                self._running = None
+            self._slots.semaphore.release()
 
     def _run(self, job: _Job, work: JobWork | None) -> None:
         result: TranscribeResult | None = None
-        failure: JobFailure | None = None
+        failure: JobFailure | None = JobFailure.INTERNAL
         try:
             assert work is not None
             result = work(JobProgress(self, job.id))
+            failure = None
         except OMRTranscriptionError as exc:
             failure = JobFailure.UNREADABLE
             logger.info("transcription_job_unreadable job_id=%s error=%s", job.id, exc)
         except Exception:
-            failure = JobFailure.INTERNAL
             logger.exception("transcription_job_failed job_id=%s", job.id)
-        with self._lock:
-            job.work = None  # la imagen y lo demás, fuera de la memoria
-            job.result = result
-            job.failure = failure
-            job.stage = JobStage.DONE if failure is None else JobStage.FAILED
-            job.reading = job.staff = job.staffs = None
-            job.finished_at = self._clock()
-            job.finished_monotonic = time.monotonic()
-            job.marks.append(("end", job.finished_monotonic))
-        self._log_finished(job)
+        finally:
+            # También ante un BaseException: el trabajo nunca se queda a medias.
+            with self._lock:
+                job.result = result
+                job.failure = failure
+                job.stage = JobStage.DONE if failure is None else JobStage.FAILED
+                job.reading = job.staff = job.staffs = None
+                job.finished_at = self._clock()
+                job.finished_monotonic = time.monotonic()
+                job.marks.append(("end", job.finished_monotonic))
+        try:
+            self._log_finished(job)
+        except Exception:  # pragma: no cover - el registro nunca tumba la cola
+            logger.exception("transcription_job_log_failed job_id=%s", job.id)
 
     def _log_finished(self, job: _Job) -> None:
         """Lo que tardó cada etapa, en milisegundos, en una línea del registro (#269)."""

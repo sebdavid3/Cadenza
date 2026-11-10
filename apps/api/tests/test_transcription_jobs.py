@@ -2,18 +2,23 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import queue
 import secrets
 import threading
 import time
+import weakref
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.api.transcription_jobs import JobFailure, JobProgress, JobStage, TranscriptionJobs
+from cadenza.api.transcription_slots import TranscriptionSlots
+from cadenza.application import Role, TranscribeResult, User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import OMREngine, OMRTranscriptionError
 from cadenza.omr.progress import OMRProgress, Reading, report
@@ -273,7 +278,9 @@ def test_after_a_restart_a_job_is_unknown(tmp_path: Path) -> None:
     assert after.get("/transcription-jobs").json() == []
     # Y no hay sesión: la web dice que se interrumpió.
     assert after.get(f"/sessions/{job['id']}").status_code == 404
+    # La API de antes termina su trabajo antes de salir: no se cuela en otras pruebas.
     engine.step(2)
+    _wait_for(_client(before, "usr-ana"), job["id"], _at("done"))
 
 
 def test_each_person_has_a_cap_on_jobs_in_the_queue(tmp_path: Path) -> None:
@@ -426,3 +433,105 @@ def test_the_synchronous_transcription_is_unchanged(tmp_path: Path) -> None:
         "condition",
         "test_score_id",
     }
+
+
+def _result(session_id: str) -> TranscribeResult:
+    return TranscribeResult(
+        session_id=session_id, document_id="d", omr_engine="fake", findings_count=0
+    )
+
+
+def _wait_view(jobs: TranscriptionJobs, job_id: str, stage: JobStage) -> None:
+    deadline = time.monotonic() + JOB_TIMEOUT
+    while (view := jobs.get(job_id, "usr-ana")) is None or view.stage is not stage:
+        assert time.monotonic() < deadline, view
+        time.sleep(0.01)
+
+
+class _Image:
+    """Lo que retiene un trabajo en cola: la imagen subida."""
+
+
+def test_a_finished_job_lets_go_of_its_image_while_the_worker_waits() -> None:
+    jobs = TranscriptionJobs(
+        TranscriptionSlots(1), max_per_user=5, max_total=5, clock=lambda: datetime.now(UTC)
+    )
+    image = _Image()
+    kept = weakref.ref(image)
+
+    def work(progress: JobProgress, image: _Image = image) -> TranscribeResult:
+        return _result(progress.job_id)
+
+    view = jobs.submit(owner_id="usr-ana", work=work, source_filename=None, title=None)
+    del image, work
+    _wait_view(jobs, view.id, JobStage.DONE)
+
+    gc.collect()
+    assert kept() is None
+
+
+def test_the_worker_survives_a_job_that_kills_its_thread() -> None:
+    jobs = TranscriptionJobs(
+        TranscriptionSlots(1), max_per_user=5, max_total=5, clock=lambda: datetime.now(UTC)
+    )
+
+    def dies(progress: JobProgress) -> TranscribeResult:
+        raise SystemExit("el hilo se va")
+
+    broken = jobs.submit(owner_id="usr-ana", work=dies, source_filename=None, title=None)
+    _wait_view(jobs, broken.id, JobStage.FAILED)
+    # Ni colgado ni contando para los topes: fallido, y el siguiente se transcribe.
+    assert (
+        view := jobs.get(broken.id, "usr-ana")
+    ) is not None and view.failure is JobFailure.INTERNAL
+    following = jobs.submit(
+        owner_id="usr-ana",
+        work=lambda progress: _result(progress.job_id),
+        source_filename=None,
+        title=None,
+    )
+    _wait_view(jobs, following.id, JobStage.DONE)
+
+
+def test_finished_jobs_are_forgotten_after_a_while() -> None:
+    jobs = TranscriptionJobs(
+        TranscriptionSlots(1),
+        max_per_user=5,
+        max_total=5,
+        clock=lambda: datetime.now(UTC),
+        keep_finished_seconds=0.2,
+    )
+    view = jobs.submit(
+        owner_id="usr-ana",
+        work=lambda progress: _result(progress.job_id),
+        source_filename=None,
+        title=None,
+    )
+    _wait_view(jobs, view.id, JobStage.DONE)
+    assert [job.id for job in jobs.list("usr-ana")] == [view.id]
+
+    time.sleep(0.3)
+
+    assert jobs.get(view.id, "usr-ana") is None
+    assert jobs.list("usr-ana") == []
+
+
+def test_a_job_waits_in_the_queue_while_the_synchronous_transcription_has_the_slots(
+    tmp_path: Path,
+) -> None:
+    engine = _SteppedEngine(1)
+    app = _app(_db(tmp_path / "j.db"), engine, transcribe_max_concurrency=1)
+    client = _client(app, "usr-ana")
+    slots: TranscriptionSlots = app.state.transcription_slots
+    assert slots.semaphore.acquire(blocking=False)  # POST /transcribe calculando
+    try:
+        job = _submit(client)
+        time.sleep(0.2)
+        waiting = client.get(f"/transcription-jobs/{job['id']}").json()
+        # Espera en cola, la siguiente, sin 503 ni plazo.
+        assert (waiting["stage"], waiting["ahead"]) == ("queued", 0)
+    finally:
+        slots.semaphore.release()
+    _wait_for(client, job["id"], _at("detecting"))
+    engine.step(2)
+    _wait_for(client, job["id"], _at("done"))

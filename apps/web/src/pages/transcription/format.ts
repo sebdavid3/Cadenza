@@ -42,6 +42,8 @@ export function jobProgress(job: TranscriptionJobRead): QueueProgress | null {
       };
     }
     case "detecting":
+      // Sin lectura todavía: el servidor guarda la imagen y espera su turno en HOMR.
+      if (!job.reading) return { text: "Preparando la lectura" };
       return {
         text: piano
           ? `${SECOND_READING}: detectando los pentagramas`
@@ -62,6 +64,26 @@ export function jobProgress(job: TranscriptionJobRead): QueueProgress | null {
       return { text: "Revisando el compás y los posibles errores" };
     default:
       return null;
+  }
+}
+
+/**
+ * La etapa, sin el número de pentagrama: lo que se anuncia al lector de pantalla, que no tiene
+ * por qué oír cada pentagrama de una página.
+ */
+export function jobStageAnnouncement(job: TranscriptionJobRead | undefined): string {
+  if (!job) return "Subiendo la imagen";
+  switch (job.stage) {
+    case "queued":
+      return "En cola";
+    case "detecting":
+    case "reading":
+      if (!job.reading) return "Preparando la lectura";
+      return job.reading === "piano" ? SECOND_READING : "Leyendo los pentagramas";
+    case "reviewing":
+      return "Revisando el compás y los posibles errores";
+    default:
+      return "";
   }
 }
 

@@ -1457,7 +1457,7 @@ describe("la lámina dice en qué está la transcripción (#375)", () => {
     expect(within(running).getByText("Sin imagen")).toBeVisible();
     const lost = await waitFor(() => queuePlate(queue, "perdida.png"));
     expect(within(lost).getByText("Interrumpida")).toBeVisible();
-    expect(within(lost).getByText(/se interrumpió porque el servidor se reinició/i)).toBeVisible();
+    expect(within(lost).getByText(/se interrumpió: ya no está en el servidor/i)).toBeVisible();
     // Sin la imagen no se puede reintentar desde aquí: se quita.
     expect(within(lost).getByRole("button", { name: "Quitar perdida.png" })).toBeVisible();
     expect(within(lost).queryByRole("button", { name: /reintentar/i })).toBeNull();
