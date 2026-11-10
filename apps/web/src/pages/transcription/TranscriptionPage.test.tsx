@@ -2,19 +2,13 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { api } from "../../api/instance";
 import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
-import {
-  ANA,
-  deferred,
-  fakeJwt,
-  jsonResponse,
-  mockApi,
-  resetAuth,
-  signInAs,
-} from "../../test/auth-helpers";
+import { ANA, deferred, fakeJwt, jsonResponse, resetAuth, signInAs } from "../../test/auth-helpers";
+import { job, mockApiWithInstantJobs } from "../../test/jobs";
 import type { SessionSummaryRead, UserRead } from "../../types";
-import { useQueueStore, type QueueItem } from "./queue";
+import { JOB_POLLING, remember, useQueueStore, type QueueItem } from "./queue";
 
 function session(id: string, overrides: Partial<SessionSummaryRead> = {}): SessionSummaryRead {
   return {
@@ -77,7 +71,7 @@ function setQueue(items: QueueItem[]) {
 }
 
 function item(id: string, name: string, changes: Partial<QueueItem> = {}): QueueItem {
-  return { id, file: png(name), status: "queued", ...changes };
+  return { id, file: png(name), name, status: "queued", ...changes };
 }
 
 /** El diario de sesiones (#370), una vez que enseña al menos una lámina. */
@@ -116,7 +110,7 @@ afterEach(() => {
 
 describe("vista de transcripción", () => {
   it("muestra el estado vacío cuando no hay sesiones", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
 
     expect(await screen.findByText(/todavía no hay sesiones/i)).toBeVisible();
@@ -129,7 +123,7 @@ describe("vista de transcripción", () => {
   });
 
   it("enseña cada sesión como lámina de su día, con hora, estado, posibles errores, miniatura y enlace", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111"), session("bbbbbbbb-2222")]),
       "GET /sessions/aaaaaaaa-1111/image": () =>
         new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/png" } }),
@@ -174,7 +168,7 @@ describe("vista de transcripción", () => {
   it("revoca cada URL de miniatura creada al salir de la vista", async () => {
     let n = 0;
     createObjectURL.mockImplementation(() => `blob:miniatura-${String(++n)}`);
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111"), session("bbbbbbbb-2222")]),
       "GET /sessions/aaaaaaaa-1111/image": image,
       "GET /sessions/bbbbbbbb-2222/image": image,
@@ -196,7 +190,7 @@ describe("vista de transcripción", () => {
   it("pagina con «Cargar más»", async () => {
     const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
     let page = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => {
         page += 1;
         return jsonResponse(page === 1 ? first : [session("ultima-0000")]);
@@ -217,7 +211,7 @@ describe("vista de transcripción", () => {
   it("no repite filas si una sesión nueva desplaza la página siguiente", async () => {
     const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
     let page = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         page += 1;
         // Se creó una sesión entre páginas: la última de la primera vuelve a salir.
@@ -237,7 +231,7 @@ describe("vista de transcripción", () => {
   it("si falla «Cargar más» avisa una sola vez y conserva las filas", async () => {
     const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
     let page = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         page += 1;
         return page === 1 ? jsonResponse(first) : jsonResponse({ detail: "boom" }, 500);
@@ -259,7 +253,7 @@ describe("vista de transcripción", () => {
 
   it("un investigador ve el propietario de cada sesión", async () => {
     const investigador: UserRead = { ...ANA, id: "inv-1", username: "irene", role: "investigador" };
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([
           session("aaaaaaaa-1", { owner_id: ANA.id }),
@@ -279,7 +273,7 @@ describe("vista de transcripción", () => {
 
   it("muestra un error del listado con reintento", async () => {
     let fail = true;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         fail ? jsonResponse({ detail: "boom" }, 500) : jsonResponse([session("aaaaaaaa-1")]),
     });
@@ -295,7 +289,7 @@ describe("vista de transcripción", () => {
 
   it("muestra el estado de carga mientras llega el listado", async () => {
     const response = deferred<Response>();
-    mockApi({ "GET /sessions": () => response.promise });
+    mockApiWithInstantJobs({ "GET /sessions": () => response.promise });
     renderPage();
 
     expect(await screen.findByText(/cargando sesiones/i)).toHaveAttribute("role", "status");
@@ -306,7 +300,7 @@ describe("vista de transcripción", () => {
 
   it("sube varias imágenes, las transcribe en cola y sus sesiones ocupan su sitio en el día de hoy", async () => {
     const created: SessionSummaryRead[] = [];
-    mockApi({
+    mockApiWithInstantJobs({
       // La más reciente primero, como la API.
       "GET /sessions": () => jsonResponse([...created].reverse()),
       "POST /transcribe": () => {
@@ -336,7 +330,7 @@ describe("vista de transcripción", () => {
   });
 
   it("si «Limpiar terminadas» vacía la cola, el foco pasa a «Nueva transcripción»", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     setQueue([
@@ -352,7 +346,7 @@ describe("vista de transcripción", () => {
   });
 
   it("si se quita la única imagen, el foco pasa a «Nueva transcripción»", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     setQueue([item("a", "a.png")]);
@@ -367,7 +361,7 @@ describe("vista de transcripción", () => {
   it("el foco no salta a la sesión si la persona ya había dejado la cola", async () => {
     const refresh = deferred<Response>();
     let listed = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         listed += 1;
         return listed === 1 ? jsonResponse([]) : refresh.promise;
@@ -393,7 +387,7 @@ describe("vista de transcripción", () => {
   });
 
   it("si la sesión ya estaba en el listado al terminar, el foco pasa a su lámina", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([session("lista000-1", { created_at: nowUtc(), findings_count: 0 })]),
     });
@@ -420,7 +414,7 @@ describe("vista de transcripción", () => {
   });
 
   it("anuncia la cola aunque aparezca por una imagen rechazada", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     // La región viva existe antes de que haya cola: así se anuncia lo que cambie.
@@ -442,7 +436,7 @@ describe("vista de transcripción", () => {
   it("una imagen transcrita deja su sitio a la lámina de su sesión, y el foco pasa con ella", async () => {
     const refresh = deferred<Response>();
     let listed = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         listed += 1;
         return listed === 1 ? jsonResponse([]) : refresh.promise;
@@ -479,7 +473,7 @@ describe("vista de transcripción", () => {
       date.setHours(12, 0, 0, 0);
       return date.toISOString().replace("Z", "");
     };
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([
           session("hoy00000-1", { created_at: at(0) }),
@@ -502,7 +496,7 @@ describe("vista de transcripción", () => {
   });
 
   it("la cola solo aparece con imágenes, en el día de hoy aunque no tenga sesiones", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([session("antes000-1")]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([session("antes000-1")]) });
     renderPage();
     const diary = await findDiary();
     expect(within(diary).getAllByRole("heading", { level: 2 })).toHaveLength(1);
@@ -522,7 +516,7 @@ describe("vista de transcripción", () => {
   it("si la sesión caduca a mitad del lote, lleva al acceso, conserva la cola y la reanuda al volver", async () => {
     let posts = 0;
     const created: SessionSummaryRead[] = [];
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([...created].reverse()),
       "POST /transcribe": () => {
         posts += 1;
@@ -565,7 +559,7 @@ describe("vista de transcripción", () => {
   });
 
   it("rechaza en el navegador un archivo que no es imagen", async () => {
-    const { calls } = mockApi({ "GET /sessions": () => jsonResponse([]) });
+    const { calls } = mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
@@ -579,11 +573,11 @@ describe("vista de transcripción", () => {
     expect(within(queue).getByText("Rechazada")).toBeVisible();
     expect(within(queue).getByText(/no es una imagen png o jpeg/i)).toBeVisible();
     expect(within(queue).queryByRole("button", { name: /reintentar/i })).toBeNull();
-    expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+    expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(false);
   });
 
   it("marca en violeta las sesiones con posibles errores y no las que no tienen", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([
           session("aaaaaaaa-1", { findings_count: 3 }),
@@ -603,7 +597,7 @@ describe("vista de transcripción", () => {
   });
 
   it("distingue una sesión finalizada de las que siguen abiertas (#187)", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([
           session("aaaaaaaa-1", { status: "finalized" }),
@@ -620,7 +614,7 @@ describe("vista de transcripción", () => {
   });
 
   it("con un lote en curso pide confirmación al cerrar la pestaña y al salir", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     const router = renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     act(() => {
@@ -629,6 +623,7 @@ describe("vista de transcripción", () => {
           {
             id: "x",
             file: new File([new Uint8Array(4)], "pendiente.png", { type: "image/png" }),
+            name: "pendiente.png",
             status: "queued",
           },
         ],
@@ -653,7 +648,7 @@ describe("vista de transcripción", () => {
   });
 
   it("sigue pidiendo confirmación al cerrar la pestaña después de salir de la vista", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     const router = renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     setQueue([item("x", "pendiente.png")]);
@@ -675,8 +670,8 @@ describe("vista de transcripción", () => {
     expect(returnValue).toBe("");
 
     act(() => {
-      useQueueStore.getState().clearFinished();
-      useQueueStore.getState().remove("x");
+      useQueueStore.getState().clearFinished(api);
+      void useQueueStore.getState().remove("x", api);
     });
     const later = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(later);
@@ -684,7 +679,7 @@ describe("vista de transcripción", () => {
   });
 
   it("separa en el recuento las transcritas de las que fallaron", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
@@ -699,7 +694,7 @@ describe("vista de transcripción", () => {
   });
 
   it("cada imagen transcrita enlaza a su sesión (#277)", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
@@ -720,7 +715,7 @@ describe("vista de transcripción", () => {
   });
 
   it("el contador de la imagen en curso cuenta desde que empezó, aunque se vuelva a la vista", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
@@ -734,7 +729,7 @@ describe("vista de transcripción", () => {
   });
 
   it("mantiene el foco en la cola tras reintentar, quitar y limpiar", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     setQueue([
@@ -757,7 +752,7 @@ describe("vista de transcripción", () => {
   });
 
   it("el selector oculto no es una parada de foco y soltar nada no abre nada en la pestaña", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     const router = renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
 
@@ -780,7 +775,7 @@ describe("vista de transcripción", () => {
   it("descarga a lo sumo tres miniaturas a la vez", async () => {
     const pending = new Map<string, ReturnType<typeof deferred<Response>>>();
     const ids = Array.from({ length: 5 }, (_, i) => `img00000-${String(i)}`);
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse(ids.map((id) => session(id))),
       ...Object.fromEntries(
         ids.map((id) => [
@@ -813,7 +808,7 @@ describe("vista de transcripción", () => {
   });
 
   it("no vuelve a descargar las miniaturas al volver a la vista", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([session("aaaaaaaa-1111")]),
       "GET /sessions/aaaaaaaa-1111/image": image,
     });
@@ -840,7 +835,7 @@ describe("vista de transcripción", () => {
     const nextPage = deferred<undefined>();
     const post = deferred<Response>();
     let secondPages = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => {
         const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
         const page = () => jsonResponse(all().slice(offset, offset + 20));
@@ -856,7 +851,7 @@ describe("vista de transcripción", () => {
       useQueueStore.getState().add([png("uno.png")]);
     });
     await waitFor(() => {
-      expect(calls.some((call) => call.key === "POST /transcribe")).toBe(true);
+      expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(true);
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
@@ -884,7 +879,7 @@ describe("vista de transcripción", () => {
     const all = () => [...[...created].reverse(), ...first, session("ultima-0000")];
     const refresh = deferred<undefined>();
     let firstPages = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => {
         const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
         const page = () => jsonResponse(all().slice(offset, offset + 20));
@@ -933,7 +928,7 @@ describe("vista de transcripción", () => {
   it("tras «Cargar más» el foco pasa a la primera sesión nueva", async () => {
     const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
     let page = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         page += 1;
         return jsonResponse(page === 1 ? first : [session("ultima-0000")]);
@@ -951,7 +946,7 @@ describe("vista de transcripción", () => {
   });
 
   it("si la imagen cuyo «Quitar» tiene el foco empieza a transcribirse, el foco sigue en ella", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     setQueue([
@@ -976,7 +971,7 @@ describe("vista de transcripción", () => {
 
   it("si se pierde la conexión, la cola se pausa y se reanuda a petición", async () => {
     let posts = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => {
         posts += 1;
@@ -1007,7 +1002,7 @@ describe("vista de transcripción", () => {
   });
 
   it("acepta imágenes soltadas en cualquier parte de la vista y avisa mientras se arrastran", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse(transcribed("soltada0-1"), 201),
     });
@@ -1047,7 +1042,7 @@ describe("vista de transcripción", () => {
     };
     const brunoPage = deferred<Response>();
     let listed = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         listed += 1;
         return listed === 1 ? jsonResponse([session("deana000-1")]) : brunoPage.promise;
@@ -1073,7 +1068,7 @@ describe("vista de transcripción", () => {
     const first = Array.from({ length: 20 }, (_, i) => session(`s-${String(i).padStart(4, "0")}`));
     const nextPage = deferred<Response>();
     let page = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () => {
         page += 1;
         return page === 1 ? jsonResponse(first) : nextPage.promise;
@@ -1098,7 +1093,7 @@ describe("vista de transcripción", () => {
     const nextPage = deferred<undefined>();
     const post = deferred<Response>();
     let secondPages = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => {
         const offset = Number(calls.at(-1)?.url.searchParams.get("offset"));
         const page = () => jsonResponse(all().slice(offset, offset + 20));
@@ -1116,7 +1111,7 @@ describe("vista de transcripción", () => {
       useQueueStore.getState().add([png("uno.png")]);
     });
     await waitFor(() => {
-      expect(calls.some((call) => call.key === "POST /transcribe")).toBe(true);
+      expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(true);
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Cargar más" }));
@@ -1140,7 +1135,7 @@ describe("vista de transcripción", () => {
   });
 
   it("no avisa de la pausa si ya no queda nada en cola", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     renderPage();
     await screen.findByText(/todavía no hay sesiones/i);
     act(() => {
@@ -1157,7 +1152,7 @@ describe("vista de transcripción", () => {
   });
 
   it("tras un 401 no pide el listado sin token", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse({ detail: "Not authenticated" }, 401),
     });
@@ -1193,7 +1188,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
   }
 
   it("pide el nombre, el compositor y los instrumentos antes de enviar, y los envía con la imagen", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse(transcribed("nombrada-1"), 201),
     });
@@ -1208,7 +1203,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     expect(title).toHaveAttribute("maxlength", "200");
     expect(within(form).getByText(/se llama como el archivo/i)).toBeVisible();
     expect(within(form).getByText("mondnacht.png")).toBeVisible();
-    expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+    expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(false);
     expect(useQueueStore.getState().items).toEqual([]);
     // Valores por defecto: sin nombre, sin compositor y los instrumentos sin indicar.
     const upper = within(form).getByLabelText("Parte de arriba");
@@ -1226,7 +1221,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     await waitFor(() => {
       expect(within(queue).getByText("1 posible error")).toBeVisible();
     });
-    expect(sentData(calls.find((call) => call.key === "POST /transcribe"))).toEqual([
+    expect(sentData(calls.find((call) => call.key === "POST /transcription-jobs"))).toEqual([
       ["title", "Mondnacht"],
       ["composer", "Robert Schumann"],
       ["instruments", "voice"],
@@ -1241,7 +1236,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
   });
 
   it("al volver a la vista con imágenes preparadas, el foco no salta al formulario", async () => {
-    mockApi({ "GET /sessions": () => jsonResponse([]) });
+    mockApiWithInstantJobs({ "GET /sessions": () => jsonResponse([]) });
     // Las imágenes ya esperaban (la cola es de quien entró): se sale y se vuelve a la vista.
     signInAs(ANA);
     act(() => {
@@ -1255,7 +1250,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
   });
 
   it("en un lote, los datos valen para todas las imágenes o se cambian en cada una", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse(transcribed(`lote0000-${String(calls.length)}`), 201),
     });
@@ -1286,7 +1281,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     await waitFor(() => {
       expect(within(queue).getAllByText("1 posible error")).toHaveLength(2);
     });
-    const posts = calls.filter((call) => call.key === "POST /transcribe");
+    const posts = calls.filter((call) => call.key === "POST /transcription-jobs");
     expect(posts.map(sentData)).toEqual([
       [
         ["composer", "Clara Schumann"],
@@ -1303,7 +1298,7 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
   });
 
   it("sin datos envía solo la imagen; quitar y descartar no envían nada", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "GET /sessions": () => jsonResponse([]),
       "POST /transcribe": () => jsonResponse(transcribed("sindatos-1"), 201),
     });
@@ -1320,17 +1315,17 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
 
     expect(screen.queryByRole("form", { name: /antes de transcribir/i })).toBeNull();
     expect(screen.getByRole("button", { name: "Nueva transcripción" })).toHaveFocus();
-    expect(calls.some((call) => call.key === "POST /transcribe")).toBe(false);
+    expect(calls.some((call) => call.key === "POST /transcription-jobs")).toBe(false);
 
     await chooseAndTranscribe([png("tres.png")]);
     await waitFor(() => {
-      expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(1);
+      expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(1);
     });
-    expect(sentData(calls.find((call) => call.key === "POST /transcribe"))).toEqual([]);
+    expect(sentData(calls.find((call) => call.key === "POST /transcription-jobs"))).toEqual([]);
   });
 
   it("nombra cada sesión del listado por su título, su archivo o su identificador", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "GET /sessions": () =>
         jsonResponse([
           session("aaaaaaaa-1111", {
@@ -1363,5 +1358,108 @@ describe("datos de la partitura antes de transcribir (#240)", () => {
     expect(within(diary).getByRole("link", { name: "Sesión cccccccc" })).toBeVisible();
     // Nada de los datos del estudio.
     expect(screen.queryByText(/unassisted|TS-03/i)).toBeNull();
+  });
+});
+
+describe("la lámina dice en qué está la transcripción (#375)", () => {
+  afterEach(() => {
+    JOB_POLLING.intervalMs = 1000;
+    localStorage.clear();
+  });
+
+  /** La lámina de la cola de una imagen, por el nombre que enseña. */
+  function queuePlate(queue: HTMLElement, name: string): HTMLElement {
+    const plate = within(queue).getByText(name).closest("li");
+    if (!plate) throw new Error(`falta la lámina de ${name}`);
+    return plate;
+  }
+
+  function meterWidth(plate: HTMLElement): string | null {
+    return plate.querySelector<HTMLElement>(".job-progress__meter > span")?.style.width ?? null;
+  }
+
+  it("en cola con las que van delante, leyendo el pentagrama X de N, la segunda lectura y revisando", async () => {
+    mockApiWithInstantJobs({
+      "GET /sessions": () => jsonResponse([]),
+      "GET /transcription-jobs": () => jsonResponse([]),
+    });
+    renderPage();
+    await screen.findByText(/todavía no hay sesiones/i);
+    const reading = (id: string, kind: "first" | "piano", staff: number, staffs: number) =>
+      job({ id, stage: "reading", ahead: null, reading: kind, staff, staffs });
+    setQueue([
+      item("a", "a.png", { job: job({ id: "j-a", ahead: 2 }) }),
+      item("b", "b.png", {
+        status: "transcribing",
+        startedAt: Date.now(),
+        job: reading("j-b", "first", 3, 8),
+      }),
+      item("c", "c.png", {
+        status: "transcribing",
+        startedAt: Date.now(),
+        job: reading("j-c", "piano", 2, 6),
+      }),
+      item("d", "d.png", {
+        status: "transcribing",
+        startedAt: Date.now(),
+        job: job({ id: "j-d", stage: "reviewing", ahead: null }),
+      }),
+      item("e", "e.png", { job: job({ id: "j-e", ahead: 0 }) }),
+    ]);
+    const queue = screen.getByRole("region", { name: "Cola" });
+
+    const queued = queuePlate(queue, "a.png");
+    expect(within(queued).getByText("En cola")).toBeVisible();
+    expect(within(queued).getByText("2 por delante")).toBeVisible();
+    expect(within(queuePlate(queue, "e.png")).getByText("Es la siguiente")).toBeVisible();
+    // La barra solo cuenta los pentagramas ya leídos de la lectura en curso: 2 de 8.
+    const first = queuePlate(queue, "b.png");
+    expect(within(first).getByText("Leyendo el pentagrama 3 de 8")).toBeVisible();
+    expect(meterWidth(first)).toBe("25%");
+    // La segunda lectura se nombra: la barra vuelve a empezar con una explicación.
+    const piano = queuePlate(queue, "c.png");
+    expect(
+      within(piano).getByText("Segunda lectura, con el piano por separado: pentagrama 2 de 6"),
+    ).toBeVisible();
+    expect(meterWidth(piano)).toMatch(/^16\.6/);
+    const reviewing = queuePlate(queue, "d.png");
+    expect(within(reviewing).getByText("Revisando el compás y los posibles errores")).toBeVisible();
+    expect(meterWidth(reviewing)).toBeNull();
+    expect(within(queue).queryByText(/%/)).toBeNull();
+  });
+
+  it("al recargar la página, enseña las que siguen en el servidor y las que se interrumpieron", async () => {
+    JOB_POLLING.intervalMs = 50;
+    remember(ANA.id, { id: "perdida", name: "perdida.png" });
+    mockApiWithInstantJobs({
+      "GET /sessions": () => jsonResponse([]),
+      "GET /transcription-jobs": () =>
+        jsonResponse([
+          job({
+            id: "j1",
+            stage: "reading",
+            ahead: null,
+            reading: "first",
+            staff: 1,
+            staffs: 4,
+            source_filename: "TS-02.png",
+            started_at: new Date().toISOString(),
+          }),
+        ]),
+      "GET /sessions/perdida": () => jsonResponse({ detail: "no" }, 404),
+    });
+    renderPage();
+
+    const queue = await screen.findByRole("region", { name: "Cola" });
+    const running = queuePlate(queue, "TS-02.png");
+    expect(await within(running).findByText("Leyendo el pentagrama 1 de 4")).toBeVisible();
+    // Sin el archivo en el navegador, la miniatura lo dice.
+    expect(within(running).getByText("Sin imagen")).toBeVisible();
+    const lost = await waitFor(() => queuePlate(queue, "perdida.png"));
+    expect(within(lost).getByText("Interrumpida")).toBeVisible();
+    expect(within(lost).getByText(/se interrumpió porque el servidor se reinició/i)).toBeVisible();
+    // Sin la imagen no se puede reintentar desde aquí: se quita.
+    expect(within(lost).getByRole("button", { name: "Quitar perdida.png" })).toBeVisible();
+    expect(within(lost).queryByRole("button", { name: /reintentar/i })).toBeNull();
   });
 });

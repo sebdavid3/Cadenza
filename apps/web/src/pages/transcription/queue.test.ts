@@ -11,8 +11,19 @@ import {
   resetAuth,
   signInAs,
 } from "../../test/auth-helpers";
+import { doneJob, job, mockApiWithInstantJobs } from "../../test/jobs";
 import type { UserRead } from "../../types";
-import { MAX_UPLOAD_BYTES, precheck, useQueueStore } from "./queue";
+import {
+  forget,
+  hasPendingWork,
+  INTERRUPTED_MESSAGE,
+  JOB_POLLING,
+  MAX_UPLOAD_BYTES,
+  precheck,
+  readRemembered,
+  remember,
+  useQueueStore,
+} from "./queue";
 import {
   createLimiter,
   formatDay,
@@ -63,6 +74,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  JOB_POLLING.intervalMs = 1000;
+  localStorage.clear();
 });
 
 describe("comprobación previa", () => {
@@ -87,7 +100,7 @@ describe("cola secuencial", () => {
     let inFlight = 0;
     let maxInFlight = 0;
     let n = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": async () => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
@@ -121,25 +134,32 @@ describe("cola secuencial", () => {
   });
 
   it("guarda cuándo empezó cada imagen para que el contador no se reinicie", async () => {
-    const response = deferred<Response>();
-    mockApi({ "POST /transcribe": () => response.promise });
+    JOB_POLLING.intervalMs = 1;
+    const started = "2026-11-09T10:00:01Z";
+    const done = deferred<Response>();
+    mockApi({
+      "POST /transcription-jobs": () =>
+        jsonResponse(job({ id: "j1", stage: "detecting", ahead: null, started_at: started }), 202),
+      "GET /transcription-jobs": () => done.promise,
+    });
     const store = useQueueStore.getState();
     store.add([png()]);
-    const before = Date.now();
 
     const running = store.run(api);
-    const [item] = useQueueStore.getState().items;
-    expect(item?.status).toBe("transcribing");
-    expect(item?.startedAt).toBeGreaterThanOrEqual(before);
+    await vi.waitFor(() => {
+      expect(statuses()).toEqual(["transcribing"]);
+    });
+    expect(useQueueStore.getState().items[0]?.startedAt).toBe(Date.parse(started));
 
-    response.resolve(jsonResponse(transcribed("s1"), 201));
+    done.resolve(jsonResponse([doneJob(transcribed("j1"))]));
     await running;
+    expect(statuses()).toEqual(["done"]);
   });
 
-  it("acepta imágenes nuevas con la cola en marcha y las envía en el mismo recorrido", async () => {
+  it("acepta imágenes nuevas con la cola en marcha y las sube en el mismo recorrido", async () => {
     const first = deferred<Response>();
     let n = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1 ? first.promise : jsonResponse(transcribed(`s${String(n)}`), 201);
@@ -150,7 +170,9 @@ describe("cola secuencial", () => {
 
     const running = store.run(api);
     store.add([png("b.png"), png("c.png")]);
-    expect(statuses()).toEqual(["transcribing", "queued", "queued"]);
+    // Mientras sube, sigue en cola: aún no tiene transcripción en el servidor.
+    expect(statuses()).toEqual(["queued", "queued", "queued"]);
+    expect(useQueueStore.getState().items[0]?.uploading).toBe(true);
     // Una segunda llamada mientras corre no abre otro recorrido en paralelo.
     await store.run(api);
     first.resolve(jsonResponse(transcribed("s1"), 201));
@@ -160,22 +182,22 @@ describe("cola secuencial", () => {
     expect(calls).toHaveLength(3);
   });
 
-  it("espera 30 s a la transcripción y avisa de que la sesión puede haberse creado", async () => {
+  it("la subida tiene su plazo, y si vence dice que se compruebe la conexión", async () => {
     vi.useFakeTimers();
-    mockApi({ "POST /transcribe": hangUntilAborted });
+    mockApi({ "POST /transcription-jobs": hangUntilAborted });
     const store = useQueueStore.getState();
     store.add([png()]);
 
     const running = store.run(api);
-    await vi.advanceTimersByTimeAsync(29_999);
-    expect(statuses()).toEqual(["transcribing"]);
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(statuses()).toEqual(["queued"]);
 
     await vi.advanceTimersByTimeAsync(1);
     await running;
     const [item] = useQueueStore.getState().items;
     expect(item?.status).toBe("error");
-    expect(item?.error).toMatch(/más de 30 s/);
-    expect(item?.error).toMatch(/puede que se haya creado; revisa el listado antes de reintentar/i);
+    expect(item?.error).toMatch(/la subida tardó demasiado/i);
+    expect(item?.error).not.toMatch(/30 s/);
   });
 
   it("un fallo de red deja un mensaje propio", async () => {
@@ -195,7 +217,7 @@ describe("cola secuencial", () => {
 
   it("tras cada envío, salga bien o mal, avisa para actualizar el listado", async () => {
     let n = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1
@@ -213,7 +235,7 @@ describe("cola secuencial", () => {
   });
 
   it("no envía los archivos rechazados en la comprobación previa", async () => {
-    const { fetchMock } = mockApi({});
+    const { fetchMock } = mockApiWithInstantJobs({});
     const store = useQueueStore.getState();
     store.add([new File(["hola"], "notas.txt", { type: "text/plain" })]);
 
@@ -232,7 +254,7 @@ describe("cola secuencial", () => {
     "un %i deja el archivo en error con mensaje propio y sigue con el resto",
     async (status, message) => {
       let n = 0;
-      mockApi({
+      mockApiWithInstantJobs({
         "POST /transcribe": () => {
           n += 1;
           return n === 1
@@ -253,31 +275,41 @@ describe("cola secuencial", () => {
     },
   );
 
-  it("un 503 dice que el servidor está ocupado y cuándo volver a probar (ADR-0024)", async () => {
-    mockApi({
-      "POST /transcribe": () =>
-        new Response(JSON.stringify({ detail: "en bruto" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json", "Retry-After": "10" },
-        }),
+  it("con la cola del servidor llena (503), las imágenes esperan sin error y se suben después", async () => {
+    vi.useFakeTimers();
+    let n = 0;
+    const { calls } = mockApiWithInstantJobs({
+      "POST /transcribe": () => {
+        n += 1;
+        return n === 1
+          ? new Response(JSON.stringify({ detail: "en bruto" }), {
+              status: 503,
+              headers: { "Content-Type": "application/json", "Retry-After": "60" },
+            })
+          : jsonResponse(transcribed(`s${String(n)}`), 201);
+      },
     });
     const store = useQueueStore.getState();
     store.add([png("a.png")]);
 
-    await store.run(api);
+    const running = store.run(api);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statuses()).toEqual(["queued"]);
+    expect(useQueueStore.getState()).toMatchObject({ hold: "queue-full", paused: false });
 
-    expect(useQueueStore.getState().items[0]?.error).toBe(
-      "El servidor está ocupado con otras transcripciones. Vuelve a probar en 10 s.",
-    );
+    await vi.advanceTimersByTimeAsync(60_000);
+    await running;
+    expect(statuses()).toEqual(["done"]);
+    expect(useQueueStore.getState().hold).toBeNull();
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(2);
   });
 
   it.each([
     ["un fallo de red", () => Promise.reject(new TypeError("Failed to fetch"))],
-    ["un 503", () => jsonResponse({ detail: "x" }, 503)],
     ["un 502", () => jsonResponse({ detail: "x" }, 502)],
   ])("con %s se pausa, deja el resto en cola y sigue al reanudar", async (_label, failure) => {
     let n = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1 ? failure() : jsonResponse(transcribed(`s${String(n)}`), 201);
@@ -299,7 +331,9 @@ describe("cola secuencial", () => {
   });
 
   it("reintentar, añadir imágenes o volver a entrar quitan la pausa", async () => {
-    mockApi({ "POST /transcribe": () => Promise.reject(new TypeError("Failed to fetch")) });
+    mockApiWithInstantJobs({
+      "POST /transcribe": () => Promise.reject(new TypeError("Failed to fetch")),
+    });
     const store = useQueueStore.getState();
     const pause = async () => {
       store.add([png()]);
@@ -309,7 +343,7 @@ describe("cola secuencial", () => {
 
     await pause();
     const failed = useQueueStore.getState().items.at(-1);
-    store.retry(failed?.id ?? "");
+    store.retry(failed?.id ?? "", api);
     expect(useQueueStore.getState().paused).toBe(false);
 
     await store.run(api);
@@ -326,7 +360,7 @@ describe("cola secuencial", () => {
 
   it("un 500 de una imagen no pausa la cola", async () => {
     let n = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1
@@ -344,7 +378,7 @@ describe("cola secuencial", () => {
   });
 
   it("ante un 401 se detiene y deja el resto en cola", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse({ detail: "Not authenticated" }, 401),
     });
     const store = useQueueStore.getState();
@@ -359,7 +393,7 @@ describe("cola secuencial", () => {
 
   it("si la sesión caduca con una imagen en vuelo, la siguiente espera en cola y no sale sin token", async () => {
     const first = deferred<Response>();
-    const { calls } = mockApi({ "POST /transcribe": () => first.promise });
+    const { calls } = mockApiWithInstantJobs({ "POST /transcribe": () => first.promise });
     const store = useQueueStore.getState();
     store.add([png("a.png"), png("b.png")]);
 
@@ -375,7 +409,7 @@ describe("cola secuencial", () => {
 
   it("al volver a entrar la misma persona, la cola se conserva y se reanuda", async () => {
     let n = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return jsonResponse(transcribed(`s${String(n)}`), 201);
@@ -397,7 +431,7 @@ describe("cola secuencial", () => {
 
   it("si entra otra persona con una imagen en vuelo, se cancela y nada sale con su token", async () => {
     const signals: AbortSignal[] = [];
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": (init) => {
         if (init?.signal) signals.push(init.signal);
         return hangUntilAborted(init);
@@ -424,7 +458,7 @@ describe("cola secuencial", () => {
   it("una respuesta tardía de un recorrido cancelado no toca la cola nueva", async () => {
     const late = deferred<Response>();
     let n = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1 ? late.promise : jsonResponse(transcribed("de-bruno"), 201);
@@ -448,7 +482,7 @@ describe("cola secuencial", () => {
 
   it("al salir se cancela la petición en vuelo y se vacía la cola", async () => {
     const signals: AbortSignal[] = [];
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": (init) => {
         if (init?.signal) signals.push(init.signal);
         return hangUntilAborted(init);
@@ -468,7 +502,7 @@ describe("cola secuencial", () => {
 
   it("quita pendientes, reintenta fallidos y limpia terminados", async () => {
     let n = 0;
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /transcribe": () => {
         n += 1;
         return n === 1
@@ -480,16 +514,16 @@ describe("cola secuencial", () => {
     store.add([png("a.png"), png("b.png")]);
     const [first, second] = useQueueStore.getState().items;
     if (!first || !second) throw new Error("faltan elementos");
-    store.remove(second.id);
+    void store.remove(second.id, api);
     await store.run(api);
     expect(useQueueStore.getState().items).toHaveLength(1);
     expect(useQueueStore.getState().items[0]?.status).toBe("error");
 
-    store.retry(first.id);
+    store.retry(first.id, api);
     await store.run(api);
     expect(useQueueStore.getState().items[0]?.status).toBe("done");
 
-    store.clearFinished();
+    store.clearFinished(api);
     expect(useQueueStore.getState().items).toHaveLength(0);
   });
 
@@ -505,6 +539,254 @@ describe("cola secuencial", () => {
   });
 });
 
+describe("transcripción en segundo plano (#375)", () => {
+  beforeEach(() => {
+    JOB_POLLING.intervalMs = 1;
+  });
+
+  /** Las respuestas de `GET /transcription-jobs`, una por consulta; la última se repite. */
+  function listings(...responses: unknown[][]) {
+    let n = 0;
+    return () => jsonResponse(responses[Math.min(n++, responses.length - 1)]);
+  }
+
+  it("sube la imagen, recibe su trabajo enseguida y sigue su avance hasta la sesión", async () => {
+    const seen: unknown[] = [];
+    const reading = (staff: number, staffs: number, kind: "first" | "piano" = "first") =>
+      job({ id: "j1", stage: "reading", ahead: null, reading: kind, staff, staffs });
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "j1", ahead: 2 }), 202),
+      "GET /transcription-jobs": listings(
+        [job({ id: "j1", ahead: 1 })],
+        [job({ id: "j1", stage: "detecting", ahead: null, reading: "first" })],
+        [reading(1, 3)],
+        [reading(3, 3)],
+        [job({ id: "j1", stage: "detecting", ahead: null, reading: "piano" })],
+        [reading(2, 4, "piano")],
+        [job({ id: "j1", stage: "reviewing", ahead: null })],
+        [doneJob(transcribed("j1", 2))],
+      ),
+    });
+    const unsubscribe = useQueueStore.subscribe((state) => {
+      const [item] = state.items;
+      if (item?.job) seen.push([item.status, item.job.stage, item.job.ahead, item.job.staff]);
+    });
+    const settled = vi.fn();
+    const store = useQueueStore.getState();
+    store.add([png()]);
+
+    await store.run(api, settled);
+    unsubscribe();
+
+    expect(seen).toContainEqual(["queued", "queued", 2, null]);
+    expect(seen).toContainEqual(["queued", "queued", 1, null]);
+    expect(seen).toContainEqual(["transcribing", "detecting", null, null]);
+    expect(seen).toContainEqual(["transcribing", "reading", null, 3]);
+    expect(seen).toContainEqual(["transcribing", "reviewing", null, null]);
+    expect(useQueueStore.getState().items[0]).toMatchObject({
+      status: "done",
+      result: { session_id: "j1", findings_count: 2 },
+    });
+    // El listado se actualiza una vez, cuando la transcripción termina.
+    expect(settled).toHaveBeenCalledTimes(1);
+    // Vista terminar, ya no se apunta.
+    expect(readRemembered(ANA.id)).toEqual([]);
+  });
+
+  it("una transcripción fallida dice por qué con sus palabras", async () => {
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "j1" }), 202),
+      "GET /transcription-jobs": listings([
+        job({ id: "j1", stage: "failed", ahead: null, failure: "unreadable" }),
+      ]),
+    });
+    const store = useQueueStore.getState();
+    store.add([png()]);
+
+    await store.run(api);
+
+    expect(useQueueStore.getState().items[0]).toMatchObject({
+      status: "error",
+      error: "No se reconoció ninguna partitura en la imagen.",
+    });
+  });
+
+  it("si el servidor se reinicia y la transcripción desaparece, dice que se interrumpió", async () => {
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "j1" }), 202),
+      "GET /transcription-jobs": listings([]),
+      "GET /sessions/j1": () => jsonResponse({ detail: "no" }, 404),
+    });
+    const store = useQueueStore.getState();
+    store.add([png("perdida.png")]);
+
+    await store.run(api);
+
+    expect(useQueueStore.getState().items[0]).toMatchObject({
+      status: "error",
+      interrupted: true,
+      error: INTERRUPTED_MESSAGE,
+    });
+    expect(INTERRUPTED_MESSAGE).toMatch(/se interrumpió.*vuelve a subirla/i);
+    expect(useQueueStore.getState().running).toBe(false);
+  });
+
+  it("si desaparece pero ya había creado su sesión, queda lista", async () => {
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "j1" }), 202),
+      "GET /transcription-jobs": listings([]),
+      "GET /sessions/j1": () =>
+        jsonResponse({
+          session_id: "j1",
+          document_id: "doc-j1",
+          omr_engine: "homr",
+          findings: [{}, {}],
+          edits: [],
+          condition: "assisted",
+          test_score_id: null,
+        }),
+    });
+    const store = useQueueStore.getState();
+    store.add([png()]);
+
+    await store.run(api);
+
+    expect(useQueueStore.getState().items[0]).toMatchObject({
+      status: "done",
+      result: { session_id: "j1", findings_count: 2 },
+    });
+  });
+
+  it("con el tope de la persona (429), las demás esperan sin error y se suben al terminar una", async () => {
+    let posts = 0;
+    let finishedFirst = false;
+    mockApi({
+      "POST /transcription-jobs": () => {
+        posts += 1;
+        if (posts === 2 && !finishedFirst) return jsonResponse({ detail: "tope" }, 429);
+        return jsonResponse(job({ id: `j${String(posts)}` }), 202);
+      },
+      "GET /transcription-jobs": () => {
+        finishedFirst = true;
+        return jsonResponse([
+          doneJob(transcribed("j1")),
+          ...(posts >= 3 ? [doneJob(transcribed("j3"))] : []),
+        ]);
+      },
+    });
+    const holds: unknown[] = [];
+    const unsubscribe = useQueueStore.subscribe((state) => holds.push(state.hold));
+    const store = useQueueStore.getState();
+    store.add([png("a.png"), png("b.png")]);
+
+    await store.run(api);
+    unsubscribe();
+
+    expect(holds).toContain("own-limit");
+    expect(statuses()).toEqual(["done", "done"]);
+    expect(useQueueStore.getState().hold).toBeNull();
+  });
+
+  it("quitar una en cola la retira del servidor; si ya empezó, se queda", async () => {
+    const deletes: string[] = [];
+    let conflict = false;
+    mockApi({
+      "DELETE /transcription-jobs/j1": () => {
+        deletes.push("j1");
+        return conflict ? jsonResponse({ detail: "ya" }, 409) : new Response(null, { status: 204 });
+      },
+    });
+    const store = useQueueStore.getState();
+    useQueueStore.setState({
+      items: [{ id: "a", name: "a.png", status: "queued", job: job({ id: "j1", ahead: 1 }) }],
+    });
+
+    conflict = true;
+    await store.remove("a", api);
+    expect(useQueueStore.getState().items).toHaveLength(1);
+
+    conflict = false;
+    await store.remove("a", api);
+    expect(useQueueStore.getState().items).toHaveLength(0);
+    expect(deletes).toEqual(["j1", "j1"]);
+  });
+
+  it("al volver a la vista, recupera las suyas del servidor y dice cuáles se interrumpieron", async () => {
+    remember(ANA.id, { id: "perdida", name: "perdida.png" });
+    remember(ANA.id, { id: "creada", name: "creada.png" });
+    mockApi({
+      "GET /transcription-jobs": () =>
+        jsonResponse([
+          job({
+            id: "j1",
+            stage: "reading",
+            ahead: null,
+            reading: "first",
+            staff: 2,
+            staffs: 5,
+            source_filename: "TS-02.png",
+            title: "Lied",
+            started_at: "2026-11-09T10:00:01Z",
+          }),
+          job({ id: "j2", stage: "failed", ahead: null, failure: "internal" }),
+          doneJob(transcribed("j3")),
+        ]),
+      "GET /sessions/perdida": () => jsonResponse({ detail: "no" }, 404),
+      "GET /sessions/creada": () =>
+        jsonResponse({
+          session_id: "creada",
+          document_id: "d",
+          omr_engine: "homr",
+          findings: [],
+          edits: [],
+          condition: "assisted",
+        }),
+    });
+
+    await useQueueStore.getState().restore(api);
+
+    const items = useQueueStore.getState().items;
+    // Las listas ya están en el diario: no vuelven a la cola.
+    expect(items.map((item) => [item.name, item.status])).toEqual([
+      ["TS-02.png", "transcribing"],
+      ["pagina.png", "error"],
+      ["perdida.png", "error"],
+    ]);
+    expect(items[0]?.title).toBe("Lied");
+    expect(items[0]?.file).toBeUndefined();
+    expect(items[1]?.error).toMatch(/algo falló en el servidor/i);
+    expect(items[2]).toMatchObject({ interrupted: true, error: INTERRUPTED_MESSAGE });
+    // Ya se sabe cómo acabaron las apuntadas: no se vuelven a buscar.
+    expect(readRemembered(ANA.id)).toEqual([]);
+  });
+
+  it("lo apuntado es de cada persona y se olvida al terminar", () => {
+    remember(ANA.id, { id: "j1", name: "a.png" });
+    remember("otra", { id: "j2", name: "b.png" });
+
+    forget(ANA.id, ["j1"]);
+
+    expect(readRemembered(ANA.id)).toEqual([]);
+    expect(readRemembered("otra")).toEqual([{ id: "j2", name: "b.png" }]);
+  });
+
+  it("solo avisa al salir si quedan imágenes sin subir", () => {
+    useQueueStore.setState({
+      items: [
+        {
+          id: "a",
+          name: "a.png",
+          status: "transcribing",
+          job: job({ id: "j1", stage: "reading" }),
+        },
+      ],
+    });
+    expect(hasPendingWork(useQueueStore.getState().items)).toBe(false);
+    useQueueStore.getState().add([png("b.png")]);
+    expect(hasPendingWork(useQueueStore.getState().items)).toBe(true);
+  });
+});
+
 describe("preparar el lote antes de transcribir (#240)", () => {
   const sent = (body: unknown) =>
     [...(body as FormData).entries()].map(([key, value]) => [
@@ -513,7 +795,7 @@ describe("preparar el lote antes de transcribir (#240)", () => {
     ]);
 
   it("lo elegido espera a «Transcribir» con los datos comunes o los de cada imagen", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse(transcribed(`s${String(calls.length)}`), 201),
     });
     const store = useQueueStore.getState();

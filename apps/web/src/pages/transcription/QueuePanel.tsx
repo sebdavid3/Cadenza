@@ -1,15 +1,24 @@
 import { useEffect, useRef } from "react";
 import { Link } from "react-router";
+import { api } from "../../api/instance";
 import { Elapsed } from "./Elapsed";
-import { findingsLabel, formatSize, queueSummary } from "./format";
-import { useQueueStore, type QueueItem } from "./queue";
+import { findingsLabel, formatSize, queueProgress, queueSummary } from "./format";
+import { JobProgressLine } from "./JobProgressLine";
+import { useQueueStore, type QueueItem, type UploadHold } from "./queue";
 import { nonBlank } from "./scoreData";
 import { QueueThumb } from "./SessionThumb";
 
 /** El nombre que se dio a la partitura de una imagen, o null si no se dio ninguno. */
 function titleOf(item: QueueItem): string | null {
-  return nonBlank(item.data?.title);
+  return nonBlank(item.data?.title ?? item.title ?? undefined);
 }
+
+/** Por qué las imágenes que esperan no se suben todavía (#375). */
+const HOLD_NOTICE: Record<UploadHold, string> = {
+  "own-limit":
+    "Tienes el máximo de transcripciones en curso: las demás imágenes se subirán cuando termine alguna.",
+  "queue-full": "La cola del servidor está llena: se volverá a probar en un minuto.",
+};
 
 function StatusChip({ item }: { item: QueueItem }) {
   switch (item.status) {
@@ -34,7 +43,7 @@ function StatusChip({ item }: { item: QueueItem }) {
     case "error":
       return (
         <span className="chip chip--error">
-          <span>{item.rejected ? "Rechazada" : "Error"}</span>
+          <span>{item.rejected ? "Rechazada" : item.interrupted ? "Interrumpida" : "Error"}</span>
         </span>
       );
   }
@@ -76,6 +85,7 @@ export function QueuePanel({ listed }: QueuePanelProps) {
   const retry = useQueueStore((state) => state.retry);
   const clearFinished = useQueueStore((state) => state.clearFinished);
   const paused = useQueueStore((state) => state.paused);
+  const hold = useQueueStore((state) => state.hold);
   const resume = useQueueStore((state) => state.resume);
   const isFinished = (item: QueueItem) => item.status === "done" || item.status === "error";
   const finished = items.filter(isFinished).length;
@@ -136,13 +146,13 @@ export function QueuePanel({ listed }: QueuePanelProps) {
   const removeItem = (id: string) => {
     if (items.length === 1) {
       leaveQueue();
-      remove(id);
+      void remove(id, api);
       return;
     }
     const index = visible.findIndex((item) => item.id === id);
     const neighbour = visible[index + 1] ?? visible[index - 1];
     focusAfterUpdate.current = neighbour?.id ?? "";
-    remove(id);
+    void remove(id, api);
   };
 
   return (
@@ -159,27 +169,31 @@ export function QueuePanel({ listed }: QueuePanelProps) {
             onClick={() => {
               if (items.every(isFinished)) leaveQueue();
               else focusAfterUpdate.current = "";
-              clearFinished();
+              clearFinished(api);
             }}
           >
             Limpiar terminadas
           </button>
         )}
       </div>
-      {paused && items.some((item) => item.status === "queued") && (
-        <div className="panel__error queue__paused" role="alert">
-          <p>Se perdió la conexión con el servidor: la cola está en pausa.</p>
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => {
-              focusAfterUpdate.current = "";
-              resume();
-            }}
-          >
-            Reanudar
-          </button>
-        </div>
+      {paused &&
+        items.some((item) => item.status === "queued" || item.status === "transcribing") && (
+          <div className="panel__error queue__paused" role="alert">
+            <p>Se perdió la conexión con el servidor: la cola está en pausa.</p>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                focusAfterUpdate.current = "";
+                resume();
+              }}
+            >
+              Reanudar
+            </button>
+          </div>
+        )}
+      {hold && !paused && items.some((item) => item.status === "queued" && !item.job) && (
+        <p className="queue__hold">{HOLD_NOTICE[hold]}</p>
       )}
       {visible.length > 0 && (
         // role="list": sin viñetas, Safari y VoiceOver dejan de tratarla como lista.
@@ -217,7 +231,7 @@ export function QueuePanel({ listed }: QueuePanelProps) {
               }}
               onRetry={() => {
                 focusAfterUpdate.current = item.id;
-                retry(item.id);
+                retry(item.id, api);
               }}
             />
           ))}
@@ -236,9 +250,13 @@ interface QueuePlateProps {
 
 function QueuePlate({ item, plateRef, onRemove, onRetry }: QueuePlateProps) {
   const title = titleOf(item);
-  const name = title ?? item.file.name;
+  const name = title ?? item.name;
   const findings = item.status === "done" ? (item.result?.findings_count ?? 0) : 0;
-  const canRetry = item.status === "error" && !item.rejected;
+  // Sin el archivo (recuperada del servidor o interrumpida) no se puede volver a subir desde aquí.
+  const canRetry = item.status === "error" && !item.rejected && item.file !== undefined;
+  const canRemove =
+    (item.status === "queued" && !item.uploading) || (item.status === "error" && !canRetry);
+  const progress = queueProgress(item);
 
   return (
     <li
@@ -257,8 +275,8 @@ function QueuePlate({ item, plateRef, onRemove, onRetry }: QueuePlateProps) {
       {/* Con nombre, la sesión se llamará así; sin él, como el archivo (#240). */}
       <p className="plate__name">{name}</p>
       <p className="plate__meta">
-        {title !== null && <span className="queue__source">{item.file.name}</span>}
-        <span>{formatSize(item.file.size)}</span>
+        {title !== null && <span className="queue__source">{item.name}</span>}
+        {item.size !== undefined && <span>{formatSize(item.size)}</span>}
       </p>
       <p className="plate__state">
         <StatusChip item={item} />
@@ -266,8 +284,9 @@ function QueuePlate({ item, plateRef, onRemove, onRetry }: QueuePlateProps) {
           <Elapsed since={item.startedAt} />
         )}
       </p>
+      {progress && <JobProgressLine progress={progress} />}
       {item.error && <p className="plate__error">{item.error}</p>}
-      {(item.status === "queued" || canRetry || (item.status === "done" && item.result)) && (
+      {(canRemove || canRetry || (item.status === "done" && item.result)) && (
         <p className="plate__actions">
           {item.status === "done" && item.result && (
             // Cada resultado lleva a su sesión, para verla o corregirla (#277).
@@ -279,11 +298,11 @@ function QueuePlate({ item, plateRef, onRemove, onRetry }: QueuePlateProps) {
               Abrir la sesión
             </Link>
           )}
-          {item.status === "queued" && (
+          {canRemove && (
             <button
               type="button"
               className="link-button"
-              aria-label={`Quitar ${item.file.name}`}
+              aria-label={`Quitar ${item.name}`}
               onClick={onRemove}
             >
               Quitar
@@ -293,7 +312,7 @@ function QueuePlate({ item, plateRef, onRemove, onRetry }: QueuePlateProps) {
             <button
               type="button"
               className="link-button"
-              aria-label={`Reintentar ${item.file.name}`}
+              aria-label={`Reintentar ${item.name}`}
               onClick={onRetry}
             >
               Reintentar
