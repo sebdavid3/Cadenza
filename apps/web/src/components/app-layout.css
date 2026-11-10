@@ -68,8 +68,9 @@
   padding-block: var(--space-2);
 }
 
-/* Sin ancho para una fila (unos 620 px): marca y persona arriba; secciones y «Salir» debajo. */
-@media (max-width: 640px) {
+/* Sin ancho para una fila (unos 680 px con el logo, #383): marca y persona arriba; secciones y
+   «Salir» debajo. */
+@media (max-width: 680px) {
   .app-header {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);

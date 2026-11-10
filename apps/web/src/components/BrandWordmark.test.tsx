@@ -131,12 +131,6 @@ describe("el logo (#383)", () => {
     // El violeta va solo en el punto: ninguna otra regla de la hoja lo usa.
     expect(css.match(/--color-accent/g)).toHaveLength(1);
   });
-
-  it("deja el tamaño a quien lo pone: una clase propia se suma a la suya", () => {
-    const { container } = render(<BrandWordmark className="site-footer__word" />);
-
-    expect(wordmarkIn(container)).toHaveClass("brand-wordmark", "site-footer__word");
-  });
 });
 
 describe("la marca de las cabeceras (#383)", () => {

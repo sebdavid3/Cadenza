@@ -3,7 +3,6 @@
    píxeles se difuminan. Mide exactamente su rejilla; no encoge con el contenedor. */
 .brand-wordmark {
   display: block;
-  flex: none;
   width: calc(53 * var(--brand-cell, 3px));
   height: calc(7 * var(--brand-cell, 3px));
   max-width: none;

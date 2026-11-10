@@ -15,10 +15,10 @@ const DOT = "M49 5H48V3H50V5Z";
  * Es decorativo: el nombre accesible lo pone el enlace que lo lleva. Mide lo que diga la variable
  * `--brand-cell` (una celda en píxeles enteros, para que el bitmap no se difumine).
  */
-export function BrandWordmark({ className }: { className?: string }) {
+export function BrandWordmark() {
   return (
     <svg
-      className={className ? `brand-wordmark ${className}` : "brand-wordmark"}
+      className="brand-wordmark"
       viewBox="0 0 53 7"
       shapeRendering="crispEdges"
       aria-hidden="true"

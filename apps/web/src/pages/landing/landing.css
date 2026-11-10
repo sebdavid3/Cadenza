@@ -454,6 +454,13 @@
   }
 }
 
+/* Y el de 42 px, de 318 px de ancho, donde tampoco cabe: la página no se desplaza en horizontal. */
+@media (max-width: 359.98px) {
+  .site-footer__specimen li:nth-child(2) {
+    display: none;
+  }
+}
+
 @media (max-width: 900px) {
   .hero {
     grid-template-columns: minmax(0, 1fr);

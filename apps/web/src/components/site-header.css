@@ -38,7 +38,8 @@
   padding-block: var(--space-2);
 }
 
-@media (max-width: 1100px) {
+/* Con el logo de 4 px, el lema solo cabe en la fila desde unos 1140 px (#383). */
+@media (max-width: 1140px) {
   .site-header__tagline {
     display: none;
   }
@@ -58,9 +59,11 @@
 
 /* En pantallas estrechas: marca y «Entrar» en la primera fila; las anclas, debajo. */
 @media (max-width: 600px) {
+  /* Con 40 px entre la marca y «Entrar», no caben en una fila a 360 px (#383). */
   .site-header {
     min-height: 0;
     row-gap: var(--space-4);
+    column-gap: var(--space-4);
   }
 
   .site-header__brand {
