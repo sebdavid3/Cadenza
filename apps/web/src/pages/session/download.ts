@@ -4,6 +4,9 @@ export const MUSICXML_TYPE = "application/vnd.recordare.musicxml+xml";
 /** Tipo del MIDI 1.0 que exporta la API (`/sessions/{id}/export?format=midi`). */
 export const MIDI_TYPE = "audio/midi";
 
+/** Tipo del PDF que la vista dibuja a partir del MusicXML (#376). */
+export const PDF_TYPE = "application/pdf";
+
 /**
  * Margen antes de revocar la URL del Blob: Safari empieza la descarga después del clic y la
  * pierde si la URL ya no existe (el mismo que usa FileSaver.js).
@@ -34,6 +37,14 @@ export function midiFile(sessionId: string, midi: Blob): DownloadFile {
   return {
     name: `${fileStem(sessionId)}.mid`,
     blob: new Blob([midi], { type: MIDI_TYPE }),
+  };
+}
+
+/** PDF de una sesión listo para guardar, con el mismo nombre que el MusicXML y la extensión `.pdf`. */
+export function pdfFile(sessionId: string, pdf: Blob): DownloadFile {
+  return {
+    name: `${fileStem(sessionId)}.pdf`,
+    blob: new Blob([pdf], { type: PDF_TYPE }),
   };
 }
 

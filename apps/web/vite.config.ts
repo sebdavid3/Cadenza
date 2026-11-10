@@ -41,6 +41,10 @@ export default defineConfig(({ mode }) => {
       unstubEnvs: true,
       // Zona fija y distinta de UTC: las pruebas de fechas comprueban la conversión a hora local.
       env: { TZ: "America/Bogota" },
+      // Las pruebas más lentas (escribir en formularios, dibujar la partitura con OSMD) tardan
+      // hasta 4 s con la máquina libre: con los 5 s por defecto, la carga las hacía fallar al
+      // azar (#382). Un plazo mayor, sin reintentos que ocultarían un fallo de verdad.
+      testTimeout: 15_000,
     },
   };
 });

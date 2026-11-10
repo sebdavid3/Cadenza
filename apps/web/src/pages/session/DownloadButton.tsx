@@ -1,7 +1,7 @@
-import { useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
-import { midiFile, musicXmlFile, saveFile } from "./download";
+import { midiFile, musicXmlFile, pdfFile, saveFile, type DownloadFile } from "./download";
 
 /**
  * Tras un reintento, solo se descarga si el archivo llega poco después del clic: es lo que dura
@@ -88,37 +88,63 @@ export function DownloadButton({ sessionId, xml, status, onRetry }: DownloadButt
   );
 }
 
-interface MidiDownloadButtonProps {
+interface PreparedDownloadProps {
   sessionId: string;
   /** Estado que se ve: el aviso de un estado anterior no pasa a este. */
   seq: number;
   /** Si ya se sabe qué estado se ve: hasta entonces, el botón no pide nada. */
   ready: boolean;
-  /** Pide el MIDI del estado que se ve, o lo da de la caché si ya se pidió. */
-  fetchMidi: () => Promise<Blob>;
+  /**
+   * Si el archivo se está preparando (#363): la vista deja abierto el panel que lo contiene, para
+   * que su aviso se vea y se anuncie al llegar.
+   */
+  onPreparing?: (preparing: boolean) => void;
 }
 
-type MidiStatus = "idle" | "loading" | "error" | "late";
+interface OnDemandDownloadButtonProps extends PreparedDownloadProps {
+  /** Cómo se llama lo que se descarga, con artículo masculino: «MIDI», «PDF». */
+  noun: string;
+  /** Prepara el archivo del estado que se ve, o lo da hecho si ya se preparó. */
+  prepare: () => Promise<Blob>;
+  /** El archivo que se guarda, con su nombre y su tipo. */
+  toFile: (sessionId: string, blob: Blob) => DownloadFile;
+}
 
-const MIDI_HINTS: Record<MidiStatus, string | null> = {
-  idle: null,
-  loading: "Preparando el MIDI…",
-  error: "No se pudo preparar el MIDI. Pulsa «Descargar MIDI» para volver a intentarlo.",
-  late: "El MIDI ya está listo. Pulsa «Descargar MIDI» para guardarlo.",
-};
+type PreparedStatus = "idle" | "loading" | "error" | "late";
+
+function preparedHint(noun: string, status: PreparedStatus): string | null {
+  switch (status) {
+    case "idle":
+      return null;
+    case "loading":
+      return `Preparando el ${noun}…`;
+    case "error":
+      return `No se pudo preparar el ${noun}. Pulsa «Descargar ${noun}» para volver a intentarlo.`;
+    case "late":
+      return `El ${noun} ya está listo. Pulsa «Descargar ${noun}» para guardarlo.`;
+  }
+}
 
 /**
- * «Descargar MIDI» del estado que se ve (#189). La vista no usa el MIDI, así que solo se pide al
- * pulsarlo; mientras llega, el botón no lo vuelve a pedir y lo dice. Si falla, lo dice y pulsarlo
- * otra vez lo vuelve a pedir. Como en el MusicXML, lo que llega tarde o cuando la vista ya no
- * está no se descarga solo: el botón queda listo para pulsarlo. El fallo y el aviso de listo se
- * anuncian, porque nada más en la vista los dice.
+ * Una descarga que solo se prepara al pulsarla (el MIDI, #189; el PDF, #376): mientras llega, el
+ * botón no la vuelve a pedir y lo dice. Si falla, lo dice y pulsarlo otra vez la vuelve a pedir.
+ * Como en el MusicXML, lo que llega tarde o cuando la vista ya no está no se descarga solo: el
+ * botón queda listo para pulsarlo. El fallo y el aviso de listo se anuncian, porque nada más en la
+ * vista los dice.
  */
-export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDownloadButtonProps) {
+function OnDemandDownloadButton({
+  sessionId,
+  seq,
+  ready,
+  onPreparing,
+  noun,
+  prepare,
+  toFile,
+}: OnDemandDownloadButtonProps) {
   const hintId = useId();
   const mounted = useMounted();
   const busy = useRef(false);
-  const [status, setStatus] = useState<MidiStatus>("idle");
+  const [status, setStatus] = useState<PreparedStatus>("idle");
   // Con otro estado, «listo» o «no se pudo» ya no hablan de lo que se ve: el botón vuelve a
   // estar sin aviso. Lo que se está preparando sigue y se descarga al llegar.
   const [statusSeq, setStatusSeq] = useState(seq);
@@ -132,9 +158,9 @@ export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDow
     busy.current = true;
     setStatus("loading");
     const clickedAt = performance.now();
-    let midi: Blob;
+    let blob: Blob;
     try {
-      midi = await fetchMidi();
+      blob = await prepare();
     } catch {
       if (mounted.current) setStatus("error");
       return;
@@ -147,10 +173,21 @@ export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDow
       return;
     }
     setStatus("idle");
-    saveFile(midiFile(sessionId, midi));
+    saveFile(toFile(sessionId, blob));
   }
 
-  const hint = MIDI_HINTS[status];
+  const preparing = status === "loading";
+  useEffect(() => {
+    onPreparing?.(preparing);
+  }, [onPreparing, preparing]);
+  useEffect(
+    () => () => {
+      onPreparing?.(false);
+    },
+    [onPreparing],
+  );
+
+  const hint = preparedHint(noun, status);
   return (
     <div className="score-download">
       <button
@@ -161,7 +198,7 @@ export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDow
         onClick={() => void download()}
       >
         <PixelIcon name="download" className="button__icon--down" />
-        Descargar MIDI
+        Descargar {noun}
       </button>
       {hint && (
         <p className="score-download__hint" id={hintId}>
@@ -173,4 +210,24 @@ export function MidiDownloadButton({ sessionId, seq, ready, fetchMidi }: MidiDow
       </p>
     </div>
   );
+}
+
+interface MidiDownloadButtonProps extends PreparedDownloadProps {
+  /** Pide el MIDI del estado que se ve, o lo da de la caché si ya se pidió. */
+  fetchMidi: () => Promise<Blob>;
+}
+
+/** «Descargar MIDI» del estado que se ve (#189). La vista no usa el MIDI: se pide al pulsarlo. */
+export function MidiDownloadButton({ fetchMidi, ...props }: MidiDownloadButtonProps) {
+  return <OnDemandDownloadButton {...props} noun="MIDI" prepare={fetchMidi} toFile={midiFile} />;
+}
+
+interface PdfDownloadButtonProps extends PreparedDownloadProps {
+  /** Dibuja el PDF del estado que se ve, o lo da hecho si ya se dibujó (#376). */
+  makePdf: () => Promise<Blob>;
+}
+
+/** «Descargar PDF» del estado que se ve (#376): se dibuja en el navegador al pulsarlo. */
+export function PdfDownloadButton({ makePdf, ...props }: PdfDownloadButtonProps) {
+  return <OnDemandDownloadButton {...props} noun="PDF" prepare={makePdf} toFile={pdfFile} />;
 }

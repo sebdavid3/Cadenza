@@ -8,12 +8,13 @@ import {
   ANA,
   deferred,
   fakeJwt,
-  hangUntilAborted,
   jsonResponse,
   mockApi,
   resetAuth,
   signInAs,
 } from "../../test/auth-helpers";
+import { doneJob, job, mockApiWithInstantJobs } from "../../test/jobs";
+import { JOB_POLLING } from "../transcription/queue";
 import type { SessionDetailRead, TimingMapRead } from "../../types";
 import { PENDING_UPLOAD_KEY, useLandingUpload } from "./uploadStore";
 
@@ -161,7 +162,7 @@ function fileInput(): HTMLInputElement {
 
 /** El formulario que se envió a `POST /transcribe`. */
 function sentForm(calls: { key: string; init: RequestInit | undefined }[]): FormData {
-  const call = calls.find((candidate) => candidate.key === "POST /transcribe");
+  const call = calls.find((candidate) => candidate.key === "POST /transcription-jobs");
   if (!call || !(call.init?.body instanceof FormData)) throw new Error("no se envió la imagen");
   return call.init.body;
 }
@@ -181,6 +182,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  JOB_POLLING.intervalMs = 1000;
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
@@ -189,7 +191,7 @@ afterEach(() => {
 
 describe("recuadro de la portada (#277)", () => {
   it("con sesión, transcribe con el nombre y enseña la partitura en solo lectura, la reproducción, los posibles errores y «Editar»", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse(transcribed(), 201),
       ...sessionRoutes(),
     });
@@ -226,7 +228,7 @@ describe("recuadro de la portada (#277)", () => {
   });
 
   it("en una sesión no asistida no habla de posibles errores (ADR-0040)", async () => {
-    mockApi({
+    mockApiWithInstantJobs({
       "POST /transcribe": () =>
         jsonResponse(transcribed({ condition: "unassisted", findings_count: 0 }), 201),
       ...sessionRoutes(detail({ condition: "unassisted" })),
@@ -242,9 +244,20 @@ describe("recuadro de la portada (#277)", () => {
     expect(within(result).queryByText(/posible/i)).toBeNull();
   });
 
-  it("mientras HOMR trabaja, dice qué transcribe y que puede tardar hasta 30 s", async () => {
-    const pending = deferred<Response>();
-    mockApi({ "POST /transcribe": () => pending.promise, ...sessionRoutes() });
+  it("mientras HOMR trabaja, dice en qué está, sin plazo, hasta que la sesión está lista (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    const answers = [deferred<Response>(), deferred<Response>(), deferred<Response>()];
+    let polls = 0;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-portada", ahead: 1 }), 202),
+      "GET /transcription-jobs/s-portada": () => {
+        const answer = answers[Math.min(polls, answers.length - 1)];
+        polls += 1;
+        if (!answer) throw new Error("sin respuesta");
+        return answer.promise;
+      },
+      ...sessionRoutes(),
+    });
     signInAs(ANA);
     renderAt();
 
@@ -253,19 +266,53 @@ describe("recuadro de la portada (#277)", () => {
 
     const progress = within(box()).getByRole("status");
     expect(progress).toHaveTextContent("Transcribiendo «minueto.png»");
-    expect(progress).toHaveTextContent(/30/);
     expect(progress).toHaveFocus();
+    expect(await within(progress).findByText("En cola: 1 por delante")).toBeVisible();
+    expect(progress).toHaveTextContent(/más de un minuto/);
+    expect(progress).not.toHaveTextContent(/30/);
     expect(within(box()).queryByRole("button", { name: /elegir/i })).toBeNull();
 
     await act(async () => {
-      pending.resolve(jsonResponse(transcribed(), 201));
-      await pending.promise;
+      answers[0]?.resolve(
+        jsonResponse(
+          job({
+            id: "s-portada",
+            stage: "reading",
+            ahead: null,
+            reading: "first",
+            staff: 2,
+            staffs: 5,
+          }),
+        ),
+      );
+      await answers[0]?.promise;
+    });
+    expect(await within(progress).findByText("Leyendo el pentagrama 2 de 5")).toBeVisible();
+
+    await act(async () => {
+      answers[1]?.resolve(
+        jsonResponse(job({ id: "s-portada", stage: "detecting", ahead: null, reading: "piano" })),
+      );
+      await answers[1]?.promise;
+    });
+    expect(
+      await within(progress).findByText(
+        "Segunda lectura, con el piano por separado: detectando los pentagramas",
+      ),
+    ).toBeVisible();
+
+    await act(async () => {
+      answers[2]?.resolve(jsonResponse(doneJob(transcribed())));
+      await answers[2]?.promise;
     });
     expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
   });
 
   it("«Transcribir otra imagen» vuelve a empezar", async () => {
-    mockApi({ "POST /transcribe": () => jsonResponse(transcribed(), 201), ...sessionRoutes() });
+    mockApiWithInstantJobs({
+      "POST /transcribe": () => jsonResponse(transcribed(), 201),
+      ...sessionRoutes(),
+    });
     signInAs(ANA);
     renderAt();
     await userEvent.upload(fileInput(), png());
@@ -279,7 +326,7 @@ describe("recuadro de la portada (#277)", () => {
   });
 
   it("rechaza antes de enviar lo que no es una imagen PNG o JPEG, o pasa de 20 MB", async () => {
-    const { calls } = mockApi({});
+    const { calls } = mockApiWithInstantJobs({});
     signInAs(ANA);
     renderAt();
 
@@ -291,11 +338,11 @@ describe("recuadro de la portada (#277)", () => {
 
     await userEvent.upload(fileInput(), png("grande.png", 20 * 1024 * 1024 + 1));
     expect(within(box()).getByRole("alert")).toHaveTextContent("Supera el tamaño máximo de 20 MB.");
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(0);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(0);
   });
 
   it("rechaza varias imágenes soltadas a la vez y remite a la transcripción por lotes", () => {
-    mockApi({});
+    mockApiWithInstantJobs({});
     signInAs(ANA);
     renderAt();
     const zone = within(box()).getByText(/o arrástrala aquí/i).parentElement;
@@ -309,30 +356,98 @@ describe("recuadro de la portada (#277)", () => {
     expect(useLandingUpload.getState().file).toBeNull();
   });
 
-  it("si vence la espera, dice que la sesión puede existir y enlaza a las sesiones", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      mockApi({ "POST /transcribe": (init) => hangUntilAborted(init) });
-      signInAs(ANA);
-      renderAt();
-      const zone = within(box()).getByText(/o arrástrala aquí/i).parentElement;
-      if (!zone) throw new Error("falta la zona de subida");
-      fireEvent.drop(zone, { dataTransfer: { files: [png()], types: ["Files"] } });
-      fireEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+  it("un fallo pasajero al preguntar no corta el seguimiento (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    let polls = 0;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-portada" }), 202),
+      "GET /transcription-jobs/s-portada": () => {
+        polls += 1;
+        if (polls === 1) return Promise.reject(new TypeError("Failed to fetch"));
+        if (polls === 2) return jsonResponse({ detail: "x" }, 500);
+        return jsonResponse(doneJob(transcribed()));
+      },
+      ...sessionRoutes(),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
 
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(31_000);
-      });
+    expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
+    expect(polls).toBe(3);
+  });
 
-      const alert = within(box()).getByRole("alert");
-      expect(alert).toHaveTextContent(/puede que la sesión se haya creado/i);
-      expect(within(alert).getByRole("link", { name: "Ver tus sesiones" })).toHaveAttribute(
-        "href",
-        "/transcripcion",
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+  it("una transcripción fallida dice por qué y deja volver a intentarlo (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-mala" }), 202),
+      "GET /transcription-jobs/s-mala": () =>
+        jsonResponse(job({ id: "s-mala", stage: "failed", ahead: null, failure: "unreadable" })),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    const alert = await within(box()).findByRole("alert");
+    expect(alert).toHaveTextContent("No se reconoció ninguna partitura en la imagen.");
+    expect(within(alert).queryByRole("link")).toBeNull();
+    expect(within(box()).getByRole("button", { name: "Volver a intentarlo" })).toBeVisible();
+  });
+
+  it("con el máximo de transcripciones en curso (429), lo dice sin subirla (#375)", async () => {
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse({ detail: "tope" }, 429),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    expect(await within(box()).findByRole("alert")).toHaveTextContent(
+      /ya tienes el máximo de transcripciones en curso/i,
+    );
+  });
+
+  it("si desaparece tras crear su sesión, enseña el resultado y no pide subirla otra vez (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: ID }), 202),
+      [`GET /transcription-jobs/${ID}`]: () => jsonResponse({ detail: "no" }, 404),
+      // La sesión, con el mismo identificador que el trabajo (ADR-0064).
+      ...sessionRoutes(),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
+  });
+
+  it("si el servidor se reinicia a mitad, dice que se interrumpió y deja volver a subirla (#375)", async () => {
+    JOB_POLLING.intervalMs = 1;
+    const { calls } = mockApi({
+      "POST /transcription-jobs": () => jsonResponse(job({ id: "s-perdida" }), 202),
+      "GET /transcription-jobs/s-perdida": () => jsonResponse({ detail: "no" }, 404),
+    });
+    signInAs(ANA);
+    renderAt();
+    await userEvent.upload(fileInput(), png());
+    await userEvent.click(within(box()).getByRole("button", { name: "Transcribir la imagen" }));
+
+    const alert = await within(box()).findByRole("alert");
+    expect(alert).toHaveTextContent(/se interrumpió.*vuelve a subirla/i);
+    expect(within(alert).getByRole("link", { name: "Ver tus transcripciones" })).toHaveAttribute(
+      "href",
+      "/transcripcion",
+    );
+    // La imagen sigue elegida: se puede volver a subir.
+    await userEvent.click(within(box()).getByRole("button", { name: "Volver a intentarlo" }));
+    await waitFor(() => {
+      expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(2);
+    });
   });
 
   it.each([
@@ -357,7 +472,7 @@ describe("recuadro de la portada (#277)", () => {
     "con %s lo dice, conserva la imagen y deja volver a intentarlo",
     async (_label, failure, message) => {
       let attempt = 0;
-      const { calls } = mockApi({
+      const { calls } = mockApiWithInstantJobs({
         "POST /transcribe": () => {
           attempt += 1;
           return attempt === 1 ? failure() : jsonResponse(transcribed(), 201);
@@ -375,13 +490,13 @@ describe("recuadro de la portada (#277)", () => {
 
       await userEvent.click(within(box()).getByRole("button", { name: "Volver a intentarlo" }));
       expect(await within(box()).findByRole("region", { name: "Minueto" })).toBeVisible();
-      expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(2);
+      expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(2);
     },
   );
 
   it("si la sesión caducó al enviar, pide volver a entrar con la imagen conservada y sigue al volver", async () => {
     let attempt = 0;
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => {
         attempt += 1;
         return attempt === 1
@@ -410,13 +525,13 @@ describe("recuadro de la portada (#277)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
 
     expect(await resultAfterReturn()).toBeVisible();
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(2);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(2);
   });
 });
 
 describe("recuadro de la portada sin sesión (#277)", () => {
   it("al elegir la imagen pide entrar sin enviar nada; tras entrar vuelve a la portada y transcribe con la misma imagen y los mismos datos", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse(transcribed(), 201),
       "POST /auth/login": () => jsonResponse({ access_token: fakeJwt(1_800_000) }),
       "GET /auth/me": () => jsonResponse(ANA),
@@ -436,7 +551,7 @@ describe("recuadro de la portada sin sesión (#277)", () => {
     expect(router.state.location.pathname).toBe("/entrar");
     // Solo se apunta el nombre del archivo, para avisar si se recarga; la imagen no se guarda.
     expect(sessionStorage.getItem(PENDING_UPLOAD_KEY)).toBe("minueto.png");
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(0);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(0);
 
     await userEvent.type(screen.getByLabelText("Usuario"), "ana");
     await userEvent.type(screen.getByLabelText("Contraseña"), secret());
@@ -450,13 +565,13 @@ describe("recuadro de la portada sin sesión (#277)", () => {
     const form = sentForm(calls);
     expect((form.get("file") as File).name).toBe("minueto.png");
     expect(form.get("title")).toBe("Minueto");
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(1);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(1);
     expect(sessionStorage.getItem(PENDING_UPLOAD_KEY)).toBeNull();
   });
 
   it("con el registro abierto, crear la cuenta también vuelve a la portada y transcribe", async () => {
     vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse(transcribed(), 201),
       "POST /auth/register": () => jsonResponse(ANA, 201),
       "POST /auth/login": () => jsonResponse({ access_token: fakeJwt(1_800_000) }),
@@ -472,18 +587,22 @@ describe("recuadro de la portada sin sesión (#277)", () => {
     await userEvent.type(screen.getByLabelText("Usuario"), "ana");
     await userEvent.type(screen.getByLabelText("Contraseña"), password);
     await userEvent.type(screen.getByLabelText("Repite la contraseña"), password);
+    // La casilla del permiso de uso de los datos es obligatoria (#378).
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Doy mi permiso para que se usen mis datos así." }),
+    );
     await userEvent.click(screen.getByRole("button", { name: /crear cuenta y entrar/i }));
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe("/");
     });
     expect(await resultAfterReturn()).toBeVisible();
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(1);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(1);
   });
 
   it("desde entrar, «Créala» conserva la vuelta a la portada", async () => {
     vi.stubEnv("VITE_REGISTRATION_ENABLED", "true");
-    mockApi({});
+    mockApiWithInstantJobs({});
     const router = renderAt();
     await userEvent.upload(fileInput(), png());
     await userEvent.click(within(box()).getByRole("link", { name: "Entrar y transcribir" }));
@@ -510,7 +629,7 @@ describe("recuadro de la portada sin sesión (#277)", () => {
   });
 
   it("descartar olvida la imagen y el aviso pendiente", async () => {
-    mockApi({});
+    mockApiWithInstantJobs({});
     const router = renderAt();
     await userEvent.upload(fileInput(), png());
     await userEvent.click(within(box()).getByRole("link", { name: "Entrar y transcribir" }));
@@ -526,7 +645,7 @@ describe("recuadro de la portada sin sesión (#277)", () => {
   });
 
   it("si se entra por otro camino, no transcribe sin que se pulse", async () => {
-    const { calls } = mockApi({
+    const { calls } = mockApiWithInstantJobs({
       "POST /transcribe": () => jsonResponse(transcribed(), 201),
       ...sessionRoutes(),
     });
@@ -543,11 +662,11 @@ describe("recuadro de la portada sin sesión (#277)", () => {
     });
 
     expect(await screen.findByRole("button", { name: "Transcribir la imagen" })).toBeVisible();
-    expect(calls.filter((call) => call.key === "POST /transcribe")).toHaveLength(0);
+    expect(calls.filter((call) => call.key === "POST /transcription-jobs")).toHaveLength(0);
   });
 
   it("si entra otra persona tras caducar la sesión, la imagen que eligió la anterior se olvida", async () => {
-    mockApi({});
+    mockApiWithInstantJobs({});
     signInAs(ANA);
     renderAt();
     await userEvent.upload(fileInput(), png());
@@ -565,7 +684,10 @@ describe("recuadro de la portada sin sesión (#277)", () => {
   });
 
   it("al salir de la sesión se olvida el resultado", async () => {
-    mockApi({ "POST /transcribe": () => jsonResponse(transcribed(), 201), ...sessionRoutes() });
+    mockApiWithInstantJobs({
+      "POST /transcribe": () => jsonResponse(transcribed(), 201),
+      ...sessionRoutes(),
+    });
     signInAs(ANA);
     renderAt();
     await userEvent.upload(fileInput(), png());

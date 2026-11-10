@@ -9,7 +9,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
 import { useAuthStore } from "../../auth/store";
@@ -19,7 +19,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { FindingRead } from "../../types";
 import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
 import { listUsers, statusLabel } from "../transcription/sessions";
-import { DownloadButton, MidiDownloadButton } from "./DownloadButton";
+import { DownloadButton, MidiDownloadButton, PdfDownloadButton } from "./DownloadButton";
 import { DeskDivider } from "./DeskDivider";
 import { clampShare, SHARE_DEFAULT } from "./deskShare";
 import { EditBar, type ToolTab } from "./EditBar";
@@ -56,6 +56,8 @@ import { PlaybackBar } from "./PlaybackBar";
 import { usePlayer } from "./player";
 import { ScanFigure } from "./ScanFigure";
 import { ScoreDataPanel } from "./ScoreDataPanel";
+import { HeaderPopover, SessionTopBar } from "./SessionHeader";
+import { createPdfMaker, renderScorePdf } from "./pdf";
 import { ScoreView, type ScoreSnapshot } from "./ScoreView";
 import { useSelectionStore } from "./selection";
 import {
@@ -75,26 +77,19 @@ import { readStored, writeStored } from "./storage";
 /** La figura con que empieza el modo «Escribir» sin nota elegida: la negra (#350). */
 const QUARTER = 4;
 
-function BackLink() {
-  return (
-    <Link className="label session__back" to="/transcripcion">
-      <PixelIcon name="arrow-left" />
-      Sesiones
-    </Link>
-  );
-}
-
 /** La sesión no existe o es de otra persona: la API responde igual a las dos (ADR-0012). */
 function SessionNotFound() {
   return (
-    <main className="session session--missing">
-      <BackLink />
-      <h1 className="session__title">Sesión no encontrada</h1>
-      <p className="session__lead">
-        No existe o no tienes acceso a ella. Las sesiones de cada persona solo las ven ella y los
-        investigadores.
-      </p>
-    </main>
+    <div className="session session--missing">
+      <SessionTopBar />
+      <main className="session__missing">
+        <h1 className="session__title">Sesión no encontrada</h1>
+        <p className="session__lead">
+          No existe o no tienes acceso a ella. Las sesiones de cada persona solo las ven ella y los
+          investigadores.
+        </p>
+      </main>
+    </div>
   );
 }
 
@@ -322,6 +317,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
     );
   });
   const [tab, setTab] = useState<ToolTab>("note");
+  const [midiPreparing, setMidiPreparing] = useState(false);
+  const [pdfPreparing, setPdfPreparing] = useState(false);
+  // El PDF se dibuja en el navegador (#376): se guarda el último, para no dibujarlo otra vez
+  // con el mismo MusicXML.
+  const [makePdf] = useState(() => createPdfMaker(renderScorePdf));
   const [keysShown, setKeysShown] = useState(false);
   const toggleKeys = useCallback(() => {
     setKeysShown((shown) => !shown);
@@ -449,16 +449,18 @@ function SessionView({ sessionId }: { sessionId: string }) {
   // Sin datos que enseñar; si ya los había, un fallo al recargarlos no tapa la vista.
   if (detail.isError && !detail.data) {
     return (
-      <main className="session session--missing">
-        <BackLink />
-        <h1 className="session__title">No se pudo cargar la sesión</h1>
-        <div className="session__error" role="alert">
-          <p>{errorMessage(detail.error)}</p>
-          <button type="button" className="button" onClick={() => void detail.refetch()}>
-            Reintentar
-          </button>
-        </div>
-      </main>
+      <div className="session session--missing">
+        <SessionTopBar />
+        <main className="session__missing">
+          <h1 className="session__title">No se pudo cargar la sesión</h1>
+          <div className="session__error" role="alert">
+            <p>{errorMessage(detail.error)}</p>
+            <button type="button" className="button" onClick={() => void detail.refetch()}>
+              Reintentar
+            </button>
+          </div>
+        </main>
+      </div>
     );
   }
 
@@ -484,6 +486,16 @@ function SessionView({ sessionId }: { sessionId: string }) {
           ? "; los compases tramados en violeta son posibles errores que conviene revisar."
           : "."
       }`;
+  // El resumen bajo el título (#363): el estado, las ediciones y, si no se puede corregir, que es
+  // de solo lectura y, para un investigador, de quién es. Lo demás, tras «?».
+  const summary = detail.data
+    ? [
+        statusLabel(detail.data.status ?? ""),
+        `${String(edits)} ${edits === 1 ? "edición" : "ediciones"}`,
+        ...(editable ? [] : ["solo lectura"]),
+        ...(foreign && ownerName ? [`de ${ownerName}`] : []),
+      ].join(" · ")
+    : null;
   // El panel lateral plegado se queda en un raíl con su nombre; en la condición no asistida no
   // dice nada del validador (ADR-0040 §13.2).
   const findingsTotal = active.length;
@@ -493,11 +505,84 @@ function SessionView({ sessionId }: { sessionId: string }) {
       : "Posibles errores"
     : "Historial";
 
+  const busyElsewhere =
+    editor.status.kind === "saving" || editor.status.kind === "reloading" || editor.queued;
+  // «Exportar / Datos» no se cierra con un clic fuera mientras se guardan los datos o se prepara
+  // el MIDI o el PDF: su aviso se vería en un panel oculto.
+  const menuPinned = metadataEditor.saving || midiPreparing || pdfPreparing;
   return (
-    <main className="session session--desk" aria-busy={detail.isPending}>
-      <header className="session__head">
+    <div className="session session--desk">
+      <SessionTopBar
+        actions={
+          <>
+            {/* Los datos y las descargas, en un desplegable; finalizar, a la vista (#363). */}
+            <HeaderPopover
+              className="session__menu"
+              toggle={
+                <>
+                  Exportar / Datos
+                  <PixelIcon name="arrow-down" />
+                </>
+              }
+              panelLabel="Datos y descargas de la sesión"
+              pinned={menuPinned}
+            >
+              {owned && detail.data && metadata && (
+                <ScoreDataPanel
+                  metadata={metadata}
+                  staves={(score?.parts ?? []).map((part) => part.staves.length)}
+                  fallbackName={fallbackName}
+                  saving={metadataEditor.saving}
+                  waiting={busyElsewhere || findingActions.busy || lifecycle.busy}
+                  message={metadataEditor.message}
+                  onSave={metadataEditor.save}
+                  onDismissMessage={metadataEditor.clearMessage}
+                />
+              )}
+              <div className="session__downloads">
+                <DownloadButton
+                  sessionId={sessionId}
+                  xml={musicXml.data}
+                  status={
+                    musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
+                  }
+                  onRetry={async () => (await musicXml.refetch()).data}
+                />
+                <MidiDownloadButton
+                  sessionId={sessionId}
+                  seq={seq}
+                  ready={ready}
+                  fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
+                  onPreparing={setMidiPreparing}
+                />
+                {/* El PDF del MusicXML del estado que se ve, el de la caché si vale. Tras guardar
+                    los datos, el de antes ya no vale: se espera al que se está pidiendo. */}
+                <PdfDownloadButton
+                  sessionId={sessionId}
+                  seq={seq}
+                  ready={ready}
+                  makePdf={async () =>
+                    makePdf(await queryClient.query(sessionMusicXmlQuery(api, sessionId, seq)))
+                  }
+                  onPreparing={setPdfPreparing}
+                />
+              </div>
+            </HeaderPopover>
+            {owned && detail.data && (
+              <LifecyclePanel
+                finalized={finalized}
+                assisted={assisted}
+                busy={lifecycle.busy}
+                waiting={busyElsewhere || findingActions.busy}
+                message={lifecycle.message}
+                onFinalize={lifecycle.finalize}
+                onReopen={lifecycle.reopen}
+              />
+            )}
+          </>
+        }
+      >
         <div className="session__titling">
-          <BackLink />
           <h1 className="session__title">
             {(nonBlank(metadata?.title) ?? nonBlank(metadata?.source_filename)) ? (
               name
@@ -507,6 +592,16 @@ function SessionView({ sessionId }: { sessionId: string }) {
               </>
             )}
           </h1>
+          {summary && <p className="label session__summary">{summary}</p>}
+        </div>
+        {/* La entradilla y todos los datos de la sesión, tras «?» (#363). */}
+        <HeaderPopover
+          className="session__info"
+          label="Ayuda y datos de la sesión"
+          toggle="?"
+          panelLabel="La sesión"
+        >
+          <p className="session__lead">{lead}</p>
           {detail.data && (
             <dl className="session__meta">
               <div>
@@ -543,63 +638,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
               )}
             </dl>
           )}
-          <p className="session__lead">{lead}</p>
-        </div>
-        <div className="session__actions">
-          {owned && detail.data && metadata && (
-            <ScoreDataPanel
-              metadata={metadata}
-              staves={(score?.parts ?? []).map((part) => part.staves.length)}
-              fallbackName={fallbackName}
-              saving={metadataEditor.saving}
-              waiting={
-                editor.status.kind === "saving" ||
-                editor.status.kind === "reloading" ||
-                editor.queued ||
-                findingActions.busy ||
-                lifecycle.busy
-              }
-              message={metadataEditor.message}
-              onSave={metadataEditor.save}
-              onDismissMessage={metadataEditor.clearMessage}
-            />
-          )}
-          <div className="session__downloads">
-            <DownloadButton
-              sessionId={sessionId}
-              xml={musicXml.data}
-              status={
-                musicXml.data !== undefined ? "ready" : musicXml.isError ? "error" : "loading"
-              }
-              onRetry={async () => (await musicXml.refetch()).data}
-            />
-            <MidiDownloadButton
-              sessionId={sessionId}
-              seq={seq}
-              ready={ready}
-              fetchMidi={() => queryClient.query(sessionMidiQuery(api, sessionId, seq))}
-            />
-          </div>
-          {owned && detail.data && (
-            <LifecyclePanel
-              finalized={finalized}
-              assisted={assisted}
-              busy={lifecycle.busy}
-              waiting={
-                editor.status.kind === "saving" ||
-                editor.status.kind === "reloading" ||
-                editor.queued ||
-                findingActions.busy
-              }
-              message={lifecycle.message}
-              onFinalize={lifecycle.finalize}
-              onReopen={lifecycle.reopen}
-            />
-          )}
-        </div>
-      </header>
+        </HeaderPopover>
+      </SessionTopBar>
 
-      <div className="session__body" data-aside={asideOpen ? "open" : "closed"}>
+      <main
+        className="session__body"
+        data-aside={asideOpen ? "open" : "closed"}
+        aria-busy={detail.isPending}
+      >
         {/* La mesa de corrección (#341): la imagen original y la partitura lado a lado, con un
             divisor que reparte el ancho; en una columna, la imagen arriba. */}
         <div
@@ -646,16 +692,14 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 onCommand={editable ? runCommand : undefined}
                 writing={writingMode}
                 editKeysId={editable ? editKeysId : undefined}
-                keysHidden={editable && !keysShown}
                 editor={
                   showEditor
-                    ? (target, { available, focusScore, selectionKeysId }) => (
+                    ? (target, { focusScore, selection }) => (
                         <EditBar
                           editor={editor}
                           editable={editable}
                           undoable={editable}
                           target={target}
-                          available={available}
                           score={snapshot.transcription}
                           seq={snapshot.seq}
                           multiStaff={multiStaff}
@@ -666,7 +710,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                           onTab={setTab}
                           keysShown={keysShown}
                           onToggleKeys={toggleKeys}
-                          selectionKeysId={selectionKeysId}
+                          selection={selection}
                           onCommand={runCommand}
                           writing={writingOn}
                           onToggleWriting={toggleWriting}
@@ -690,7 +734,6 @@ function SessionView({ sessionId }: { sessionId: string }) {
                     editable={false}
                     undoable={editable}
                     target={null}
-                    available={false}
                     score={score}
                     seq={seq}
                     multiStaff={multiStaff}
@@ -808,7 +851,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
             )}
           </div>
         </aside>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

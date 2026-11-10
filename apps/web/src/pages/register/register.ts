@@ -1,8 +1,9 @@
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
 import type { UserRead } from "../../types";
+import { DATA_CONSENT_VERSION } from "../consent/consent";
 
-export type RegisterField = "username" | "password" | "confirmation";
+export type RegisterField = "username" | "password" | "confirmation" | "consent";
 
 /** Mismas reglas que la API (ADR-0022): la API sigue siendo la autoridad. */
 export const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,63}$/;
@@ -17,14 +18,28 @@ export function passwordLength(password: string): number {
   return Array.from(password).length;
 }
 
-/** `POST /auth/register` (ADR-0022): público, sin token. */
-export function registerUser(api: ApiClient, username: string, password: string) {
+/**
+ * `POST /auth/register` (ADR-0022): público, sin token. Con el permiso de uso de los datos, la
+ * versión del texto que se leyó (#378, ADR-0065).
+ */
+export function registerUser(
+  api: ApiClient,
+  username: string,
+  password: string,
+  dataConsent: boolean,
+) {
   return api.request<UserRead>("/auth/register", {
     method: "POST",
-    json: { username, password },
+    json: dataConsent
+      ? { username, password, data_consent_version: DATA_CONSENT_VERSION }
+      : { username, password },
     auth: false,
   });
 }
+
+/** Lo que dice el registro si no se marca la casilla del permiso (#378). */
+export const CONSENT_REQUIRED =
+  "Para crear la cuenta, marca la casilla del permiso de uso de los datos.";
 
 /**
  * Un error del registro: su mensaje y el campo que hay que corregir, o null si no es culpa de
@@ -62,6 +77,14 @@ export function registerErrorMessage(error: unknown): RegisterError {
   }
   switch (error.kind) {
     case "conflict":
+      // El texto del permiso cambió en el servidor (#378): se pide recargar y releerlo.
+      if (error.detail === "stale_data_consent") {
+        return {
+          message:
+            "El texto del permiso de uso de los datos ha cambiado. Recarga la página, léelo y vuelve a intentarlo.",
+          field: "consent",
+        };
+      }
       return {
         message: "Ese nombre de usuario ya existe. Elige otro o, si es tuyo, entra con él.",
         field: "username",

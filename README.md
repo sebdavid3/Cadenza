@@ -278,14 +278,14 @@ y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad
 | Sistema | `GET /health` · `GET /version` |
 | Autenticación | `POST /auth/login` · `POST /auth/register` · `GET /auth/me` · `POST /auth/password` |
 | Usuarios (investigador) | `GET /users` · `POST /users` · `PATCH /users/{user_id}` |
-| Transcripción | `POST /transcribe` |
+| Transcripción | `POST /transcribe` · `POST /transcription-jobs` · `GET /transcription-jobs` · `GET /transcription-jobs/{id}` · `DELETE /transcription-jobs/{id}` |
 | Sesiones | `GET /sessions` · `GET /sessions/{id}` · `GET /sessions/{id}/image` · `GET /sessions/{id}/export?format=musicxml\|midi` · `GET /sessions/{id}/timing` |
 | Edición | `POST /sessions/{id}/edits` · `POST /sessions/{id}/undo` |
 | Hallazgos | `GET /sessions/{id}/findings` · `POST /sessions/{id}/validate` · `POST /sessions/{id}/findings/{finding_id}/dismiss` · `POST /sessions/{id}/findings/{finding_id}/restore` |
 | Ciclo de vida | `POST /sessions/{id}/finalize` · `POST /sessions/{id}/reopen` |
 | Esfuerzo | `POST /sessions/{id}/effort` · `GET /sessions/{id}/effort` · `PUT /sessions/{id}/effort/segments/{segment_id}` |
 
-`POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)).
+`POST /transcribe` es síncrono ([ADR-0016](docs/adr/ADR-0016-transcripcion-sincrona-vs-asincrona.md)); la web transcribe en segundo plano con `POST /transcription-jobs` y consulta el avance de cada imagen, sin plazo ([ADR-0064](docs/adr/ADR-0064-transcripcion-en-segundo-plano-con-su-avance.md)).
 El contrato se genera desde el código y no se edita a mano:
 
 ```bash
@@ -348,6 +348,7 @@ pruebas ([#349](https://github.com/sebdavid3/Cadenza/issues/349)):
 uv run --no-sync python scripts/puertas.py            # Python y web
 uv run --no-sync python scripts/puertas.py --sin-web  # solo Python
 uv run --no-sync python scripts/puertas.py --docker   # y el job de Docker de la CI
+uv run --no-sync python scripts/puertas.py --solo pytest,test  # repetir solo esas (#382)
 ```
 
 Una a una:

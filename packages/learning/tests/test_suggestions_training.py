@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import replace
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import pytest
 from cadenza.application import (
+    DATA_CONSENT_VERSION,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InMemoryUserRepository,
@@ -60,6 +63,8 @@ from .suggestions_support import (
     small_config,
     write_corpus,
 )
+
+CONSENT_AT = datetime(2026, 11, 9, 18, 30, tzinfo=UTC)
 
 
 def _event_records(read: ScoreIR, truth: ScoreIR) -> list[dict[str, Any]]:
@@ -487,6 +492,21 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     )
     assert left_out == {ids[2]: "cuenta del registro público"}
     assert {r["session_id"] for r in records} == {ids[0], ids[1]}
+    # El permiso de uso de los datos solo se guarda (#378, ADR-0065): con él, todo igual, y la
+    # cuenta del registro sigue fuera.
+    consented = InMemoryUserRepository(
+        [
+            replace(user, data_consent_at=CONSENT_AT, data_consent_version=DATA_CONSENT_VERSION)
+            for user in (owner, outsider)
+        ]
+    )
+    assert session_records(
+        session_repository=sessions,
+        edit_repository=edits,
+        user_repository=consented,
+        split_seed=SPLIT_SEED,
+        test_fraction=0.2,
+    ) == (records, left_out)
     assert all(r["source"] == "cadenza" and r["work_id"] == "test_score:TS-01" for r in records)
     expected_split = assign_split("test_score:TS-01", seed=SPLIT_SEED, test_fraction=0.2)
     assert {r["split"] for r in records} == {expected_split}

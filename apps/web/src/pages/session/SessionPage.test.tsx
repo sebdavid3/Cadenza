@@ -268,6 +268,23 @@ const audio = vi.hoisted(() => {
 });
 vi.mock("./toneEngine", () => ({ createToneEngine: audio.create }));
 
+// El PDF se dibuja con OSMD y jsPDF, que no dibujan en jsdom (#376): un doble que guarda el
+// MusicXML que se le pide y da lo que diga la prueba.
+const pdfRender = vi.hoisted(() => ({
+  calls: [] as string[],
+  next: null as (() => Promise<Blob>) | null,
+}));
+vi.mock("./pdf", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./pdf")>();
+  return {
+    ...actual,
+    renderScorePdf: (xml: string) => {
+      pdfRender.calls.push(xml);
+      return pdfRender.next?.() ?? Promise.resolve(new Blob(["%PDF-1.3"]));
+    },
+  };
+});
+
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
 const INVESTIGADORA: UserRead = {
   ...ANA,
@@ -418,6 +435,13 @@ function renderPage(user: UserRead = ANA) {
   return router;
 }
 
+/** Abre «Exportar / Datos» (#363) si está cerrado y da el botón de esa acción. */
+async function sessionAction(name: string) {
+  const toggle = await screen.findByRole("button", { name: "Exportar / Datos" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  return screen.findByRole("button", { name });
+}
+
 const xml = () =>
   new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml+xml" } });
 
@@ -471,6 +495,13 @@ function musicXmlBlobs() {
     );
 }
 
+/** Blobs de PDF entregados a `URL.createObjectURL`. */
+function pdfBlobs() {
+  return createObjectURL.mock.calls
+    .map(([value]) => value)
+    .filter((value): value is Blob => value instanceof Blob && value.type === "application/pdf");
+}
+
 /** Blobs de MIDI entregados a `URL.createObjectURL`. */
 function midiBlobs() {
   return createObjectURL.mock.calls
@@ -484,6 +515,7 @@ const scrollIntoView = vi.fn();
 
 beforeEach(() => {
   resetAuth();
+  Object.assign(pdfRender, { calls: [], next: null });
   Object.assign(osmd, {
     measures: 3,
     fail: false,
@@ -528,7 +560,8 @@ describe("vista de una sesión", () => {
     const mark = document.querySelector<HTMLElement>(".notation__mark");
     // Segundo compás de OSMD: x = 30 unidades; en jsdom el ancho es 0 y el zoom, el de móvil.
     expect(mark?.style.left).toBe("225px");
-    expect(mark).toHaveTextContent("Compás 2");
+    // El rótulo lleva solo el número del compás (#368).
+    expect(mark).toHaveTextContent(/^2$/);
     expect(screen.getByRole("application", { name: /posibles errores: 2/i })).toBeInTheDocument();
     // OSMD recibe el MusicXML ya analizado, no una cadena que podría tomar por una URL.
     expect(osmd.loaded).toEqual(["score-partwise"]);
@@ -637,7 +670,7 @@ describe("vista de una sesión", () => {
 
     expect(button).toHaveAttribute("aria-pressed", "true");
     const selected = document.querySelector('.notation__mark[data-selected="true"]');
-    expect(selected).toHaveTextContent("Compás 3");
+    expect(selected).toHaveTextContent(/^3$/);
     expect(scrollIntoView).toHaveBeenCalled();
 
     await userEvent.click(button);
@@ -675,7 +708,7 @@ describe("vista de una sesión", () => {
     await waitFor(() => {
       expect(document.querySelectorAll(".notation__mark")).toHaveLength(1);
     });
-    expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+    expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
   });
 
   it("avisa si los posibles errores son de un estado anterior al actual", async () => {
@@ -866,7 +899,7 @@ describe("vista de una sesión", () => {
     const saved = captureDownloads();
     renderPage();
 
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     await waitFor(() => {
       expect(button).not.toHaveAttribute("aria-disabled", "true");
     });
@@ -884,7 +917,7 @@ describe("vista de una sesión", () => {
     const saved = captureDownloads();
     renderPage();
 
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     expect(button).toHaveAttribute("aria-disabled", "true");
     expect(button).toHaveAccessibleDescription("Preparando el MusicXML…");
     await userEvent.click(button);
@@ -897,7 +930,7 @@ describe("vista de una sesión", () => {
     const saved = captureDownloads();
     renderPage();
 
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     await waitFor(() => {
       expect(button).toHaveAccessibleDescription(/no se pudo preparar el musicxml/i);
     });
@@ -920,7 +953,7 @@ describe("vista de una sesión", () => {
     withExport(() => jsonResponse({ detail: "fallo" }, 500));
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     await waitFor(() => {
       expect(button).toHaveAccessibleDescription(/no se pudo preparar el musicxml/i);
     });
@@ -944,7 +977,7 @@ describe("vista de una sesión", () => {
     });
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     await waitFor(() => {
       expect(button).toHaveAccessibleDescription(/no se pudo preparar el musicxml/i);
     });
@@ -967,7 +1000,7 @@ describe("vista de una sesión", () => {
     withExport(() => (fail ? jsonResponse({ detail: "fallo" }, 500) : late.promise));
     const saved = captureDownloads();
     const router = renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MusicXML" });
+    const button = await sessionAction("Descargar MusicXML");
     await waitFor(() => {
       expect(button).toHaveAccessibleDescription(/no se pudo preparar el musicxml/i);
     });
@@ -990,7 +1023,7 @@ describe("vista de una sesión", () => {
     const saved = captureDownloads();
     renderPage();
 
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
     // La partitura ya está lista y el MIDI aún no se ha pedido.
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Descargar MusicXML" })).not.toHaveAttribute(
@@ -1019,7 +1052,7 @@ describe("vista de una sesión", () => {
     const { calls } = withMidi(() => pending.promise);
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     await userEvent.click(button);
 
@@ -1040,12 +1073,40 @@ describe("vista de una sesión", () => {
     expect(button).not.toHaveAccessibleDescription(/midi/i);
   });
 
+  it("mientras prepara el MIDI, un clic fuera no cierra «Exportar / Datos» y su aviso se ve (#363)", async () => {
+    const pending = deferred<Response>();
+    withMidi(() => pending.promise);
+    captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar MIDI");
+    const toggle = screen.getByRole("button", { name: "Exportar / Datos" });
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el MIDI…");
+    });
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    pending.resolve(jsonResponse({ detail: "fallo" }, 500));
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(/no se pudo preparar el midi/i);
+    });
+    expect(button).toBeVisible();
+    // Ya con el aviso a la vista, un clic fuera lo cierra como siempre (en cuanto la vista sabe que
+    // el MIDI dejó de prepararse).
+    await waitFor(() => {
+      fireEvent.pointerDown(document.body);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
   it("si el MIDI falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a pedir y descarga", async () => {
     let fail = true;
     const { calls } = withMidi(() => (fail ? jsonResponse({ detail: "fallo" }, 500) : midi()));
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     await userEvent.click(button);
 
@@ -1075,7 +1136,7 @@ describe("vista de una sesión", () => {
     withMidi(() => new Response("<!doctype html>", { headers: { "Content-Type": "text/html" } }));
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     await userEvent.click(button);
 
@@ -1094,7 +1155,7 @@ describe("vista de una sesión", () => {
     });
     const saved = captureDownloads();
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     await userEvent.click(button);
 
@@ -1115,7 +1176,7 @@ describe("vista de una sesión", () => {
   it("hasta saber qué estado se ve, «Descargar MIDI» no pide nada", async () => {
     const { calls } = mockApi({ [`GET /sessions/${ID}`]: hangUntilAborted });
     renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     expect(button).toHaveAttribute("aria-disabled", "true");
     await userEvent.click(button);
@@ -1128,7 +1189,7 @@ describe("vista de una sesión", () => {
     withMidi(() => late.promise);
     const saved = captureDownloads();
     const router = renderPage();
-    const button = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const button = await sessionAction("Descargar MIDI");
 
     await userEvent.click(button);
     await router.navigate("/transcripcion");
@@ -1136,6 +1197,161 @@ describe("vista de una sesión", () => {
       expect(screen.queryByRole("button", { name: "Descargar MIDI" })).toBeNull();
     });
     late.resolve(midi());
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(saved.names).toEqual([]);
+  });
+
+  it("«Descargar PDF» va junto a las otras descargas y dibuja el MusicXML del estado que se ve (#376)", async () => {
+    api();
+    const saved = captureDownloads();
+    renderPage();
+
+    const button = await sessionAction("Descargar PDF");
+    const downloads = within(screen.getByRole("group", { name: "Datos y descargas de la sesión" }))
+      .getAllByRole("button", { name: /^Descargar / })
+      .map((control) => control.textContent);
+    expect(downloads).toEqual(["Descargar MusicXML", "Descargar MIDI", "Descargar PDF"]);
+    expect(pdfRender.calls).toEqual([]);
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    // El mismo MusicXML que dibuja la vista y que baja «Descargar MusicXML».
+    expect(pdfRender.calls).toEqual([XML]);
+    const [blob] = pdfBlobs();
+    if (!blob) throw new Error("no se guardó ningún PDF");
+    expect(await blob.text()).toBe("%PDF-1.3");
+    expect(button).not.toHaveAccessibleDescription(/pdf/i);
+  });
+
+  it("mientras prepara el PDF lo dice, no lo vuelve a preparar y «Exportar / Datos» no se cierra", async () => {
+    const pending = deferred<Blob>();
+    pdfRender.next = () => pending.promise;
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+    const toggle = screen.getByRole("button", { name: "Exportar / Datos" });
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el PDF…");
+    });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(button);
+    fireEvent.pointerDown(document.body);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(pdfRender.calls).toHaveLength(1);
+    expect(saved.names).toEqual([]);
+
+    pending.resolve(new Blob(["%PDF-1.3"]));
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(button).not.toHaveAttribute("aria-disabled", "true");
+    expect(button).not.toHaveAccessibleDescription(/pdf/i);
+  });
+
+  it("si el PDF falla lo dice y lo anuncia; al pulsar otra vez lo vuelve a preparar y descarga", async () => {
+    let fail = true;
+    pdfRender.next = () =>
+      fail ? Promise.reject(new Error("VexFlow")) : Promise.resolve(new Blob(["%PDF-1.3"]));
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(
+        "No se pudo preparar el PDF. Pulsa «Descargar PDF» para volver a intentarlo.",
+      );
+    });
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((region) => /no se pudo preparar el pdf/i.test(region.textContent)),
+    ).toBe(true);
+    expect(saved.names).toEqual([]);
+
+    fail = false;
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toEqual([XML, XML]);
+    expect(screen.queryByText(/no se pudo preparar el pdf/i)).toBeNull();
+  });
+
+  it("si el PDF tarda no descarga por sorpresa: dice que está listo y el clic lo guarda sin rehacerlo", async () => {
+    let clock = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => clock);
+    pdfRender.next = () => {
+      clock = 10_000;
+      return Promise.resolve(new Blob(["%PDF-1.3"]));
+    };
+    api();
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription(
+        "El PDF ya está listo. Pulsa «Descargar PDF» para guardarlo.",
+      );
+    });
+    expect(saved.names).toEqual([]);
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toHaveLength(1);
+  });
+
+  it("si el MusicXML aún no ha llegado, el PDF lo espera y no lo pide otra vez", async () => {
+    const late = deferred<Response>();
+    const { calls } = withExport(() => late.promise);
+    const saved = captureDownloads();
+    renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(button).toHaveAccessibleDescription("Preparando el PDF…");
+    });
+    late.resolve(xml());
+
+    await waitFor(() => {
+      expect(saved.names).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfRender.calls).toEqual([XML]);
+    expect(calls.filter((call) => call.key === `GET /sessions/${ID}/export`)).toHaveLength(1);
+  });
+
+  it("si se sale de la vista mientras prepara el PDF, no descarga al llegar", async () => {
+    const late = deferred<Blob>();
+    pdfRender.next = () => late.promise;
+    api();
+    const saved = captureDownloads();
+    const router = renderPage();
+    const button = await sessionAction("Descargar PDF");
+
+    await userEvent.click(button);
+    await router.navigate("/transcripcion");
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Descargar PDF" })).toBeNull();
+    });
+    late.resolve(new Blob(["%PDF-1.3"]));
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(saved.names).toEqual([]);
@@ -1150,6 +1366,11 @@ describe("vista de una sesión", () => {
       expect(image).toHaveAttribute("src", "blob:original");
     });
     expect(revokeObjectURL).not.toHaveBeenCalled();
+    // OSMD ya está creado: al salir hay algo que limpiar (sin esperarlo, con carga, la prueba
+    // salía antes de que la partitura empezara a dibujarse).
+    await waitFor(() => {
+      expect(osmd.instances).toBeGreaterThan(0);
+    });
 
     await router.navigate("/transcripcion");
 
@@ -1447,7 +1668,7 @@ describe("reproducción de la partitura", () => {
 describe("elegir una nota sobre la partitura", () => {
   const findScore = () => screen.findByRole("application", { name: /partitura transcrita/i });
   const selection = () => document.querySelector<HTMLElement>(".notation__selection");
-  const live = () => document.querySelector(".selection [role='status']");
+  const live = () => document.querySelector(".selection__live");
   /** Centro de la cabeza de la primera figura de un compás (1, 2 o 3), con el zoom de jsdom. */
   const head = (measure: number) => ({
     clientX: (15 + (measure - 1) * 20) * 7.5,
@@ -2680,7 +2901,25 @@ describe("corregir la nota elegida", () => {
     });
     // La descarga es la del estado nuevo, sin pedirla.
     captureDownloads();
-    fireEvent.click(screen.getByRole("button", { name: /descargar musicxml/i }));
+    fireEvent.click(await sessionAction("Descargar MusicXML"));
+    expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
+  });
+
+  it("tras una corrección, el PDF es el del estado nuevo, sin pedir el MusicXML (#376)", async () => {
+    const server = editableApi();
+    captureDownloads();
+    renderPage();
+    await chooseMeasure(2);
+
+    fireEvent.click(button("Subir un paso"));
+    await waitFor(() => {
+      expect(editStatus()).toHaveTextContent("Guardado: altura Re 4.");
+    });
+    fireEvent.click(await sessionAction("Descargar PDF"));
+
+    await waitFor(() => {
+      expect(pdfRender.calls).toEqual(["<score-partwise>estado 1</score-partwise>"]);
+    });
     expect(server.count(`GET /sessions/${ID}/export`)).toBe(1);
   });
 
@@ -3010,8 +3249,9 @@ describe("corregir la nota elegida", () => {
     await findScore();
 
     expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
+    // Una sola indicación, en la barra de estado (#363).
     expect(
-      within(editor()).getByText("Elige una nota o un silencio para corregirlo."),
+      within(editor()).getByText("Elige una nota o un silencio: tócalo o usa las flechas."),
     ).toBeVisible();
     fireEvent.click(button("Negra"));
     expect(server.bodies).toHaveLength(0);
@@ -3127,7 +3367,9 @@ describe("corregir la nota elegida", () => {
       );
     });
     expect(within(editor()).queryByRole("button", { name: "Subir un paso" })).toBeNull();
-    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+    // El resumen bajo el título lo dice; el porqué, tras «?» (#363).
+    expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura/);
+    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeInTheDocument();
     expect(server.bodies).toHaveLength(1);
   });
 
@@ -3488,7 +3730,10 @@ describe("corregir la nota elegida", () => {
     const region = await chooseMeasure(2);
 
     expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
-    expect(screen.getByText(/solo lectura/i)).toBeVisible();
+    expect(document.querySelector(".session__summary")).toHaveTextContent(
+      /solo lectura · de luis$/,
+    );
+    expect(screen.getByText(/es una sesión de otra persona/i)).toBeInTheDocument();
     fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
     fireEvent.keyDown(region, { key: "4" });
     expect(server.bodies).toHaveLength(0);
@@ -3509,7 +3754,9 @@ describe("corregir la nota elegida", () => {
     const region = await chooseMeasure(2);
 
     expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
-    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+    // El resumen bajo el título lo dice; el porqué, tras «?» (#363).
+    expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura/);
+    expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeInTheDocument();
     fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
     expect(server.bodies).toHaveLength(0);
   });
@@ -3790,7 +4037,7 @@ describe("corregir la nota elegida", () => {
   });
 
   describe("insertar, borrar y cambiar la clave y la armadura (#184)", () => {
-    const live = () => document.querySelector(".selection [role='status']");
+    const live = () => document.querySelector(".selection__live");
     const note = (
       pitch: string | null,
       duration: string,
@@ -4665,7 +4912,7 @@ describe("corregir la nota elegida", () => {
   });
 
   describe("deshacer y rehacer (#185)", () => {
-    const live = () => document.querySelector(".selection [role='status']");
+    const live = () => document.querySelector(".selection__live");
     const undoButton = () => button("Deshacer");
     const redoButton = () => button("Rehacer");
     const historyNote = () => document.querySelector(".editor__history");
@@ -5465,7 +5712,7 @@ describe("corregir la nota elegida", () => {
       await waitFor(() => {
         expect(markCount()).toBe(1);
       });
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
       expect(findingsStatus()).toHaveTextContent(
         "Descartado como falso positivo: Duración del compás, compás 3. La partitura no cambia.",
       );
@@ -5627,7 +5874,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(server.count(`POST /sessions/${ID}/validate`)).toBe(1);
       expect(markCount()).toBe(1);
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^3$/);
       expect(within(panel()).getByRole("button", { name: /^compás 3/i })).toHaveTextContent(
         "Altura fuera de registro",
       );
@@ -5695,7 +5942,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
       expect(markCount()).toBe(1);
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 1");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^1$/);
       expect(within(panel()).queryByText(/después se editó/i)).toBeNull();
       expect(editStatus()).toHaveTextContent("Sesión recargada.");
     });
@@ -5834,7 +6081,7 @@ describe("corregir la nota elegida", () => {
       });
       expect(findingsStatus()).not.toHaveTextContent(/otra pestaña/);
       expect(screen.getByText("Ediciones").nextElementSibling).toHaveTextContent("2");
-      expect(document.querySelector(".notation__mark")).toHaveTextContent("Compás 3");
+      expect(document.querySelector(".notation__mark")).toHaveTextContent(/^3$/);
     });
 
     it("si mientras se revalida la sesión avanza otra vez, lo dice y vuelve a ofrecer revalidar", async () => {
@@ -5987,7 +6234,9 @@ describe("corregir la nota elegida", () => {
       await waitFor(() => {
         expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
       });
-      expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeVisible();
+      // El resumen bajo el título lo dice; el porqué, tras «?» (#363).
+      expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura/);
+      expect(screen.getByText(/sesión finalizada: solo lectura/i)).toBeInTheDocument();
       expect(markCount()).toBe(1);
     });
 
@@ -6252,6 +6501,20 @@ describe("corregir la nota elegida", () => {
       await userEvent.click(confirmButton());
     }
 
+    it("el aviso de finalizar flota bajo el botón y un clic fuera lo quita de la vista (#363)", async () => {
+      lifecycleApi();
+      renderPage();
+      await findScore();
+
+      await finalize();
+
+      await waitFor(() => {
+        expect(lifecycleStatus()).toHaveTextContent(/^Sesión finalizada\./);
+      });
+      fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
+      expect(lifecycleStatus()).toBeEmptyDOMElement();
+    });
+
     it("finaliza tras confirmarlo, con la validación final a la vista y en solo lectura", async () => {
       const server = lifecycleApi(detail(), {
         findings: [finding(1, 1), dismissedFinding(2, 3)],
@@ -6298,7 +6561,9 @@ describe("corregir la nota elegida", () => {
         );
       });
       expect(meta()).toHaveTextContent("Finalizada");
-      expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeVisible();
+      // Que es de solo lectura, en el resumen; cómo seguir, tras «?» y en «Reabrir la sesión» (#363).
+      expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura/);
+      expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeInTheDocument();
       expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
       expect(within(findingsPanel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
       expect(
@@ -7216,7 +7481,9 @@ describe("corregir la nota elegida", () => {
 
       await finalize();
       await waitFor(() => {
-        expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeVisible();
+        // Que es de solo lectura, en el resumen; cómo seguir, tras «?» y en «Reabrir la sesión» (#363).
+        expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura/);
+        expect(screen.getByText(/reábrela para seguir corrigiendo/i)).toBeInTheDocument();
       });
       // Lo medido sale antes de finalizar, en el mismo tramo.
       expect(server.order.slice(-2)).toEqual(["effort", "finalize"]);
@@ -7246,7 +7513,7 @@ describe("corregir la nota elegida", () => {
         );
       });
       expect(server.order).not.toContain("finalize");
-      expect(screen.getByText("Transcrita")).toBeVisible();
+      expect(document.querySelector(".session__summary")).toHaveTextContent(/^Transcrita/);
 
       // El segundo intento envía lo medido y finaliza.
       await finalize();
@@ -7575,10 +7842,10 @@ describe("corregir la nota elegida", () => {
       expect(separator().compareDocumentPosition(score) & Node.DOCUMENT_POSITION_FOLLOWING).toBe(
         Node.DOCUMENT_POSITION_FOLLOWING,
       );
-      // Las descargas son de la sesión: van en la cabecera, con finalizar.
+      // Las descargas son de la sesión: van en la cabecera, con finalizar, tras «Exportar / Datos».
       const head = document.querySelector(".session__head");
       if (!(head instanceof HTMLElement)) throw new Error("Falta la cabecera de la sesión");
-      expect(within(head).getByRole("button", { name: "Descargar MusicXML" })).toBeInTheDocument();
+      expect(within(head).getByRole("button", { name: "Exportar / Datos" })).toBeInTheDocument();
     });
 
     it("recuerda en el navegador el ancho que se le da a la imagen", async () => {
@@ -7723,6 +7990,196 @@ describe("corregir la nota elegida", () => {
 
       expect(screen.queryByRole("button", { name: "Atajos" })).toBeNull();
       expect(document.querySelector(".selection__keys")).toBeVisible();
+      // La franja de la selección, como antes, con sus pasos.
+      expect(document.querySelector(".selection")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Anterior" })).toBeVisible();
+    });
+  });
+
+  describe("la mesa compacta (#363)", () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    const banner = () => screen.getByRole("banner");
+    const summary = () => document.querySelector<HTMLElement>(".session__summary");
+    const infoToggle = () =>
+      within(banner()).getByRole("button", { name: "Ayuda y datos de la sesión" });
+    const menuToggle = () => within(banner()).getByRole("button", { name: "Exportar / Datos" });
+
+    it("una sola cabecera: la marca, la vuelta, el título, el resumen y la cuenta", async () => {
+      editableApi(detail({ title: "Seed", source_filename: "seed.png" }));
+      renderPage();
+      await findScore();
+
+      // La cabecera de la sesión sustituye a la de la aplicación: no hay dos.
+      expect(screen.getAllByRole("banner")).toHaveLength(1);
+      expect(within(banner()).getByRole("link", { name: "Cadenza, página pública" })).toBeVisible();
+      expect(within(banner()).getByRole("link", { name: "Sesiones" })).toHaveAttribute(
+        "href",
+        "/transcripcion",
+      );
+      expect(within(banner()).getByRole("heading", { level: 1, name: "Seed" })).toBeVisible();
+      expect(summary()).toHaveTextContent("Transcrita · 0 ediciones");
+      expect(within(banner()).getByRole("link", { name: /^Tu cuenta:\s*ana/ })).toBeVisible();
+      expect(within(banner()).getByRole("button", { name: "Salir" })).toBeVisible();
+      // La entradilla larga ya no ocupa la cabecera: está tras «?».
+      expect(screen.getByText(/^Corrige lo que no coincida con la imagen/)).not.toBeVisible();
+    });
+
+    it("de solo lectura, el resumen lo dice", async () => {
+      editableApi(detail({ status: "finalized", edits: [] }));
+      renderPage();
+      await findScore();
+
+      expect(summary()).toHaveTextContent("Finalizada · 0 ediciones · solo lectura");
+    });
+
+    it("«?» abre la entradilla y los datos de la sesión; Esc la cierra y devuelve el foco", async () => {
+      editableApi(detail({ title: "Seed", source_filename: "seed.png" }));
+      renderPage();
+      await findScore();
+      const lead = screen.getByText(/^Corrige lo que no coincida con la imagen/);
+
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(infoToggle());
+
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "true");
+      expect(lead).toBeVisible();
+      const meta = document.querySelector<HTMLElement>(".session__meta");
+      expect(meta).toBeVisible();
+      expect(meta).toHaveTextContent("Archivo");
+      expect(meta).toHaveTextContent("seed.png");
+
+      fireEvent.keyDown(lead, { key: "Escape" });
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "false");
+      expect(lead).not.toBeVisible();
+      expect(infoToggle()).toHaveFocus();
+    });
+
+    it("«Exportar / Datos» agrupa los datos y las descargas; finalizar queda a la vista", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      const finalize = within(banner()).getByRole("button", { name: "Finalizar la corrección" });
+      expect(finalize).toBeVisible();
+      expect(finalize).toHaveClass("button--primary");
+      expect(screen.queryByRole("button", { name: "Descargar MusicXML" })).toBeNull();
+
+      expect(menuToggle()).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(menuToggle());
+      expect(menuToggle()).toHaveAttribute("aria-expanded", "true");
+      for (const name of [
+        "Cambiar los datos",
+        "Descargar MusicXML",
+        "Descargar MIDI",
+        "Descargar PDF",
+      ]) {
+        expect(within(banner()).getByRole("button", { name })).toBeVisible();
+      }
+
+      // Esc lo cierra y devuelve el foco a su botón.
+      fireEvent.keyDown(within(banner()).getByRole("button", { name: "Descargar MIDI" }), {
+        key: "Escape",
+      });
+      expect(menuToggle()).toHaveAttribute("aria-expanded", "false");
+      expect(menuToggle()).toHaveFocus();
+      expect(screen.queryByRole("button", { name: "Descargar MusicXML" })).toBeNull();
+
+      // Un clic fuera también lo cierra.
+      fireEvent.click(menuToggle());
+      fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
+      expect(menuToggle()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("la primera fila reúne deshacer, las pestañas, «Escribir», los pasos y «Atajos»", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      const row = editor().querySelector<HTMLElement>(".editor__bar");
+      if (!row) throw new Error("Falta la primera fila de la barra");
+      expect(
+        [...row.querySelectorAll("button")].map(
+          (element) => element.getAttribute("aria-label") ?? element.textContent.trim(),
+        ),
+      ).toEqual([
+        "Deshacer",
+        "Rehacer",
+        "Nota",
+        "Compás",
+        "Marcas",
+        "Escribir",
+        "Anterior",
+        "Siguiente",
+        "Quitar",
+        "Atajos",
+      ]);
+      // Los pasos de la nota van en la barra: no hay otra franja de la selección.
+      expect(document.querySelector(".selection")).toBeNull();
+    });
+
+    it("una sola indicación sin nota elegida, y la nota elegida en la barra de estado", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      expect(screen.getAllByText(/^Elige una nota o un silencio/)).toHaveLength(1);
+      const status = editor().querySelector<HTMLElement>(".editor__statusbar");
+      expect(status).toHaveTextContent("Elige una nota o un silencio: tócalo o usa las flechas.");
+      // Qué desharía y qué reharía: en el botón, no en una línea suelta (enmienda de ADR-0034 §4).
+      const undo = within(editor()).getByRole("button", { name: "Deshacer" });
+      expect(undo).toHaveAccessibleDescription("Nada que deshacer ni rehacer.");
+      expect(undo).toHaveAttribute("title", "Nada que deshacer");
+      expect(document.querySelector(".editor__history")).toHaveClass("visually-hidden");
+
+      await chooseMeasure(2);
+
+      expect(status).toHaveTextContent(/Compás 2/);
+      expect(screen.queryByText(/^Elige una nota o un silencio/)).toBeNull();
+    });
+
+    it("el panel de «Atajos» se cierra con un clic fuera de él", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+      const toggle = within(editor()).getByRole("button", { name: "Atajos" });
+
+      fireEvent.click(toggle);
+      const keys = document.querySelector<HTMLElement>(".editor__keys");
+      if (!keys) throw new Error("Falta la leyenda de la corrección");
+      fireEvent.pointerDown(keys);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+      fireEvent.pointerDown(screen.getByRole("region", { name: "Transcripción" }));
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("con el teclado, el foco que sale de un panel de la cabecera lo cierra", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      fireEvent.click(infoToggle());
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "true");
+      // Dentro del panel, nada.
+      fireEvent.focusOut(infoToggle(), { relatedTarget: infoToggle() });
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "true");
+      // A otro control de la cabecera, se cierra: no quedan dos paneles abiertos.
+      fireEvent.focusOut(infoToggle(), { relatedTarget: menuToggle() });
+      expect(infoToggle()).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("sin preferencia guardada, la imagen se lleva el 25 % y la partitura el resto", async () => {
+      editableApi();
+      renderPage();
+      await findScore();
+
+      expect(screen.getByRole("separator", { name: "Ancho de la imagen" })).toHaveAttribute(
+        "aria-valuenow",
+        "25",
+      );
     });
   });
 

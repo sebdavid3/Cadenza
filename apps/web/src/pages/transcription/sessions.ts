@@ -97,8 +97,11 @@ export function createLimiter(max: number) {
   };
 }
 
-/** Hueco de la miniatura (96 × 48 px) a doble densidad, que `object-fit: cover` debe cubrir. */
-const THUMBNAIL_BOX = { width: 192, height: 96 };
+/**
+ * Lo que debe cubrir la miniatura con `object-fit: cover`: la imagen de una lámina del diario
+ * (#370), de unos 270 × 180 px en una pantalla de escritorio, a una densidad de 1,75.
+ */
+const THUMBNAIL_BOX = { width: 480, height: 320 };
 
 /** Tamaño reducido que aún cubre el hueco, o null si la imagen ya es igual o más pequeña. */
 export function thumbnailSize(width: number, height: number) {
@@ -112,7 +115,7 @@ export function thumbnailSize(width: number, height: number) {
 
 /**
  * Reduce la imagen al tamaño de la miniatura para no guardar ni decodificar escaneos enteros en
- * un hueco de 96 × 48. Si el navegador no puede, se queda la original.
+ * una lámina. Si el navegador no puede, se queda la original.
  */
 export async function shrinkForThumbnail(blob: Blob): Promise<Blob> {
   if (!("createImageBitmap" in globalThis) || !("OffscreenCanvas" in globalThis)) return blob;
@@ -156,6 +159,24 @@ export const sessionImageQuery = (api: ApiClient, sessionId: string) =>
         signal,
       ),
     // La imagen de una sesión no cambia.
+    staleTime: Infinity,
+  });
+
+/**
+ * La miniatura de una imagen de la cola (#370): el archivo elegido, reducido como las de las
+ * sesiones. Decodificar un escaneo entero cuesta, así que se reducen de dos en dos.
+ */
+const queueThumbnailSlots = createLimiter(2);
+
+export const queueImageQuery = (itemId: string, file: File | undefined) =>
+  queryOptions({
+    queryKey: ["queue-image", itemId],
+    queryFn: ({ signal }) =>
+      queueThumbnailSlots(() => {
+        // Sin archivo (recuperada del servidor) la consulta no se habilita.
+        if (!file) return Promise.reject(new Error("Sin imagen"));
+        return shrinkForThumbnail(file);
+      }, signal),
     staleTime: Infinity,
   });
 

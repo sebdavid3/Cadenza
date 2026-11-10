@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApiClient } from "./client";
-import { resolveBaseUrl, TRANSCRIBE_TIMEOUT_MS } from "./config";
+import { PREVIEW_TIMEOUT_MS, resolveBaseUrl } from "./config";
 import { ApiError, type ApiErrorKind } from "./errors";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -301,7 +301,7 @@ describe("red, timeout y cancelación", () => {
     const client = createApiClient({ fetch: hangingFetch(), timeoutMs: 15_000 });
 
     const pending = caught(
-      client.request("/transcribe", { method: "POST", timeoutMs: TRANSCRIBE_TIMEOUT_MS }),
+      client.request("/previews", { method: "POST", timeoutMs: PREVIEW_TIMEOUT_MS }),
     );
     await vi.advanceTimersByTimeAsync(15_000);
     let settled = false;

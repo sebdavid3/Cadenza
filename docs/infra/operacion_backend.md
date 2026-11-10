@@ -24,6 +24,8 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_REGISTRATION_RATE_LIMIT_MAX_ATTEMPTS` | `int` | `5` | Intentos de registro por IP (red /64 en IPv6) en la ventana, como mínimo 1. Cuentan los que llegan a procesarse, también los que acaban en 409 (nombre ocupado); un cuerpo que no supera el esquema (422) no cuenta porque no toca la base de datos. |
 | `CADENZA_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS` | `int` | `3600` | Ventana en segundos del límite de registros por IP, como mínimo 1. |
 | `CADENZA_TRANSCRIBE_MAX_CONCURRENCY` | `int` | `2` | Transcripciones que la API admite a la vez, de 1 a 8, con un hilo cada una ([ADR-0024](../adr/ADR-0024-transcripciones-simultaneas.md)). HOMR no es seguro entre hilos y calcula de una en una; el resto espera su turno. Una petición sin hueco espera hasta 10 s y luego responde 503 con `Retry-After: 10`. Si el cliente se va a mitad, la transcripción termina, se guarda y entonces libera su hueco. |
+| `CADENZA_TRANSCRIBE_JOBS_PER_USER` | `int` | `10` | Transcripciones en segundo plano que una persona puede tener en cola o en curso, de 1 a 100 ([ADR-0064](../adr/ADR-0064-transcripcion-en-segundo-plano-con-su-avance.md)); con el tope, 429, y la web sube las demás cuando termina alguna. |
+| `CADENZA_TRANSCRIBE_JOBS_MAX` | `int` | `30` | Transcripciones en segundo plano (`POST /transcription-jobs`) en cola o en curso, de todas las personas, de 1 a 500 ([ADR-0064](../adr/ADR-0064-transcripcion-en-segundo-plano-con-su-avance.md)). Cada una guarda su imagen en memoria hasta transcribirse; con el tope, la API responde 503 con `Retry-After: 60`. La cola vive en la memoria del proceso: supone un solo proceso de la API, y un reinicio pierde lo que estaba en cola o en curso. |
 | `CADENZA_SCORE_CACHE_MAX_ENTRIES` | `int` | `32` | Estados de sesión materializados (`ScoreIR`, MusicXML y mapa de tiempos) que la API guarda en memoria por `(sesión, seq, última edición)`, de 0 a 1024; 0 la desactiva ([ADR-0037](../adr/ADR-0037-una-edicion-en-un-solo-viaje.md)). Es de cada proceso: con una instancia de uvicorn, una caché. |
 | `CADENZA_SUGGESTIONS_ENABLED` | `bool` | `false` | Activa la capa de sugerencias que aprende de las correcciones ([ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md)), global. Al arrancar, la API carga la versión promovida de `suggestion_model_versions` (migración `0013_suggestions`), comprueba el `sha256` de su artefacto en `CADENZA_ARTIFACTS_DIR` y su `feature_version`; si no hay versión o no cuadra, valida sin capa y lo registra (`suggestion_layer unavailable reason=…`). Una versión se promueve con `ml suggestions promote` (ver `ml/README.md`) y entra en vigor al reiniciar la API. Entre el congelado (#252) y el final del estudio no se promueve ninguna. |
 | `CADENZA_SUGGESTIONS_MIN_LEVEL` | `str` | `high` | Con la capa activa, nivel de confianza mínimo de las sugerencias que se muestran, se guardan y se pueden aplicar: `high` o `medium` ([ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md), enmienda 19). El valor por defecto es la decisión del responsable para la condición asistida del estudio (#244). |
@@ -154,6 +156,7 @@ Procedimientos, en el servidor y dentro de `/opt/docker/cadenza`:
 DC="docker compose -f docker-compose.prod.yml --env-file .env"
 
 # Actualizar: copia antes, código nuevo y reconstrucción. La API aplica las migraciones al arrancar.
+# En un comando, desde un equipo con el repositorio: ver «Desplegar dev en un comando», abajo.
 $DC --profile backup run --rm backup backup --output /backups/cadenza-$(date +%F-%H%M).tar.gz
 git pull --ff-only
 $DC up -d --build
@@ -168,6 +171,16 @@ $DC up -d
 sudo tailscale funnel --https=443 off
 sudo tailscale funnel --bg 8380
 ```
+
+#### Desplegar `dev` en un comando ([#382](https://github.com/sebdavid3/Cadenza/issues/382))
+
+`deploy/desplegar.sh` hace el «Actualizar» de arriba de una vez: copia previa con `verify --archive`, avance en *fast-forward* hasta el commit esperado de `origin/dev`, `up -d --build`, imagen de copias, limpieza y espera a `/api/health` (5 minutos como mucho). Desde un equipo con el repositorio, tras fusionar:
+
+```bash
+git fetch origin && ssh r2d2-cf "sh -s $(git rev-parse origin/dev)" < deploy/desplegar.sh
+```
+
+(`r2d2` en vez de `r2d2-cf` si Tailscale responde.) Se para sin tocar nada si `origin/dev` en el servidor no es el commit esperado (otra fusión entretanto: volver a lanzarlo), si el servidor no está en la rama `dev`, si su árbol tiene cambios sin comitear o si la copia no se verifica. Si no se reconstruye o la API no queda sana, lo dice, nombra la copia previa y sale con 2, sin volver atrás: se vuelve a mano con esa copia (§4.2). La imagen de copias y la limpieza solo avisan si fallan. Todo el guion va dentro de una función que se llama con la entrada cerrada: llega por `sh -s`, y así ninguna orden (`docker compose run`) puede comerse el resto. El 2026-11-09 desplegar así tardó unos 2,5 minutos. Los guiones de shell se sacan siempre con LF (`.gitattributes`): con CRLF, `sh` fallaría en el servidor.
 
 - La primera actualización a una versión con #192 necesita además, una sola vez, la migración del volumen de artefactos (sección anterior). En el homelab se hizo la noche del 2026-10-23, hora de Colombia ([#203](https://github.com/sebdavid3/Cadenza/issues/203)): ninguna entrada quedó con otro dueño y la API arrancó `healthy` como `cadenza`.
 - Para restaurar una copia, ver la §4.2.
@@ -240,6 +253,15 @@ sed -i 's/^CADENZA_REGISTRATION_ENABLED=.*/CADENZA_REGISTRATION_ENABLED=true/' .
 $DC build web
 $DC up -d api web
 ```
+
+#### Encender el registro con el permiso de uso de los datos ([#378](https://github.com/sebdavid3/Cadenza/issues/378))
+
+El registro pide ahora, con una casilla obligatoria, el permiso de uso de los datos ([ADR-0065](../adr/ADR-0065-permiso-de-uso-de-los-datos-al-registrarse.md)): la cuenta guarda cuándo se dio y qué versión del texto (`/uso-de-los-datos`). El responsable aprobó el texto el 2026-11-09; **encenderlo en producción sigue siendo decisión suya**. Encenderlo son dos variables y reconstruir la web:
+
+1. **`CADENZA_REGISTRATION_ENABLED=true`** (API): abre `POST /auth/register`. La API la lee al arrancar y aplica la migración `0017_users_data_consent` si falta.
+2. **`VITE_REGISTRATION_ENABLED=true`** (web): enseña los enlaces al registro y el formulario con el aviso y la casilla. Se fija al construir la imagen: en `docker-compose.prod.yml` la recibe del mismo `CADENZA_REGISTRATION_ENABLED` del `.env` como argumento del build, así que en el servidor basta la línea del `.env`, pero **hay que reconstruir `web`**; en otro despliegue, se pasa como argumento del build (`Dockerfile.web`).
+
+Con el bloque de arriba («Reabrir»: la línea del `.env` a `true`, `$DC build web` y `$DC up -d api web`). Comprobar después: el `curl` de arriba da 422 (abierto), `/registro` enseña «Uso de tus datos» con la casilla y el enlace al texto completo, `/uso-de-los-datos` responde 200, y una cuenta creada así tiene `data_consent: true` en `GET /api/auth/me`. Desde «Tu cuenta» se retira y se vuelve a dar.
 
 Después de cerrarlo:
 - **En el navegador**, en escritorio y en móvil: la landing y `/entrar` sin «Créala» ni «Crear una cuenta», y `/registro` con «Registro cerrado». `index.html` no se guarda en caché, pero una pestaña que ya estaba abierta conserva la interfaz anterior hasta recargarla.

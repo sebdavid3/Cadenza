@@ -3,7 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0006, ADR-0007, ADR-0011, ADR-0017, ADR-0019, ADR-0030, ADR-0031, ADR-0032 y ADR-0033, CLAUDE.md §9)
-- **Enmendado por:** [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), que devuelve el estado nuevo con la respuesta de deshacer y de rehacer: ya no se pide aparte (§1 y «Sin cambios en el contrato ni en el backend»); [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que elige también el hueco de una voz tras deshacer o rehacer (§7)
+- **Enmendado por:** [ADR-0037](ADR-0037-una-edicion-en-un-solo-viaje.md), que devuelve el estado nuevo con la respuesta de deshacer y de rehacer: ya no se pide aparte (§1 y «Sin cambios en el contrato ni en el backend»); [ADR-0058](ADR-0058-elegir-y-corregir-los-huecos-de-una-voz.md), que elige también el hueco de una voz tras deshacer o rehacer (§7); la enmienda de [#363](https://github.com/sebdavid3/Cadenza/issues/363), que lleva qué harían al `title` y a la descripción de los botones (§4)
 - **Relacionado:** [ADR-0006](ADR-0006-render-editor-osmd-verovio-zustand.md), [ADR-0007](ADR-0007-edit-events-inmutables.md), [ADR-0011](ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](ADR-0017-validacion-del-contenido-de-las-ediciones.md), [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md), [ADR-0033](ADR-0033-insertar-borrar-clave-y-armadura.md), [#185](https://github.com/sebdavid3/Cadenza/issues/185)
 
 ---
@@ -54,3 +54,14 @@ La vista de una sesión ya corrige la nota elegida con las siete operaciones del
 6. **«Volver a aplicar» tras un 409 al deshacer o rehacer.** Descartada: sobre el estado recargado sería otra orden; los botones dicen qué harían ahora.
 7. **Dejar la selección donde estaba.** Descartada: deshacer puede actuar lejos de la nota elegida, y elegir lo que cambia muestra qué se deshizo.
 8. **La historia en una página o un diálogo aparte.** Descartada: en la columna lateral se consulta sin salir de la partitura.
+
+## Enmienda de #363 (2026-11-09): qué harían, en los botones
+
+**El problema.** En la mesa de corrección (#341), la línea «Deshace: … Rehace: …» o «Nada que deshacer ni rehacer.» iba suelta bajo la primera fila de la barra, junto a la indicación para elegir una nota. Con la cabecera, la franja de la selección y la paleta, la barra se comía el alto de la ventana: a 1440 × 900, la partitura recibía unos 150 px. El responsable pidió compactar la vista y quitar los mensajes sueltos.
+
+**Decisión.** §4 cambia en dos cosas; lo demás sigue igual:
+
+1. **Qué harían va en el `title` de cada botón** («Deshacer: altura Re 4 (compás 2, voz 1)», «Nada que deshacer») **y en su descripción accesible**: la misma línea sigue en el documento, oculta a la vista, y los dos botones la nombran con `aria-describedby`. Al pasar el ratón se lee; el lector de pantalla la lee con el botón.
+2. **La palabra de los botones** se ve en una partitura de 56rem o más; más estrecha, quedan sus iconos con su nombre accesible, para que la primera fila de la barra (deshacer y rehacer, las pestañas, «Escribir», los pasos de la selección y «Atajos») quepa en una línea.
+
+**Consecuencias.** Quien corrige ya no ve de un vistazo qué desharía: tiene que pasar el ratón por el botón. Con el dedo, sin ratón, no hay forma de verlo antes de pulsar; el lector de pantalla sí lo lee con el botón. Lo que pasó al deshacer o rehacer se sigue diciendo en la barra de estado («Deshecho: …»).

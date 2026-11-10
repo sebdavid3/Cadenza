@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -39,6 +39,15 @@ vi.mock("./osmd", () => ({
     }),
 }));
 vi.mock("./toneEngine", () => ({ createToneEngine: vi.fn() }));
+// El PDF no se dibuja en jsdom (#376): un doble que recuerda el MusicXML de cada PDF.
+const pdfs = vi.hoisted(() => ({ xml: [] as string[] }));
+vi.mock("./pdf", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./pdf")>()),
+  renderScorePdf: (xml: string) => {
+    pdfs.xml.push(xml);
+    return Promise.resolve(new Blob(["%PDF-1.3"]));
+  },
+}));
 
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
 const INVESTIGADORA: UserRead = {
@@ -126,6 +135,13 @@ function renderPage(user: UserRead = ANA) {
   return router;
 }
 
+/** Abre «Exportar / Datos» (#363) si está cerrado y da el botón de esa acción. */
+async function sessionAction(name: string) {
+  const toggle = await screen.findByRole("button", { name: "Exportar / Datos" });
+  if (toggle.getAttribute("aria-expanded") !== "true") fireEvent.click(toggle);
+  return screen.findByRole("button", { name });
+}
+
 /** Escribe de una vez (pegando): letra a letra, bajo carga, la prueba pasaría del límite. */
 async function fill(element: HTMLElement, text: string) {
   await userEvent.clear(element);
@@ -136,6 +152,7 @@ async function fill(element: HTMLElement, text: string) {
 beforeEach(() => {
   resetAuth();
   drawn.xml = [];
+  pdfs.xml = [];
   vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:original");
   vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   vi.stubGlobal("matchMedia", () => ({ matches: false }));
@@ -220,7 +237,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     });
     renderPage();
 
-    const toggle = await screen.findByRole("button", { name: "Cambiar los datos" });
+    const toggle = await sessionAction("Cambiar los datos");
     await waitFor(() => {
       expect(drawn.xml).toHaveLength(1);
     });
@@ -313,7 +330,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
       saved.push(this.download);
     });
     renderPage();
-    const download = await screen.findByRole("button", { name: "Descargar MIDI" });
+    const download = await sessionAction("Descargar MIDI");
     await waitFor(() => {
       expect(download).not.toHaveAttribute("aria-disabled", "true");
     });
@@ -339,6 +356,78 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     expect(new Uint8Array(await last.arrayBuffer()).at(-1)).toBe(2);
   });
 
+  it("tras guardar los datos, el PDF es el del MusicXML nuevo, aunque aún no haya llegado (#376)", async () => {
+    // El primer MusicXML llega en el momento; el que se pide al guardar, cuando diga la prueba.
+    const second = deferred<Response>();
+    let exports = 0;
+    api(
+      detail({ title: "Romanza" }),
+      () =>
+        jsonResponse({
+          session_id: ID,
+          title: "Romanza en fa",
+          composer: null,
+          instruments: [],
+          source_filename: null,
+        } satisfies SessionMetadataRead),
+      {
+        [`GET /sessions/${ID}/export`]: () => {
+          exports += 1;
+          if (exports > 1) return second.promise;
+          return new Response("<score-partwise>Romanza</score-partwise>", {
+            headers: { "Content-Type": "application/vnd.recordare.musicxml+xml" },
+          });
+        },
+      },
+    );
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:archivo");
+    const saved: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved.push(this.download);
+    });
+    renderPage();
+    const download = await sessionAction("Descargar PDF");
+    await waitFor(() => {
+      expect(drawn.xml).toEqual(["<score-partwise>Romanza</score-partwise>"]);
+    });
+    await userEvent.click(download);
+    await waitFor(() => {
+      expect(saved).toEqual(["cadenza-3e951fef.pdf"]);
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Cambiar los datos" }));
+    const form = screen.getByRole("form", { name: "Datos de la partitura" });
+    await fill(within(form).getByLabelText("Nombre de la partitura"), "Romanza en fa");
+    await userEvent.click(within(form).getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("Datos guardados.")).toBeVisible();
+    await waitFor(() => {
+      expect(exports).toBe(2);
+    });
+
+    // El MusicXML de antes aún está en la vista, pero ya no vale: el PDF espera al nuevo.
+    await userEvent.click(download);
+    await waitFor(() => {
+      expect(download).toHaveAccessibleDescription("Preparando el PDF…");
+    });
+    expect(pdfs.xml).toEqual(["<score-partwise>Romanza</score-partwise>"]);
+    second.resolve(
+      new Response("<score-partwise>Romanza en fa</score-partwise>", {
+        headers: { "Content-Type": "application/vnd.recordare.musicxml+xml" },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(saved).toEqual(["cadenza-3e951fef.pdf", "cadenza-3e951fef.pdf"]);
+    });
+    expect(pdfs.xml).toEqual([
+      "<score-partwise>Romanza</score-partwise>",
+      "<score-partwise>Romanza en fa</score-partwise>",
+    ]);
+    expect(exports).toBe(2);
+  });
+
   it("también con la sesión finalizada, sin reabrirla", async () => {
     api(detail({ status: "finalized" }), () =>
       jsonResponse({
@@ -351,7 +440,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     );
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await fill(screen.getByLabelText("Nombre de la partitura"), "Lied");
     await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
 
@@ -364,7 +453,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     api(detail(), () => answer);
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     const title = screen.getByLabelText("Nombre de la partitura");
     await fill(title, "Mondnacht");
     await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
@@ -387,7 +476,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     });
     renderPage();
 
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await fill(screen.getByLabelText("Nombre de la partitura"), "Otro nombre");
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Mondnacht");
@@ -445,7 +534,7 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
         .map((key) => (key.startsWith("PATCH") ? "PATCH" : "UNDO"));
 
     // Mientras se guardan los datos, deshacer espera.
-    await userEvent.click(await screen.findByRole("button", { name: "Cambiar los datos" }));
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     await waitFor(() => {
       expect(drawn.xml).toHaveLength(1);
     });
@@ -462,7 +551,8 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     await waitFor(() => {
       expect(posts()).toEqual(["PATCH", "UNDO"]);
     });
-    await userEvent.click(screen.getByRole("button", { name: "Cambiar los datos" }));
+    // Deshacer se pulsó fuera de «Exportar / Datos», que se cerró al terminar de guardar (#363).
+    await userEvent.click(await sessionAction("Cambiar los datos"));
     const save = screen.getByRole("button", { name: "Guardar" });
     expect(save).toHaveAttribute("aria-disabled", "true");
     expect(save).toHaveAccessibleDescription("Espera a que termine lo que está en curso.");

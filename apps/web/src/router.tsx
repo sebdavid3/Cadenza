@@ -4,6 +4,7 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/AppLayout";
 import { AccountPage } from "./pages/account/AccountPage";
 import { AccountsPage } from "./pages/accounts/AccountsPage";
+import { DataUsePage } from "./pages/consent/DataUsePage";
 import { LandingPage } from "./pages/landing/LandingPage";
 import { LoginPage } from "./pages/login/LoginPage";
 import { NotFoundPage } from "./pages/not-found/NotFoundPage";
@@ -19,6 +20,7 @@ export const routes: RouteObject[] = [
       { path: "/", element: <LandingPage /> },
       { path: "/entrar", element: <LoginPage /> },
       { path: "/registro", element: <RegisterPage /> },
+      { path: "/uso-de-los-datos", element: <DataUsePage /> },
       {
         element: (
           <RequireAuth>

@@ -12,6 +12,8 @@ from fractions import Fraction
 import pytest
 from cadenza.domain import (
     Clef,
+    Dynamic,
+    DynamicMark,
     Event,
     EventKind,
     KeySignature,
@@ -230,6 +232,207 @@ def test_incomplete_first_measure_is_beamed_as_a_pickup() -> None:
 
     # Anacrusa de tres corcheas en 3/4: se agrupan las que caen en la misma parte.
     assert _beams(measures[0]) == [None, "begin", "end"]
+
+
+TWO_FOUR = TimeSignature(beats=2, beat_type=4)
+
+
+def test_overfull_measure_is_beamed_bar_by_bar() -> None:
+    # music21 no agrupa una voz que suma más que el compás: sus corcheas salían sueltas (#366).
+    # Se agrupa por tramos de un compás; lo que sobra, como si empezara otro compás.
+    events = (
+        _note("G4", "1/2"),
+        _note("F4", "1/2"),
+        _note("E4", "1/2"),
+        _note("F4", "1/2"),
+        _note("G4", "3/4"),
+        _note("F4", "1/4"),
+    )
+    score = _score(_first(1, *events, signature=TWO_FOUR), _next(2, *events, signature=TWO_FOUR))
+
+    xml_text = score_ir_to_musicxml(score)
+    measures = _xml_measures(xml_text)
+
+    for measure in measures:
+        assert _beams(measure) == ["begin", "end", "begin", "end", "begin", "end"]
+    assert _events(musicxml_to_score_ir(xml_text)) == _events(score)
+
+
+def test_overfull_compound_measure_keeps_the_grouping_of_its_meter() -> None:
+    six_eight = TimeSignature(beats=6, beat_type=8)
+    eighths = [_note(pitch, "1/2") for pitch in ("D5", "C5", "B4", "A4", "G4", "F4", "E4", "D4")]
+
+    measures = _xml_measures(score_ir_to_musicxml(_score(_first(1, *eighths, signature=six_eight))))
+
+    # Seis corcheas de 3 en 3 y, en el tramo que sobra, otras dos juntas.
+    assert _beams(measures[0]) == [
+        *["begin", "continue", "end"] * 2,
+        "begin",
+        "end",
+    ]
+
+
+def test_overfull_measure_in_three_eight_is_beamed_by_whole_bars() -> None:
+    # En 3/8 el compás entero es un grupo: lo que sobra empieza otro.
+    events = (
+        ("C5", "1/4"),
+        ("D5", "1/4"),
+        ("E5", "1/2"),
+        ("F5", "1/2"),
+        ("G5", "1/4"),
+        ("A5", "1/4"),
+    )
+    three_eight = TimeSignature(beats=3, beat_type=8)
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=three_eight))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == ["begin", "continue", "continue", "end", "begin", "end"]
+
+
+def test_short_voice_beside_an_overfull_voice_is_beamed_from_the_downbeat() -> None:
+    # Un compás sobrellenado no es una anacrusa: la voz que no lo llena empieza en la parte 1.
+    upper = [_note(pitch, "1/2") for pitch in ("G5", "F5", "E5", "D5", "C5", "B4")]
+    lower = [_note(pitch, "1/2", voice=1) for pitch in ("C4", "D4", "E4")]
+
+    xml_text = score_ir_to_musicxml(_score(_first(1, *upper, *lower, signature=TWO_FOUR)))
+
+    assert _beams(_xml_measures(xml_text)[0])[6:] == ["begin", "end", None]
+
+
+def test_note_left_alone_in_an_overfull_measure_keeps_no_stem_of_an_old_group() -> None:
+    # La voz de silencios sobrellena el compás. `makeBeams` unía las dos últimas corcheas y les
+    # fijaba la plica; agrupadas desde la parte 1, la última queda sola y la plica la decide
+    # quien dibuja, como en cualquier nota suelta.
+    events = (
+        _note("C4", "1/2"),
+        _note("A5", "1/2"),
+        _note("C4", "1/2"),
+        _rest("3", voice=1),
+    )
+
+    measure = _xml_measures(score_ir_to_musicxml(_score(_first(1, *events, signature=TWO_FOUR))))[0]
+
+    notes = measure.findall("note")
+    assert _beams(measure)[:3] == ["begin", "end", None]
+    assert notes[2].find("stem") is None
+
+
+def test_dynamic_past_the_end_does_not_make_a_pickup_overfull() -> None:
+    # Solo las figuras llenan el compás: una dinámica más allá de la barra no lo sobrellena.
+    pickup = Measure(
+        number=1,
+        events=(_note("G4", "1/2"), _note("A4", "1/2"), _note("B4", "1/2")),
+        time_signature=TimeSignature(beats=4, beat_type=4),
+        clef=Clef(sign="G", line=2),
+        key_signature=KeySignature(fifths=0),
+        dynamics=(Dynamic(mark=DynamicMark("p"), offset_beats=Fraction(5)),),
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(_score(pickup)))
+
+    assert _beams(measures[0]) == [None, "begin", "end"]
+
+
+def test_figures_split_by_the_exporter_are_beamed_as_before() -> None:
+    # 5/4 de negra sale como negra ligada a semicorchea. Las barras se calculan tras partirla,
+    # como hacía el exportador: la semicorchea se une a las figuras de su parte.
+    four_four = TimeSignature(beats=4, beat_type=4)
+    events = ("C5", "5/4"), ("D5", "1/4"), ("E5", "1/2"), ("F5", "1/2"), ("G5", "1/2"), ("A5", "1")
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=four_four))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == [None, "begin", "continue", "end", "begin", "end", None]
+
+
+def test_figures_split_by_the_exporter_in_an_overfull_measure_are_beamed() -> None:
+    events = ("C5", "1/2"), ("D5", "5/4"), ("E5", "1/4"), ("F5", "1/2"), ("G5", "1/2")
+    score = _score(_first(1, *(_note(p, b) for p, b in events), signature=TWO_FOUR))
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    # Re negra y re semicorchea ligadas; la semicorchea se une a la de mi.
+    assert _beams(measures[0]) == [None, None, "begin", "end", "begin", "end"]
+
+
+def test_figure_across_the_bar_of_an_overfull_measure_is_not_beamed() -> None:
+    # La corchea con puntillo empieza en el compás y acaba en el tramo que sobra: no se une a
+    # ninguno de los dos.
+    score = _score(
+        _first(
+            1,
+            _note("G4", "1/2"),
+            _note("F4", "1/2"),
+            _note("E4", "1/2"),
+            _note("D4", "3/4"),
+            _note("E4", "1/4"),
+            _note("F4", "1/2"),
+            signature=TWO_FOUR,
+        )
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == ["begin", "end", None, None, "begin", "end"]
+
+
+def test_short_tail_of_an_overfull_measure_leaves_no_beam_hanging() -> None:
+    # Lo que sobra no llena otro compás: la corchea sola en su parte no cierra una barra que
+    # nunca empezó.
+    eighths = [_note(pitch, "1/2") for pitch in ("G4", "F4", "E4", "D4", "C4", "D4", "E4")]
+
+    measures = _xml_measures(score_ir_to_musicxml(_score(_first(1, *eighths, signature=TWO_FOUR))))
+
+    assert _beams(measures[0]) == ["begin", "end", "begin", "end", "begin", "end", None]
+
+
+def test_overfull_tail_is_beamed_from_where_it_starts() -> None:
+    # Tras una negra con puntillo que cruza la barra, el tramo que sobra empieza a mitad de
+    # parte: sus dos corcheas caen en partes distintas y no se unen.
+    score = _score(
+        _first(
+            1,
+            _note("G4", "1"),
+            _note("F4", "3/2"),
+            _note("E4", "1/2"),
+            _note("D4", "1/2"),
+            signature=TWO_FOUR,
+        )
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == [None, None, None, None]
+
+
+def test_only_the_voice_that_overflows_is_beamed_by_bars() -> None:
+    upper = [_note(pitch, "1/2") for pitch in ("G5", "F5", "E5", "D5", "C5", "B4")]
+    lower = [_note(pitch, "1/2", voice=1) for pitch in ("C4", "D4", "E4", "F4")]
+
+    xml_text = score_ir_to_musicxml(_score(_first(1, *upper, *lower, signature=TWO_FOUR)))
+
+    assert _beams(_xml_measures(xml_text)[0]) == ["begin", "end"] * 3 + ["begin", "end"] * 2
+
+
+def test_grace_note_in_an_overfull_measure_is_left_out_of_the_beams() -> None:
+    score = _score(
+        _first(
+            1,
+            _note("G4", "1/2"),
+            _note("A4", "0"),
+            _note("F4", "1/2"),
+            _note("E4", "1/2"),
+            _note("D4", "1/2"),
+            _note("C4", "1/2"),
+            _note("D4", "1/2"),
+            signature=TWO_FOUR,
+        )
+    )
+
+    measures = _xml_measures(score_ir_to_musicxml(score))
+
+    assert _beams(measures[0]) == ["begin", None, "end", "begin", "end", "begin", "end"]
 
 
 def test_two_voices_in_incomplete_and_overfull_measures_roundtrip() -> None:
