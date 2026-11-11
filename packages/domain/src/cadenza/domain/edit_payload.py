@@ -204,7 +204,7 @@ def _check_grace_target(score: ScoreIR, anchor: Anchor, target: Event) -> None:
 
     if target.kind is not EventKind.NOTE or target.hidden:
         raise InvalidEditPayload("solo una nota visible puede ser de adorno (duración 0)")
-    if target.duration_beats == 0:
+    if not target.duration_beats:
         raise InvalidEditPayload("la nota ya es de adorno")
     events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
     index = anchor.event_index
@@ -399,6 +399,19 @@ def _check_insert_place(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]
         raise InvalidEditPayload(
             "un evento sin 'is_chord' entre dos notas de un acorde partiría el acorde: "
             "insértalo antes de su primera nota o, con 'is_chord', como una nota más"
+        )
+    elif (
+        after.get("kind") == EventKind.NOTE.value
+        and index < len(events)
+        and events[index].kind is EventKind.NOTE
+        and events[index].is_chord
+    ):
+        # Una nota con `is_chord` tras un silencio forma su propio grupo: una nota insertada
+        # delante se la llevaría a su acorde (y, siendo de adorno, el exportador dibujaría el
+        # acorde entero como adorno).
+        raise InvalidEditPayload(
+            "una nota insertada ante una nota con 'is_chord' la uniría a su acorde: "
+            "inserta antes un silencio o corrige esa nota"
         )
 
 

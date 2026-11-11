@@ -1714,7 +1714,7 @@ describe("notas de adorno desde la barra (#404, ADR-0028)", () => {
     ]);
     for (const [index, insert, words] of [
       [0, false, "silencio"],
-      [0, true, "silencio"],
+      [0, true, "toma la altura"],
       [1, false, "acorde"],
       [2, false, "acorde"],
       [3, false, "ligadura"],
@@ -1736,5 +1736,52 @@ describe("notas de adorno desde la barra (#404, ADR-0028)", () => {
         state,
       ),
     ).toMatchObject({ anchor: { event_index: 1 } });
+  });
+});
+
+describe("notas de adorno de duración 0 en lo vecino (revisión de #404)", () => {
+  it("«Volver a aplicar» una nota de adorno repasa sus reglas y no la alterna", () => {
+    const state = staffScore([
+      {
+        events: [
+          note("A4", "1/2"),
+          note("D4", "0"),
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+        ],
+      },
+    ]);
+    const edit: DecidedEdit = { op: "SetDuration", after: { duration_beats: "0" } };
+    expect(planAgain(edit, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "0" },
+    });
+    expect(planAgain(edit, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "refused",
+      reason: "same",
+    });
+    expect(planAgain(edit, chosen(state, anchor(1, 2)), state)).toMatchObject({
+      kind: "refused",
+      reason: "grace",
+    });
+  });
+
+  it("insertar una nota de adorno ante un silencio lo explica", () => {
+    const state = staffScore([{ events: [note(null)] }]);
+    const plan = planCommand({ kind: "grace", insert: true }, chosen(state, anchor(1, 0)), state);
+    expect(plan.kind === "refused" && plan.message).toMatch(/toma la altura/);
+  });
+
+  it("una nota de adorno de duración 0 no se liga y la ligadura la salta", () => {
+    const state = staffScore([{ events: [note("A4", "2"), note("A4", "0"), note("A4", "2")] }]);
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "refused",
+    });
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "edit",
+      op: "SetTie",
+      after: { next: { event_index: 2 } },
+    });
   });
 });

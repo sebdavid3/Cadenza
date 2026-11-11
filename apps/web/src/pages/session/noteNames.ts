@@ -55,6 +55,16 @@ function gcd(a: number, b: number): number {
   return b === 0 ? a : gcd(b, a % b);
 }
 
+/**
+ * Si una duración en negras ocupa tiempo: mayor que 0. Una nota de duración 0 o nula es de
+ * adorno (ADR-0028), y HOMR las da con duración 0.
+ */
+export function hasDuration(beats: string | null | undefined): boolean {
+  const match =
+    beats === null || beats === undefined ? null : /^\s*(\d+)(?:\s*\/\s*(\d+))?\s*$/.exec(beats);
+  return match !== null && Number(match[1]) > 0 && Number(match[2] ?? 1) > 0;
+}
+
 /** Nombre de la figura de una duración en negras («3/2» es «negra con puntillo»). */
 export function durationName(beats: string | null): string {
   const match = beats === null ? null : /^\s*(\d+)(?:\s*\/\s*(\d+))?\s*$/.exec(beats);

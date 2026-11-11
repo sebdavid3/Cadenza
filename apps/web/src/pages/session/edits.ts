@@ -779,7 +779,14 @@ export function planAgain(
     // La misma figura sobre lo que el evento sea ahora: una nota sola o un acorde entero.
     const duration =
       edit.op === "SetDuration" ? edit.after.duration_beats : edit.after.durations[0];
-    return duration ? planFigure(duration, target, score) : refuse("no-target");
+    if (!duration) return refuse("no-target");
+    // Una nota de adorno (#404): con las comprobaciones de la barra, sin volver a corchea.
+    if (isGraceBeats(duration)) {
+      return isGraceNote(event)
+        ? refuse("same", "Ya es una nota de adorno.")
+        : planGrace(false, target, score);
+    }
+    return planFigure(duration, target, score);
   }
   if (event.kind !== "note") return refuse("rest");
   const spelling = parsePitch(event.pitch);
@@ -1506,7 +1513,11 @@ function planGrace(insert: boolean, target: EditTarget | null, score: ScoreIRPay
     message,
   });
   if (event.kind !== "note") {
-    return graceRefusal("Un silencio no puede ser una nota de adorno: elige una nota.");
+    return graceRefusal(
+      insert
+        ? "La nota de adorno toma la altura de la nota elegida: elige una nota."
+        : "Un silencio no puede ser una nota de adorno: elige una nota.",
+    );
   }
   const events = voiceEvents(score, target.anchor) ?? [];
   const index = target.anchor.event_index;

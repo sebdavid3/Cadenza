@@ -82,7 +82,9 @@ AFTER_GRACE = _anchor(2, 2)  # Sol4, la nota que adorna
 HIDDEN = _anchor(2, 3)
 
 
-def _edit(op: EditOp, anchor: Anchor, after: dict[str, Any] | None, before: Any = None) -> EditEvent:
+def _edit(
+    op: EditOp, anchor: Anchor, after: dict[str, Any] | None, before: Any = None
+) -> EditEvent:
     return EditEvent(
         id="e1",
         document_id="d1",
@@ -166,7 +168,7 @@ def test_a_grace_note_is_inserted_before_a_note_and_undone() -> None:
     after = {"kind": "note", "pitch": "B4", "duration_beats": "0"}
     edited, undone = _apply_and_undo(EditOp.INSERT_EVENT, AFTER_GRACE, after)
     inserted = _event(edited, AFTER_GRACE)
-    assert (inserted.pitch, inserted.duration_beats) == ("B4", 0)
+    assert (inserted.pitch, inserted.duration_beats) == ("B4", Fraction(0))
     assert _event(edited, _anchor(2, 3)).pitch == "G4"
     assert undone == _score()
 
@@ -194,3 +196,68 @@ def test_a_note_does_not_join_a_grace_note_as_a_chord() -> None:
     after = {"kind": "note", "pitch": "C5", "duration_beats": "1/2", "is_chord": True}
     with pytest.raises(InvalidEditPayload, match="adorno"):
         validate_after(_score(), AFTER_GRACE, EditOp.INSERT_EVENT, after)
+
+
+# --- Lo vecino también trata como adorno la duración 0 (revisión de #404) -----------------
+
+
+def _voice(*events: Event) -> ScoreIR:
+    measure = Measure(
+        number=1,
+        events=events,
+        time_signature=TimeSignature(4, 4),
+        clef=Clef.treble(),
+        key_signature=KeySignature(fifths=0),
+    )
+    following = Measure(number=2, events=(_note("A4", "4", tie=Tie.STOP),))
+    return ScoreIR(parts=(Part(id="p0", staves=(Staff(id="s0", measures=(measure, following)),)),))
+
+
+@pytest.mark.parametrize("grace", [None, "0"])
+def test_a_tuplet_skips_a_grace_note_of_duration_zero(grace: str | None) -> None:
+    score = _voice(_note("C4", "1/2"), _note("D4", "0"), _note("E4", "1/2"), _note("F4", "1/2"))
+    after = {"durations": ["1/3", grace, "1/3", "1/3"]}
+    validate_after(score, _anchor(1, 0), EditOp.SET_TUPLET, after)
+    with pytest.raises(InvalidEditPayload, match="adorno"):
+        validate_after(
+            score, _anchor(1, 0), EditOp.SET_TUPLET, {"durations": ["1/3", "1/3", "1/3", "1/3"]}
+        )
+
+
+def test_a_grace_note_of_duration_zero_is_not_tied_and_ties_skip_it() -> None:
+    score = _voice(_note("C4", "2"), _note("A4", "0"), _note("A4", "2", tie=Tie.START))
+    with pytest.raises(InvalidEditPayload, match="adorno"):
+        validate_after(
+            score,
+            _anchor(1, 1),
+            EditOp.SET_TIE,
+            {"tie": "start", "next": {"measure": 1, "voice": 0, "event_index": 2, "tie": "stop"}},
+        )
+    # Lo que sigue a Do4 es el La4 que ocupa tiempo, no su nota de adorno (ni ella cuenta como
+    # lo último de la voz).
+    from cadenza.domain.tie_edits import following
+
+    staff = score.parts[0].staves[0]
+    assert following(staff, 0, 0, 0) == [(1, 0, 2)]
+
+
+def test_a_note_inserted_before_an_orphan_chord_note_is_refused() -> None:
+    score = _voice(
+        Event(kind=EventKind.REST, duration_beats=Fraction(1)),
+        _note("E4", "1", is_chord=True),
+    )
+    for duration in ("0", "1"):
+        with pytest.raises(InvalidEditPayload, match="is_chord"):
+            validate_after(
+                score,
+                _anchor(1, 1),
+                EditOp.INSERT_EVENT,
+                {"kind": "note", "pitch": "C4", "duration_beats": duration},
+            )
+    validate_after(score, _anchor(1, 1), EditOp.INSERT_EVENT, {"kind": "rest", "duration_beats": 1})
+
+
+def test_a_grace_note_of_null_duration_is_already_one() -> None:
+    score = _voice(Event(kind=EventKind.NOTE, pitch="A4", duration_beats=None), _note("G4", "4"))
+    with pytest.raises(InvalidEditPayload, match="ya es"):
+        validate_after(score, _anchor(1, 0), EditOp.SET_DURATION, {"duration_beats": 0})

@@ -165,8 +165,9 @@ def _first_timed_group(events: Sequence[Event], start: int = 0) -> tuple[int, in
     index = start
     while index < len(events):
         group_start, group_end = chord_bounds(events, index)
-        if events[group_start].duration_beats is not None:
-            if all(event.hidden or event.duration_beats is None for event in events[group_start:]):
+        # Una nota de adorno tiene duración 0 o nula (ADR-0028): no ocupa tiempo.
+        if events[group_start].duration_beats:
+            if all(event.hidden or not event.duration_beats for event in events[group_start:]):
                 return None
             return group_start, group_end
         index = group_end
@@ -253,7 +254,7 @@ def check_tie(score: ScoreIR, anchor: Anchor, after: object) -> None:
         _check_loose(staff, position, anchor, note, tie)
         return
     place, next_tie = nxt
-    if note.duration_beats is None:
+    if not note.duration_beats:
         raise InvalidEditPayload("una nota de adorno no se liga")
     other = _event_at(staff, place)
     if other is None:
@@ -263,7 +264,7 @@ def check_tie(score: ScoreIR, anchor: Anchor, after: object) -> None:
         )
     if other.kind is not EventKind.NOTE:
         raise InvalidEditPayload("la otra nota de la ligadura es un silencio: solo se ligan notas")
-    if other.duration_beats is None:
+    if not other.duration_beats:
         raise InvalidEditPayload("una nota de adorno no se liga")
     if place not in following(staff, position, anchor.voice, anchor.event_index):
         raise InvalidEditPayload(

@@ -405,7 +405,7 @@ def _append(
             raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc}") from exc
         except IndexError as exc:
             raise InvalidEdit(f"Edición no aplicable sobre el estado actual: {exc}") from exc
-        except (TypeError, ValueError, OverflowError) as exc:
+        except (TypeError, ValueError, OverflowError, ZeroDivisionError) as exc:
             # Defensa: un valor JSON inesperado nunca debe producir un 500 ni persistirse.
             raise InvalidEdit(f"Contenido de 'after' no válido para {op.value}: {exc!r}") from exc
         if op in _SNAPSHOT_COMPARED_OPS:
