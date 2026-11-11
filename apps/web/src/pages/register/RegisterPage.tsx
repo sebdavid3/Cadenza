@@ -13,6 +13,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { UserRead } from "../../types";
 import "../consent/consent.css";
 import { DataConsentNotice } from "../consent/DataConsentNotice";
+import { AccessPanel } from "../login/AccessPanel";
 import "../login/login.css";
 import {
   CONSENT_REQUIRED,
@@ -53,9 +54,7 @@ function RegistrationClosed() {
     <>
       <SiteHeader showSections={false} />
       <main className="login">
-        <h1 className="login__title">
-          <span>Registro cerrado</span>
-        </h1>
+        <AccessPanel title="Registro cerrado" />
         <div className="login__form">
           <p className="login__notice">
             Ahora no se pueden crear cuentas: las cuentas las crea un investigador del proyecto. Si
@@ -169,9 +168,7 @@ function RegisterForm() {
     <>
       <SiteHeader showSections={false} />
       <main className="login">
-        <h1 className="login__title">
-          <span>Crear cuenta</span>
-        </h1>
+        <AccessPanel title="Crear cuenta" />
         {created ? (
           <section
             className="login__form"
@@ -281,7 +278,7 @@ function RegisterForm() {
             </div>
             <fieldset className="field register__consent">
               <legend className="label">Uso de tus datos</legend>
-              <DataConsentNotice id="register-consent-notice" newTab />
+              <DataConsentNotice id="register-consent-notice" expandable />
               <div className="consent-check">
                 <input
                   ref={consentRef}

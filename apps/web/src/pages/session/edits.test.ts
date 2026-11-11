@@ -1650,3 +1650,155 @@ describe("los huecos de una voz (ADR-0058, #317)", () => {
     });
   });
 });
+
+describe("notas de adorno desde la barra (#404, ADR-0028)", () => {
+  const grace = (command: { insert: boolean }, state: ScoreIRPayload, at: AnchorPayload) =>
+    planCommand({ kind: "grace", insert: command.insert }, chosen(state, at), state);
+
+  it("G y Mayús+G: convertir la elegida o insertar una antes", () => {
+    const key = (value: string, shiftKey: boolean) => ({
+      key: value,
+      shiftKey,
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+    });
+    expect(editCommand(key("g", false))).toEqual({ kind: "grace", insert: false });
+    expect(editCommand(key("G", true))).toEqual({ kind: "grace", insert: true });
+  });
+
+  it("una nota pasa a ser de adorno y una de adorno vuelve a corchea", () => {
+    const state = staffScore([{ events: [note("A4", "1/2"), note("D4", "0"), note("G4", "2")] }]);
+    expect(grace({ insert: false }, state, anchor(1, 0))).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "0" },
+      change: "nota de adorno",
+    });
+    expect(grace({ insert: false }, state, anchor(1, 1))).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "1/2" },
+      change: "figura corchea",
+    });
+  });
+
+  it("se inserta antes de la nota elegida, con su altura, y queda elegida", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4", "0"), note("G4", "2")] }]);
+    expect(grace({ insert: true }, state, anchor(1, 2))).toMatchObject({
+      kind: "edit",
+      op: "InsertEvent",
+      after: { kind: "note", pitch: "G4", duration_beats: "0" },
+      anchor: { event_index: 2 },
+      select: anchor(1, 2),
+      change: "inserción de Sol 4, nota de adorno",
+    });
+    // Ante la primera nota de un acorde o una de sus notas: antes del acorde entero.
+    const chord = staffScore([{ events: [note("C4"), note("E4", "1", { is_chord: true })] }]);
+    expect(grace({ insert: true }, chord, anchor(1, 1))).toMatchObject({
+      after: { pitch: "E4", duration_beats: "0" },
+      anchor: { event_index: 0 },
+    });
+  });
+
+  it("con un silencio, un acorde o una ligadura se explica en vez de no hacer nada", () => {
+    const state = staffScore([
+      {
+        events: [
+          note(null),
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+          note("D4", "1", { tie: "start" }),
+        ],
+      },
+    ]);
+    for (const [index, insert, words] of [
+      [0, false, "silencio"],
+      [0, true, "toma la altura"],
+      [1, false, "acorde"],
+      [2, false, "acorde"],
+      [3, false, "ligadura"],
+    ] as const) {
+      const plan = grace({ insert }, state, anchor(1, index));
+      expect(plan).toMatchObject({ kind: "refused", reason: "grace" });
+      expect(plan.kind === "refused" && plan.message).toMatch(new RegExp(words, "i"));
+    }
+    const gap = staffScore([{ events: [hiddenRest("1")] }]);
+    expect(grace({ insert: false }, gap, anchor(1, 0))).toMatchObject({ reason: "gap" });
+  });
+
+  it("una nota nueva entra antes de las notas de adorno de duración 0 de su nota", () => {
+    const state = staffScore([{ events: [note("C4"), note("D4", "0"), note("G4", "2")] }]);
+    expect(
+      planCommand(
+        { kind: "write-insert", pitch: "E4", figure: 4, dotted: false, end: false },
+        chosen(state, anchor(1, 2)),
+        state,
+      ),
+    ).toMatchObject({ anchor: { event_index: 1 } });
+  });
+});
+
+describe("notas de adorno de duración 0 en lo vecino (revisión de #404)", () => {
+  it("«Volver a aplicar» una nota de adorno repasa sus reglas y no la alterna", () => {
+    const state = staffScore([
+      {
+        events: [
+          note("A4", "1/2"),
+          note("D4", "0"),
+          note("C4"),
+          note("E4", "1", { is_chord: true }),
+        ],
+      },
+    ]);
+    const edit: DecidedEdit = { op: "SetDuration", after: { duration_beats: "0" } };
+    expect(planAgain(edit, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "edit",
+      op: "SetDuration",
+      after: { duration_beats: "0" },
+    });
+    expect(planAgain(edit, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "refused",
+      reason: "same",
+    });
+    expect(planAgain(edit, chosen(state, anchor(1, 2)), state)).toMatchObject({
+      kind: "refused",
+      reason: "grace",
+    });
+  });
+
+  it("insertar una nota de adorno ante un silencio lo explica", () => {
+    const state = staffScore([{ events: [note(null)] }]);
+    const plan = planCommand({ kind: "grace", insert: true }, chosen(state, anchor(1, 0)), state);
+    expect(plan.kind === "refused" && plan.message).toMatch(/toma la altura/);
+  });
+
+  it("una nota de adorno de duración 0 no se liga y la ligadura la salta", () => {
+    const state = staffScore([{ events: [note("A4", "2"), note("A4", "0"), note("A4", "2")] }]);
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 1)), state)).toMatchObject({
+      kind: "refused",
+    });
+    expect(planCommand({ kind: "tie" }, chosen(state, anchor(1, 0)), state)).toMatchObject({
+      kind: "edit",
+      op: "SetTie",
+      after: { next: { event_index: 2 } },
+    });
+  });
+});
+
+describe("una nota con is_chord tras un silencio (revisión de #404)", () => {
+  it("no se inserta una nota delante: se explica en vez de pedirlo al servidor", () => {
+    const state = staffScore([{ events: [note(null), note("E4", "1", { is_chord: true })] }]);
+    for (const command of [
+      { kind: "insert", rest: false },
+      { kind: "grace", insert: true },
+    ] as const) {
+      expect(planCommand(command, chosen(state, anchor(1, 1)), state)).toMatchObject({
+        kind: "refused",
+        reason: "chord",
+      });
+    }
+    // Un silencio delante sí: no se une a nada.
+    expect(planInsert(true, chosen(state, anchor(1, 1)), state)).toMatchObject({ kind: "edit" });
+  });
+});

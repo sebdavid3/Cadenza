@@ -401,14 +401,31 @@ def _parse_durations(after: object, op: EditOp = EditOp.SET_TUPLET) -> list[obje
     return list(durations)
 
 
+def _is_zero(raw: object) -> bool:
+    """Si una duración de `after` es 0 (la de una nota de adorno)."""
+
+    if isinstance(raw, bool) or not isinstance(raw, int | float | str | Fraction):
+        return False
+    try:
+        return Fraction(str(raw)) == 0
+    except (ValueError, ZeroDivisionError):
+        return False
+
+
 def _check_tuplet(score: ScoreIR, anchor: Anchor, after: object) -> None:
     durations = _parse_durations(after)
     events = _tuplet_range(score, anchor, len(durations))
     ratios: set[Fraction] = set()
     for event, raw in zip(events, durations, strict=True):
         if event.duration_beats is None:
-            # Una nota de adorno no ocupa tiempo (ADR-0028): se queda sin figura.
+            # Una nota de adorno de duración nula (ADR-0028): se queda sin figura, con null.
             if raw is not None:
+                raise InvalidEditPayload("una nota de adorno no tiene figura: su duración es null")
+            continue
+        if event.duration_beats == 0:
+            # Una nota de adorno de duración 0, como las da HOMR: también sin figura, con null o
+            # con 0 (la instantánea del servidor la guarda como "0").
+            if raw is not None and not _is_zero(raw):
                 raise InvalidEditPayload("una nota de adorno no tiene figura: su duración es null")
             continue
         if raw is None:

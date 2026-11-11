@@ -228,6 +228,21 @@ const GLYPHS = {
     "........",
     "........",
   ],
+  // Una nota de adorno (#404): una corchea pequeña con la raya que la cruza.
+  "figure-grace": [
+    "........",
+    "....##..",
+    "....#.#.",
+    "....#...",
+    "....#.#.",
+    "....##..",
+    "....#...",
+    "...##...",
+    "..#.#...",
+    ".####...",
+    "####....",
+    ".##.....",
+  ],
   // Alteraciones, centradas en la misma altura que las figuras.
   "accidental-double-flat": [
     "........",

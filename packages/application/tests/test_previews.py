@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from cadenza.application import (
@@ -257,3 +257,59 @@ def test_purge_all_deletes_the_valid_ones_too(tmp_path: Path) -> None:
 
     assert previews.purge_all() == 2
     assert previews.count_active(NOW) == 0
+
+
+class _CapturingEngine(FakeOMREngine):
+    """El motor de pruebas con la captura de HOMR en su documento (#403, ADR-0067)."""
+
+    CAPTURE: ClassVar[dict[str, Any]] = {
+        "format_version": 1,
+        "systems": ["1"],
+        "readings": [{"mode": "paired"}],
+    }
+
+    def transcribe(self, image_path: Path) -> Any:
+        from dataclasses import replace
+
+        return replace(super().transcribe(image_path), omr_capture=dict(self.CAPTURE))
+
+
+def test_the_omr_capture_reaches_the_session_directly_and_after_a_claim(tmp_path: Path) -> None:
+    from cadenza.application import transcribe_score
+
+    image = tmp_path / "minueto.png"
+    image.write_bytes(PNG)
+    sessions = InMemorySessionRepository()
+    direct = transcribe_score(
+        image,
+        omr_engine=_CapturingEngine(),
+        validator=ValidationEngine(get_default_rules()),
+        session_repository=sessions,
+        current_user=ANA,
+        meter_stage=MeterStage({MeterFeature.SYMBOL}),
+    )
+    stored = sessions.get(direct.session_id)
+    assert stored is not None and stored.document["omr_capture"] == _CapturingEngine.CAPTURE
+
+    previews = InMemoryPreviewRepository()
+    result = create_preview(
+        image,
+        omr_engine=_CapturingEngine(),
+        validator=ValidationEngine(get_default_rules()),
+        preview_repository=previews,
+        now=NOW,
+        ttl=timedelta(hours=1),
+        meter_stage=MeterStage({MeterFeature.SYMBOL}),
+    )
+    claimed = claim_preview(
+        result.preview_id,
+        result.claim_token,
+        preview_repository=previews,
+        session_repository=sessions,
+        artifact_store=InMemoryArtifactStore(),
+        validator=ValidationEngine(get_default_rules()),
+        current_user=ANA,
+        now=NOW + timedelta(minutes=5),
+    )
+    session = sessions.get(claimed.session_id)
+    assert session is not None and session.document["omr_capture"] == _CapturingEngine.CAPTURE

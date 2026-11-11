@@ -163,6 +163,10 @@ VALID_EDITS: list[tuple[str, int, int, dict[str, Any] | None]] = [
     ("DeleteEvent", 1, 0, None),
     ("SetClef", 1, 0, {"sign": "F", "line": 4}),
     ("SetKey", 2, 0, {"fifths": -3, "mode": "minor"}),
+    # Notas de adorno escritas desde la vista (#404, ADR-0028): una nota pasa a serlo y se
+    # inserta otra antes de una nota.
+    ("SetDuration", 1, 0, {"duration_beats": "0"}),
+    ("InsertEvent", 1, 1, {"kind": "note", "pitch": "B4", "duration_beats": 0}),
 ]
 
 
@@ -194,3 +198,37 @@ def test_accepted_edit_keeps_session_exportable_and_undo_restores_it(
     assert undo.status_code == 200, undo.text
     assert undo.json()["current_score"] == original_score
     _assert_exportable(client, session_id)
+
+
+def test_grace_notes_export_as_grace_and_a_rest_cannot_be_one(client: TestClient) -> None:
+    """Una nota de adorno escrita desde la vista sale con `<grace/>`; un silencio no puede
+    serlo (#404)."""
+
+    session_id, detail = _new_session(client)
+    rest = client.post(
+        f"/sessions/{session_id}/edits",
+        json={
+            "base_seq": 0,
+            "op": "SetDuration",
+            "anchor": _anchor(detail, 1, 2),
+            "before": None,
+            "after": {"duration_beats": "0"},
+        },
+    )
+    assert rest.status_code == 422
+    assert "nota" in rest.json()["detail"]
+
+    inserted = client.post(
+        f"/sessions/{session_id}/edits",
+        json={
+            "base_seq": 0,
+            "op": "InsertEvent",
+            "anchor": _anchor(detail, 1, 1),
+            "before": None,
+            "after": {"kind": "note", "pitch": "B4", "duration_beats": "0"},
+        },
+    )
+    assert inserted.status_code == 201, inserted.text
+    musicxml = client.get(f"/sessions/{session_id}/export", params={"format": "musicxml"})
+    assert musicxml.status_code == 200
+    assert musicxml.text.count("<grace") == 1
