@@ -1,7 +1,7 @@
 import type { AnchorPayload, ScoreEventPayload, ScoreIRPayload } from "../../types";
 import type { EditPlan, EditTarget } from "./edits";
 import { chordStart } from "./markEdits";
-import { pitchName } from "./noteNames";
+import { hasDuration, pitchName } from "./noteNames";
 
 /**
  * La ligadura de prolongación de la nota elegida (#312, ADR-0055): «Ligar» la pone hasta la nota
@@ -61,16 +61,26 @@ function groupOf(events: readonly ScoreEventPayload[], index: number): [number, 
   return [start, end];
 }
 
+/**
+ * Si el evento no ocupa tiempo: duración nula, o una nota de adorno de duración 0 (ADR-0028). Un
+ * silencio de duración 0 sí cuenta: el exportador lo dibuja como negra (como `_timeless` del
+ * servidor).
+ */
+const timeless = (event: ScoreEventPayload | undefined) =>
+  event?.duration_beats == null || (event.kind === "note" && !hasDuration(event.duration_beats));
+
 /** El primer grupo de la voz desde `from` que ocupa tiempo: sin las notas de adorno. */
 function firstTimedGroup(events: readonly ScoreEventPayload[], from = 0): [number, number] | null {
   let index = from;
   while (index < events.length) {
     const [start, end] = groupOf(events, index);
-    if (events[start]?.duration_beats != null) {
+    if (!timeless(events[start])) {
       // Los silencios invisibles del final de la voz no cuentan: tras ellos no hay nada, y la
       // ligadura cruza la barra (como en el servidor y en `tie.resolution`).
       const rest = events.slice(start);
-      if (rest.every((event) => event.hidden === true || event.duration_beats == null)) return null;
+      if (rest.every((event) => event.hidden === true || timeless(event))) {
+        return null;
+      }
       return [start, end];
     }
     index = end;
@@ -91,7 +101,7 @@ const inVoice = (events: readonly ScoreEventPayload[], voice: number) =>
  */
 export function followingNotes(score: ScoreIRPayload, anchor: AnchorPayload): NotePlace[] {
   return followingPlaces(score, anchor).filter(
-    (place) => isNote(place.event) && place.event.duration_beats != null,
+    (place) => isNote(place.event) && hasDuration(place.event.duration_beats),
   );
 }
 
@@ -207,7 +217,7 @@ const preferSame = (places: NotePlace[], event: ScoreEventPayload) =>
 
 function planPut(target: EditTarget, score: ScoreIRPayload): EditPlan {
   const { event, anchor } = target;
-  if (event.duration_beats == null) return refuse("Una nota de adorno no se liga.");
+  if (!hasDuration(event.duration_beats)) return refuse("Una nota de adorno no se liga.");
   const next = followingNotes(score, anchor);
   const name = spoken(event.pitch);
   if (followingPlaces(score, anchor).length === 0) {

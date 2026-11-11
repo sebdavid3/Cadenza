@@ -29,7 +29,8 @@ class EditOp(StrEnum):
     2. `SET_DURATION` ("SetDuration"):
        - Modifica la duración en tiempos (beats) de un evento musical.
        - ``before``: ``{"duration_beats": Fraction | int | float | str}``.
-       - ``after``: ``{"duration_beats": Fraction | int | float | str}``.
+       - ``after``: ``{"duration_beats": Fraction | int | float | str}``. ``0`` hace de una nota
+         visible, sin ligadura y fuera de un acorde una nota de adorno (ADR-0028, #404).
 
     3. `SET_ACCIDENTAL` ("SetAccidental"):
        - Modifica la alteración de una nota conservando su nombre de nota y octava.
@@ -43,6 +44,8 @@ class EditOp(StrEnum):
        - ``after``: ``{"kind": str, "pitch": str | None, "duration_beats": Fraction | str, ...}``.
          Con ``"is_chord": true``, una nota más del acorde de la nota anterior (ADR-0055). La
          compensatoria de borrar la primera nota de un acorde lleva además ``"next_in_chord"``.
+         Con ``"duration_beats": 0``, una nota de adorno: solo una nota, sin ``tie`` ni
+         ``is_chord`` (ADR-0028, #404).
 
     5. `DELETE_EVENT` ("DeleteEvent"):
        - Elimina el evento musical anclado en la voz del compás.

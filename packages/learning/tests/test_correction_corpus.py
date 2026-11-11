@@ -575,3 +575,46 @@ def test_a_shown_rest_written_as_a_note_keeps_a_session_verified() -> None:
     derived = derive_edit_events(raw, final, document_id="d")
     assert {e.op for e in derived} <= CONTENT_EDIT_OPS
     assert is_structurally_equal(materialize(raw, derived), final)
+
+
+def test_grace_notes_written_in_the_view_reach_the_corpus() -> None:
+    """Una nota leída como corchea que la persona convierte en adorno y un adorno que HOMR no
+    vio, escritos con las ediciones de la vista (#404): el corpus los registra con duración 0."""
+
+    raw = _score(_measure(1, _note("A4", "1/2"), _note("G4", "2"), _note("F4"), _note("E4", "1/2")))
+    edits: list[EditEvent] = []
+
+    def edit(seq: int, where: Anchor, op: EditOp, after: dict[str, Any]) -> EditEvent:
+        state = materialize(raw, edits)
+        validate_after(state, where, op, after)
+        return EditEvent(
+            id=f"e{seq}",
+            document_id="d",
+            seq=seq,
+            anchor=where,
+            op=op,
+            author="ana",
+            created_at=datetime(2026, 11, 11, tzinfo=UTC),
+            before=snapshot_before(state, where, op, after),
+            after=after,
+        )
+
+    def at(index: int) -> Anchor:
+        return Anchor(part=0, staff=0, measure=1, voice=0, event_index=index, staff_id="p-s0")
+
+    edits.append(edit(1, at(0), EditOp.SET_DURATION, {"duration_beats": "0"}))
+    edits.append(
+        edit(2, at(2), EditOp.INSERT_EVENT, {"kind": "note", "pitch": "G4", "duration_beats": "0"})
+    )
+    final = materialize(raw, edits)
+
+    records = build_correction_records(raw, final, incipit_id="x", split="train", verified=True)
+    converted = [r for r in records if r["record"] == "event" and r["correction"]]
+    assert [(r["read"]["pitch"], r["correction"]) for r in converted] == [
+        ("A4", {"ops": ["SetDuration"], "duration_beats": "0"})
+    ]
+    inserted = [r for r in records if r["record"] == "insertion"]
+    assert [r["correction"]["event"]["duration_beats"] for r in inserted] == ["0"]
+    assert inserted[0]["correction"]["event"]["pitch"] == "G4"
+    derived = derive_edit_events(raw, final, document_id="d")
+    assert is_structurally_equal(materialize(raw, derived), final)

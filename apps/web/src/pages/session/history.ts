@@ -1,5 +1,5 @@
 import type { AnchorPayload, EditEventRead, ScoreIRPayload } from "../../types";
-import { CLEFS, eventAt, eventName, keyName, selectAfterDelete } from "./edits";
+import { CLEFS, eventAt, eventName, isGraceBeats, keyName, selectAfterDelete } from "./edits";
 import { describeMarkEdit, hasCompleteMarkBefore } from "./markEdits";
 import { durationName, pitchName } from "./noteNames";
 import { describeTieEdit, hasCompleteTieBefore } from "./tieEdits";
@@ -246,8 +246,13 @@ export function describeEdit(edit: Pick<EditEventRead, "op" | "before" | "after"
       const pitch = text(after.pitch);
       return pitch ? `altura ${spoken(pitch)}` : "altura";
     }
-    case "SetDuration":
-      return `figura ${durationName(text(after.duration_beats))}`;
+    case "SetDuration": {
+      // Una nota que pasa a ser de adorno (#404): no tiene figura.
+      const beats = text(after.duration_beats);
+      return beats !== null && isGraceBeats(beats)
+        ? "nota de adorno"
+        : `figura ${durationName(beats)}`;
+    }
     case "SetAccidental": {
       const raw = after.accidental;
       const name = ACCIDENTAL_NAMES[raw === null || raw === undefined ? "" : (text(raw) ?? "")];
