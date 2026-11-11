@@ -263,9 +263,10 @@ def _run_homr(
         config = homr_main.ProcessingConfig(
             enable_debug=False,
             enable_cache=False,
-            # Para anotar las cajas de los pentagramas (#403): `homr_capture` envuelve la
-            # función que las guarda y no escribe ningún archivo.
-            write_staff_positions=True,
+            # Para anotar las cajas de los pentagramas (#403): durante una captura,
+            # `homr_capture` envuelve la función que las guarda y no escribe ningún archivo.
+            # Sin captura (las evaluaciones), HOMR no las guarda, como antes.
+            write_staff_positions=capture is not None,
             read_staff_positions=False,
             selected_staff=-1,
             transformer_use_gpu=use_gpu,
@@ -289,7 +290,8 @@ def _run_homr(
             if capture is not None:
                 # Los sistemas, del MusicXML de HOMR: la combinación del piano (abajo) la
                 # escribe Cadenza desde el `ScoreIR`, sin los saltos de sistema.
-                capture.systems = homr_capture.systems_or_empty(paired_xml)
+                capture.systems = homr_capture.systems_or_empty(paired_xml, capture)
+                capture.native_musicxml["paired"] = paired_xml
             # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
             if [1, 2] not in paired.piano_pairs:
                 return paired_xml
@@ -306,6 +308,8 @@ def _run_homr(
                 if capture is not None:
                     capture.discard(PianoReading.ALONE.value)
                 return paired_xml
+    if capture is not None:
+        capture.native_musicxml["alone"] = alone_xml
     return homr_piano.combine_musicxml(paired_xml, alone_xml)
 
 

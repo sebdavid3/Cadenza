@@ -117,9 +117,13 @@ def test_a_reading_leaves_its_boxes_crop_and_systems(tmp_path: Path, xml_generat
     assert [staff["grand"] for staff in reading.staves] == [False, True]
     assert reading.staves[0]["cy"] == pytest.approx(25 / 200)
 
-    # Fuera de una captura, HOMR guarda sus cajas como siempre.
+    # Sin captura (las evaluaciones), HOMR no guarda sus cajas, como antes de #403.
     _run_homr(main, image, use_gpu=False)
-    assert len(main.saved_files) == 1
+    assert main.configs[-1]["write_staff_positions"] is False
+    assert main.saved_files == []
+    # Y si alguien la llama fuera de una captura, hace lo de siempre.
+    main.save_staff_positions([], (10, 10), "fuera.txt")
+    assert main.saved_files == ["fuera.txt"]
 
 
 def test_a_voice_and_piano_page_keeps_both_readings_or_only_the_one_that_worked(
@@ -138,6 +142,7 @@ def test_a_voice_and_piano_page_keeps_both_readings_or_only_the_one_that_worked(
     assert _run_homr(main, image, use_gpu=False, capture=both) == "<combinado/>"
     assert [reading.mode for reading in both.readings] == ["paired", "alone"]
     assert [s["grand"] for s in both.readings[1].staves] == [False, False]
+    assert set(both.native_musicxml) == {"paired", "alone"}
     # Los sistemas salen del MusicXML de HOMR, no de la combinación.
     assert both.systems == ["1", "4"]
 
@@ -176,9 +181,18 @@ def test_the_capture_primitive_keeps_the_raw_musicxml_compressed() -> None:
     assert primitive["format_version"] == 1
     assert primitive["systems"] == ["1", "4"]
     assert primitive["readings"][0]["mode"] == "paired"
-    assert primitive["musicxml"]["encoding"] == "zlib+base64"
+    # Sin lecturas anotadas, el MusicXML importado.
+    assert list(primitive["musicxml"]) == ["importado"]
     assert homr_capture.raw_musicxml(primitive) == SYSTEMS_XML
-    assert len(primitive["musicxml"]["sha256"]) == 64
+    assert len(primitive["musicxml"]["importado"]["sha256"]) == 64
+
+    # Con lecturas, el que escribió HOMR en cada una, no la combinación del piano.
+    capture.native_musicxml = {"paired": SYSTEMS_XML, "alone": "<alone/>"}
+    native = homr_capture.capture_primitive(
+        capture, "<combinado/>", homr_version="0.7.0", preprocessed=False
+    )
+    assert homr_capture.raw_musicxml(native) == SYSTEMS_XML
+    assert homr_capture.raw_musicxml(native, "alone") == "<alone/>"
 
 
 def _homr_available() -> bool:
@@ -224,3 +238,29 @@ def test_a_real_transcription_keeps_its_capture_and_its_strips_match_the_score()
     staves = sum(len(part.staves) for part in document.score.parts)
     assert len(strips) >= len(capture["systems"]) and staves >= 1
     assert all(0 <= s.box[0] < s.box[2] <= photo.size[0] for s in strips)
+
+
+@pytest.mark.skipif(not _homr_available(), reason="requiere el extra opcional 'homr'")
+def test_a_voice_and_piano_page_gives_one_box_per_staff_and_system() -> None:
+    """En una página de varios sistemas del banco del estudio (`TS-04`, voz y piano), la lectura
+    del piano solo da una caja por pentagrama y sistema, y cada tira casa con sus compases."""
+    from cadenza.learning.staff_strips import plan_strips
+    from cadenza.omr import HOMREngine
+    from PIL import Image
+
+    # El banco no se versiona: lo regenera scripts/build_study_bank.py (ADR-0057).
+    image = Path(__file__).resolve().parents[3] / "banco_estudio" / "TS-04.png"
+    if not image.is_file():
+        pytest.skip("no hay banco_estudio/TS-04.png (scripts/build_study_bank.py)")
+    document = HOMREngine(use_gpu=False).transcribe(image)
+
+    capture = document.omr_capture
+    assert capture is not None and capture["errors"] == []
+    staves = sum(len(part.staves) for part in document.score.parts)
+    alone = next(r for r in capture["readings"] if r["mode"] == "alone")
+    assert len(alone["staves"]) == staves * len(capture["systems"])
+    assert set(capture["musicxml"]) == {"paired", "alone"}
+    with Image.open(image) as photo:
+        strips = plan_strips(capture, document.score, photo.size)
+    assert len(strips) == staves * len(capture["systems"])
+    assert {strip.reading for strip in strips} == {"alone"}

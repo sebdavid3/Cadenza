@@ -106,12 +106,26 @@ def _assign(
     return assigned if position == len(boxes) else None
 
 
+_ASPECT_TOLERANCE = 0.02
+"""Cuánto puede diferir la proporción de la foto de la de la imagen que recibió HOMR."""
+
+
 def _pixel_boxes(
     reading: Mapping[str, Any], boxes: Sequence[Mapping[str, Any]], photo: tuple[int, int]
 ) -> list[tuple[int, int, int, int]]:
     photo_width, photo_height = photo
-    source = reading.get("source_shape") or reading["image_shape"]
+    source = reading.get("source_shape")
+    if not source:
+        raise StripError("la lectura no dice qué imagen recibió HOMR (source_shape)")
     source_height, source_width = int(source[0]), int(source[1])
+    if abs(photo_width / photo_height - source_width / source_height) > _ASPECT_TOLERANCE * (
+        source_width / source_height
+    ):
+        # Otra foto, o la misma girada (la orientación EXIF que OpenCV aplica y PIL no).
+        raise StripError(
+            f"la foto ({photo_width} x {photo_height}) no tiene la proporción de la imagen que "
+            f"leyó HOMR ({source_width} x {source_height})"
+        )
     crop = reading.get("autocrop")
     left, top, width, height = (
         (0, 0, source_width, source_height) if crop is None else (int(v) for v in crop)
@@ -154,6 +168,9 @@ def plan_strips(
 
     if capture.get("preprocessed"):
         raise StripError("HOMR leyó la imagen preprocesada: sus cajas no son de la foto")
+    if capture.get("errors"):
+        # Sin el recorte del papel o con cajas a medias, las tiras saldrían en otro sitio.
+        raise StripError(f"la captura tuvo errores: {'; '.join(map(str, capture['errors']))}")
     systems = _systems(capture, score)
     staves = [(p, s) for p, part in enumerate(score.parts) for s, _ in enumerate(part.staves)]
     readings = {str(r.get("mode")): r for r in capture.get("readings") or ()}

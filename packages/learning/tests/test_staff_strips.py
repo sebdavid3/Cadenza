@@ -114,6 +114,17 @@ def test_boxes_that_do_not_match_the_score_are_refused_with_the_reason() -> None
         plan_strips(_capture(_reading("alone", ALONE[:5])), _score(), PHOTO)
     with pytest.raises(StripError, match="preprocesada"):
         plan_strips(_capture(_reading("alone", ALONE), preprocessed=True), _score(), PHOTO)
+    with pytest.raises(StripError, match="errores"):
+        plan_strips(
+            _capture(_reading("alone", ALONE), errors=["recorte del papel: ValueError()"]),
+            _score(),
+            PHOTO,
+        )
+    # Otra proporción: otra foto o la misma girada (la orientación EXIF).
+    with pytest.raises(StripError, match="proporción"):
+        plan_strips(_capture(_reading("alone", ALONE)), _score(), (1380, 2745))
+    with pytest.raises(StripError, match="source_shape"):
+        plan_strips(_capture(_reading("alone", ALONE, source_shape=None)), _score(), PHOTO)
     with pytest.raises(StripError, match="compás 9"):
         plan_strips({**_capture(_reading("alone", ALONE)), "systems": ["1", "9"]}, _score(), PHOTO)
 

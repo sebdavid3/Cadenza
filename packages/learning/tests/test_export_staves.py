@@ -65,6 +65,17 @@ def _photo() -> bytes:
     return buffer.getvalue()
 
 
+def _rotated_photo() -> bytes:
+    """La misma foto, guardada girada con la orientación EXIF 6, como la de un móvil: OpenCV (y
+    HOMR) la ven derecha; PIL, sin `exif_transpose`, tumbada."""
+    image = Image.open(io.BytesIO(_photo())).rotate(90, expand=True)
+    exif = Image.Exif()
+    exif[0x0112] = 6
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", exif=exif)
+    return buffer.getvalue()
+
+
 def _score() -> ScoreIR:
     measures = tuple(
         Measure(
@@ -94,6 +105,15 @@ def _capture() -> dict[str, object]:
     return homr_capture.capture_primitive(
         capture, "<score-partwise/>", homr_version="0.7.0", preprocessed=False
     )
+
+
+def _broken(session: SessionData) -> SessionData:
+    """Una sesión con una caja a medias en su captura."""
+    document = dict(session.document)
+    capture = dict(document["omr_capture"])
+    capture["readings"] = [{**capture["readings"][0], "staves": [{"grand": False}]}]
+    document["omr_capture"] = capture
+    return replace(session, document=document)
 
 
 def _session(
@@ -132,6 +152,7 @@ def base(tmp_path: Path) -> tuple[str, Path]:
             ("ana", False, False),
             ("visita", True, True),
             ("anonima", True, False),
+            ("version-antigua", True, True),
         ):
             user = User(
                 id=user_id,
@@ -141,13 +162,12 @@ def base(tmp_path: Path) -> tuple[str, Path]:
                 self_registered=self_registered,
             )
             if consented:
-                user = replace(
-                    user, data_consent_at=consent, data_consent_version=DATA_CONSENT_VERSION
-                )
+                version = "0" if user_id == "version-antigua" else DATA_CONSENT_VERSION
+                user = replace(user, data_consent_at=consent, data_consent_version=version)
             users.add(user)
-        image = FilesystemArtifactStore(artifacts, db).put(
-            _photo(), kind="image", media_type="image/png"
-        )
+        store = FilesystemArtifactStore(artifacts, db)
+        image = store.put(_photo(), kind="image", media_type="image/png")
+        rotated = store.put(_rotated_photo(), kind="image", media_type="image/jpeg")
         sessions = SqlAlchemySessionRepository(db)
         for session in (
             _session("s-estudio", "ana", image),
@@ -156,6 +176,9 @@ def base(tmp_path: Path) -> tuple[str, Path]:
             _session("s-visita", "visita", image),
             _session("s-anonima", "anonima", image),
             _session("s-a-medias", "ana", image, status="correcting"),
+            _session("s-version-antigua", "version-antigua", image),
+            _session("s-girada", "ana", rotated),
+            _broken(_session("s-rota", "ana", image)),
         ):
             sessions.add(session, [])
         # En el estudio se corrigió la altura del compás 2 (sistema 1).
@@ -205,7 +228,7 @@ def test_each_staff_of_the_photo_is_cut_and_paired_with_its_measures(
     output = tmp_path / "salida"
     assert _export(output, db_url, artifacts, "--laminas") == 0
 
-    rows = _rows(output)
+    rows = [r for r in _rows(output) if r["session_id"] == "s-estudio"]
     assert [
         (r["session_id"], r["sistema"], r["primer_compas"], r["ultimo_compas"]) for r in rows
     ] == [
@@ -227,14 +250,21 @@ def test_each_staff_of_the_photo_is_cut_and_paired_with_its_measures(
 
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     assert info["simulated"] is False
-    assert info["sessions"] == ["s-estudio"]
-    assert info["strips"] == 2 and info["strips_corrected"] == 1
+    # La foto girada con EXIF se endereza como la vio HOMR, y sus tiras salen igual.
+    assert info["sessions"] == ["s-estudio", "s-girada"]
+    turned = [r for r in _rows(output) if r["session_id"] == "s-girada"]
+    assert [(r["y0"], r["y1"]) for r in turned] == [(r["y0"], r["y1"]) for r in rows]
+    assert info["strips"] == 4 and info["strips_corrected"] == 1
+    # Una sesión con la captura a medias queda fuera con su motivo, sin parar la exportación.
+    assert info["left_out"].pop("s-rota").startswith("no se pudo exportar (KeyError")
     assert info["left_out"] == {
         "s-anonima": "cuenta del registro público",
         "s-antigua": "sin la captura de HOMR (transcrita antes de #403)",
         "s-sin-foto": "sin la imagen (ArtifactNotFound)",
+        "s-version-antigua": "cuenta del registro público",
         "s-visita": "cuenta del registro público",
     }
+    assert not (output / "recortes" / "s-rota").exists()
     assert len(info["csv_sha256"]) == 64
     assert info["origin"] == {"database": "sqlite:copia.db", "artifacts_dir": "artefactos"}
 
@@ -248,8 +278,13 @@ def test_registered_accounts_enter_only_with_their_data_consent(
         _export(output, db_url, artifacts, "--include-self-registered", "--include-unfinished") == 0
     )
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
-    assert info["sessions"] == ["s-a-medias", "s-estudio", "s-visita"]
+    assert info["sessions"] == ["s-a-medias", "s-estudio", "s-girada", "s-visita"]
     assert info["left_out"]["s-anonima"] == "cuenta del registro sin permiso de uso de los datos"
+    # Un permiso dado a un texto anterior no vale: no es el vigente (ADR-0065).
+    assert (
+        info["left_out"]["s-version-antigua"]
+        == "cuenta del registro sin permiso de uso de los datos"
+    )
 
 
 def test_the_export_needs_its_sources_and_writes_only_in_the_output_dir(
@@ -260,6 +295,16 @@ def test_the_export_needs_its_sources_and_writes_only_in_the_output_dir(
     monkeypatch.delenv("CADENZA_ARTIFACTS_DIR", raising=False)
     assert main(["export-staves", "--output-dir", str(tmp_path / "x")]) == 1
     assert main(["export-staves", "--output-dir", str(tmp_path / "x"), "--db-url", db_url]) == 1
+
+    # Una carpeta con algo dentro se rechaza: lo de una exportación anterior se quedaría.
+    used = tmp_path / "usada"
+    used.mkdir()
+    (used / "viejo.csv").write_text("x", encoding="utf-8")
+    assert _export(used, db_url, artifacts) == 1
+    # Ni results/ ni data/ del repositorio.
+    repository = Path(__file__).resolve().parents[3]
+    assert _export(repository / "results" / "recortes", db_url, artifacts) == 1
+    assert not (repository / "results" / "recortes").exists()
 
     monkeypatch.chdir(tmp_path)
     before = set(tmp_path.rglob("*"))

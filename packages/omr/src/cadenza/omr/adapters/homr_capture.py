@@ -30,9 +30,10 @@ from __future__ import annotations
 import base64
 import functools
 import hashlib
+import math
 import xml.etree.ElementTree as ET
 import zlib
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -73,6 +74,8 @@ class Capture:
     """Lo anotado en una transcripción: una entrada por lectura de HOMR."""
 
     readings: list[ReadingCapture] = field(default_factory=list)
+    native_musicxml: dict[str, str] = field(default_factory=dict)
+    """El MusicXML que escribió HOMR en cada lectura (`paired`, `alone`), antes de combinarlas."""
     systems: list[str] | None = None
     """El primer compás de cada sistema, del MusicXML de HOMR (`systems_of`)."""
     errors: list[str] = field(default_factory=list)
@@ -132,6 +135,8 @@ def staff_boxes(multi_staffs: Any, shape: Any) -> list[dict[str, Any]]:
         for staff in multi_staff.staffs:
             x0, y0 = float(staff.min_x), float(staff.min_y)
             x1, y1 = float(staff.max_x), float(staff.max_y)
+            if not all(math.isfinite(v) for v in (x0, y0, x1, y1)):
+                raise ValueError(f"caja de pentagrama no finita: {(x0, y0, x1, y1)}")
             boxes.append(
                 {
                     "grand": bool(getattr(staff, "is_grandstaff", False)),
@@ -218,12 +223,15 @@ def systems_of(musicxml: str) -> list[str]:
     return starts
 
 
-def systems_or_empty(musicxml: str) -> list[str]:
-    """`systems_of`, o ningún sistema si el MusicXML no se puede leer."""
+def systems_or_empty(musicxml: str, capture: Capture | None = None) -> list[str]:
+    """`systems_of`, o ningún sistema (anotado en `capture.errors`) si no se puede leer: la
+    captura nunca hace fallar la lectura."""
 
     try:
         return systems_of(musicxml)
-    except ET.ParseError:
+    except Exception as exc:
+        if capture is not None:
+            capture.errors.append(f"sistemas: {exc!r}")
         return []
 
 
@@ -236,11 +244,13 @@ def capture_primitive(
 ) -> dict[str, Any]:
     """La captura como objeto JSON para `ScoreDocument.omr_capture` (ADR-0067).
 
-    El MusicXML en bruto va comprimido (zlib y base64) con su sha256, para no doblar el tamaño
-    del documento: conserva lo que la importación descarta (los sistemas, los trinos).
+    `musicxml` guarda, comprimido (zlib y base64) y con su sha256, el MusicXML que escribió HOMR
+    en cada lectura (`paired` y, en una página de voz y piano, `alone`): conserva lo que la
+    importación descarta (los sistemas, los trinos, las repeticiones). La combinación de las dos
+    lecturas del piano la escribe Cadenza desde el `ScoreIR` y no se guarda. Sin lecturas
+    anotadas (un doble de pruebas), se guarda el MusicXML importado, como `importado`.
     """
 
-    raw = musicxml.encode("utf-8")
     systems = capture.systems if capture.systems is not None else systems_or_empty(musicxml)
     return {
         "format_version": CAPTURE_FORMAT_VERSION,
@@ -251,17 +261,28 @@ def capture_primitive(
         "systems": systems,
         "errors": list(capture.errors),
         "musicxml": {
-            "encoding": "zlib+base64",
-            "sha256": hashlib.sha256(raw).hexdigest(),
-            "data": base64.b64encode(zlib.compress(raw, 9)).decode("ascii"),
+            mode: _compressed(text)
+            for mode, text in (capture.native_musicxml or {"importado": musicxml}).items()
         },
     }
 
 
-def raw_musicxml(capture: dict[str, Any]) -> str:
-    """El MusicXML en bruto de una captura (`capture_primitive`)."""
+def _compressed(text: str) -> dict[str, str]:
+    raw = text.encode("utf-8")
+    return {
+        "encoding": "zlib+base64",
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "data": base64.b64encode(zlib.compress(raw, 9)).decode("ascii"),
+    }
+
+
+def raw_musicxml(capture: Mapping[str, Any], mode: str | None = None) -> str:
+    """El MusicXML de HOMR de una lectura de la captura (`capture_primitive`): `mode`, o la
+    emparejada (`paired`) si no se dice, o la única que haya."""
 
     stored = capture["musicxml"]
-    if stored.get("encoding") != "zlib+base64":
-        raise ValueError(f"codificación desconocida: {stored.get('encoding')!r}")
-    return zlib.decompress(base64.b64decode(stored["data"])).decode("utf-8")
+    key = mode or ("paired" if "paired" in stored else next(iter(stored)))
+    entry = stored[key]
+    if entry.get("encoding") != "zlib+base64":
+        raise ValueError(f"codificación desconocida: {entry.get('encoding')!r}")
+    return zlib.decompress(base64.b64decode(entry["data"])).decode("utf-8")
