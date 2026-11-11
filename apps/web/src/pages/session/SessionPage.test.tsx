@@ -2163,7 +2163,7 @@ describe("elegir una nota sobre la partitura", () => {
     const region = await findScore();
 
     fireEvent.keyDown(region, { key: "ArrowRight" });
-    expect(screen.getByText("Sol#4 · sin duración")).toBeVisible();
+    expect(screen.getByText("Sol#4 · nota de adorno")).toBeVisible();
     // La nota de adorno, 1,5 unidades a la izquierda: (15 − 1,5 − 0,6) unidades × 7,5 px.
     expect(selection()?.style.left).toBe("96.75px");
     fireEvent.keyDown(region, { key: "ArrowRight" });
@@ -2187,7 +2187,7 @@ describe("elegir una nota sobre la partitura", () => {
     const region = await findScore();
 
     fireEvent.keyDown(region, { key: "ArrowRight" });
-    expect(screen.getByText("Sol4 · sin duración")).toBeVisible();
+    expect(screen.getByText("Sol4 · nota de adorno")).toBeVisible();
     expect(selection()?.style.left).toBe("96.75px");
     fireEvent.keyDown(region, { key: "ArrowRight" });
     expect(screen.getByText("Silencio de blanca con puntillo")).toBeVisible();
@@ -4309,6 +4309,45 @@ describe("corregir la nota elegida", () => {
         op: "InsertEvent",
         anchor: { event_index: 3 },
         after: { pitch: "B4", is_chord: true },
+      });
+    });
+
+    it("convierte la elegida en nota de adorno con un botón (#404)", async () => {
+      const server = editableApi(withSecond([note("C4", "1"), note("D4", "2")]));
+      renderPage();
+      await chooseMeasure(2);
+      expect(button("Nota de adorno")).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(button("Nota de adorno"));
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: nota de adorno.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "SetDuration",
+        anchor: anchorOf(2),
+        before: null,
+        after: { duration_beats: "0" },
+      });
+    });
+
+    it("inserta una nota de adorno antes de la elegida con Mayús+G y la elige (#404)", async () => {
+      const server = editableApi(withSecond([note("C4", "1"), note("D4", "2")]));
+      renderPage();
+      const region = await chooseMeasure(2);
+
+      fireEvent.keyDown(region, { key: "G", shiftKey: true });
+
+      await waitFor(() => {
+        expect(editStatus()).toHaveTextContent("Guardado: inserción de Do 4, nota de adorno.");
+      });
+      expect(server.bodies[0]).toEqual({
+        base_seq: 0,
+        op: "InsertEvent",
+        anchor: { ...anchorOf(2), bbox: null, confidence: null },
+        before: null,
+        after: { kind: "note", pitch: "C4", duration_beats: "0" },
       });
     });
 

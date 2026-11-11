@@ -148,6 +148,8 @@ describe("describeEdit", () => {
   it("dice qué cambia cada operación, como la barra de corrección", () => {
     expect(describeEdit(pitch(1, "F#4"))).toBe("altura Fa sostenido 4");
     expect(describeEdit(edit(1, "SetDuration", { duration_beats: "1/2" }))).toBe("figura corchea");
+    // Una nota que pasa a ser de adorno (#404).
+    expect(describeEdit(edit(1, "SetDuration", { duration_beats: "0" }))).toBe("nota de adorno");
     expect(describeEdit(edit(1, "SetAccidental", { accidental: "#" }))).toBe(
       "alteración sostenido",
     );
