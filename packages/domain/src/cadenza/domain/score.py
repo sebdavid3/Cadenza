@@ -7,8 +7,9 @@ responsabilidad aquí es dar estructura suficiente para derivar anclas estables.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
@@ -295,30 +296,42 @@ def build_anchor_index(
 
 @dataclass(frozen=True, slots=True)
 class ScoreDocument:
-    """Fuente de verdad del sistema: `ScoreIR` + `AnchorIndex` + `Provenance`."""
+    """Fuente de verdad del sistema: `ScoreIR` + `AnchorIndex` + `Provenance`.
+
+    `omr_capture` es lo que el motor dejó de su lectura además de la partitura (#403, ADR-0067):
+    las cajas de los pentagramas en la imagen, los sistemas y el MusicXML en bruto, para emparejar
+    más adelante cada pentagrama de la foto con sus compases corregidos. Es un dato opaco para el
+    dominio (un objeto JSON), no cuenta al comparar documentos y solo se serializa si existe.
+    """
 
     id: str
     score: ScoreIR
     anchors: AnchorIndex
     provenance: Provenance
+    omr_capture: Mapping[str, Any] | None = field(default=None, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("id must be non-empty")
 
     def to_primitive(self) -> dict[str, Any]:
-        return {
+        primitive: dict[str, Any] = {
             "id": self.id,
             "score": self.score.to_primitive(),
             "anchors": self.anchors.to_primitive(),
             "provenance": self.provenance.to_primitive(),
         }
+        if self.omr_capture is not None:
+            primitive["omr_capture"] = copy.deepcopy(dict(self.omr_capture))
+        return primitive
 
     @classmethod
     def from_primitive(cls, data: Mapping[str, Any]) -> ScoreDocument:
+        capture = data.get("omr_capture")
         return cls(
             id=str(data["id"]),
             score=ScoreIR.from_primitive(data["score"]),
             anchors=AnchorIndex.from_primitive(data["anchors"]),
             provenance=Provenance.from_primitive(data["provenance"]),
+            omr_capture=None if capture is None else copy.deepcopy(dict(capture)),
         )

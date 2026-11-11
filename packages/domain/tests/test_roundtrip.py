@@ -150,3 +150,30 @@ def test_finding_roundtrip() -> None:
         suggested_fix="Ajustar la última figura.",
     )
     assert Finding.from_primitive(finding.to_primitive()) == finding
+
+
+def test_the_omr_capture_travels_with_the_document_and_is_omitted_without_it() -> None:
+    """Lo que el motor dejó de su lectura (#403): se serializa si existe, no cuenta al comparar
+    y un documento sin ella da el mismo primitivo de siempre."""
+    from cadenza.domain import AnchorIndex, Provenance, ScoreDocument, ScoreIR
+
+    plain = ScoreDocument(
+        id="d1",
+        score=ScoreIR(parts=()),
+        anchors=AnchorIndex.from_entries({}),
+        provenance=Provenance(omr_engine="homr"),
+    )
+    assert "omr_capture" not in plain.to_primitive()
+    assert ScoreDocument.from_primitive(plain.to_primitive()).omr_capture is None
+
+    systems = ["1", "4"]
+    capture: dict[str, object] = {"format_version": 1, "systems": systems, "readings": []}
+    captured = ScoreDocument.from_primitive({**plain.to_primitive(), "omr_capture": capture})
+    assert captured.omr_capture == capture
+    assert captured == plain
+    again = ScoreDocument.from_primitive(captured.to_primitive())
+    assert again.omr_capture == capture
+    # Una copia: cambiar lo leído no cambia el documento.
+    systems.append("7")
+    assert captured.omr_capture is not None
+    assert captured.omr_capture["systems"] == ["1", "4"]

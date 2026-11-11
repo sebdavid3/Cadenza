@@ -381,6 +381,26 @@ uv run python -m ml run --config configs/learning/default.json --work-dir result
   --strategy hybrid --budget 10 --version v1.1.0 --ser <SER> --omr-ned <OMR-NED>
 ```
 
+### Cada pentagrama de la foto con sus compases (`ml export-staves`, #403, ADR-0067)
+
+Para las sesiones que guardan la captura de HOMR (las transcritas desde #403), recorta cada
+pentagrama de la foto y lo empareja con los compases que leyó HOMR y con los que quedaron
+corregidos: el par con el que se entrenaría un lector. Sobre una copia de la base y de sus
+artefactos, nunca la de producción, y con la salida fuera de `results/`:
+
+```powershell
+uv run --no-sync python -m ml export-staves --output-dir <carpeta> --db-url <url de la copia> `
+  --artifacts-dir <artefactos de la copia> [--laminas] [--include-unfinished] [--include-self-registered]
+```
+
+Escribe `recortes/<sesión>/s<sistema>_<parte>-<pentagrama>.png`, `pentagramas.csv` (una fila por
+tira: su caja en la foto, sus compases y las secuencias `lectura` y `corregida`, con `corregido`
+si difieren), `musicxml/<sesión>-homr.musicxml` y `-final.musicxml`, con `--laminas` una lámina
+por sesión para comprobarlo a ojo, y `run_info.json` con las sesiones que quedan fuera y su
+motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por defecto, solo las
+sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
+con el permiso de uso de los datos vigente.
+
 ### Encadenamiento y trazabilidad de artefactos
 
 | Comando | Entrada | Salida | Metadatos persistidos |
