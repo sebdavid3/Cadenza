@@ -106,6 +106,61 @@ Repetida sobre `dev` (`6ba625f`), con [#326](https://github.com/sebdavid3/Cadenz
 - **Un cambio de clave a mitad de compás** (mano izquierda de TS-02, cc. 1, 2, 5 y 6, y de TS-03, cc. 4 y 6) sigue en el inicio del compás o sin ponerse (TS-02, c. 1), con las alturas bien pero dibujado en la otra clave.
 - **El calentamiento sigue sin tener nada que corregir** (0 errores de HOMR), y **cambiar una figura con puntillo a otra sin él** sigue pidiendo dos ediciones (TS-03, c. 2).
 
+## Cuarta revisión (2026-11-11)
+
+Repetida sobre `dev` (`baa5fc2`, la versión desplegada en producción en e18d11a más su bitácora), para comprobar el banco con lo que cambió desde la tercera:
+
+- HOMR en la GPU, como producción desde [#268](https://github.com/sebdavid3/Cadenza/issues/268) (ADR-0066);
+- la mesa de corrección con la barra en pestañas ([#341](https://github.com/sebdavid3/Cadenza/issues/341), [#363](https://github.com/sebdavid3/Cadenza/issues/363));
+- las barras de agrupación de los compases sobrellenados ([#366](https://github.com/sebdavid3/Cadenza/issues/366)) y la marca del compás dudoso ([#368](https://github.com/sebdavid3/Cadenza/issues/368));
+- las notas de adorno escritas desde la vista ([#404](https://github.com/sebdavid3/Cadenza/issues/404)) y la captura de HOMR ([#403](https://github.com/sebdavid3/Cadenza/issues/403)).
+
+**Cómo se hizo.**
+
+- **La transcripción.** Cada partitura se transcribió por la API local, con HOMR 0.7.0 en la GPU (`/health` dice `device: cuda`) y la configuración por defecto, con su `test_score_id`, sus instrumentos y la condición asistida. Antes se comprobaron los sha256 de sus imágenes y verdades contra el manifiesto.
+- **La corrección.** Se corrigió en la vista, en el navegador integrado a 1440 px, con las teclas de la vista (las de la leyenda «Atajos»), el desplegable y el botón «Cambiar compás» y «Revalidar». El panel del navegador estaba oculto, así que las teclas se enviaron a la partitura con eventos de teclado y la selección se movió con las flechas, como haría el teclado, y no poniéndola en el estado de la página.
+- **La comparación.** La lectura y el estado final se compararon con la verdad de `banco_estudio/<id>.musicxml` pentagrama a pentagrama, por lo que se ve: inicio, nota o silencio, altura, figura y ligadura, sin el número de voz, el orden de las notas de un acorde ni los huecos.
+
+Las cifras son **exploratorias**: salen de un script de la revisión en el scratchpad, no de `ml/experiments`, y no son un resultado de la tesis.
+
+**La lectura de HOMR en la GPU es la de la tercera revisión, en CPU.**
+
+| `test_score_id` | Posibles errores al transcribir | Lo que falta y sobra en la lectura |
+|---|---|---|
+| `calentamiento` | 0 | Nada |
+| `TS-01` | 2 (la duración de los cc. 1 y 4, por el 2/4) | 12 y 12: las figuras a la mitad de los cc. 1-3, con el compás en 2/4 |
+| `TS-02` | 0 | 3 y 2: el Si♭3 del acorde del c. 6 de la mano izquierda y la ligadura entre voces del c. 3 de la mano derecha |
+| `TS-03` | 0 | 26 y 25, como en la tercera revisión: mano derecha, cc. 2, 4 y 8; mano izquierda, c. 2 |
+| `TS-04` | 0 | 1 y 1: el Do4 de más en un acorde del c. 6 de la mano derecha, donde va un silencio |
+
+Las claves, las armaduras y la falta de compás en TS-02 a TS-04 también son las de entonces.
+
+**Lo que hace falta para corregir cada partitura en la mesa** (ediciones del log):
+
+| `test_score_id` | Ediciones | Queda después |
+|---|---|---|
+| `calentamiento` | 0 | Nada |
+| `TS-01` | 13: doce figuras con las teclas 4 y 5, y la C con el desplegable y «Cambiar compás». El log tiene 15: una figura que cayó en el c. 4 por un clic de más, y su deshacer | Nada (faltan 0, sobran 0); sin posibles errores al revalidar |
+| `TS-02` | 11: 3/4 en todas las partes (una); el Si♭3 del acorde del c. 6 de la mano izquierda (cinco: E, Mayús+Av Pág y tres Mayús+↑); la ligadura entre voces del c. 3 (cinco: borrar el Mi♭5 del acorde de la voz 1, corchea en el hueco de la voz 2, N, corchea y U) | Nada (faltan 0, sobran 0); sin posibles errores |
+| `TS-03` | 8: 6/8 en todas las partes (una), corchea y quitar el puntillo del Do♯4 del c. 2 (dos), los tresillos de los cc. 4 y 8 con R (dos) y las tres ligaduras del acorde del c. 2 de la mano izquierda con U (tres) | La voz de abajo del c. 2 de la mano derecha, como antes (faltan 2, sobra 1); sin posibles errores |
+| `TS-04` | 11 (9 en la tercera revisión, por otro camino para rehacer el acorde): C en todas las partes (una), borrar el Do4 de más (una) y el silencio al final de la voz 2 del c. 6 (nueve: una copia del Sol4 antes del acorde, un silencio antes del acorde viejo y corchea, borrar sus dos notas, y rehacer el acorde en la copia con E, Mayús+Av Pág y dos Mayús+↑) | Nada (faltan 0, sobran 0); sin posibles errores |
+
+**Comprobado además:**
+
+- **Mapa de selección (D62).** El mapa queda listo en las cinco: en cada una se elige una nota con las flechas y la barra dice cuál es.
+- **A 375 px** no hay desplazamiento horizontal de la página (`scrollWidth = 375`).
+- **«Cambiar compás» desde la voz** sigue poniendo la indicación en todas las partes con una sola edición (#326), y «Revalidar» la comprueba.
+
+**Lo que estorba a un participante** es lo de la tercera revisión, sin nada nuevo:
+
+- la voz inferior del c. 2 de la mano derecha de TS-03, que la barra no puede crear;
+- añadir algo al final de una voz (el silencio de TS-04, c. 6), que sigue costando entre siete y nueve ediciones porque la barra solo inserta antes del evento elegido;
+- los cambios de clave a mitad de compás;
+- el calentamiento, que no tiene nada que corregir;
+- la figura con puntillo, que pide dos ediciones.
+
+El botón «Nota de adorno» ensancha la paleta de la pestaña «Nota» (ADR-0028, enmienda de #404), pero ninguna partitura del banco lo necesita.
+
 ## Enmienda: la matriz y la preparación de cada participante (#249, 2026-11-08)
 
 - El manifiesto lleva también la matriz del cuadrado latino del protocolo §2.4 (`estudio.matriz`), la condición, el título y el nombre de archivo del calentamiento, y la plantilla del título y del archivo de cada bloque («Partitura {bloque}», `partitura-{bloque}.png`), además de los instrumentos de cada partitura (`instrumentos`: voz y piano en TS-02 a TS-04; ninguno en los íncipits). Los sha256 no cambian.
