@@ -784,7 +784,9 @@ export function planAgain(
     if (isGraceBeats(duration)) {
       return isGraceNote(event)
         ? refuse("same", "Ya es una nota de adorno.")
-        : planGrace(false, target, score);
+        : score
+          ? planGrace(false, target, score)
+          : refuse("no-target");
     }
     return planFigure(duration, target, score);
   }
