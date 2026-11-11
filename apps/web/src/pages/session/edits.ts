@@ -956,6 +956,7 @@ export function planInsert(
       middleLine(activeClef(score, target.anchor), activeFifths(score, target.anchor)) ??
       "B4";
   }
+  if (!rest && orphanChordNote(events, start)) return ORPHAN_CHORD;
   const anchor = insertionAnchor(target.anchor, start);
   return {
     kind: "edit",
@@ -1470,6 +1471,7 @@ function planWriteInsert(
     pitch,
     duration_beats: figureDuration(command.figure, command.dotted),
   };
+  if (!command.end && orphanChordNote(events, index)) return ORPHAN_CHORD;
   const anchor = insertionAnchor(target.anchor, index);
   return {
     kind: "edit",
@@ -1488,6 +1490,22 @@ function planWriteInsert(
 export function isGraceNote(event: ScoreEventPayload | undefined): boolean {
   return event?.kind === "note" && isGraceBeats(event.duration_beats ?? null);
 }
+
+/**
+ * Una nota con `is_chord` que no se une a la anterior (tras un silencio o al empezar la voz): una
+ * nota insertada delante se la llevaría a su acorde, y el servidor lo rechaza (#404).
+ */
+function orphanChordNote(events: readonly ScoreEventPayload[], index: number): boolean {
+  const event = events[index];
+  return event?.kind === "note" && event.is_chord === true && events[index - 1]?.kind !== "note";
+}
+
+const ORPHAN_CHORD: EditPlan = {
+  kind: "refused",
+  reason: "chord",
+  message:
+    "Una nota nueva formaría acorde con la que va detrás: inserta antes un silencio o corrige esa nota.",
+};
 
 /** Si una duración en negras es la de una nota de adorno: 0 o nula. */
 export function isGraceBeats(beats: string | null): boolean {
@@ -1527,6 +1545,7 @@ function planGrace(insert: boolean, target: EditTarget | null, score: ScoreIRPay
     const pitch = own ? canonical(own) : null;
     if (!pitch) return refuse("unknown-pitch");
     const after = { kind: "note", pitch, duration_beats: "0" };
+    if (orphanChordNote(events, start)) return ORPHAN_CHORD;
     const anchor = insertionAnchor(target.anchor, start);
     return {
       kind: "edit",

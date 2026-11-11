@@ -1785,3 +1785,20 @@ describe("notas de adorno de duración 0 en lo vecino (revisión de #404)", () =
     });
   });
 });
+
+describe("una nota con is_chord tras un silencio (revisión de #404)", () => {
+  it("no se inserta una nota delante: se explica en vez de pedirlo al servidor", () => {
+    const state = staffScore([{ events: [note(null), note("E4", "1", { is_chord: true })] }]);
+    for (const command of [
+      { kind: "insert", rest: false },
+      { kind: "grace", insert: true },
+    ] as const) {
+      expect(planCommand(command, chosen(state, anchor(1, 1)), state)).toMatchObject({
+        kind: "refused",
+        reason: "chord",
+      });
+    }
+    // Un silencio delante sí: no se une a nada.
+    expect(planInsert(true, chosen(state, anchor(1, 1)), state)).toMatchObject({ kind: "edit" });
+  });
+});

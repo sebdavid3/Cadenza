@@ -61,17 +61,24 @@ function groupOf(events: readonly ScoreEventPayload[], index: number): [number, 
   return [start, end];
 }
 
+/**
+ * Si el evento no ocupa tiempo: duración nula, o una nota de adorno de duración 0 (ADR-0028). Un
+ * silencio de duración 0 sí cuenta: el exportador lo dibuja como negra (como `_timeless` del
+ * servidor).
+ */
+const timeless = (event: ScoreEventPayload | undefined) =>
+  event?.duration_beats == null || (event.kind === "note" && !hasDuration(event.duration_beats));
+
 /** El primer grupo de la voz desde `from` que ocupa tiempo: sin las notas de adorno. */
 function firstTimedGroup(events: readonly ScoreEventPayload[], from = 0): [number, number] | null {
   let index = from;
   while (index < events.length) {
     const [start, end] = groupOf(events, index);
-    // Una nota de adorno (duración 0 o nula, ADR-0028) no ocupa tiempo.
-    if (hasDuration(events[start]?.duration_beats)) {
+    if (!timeless(events[start])) {
       // Los silencios invisibles del final de la voz no cuentan: tras ellos no hay nada, y la
       // ligadura cruza la barra (como en el servidor y en `tie.resolution`).
       const rest = events.slice(start);
-      if (rest.every((event) => event.hidden === true || !hasDuration(event.duration_beats))) {
+      if (rest.every((event) => event.hidden === true || timeless(event))) {
         return null;
       }
       return [start, end];

@@ -261,3 +261,40 @@ def test_a_grace_note_of_null_duration_is_already_one() -> None:
     score = _voice(Event(kind=EventKind.NOTE, pitch="A4", duration_beats=None), _note("G4", "4"))
     with pytest.raises(InvalidEditPayload, match="ya es"):
         validate_after(score, _anchor(1, 0), EditOp.SET_DURATION, {"duration_beats": 0})
+
+
+def test_a_tie_does_not_reach_a_grace_note_and_a_rest_of_duration_zero_still_counts() -> None:
+    score = _voice(_note("A4", "2"), _note("A4", "0"), _note("A4", "2"))
+    with pytest.raises(InvalidEditPayload, match="adorno"):
+        validate_after(
+            score,
+            _anchor(1, 0),
+            EditOp.SET_TIE,
+            {"tie": "start", "next": {"measure": 1, "voice": 0, "event_index": 1, "tie": "stop"}},
+        )
+    from cadenza.domain.tie_edits import following
+
+    # Un silencio de duración 0 se dibuja como negra: lo que sigue es él, no la nota de detrás.
+    rest = _voice(
+        _note("A4", "2"), Event(kind=EventKind.REST, duration_beats=Fraction(0)), _note("A4", "2")
+    )
+    assert following(rest.parts[0].staves[0], 0, 0, 0) == [(1, 0, 1)]
+    # Una nota de adorno al final de la voz no la alarga: lo que sigue está en el compás 2.
+    trailing = _voice(_note("C4", "4"), _note("D4", "0"))
+    assert following(trailing.parts[0].staves[0], 0, 0, 0) == [(2, 0, 0)]
+
+
+def test_a_tuplet_keeps_null_for_a_grace_note_of_null_duration() -> None:
+    score = _voice(
+        _note("C4", "1/2"),
+        Event(kind=EventKind.NOTE, pitch="D4", duration_beats=None),
+        _note("E4", "1/2"),
+        _note("F4", "1/2"),
+    )
+    validate_after(
+        score, _anchor(1, 0), EditOp.SET_TUPLET, {"durations": ["1/3", None, "1/3", "1/3"]}
+    )
+    with pytest.raises(InvalidEditPayload, match="null"):
+        validate_after(
+            score, _anchor(1, 0), EditOp.SET_TUPLET, {"durations": ["1/3", "0", "1/3", "1/3"]}
+        )
