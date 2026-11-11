@@ -40,7 +40,8 @@ from typing import Any
 
 from . import homr_grand_staff
 
-CAPTURE_FORMAT_VERSION = 1
+CAPTURE_FORMAT_VERSION = 2
+"""2: `musicxml` guarda el de cada lectura de HOMR por su modo (en la 1, uno solo)."""
 
 _PATCHED_ATTRIBUTE = "_cadenza_capture"
 
@@ -83,8 +84,11 @@ class Capture:
     _pending_crop: tuple[tuple[int, int], tuple[int, int, int, int] | None] | None = None
 
     def discard(self, mode: str) -> None:
-        """Olvida las lecturas de `mode`: la del piano solo, si falló y queda la emparejada."""
+        """Olvida las lecturas de `mode`, sus errores y su MusicXML: la del piano solo, si
+        falló y queda la emparejada."""
         self.readings = [reading for reading in self.readings if reading.mode != mode]
+        self.errors = [error for error in self.errors if not error.startswith(f"{mode}: ")]
+        self.native_musicxml.pop(mode, None)
 
 
 _current: Capture | None = None
@@ -174,7 +178,7 @@ def _save_staff_positions(
             )
         )
     except Exception as exc:  # la captura no debe tumbar la lectura
-        capture.errors.append(f"cajas: {exc!r}")
+        capture.errors.append(f"{_reading_mode()}: cajas: {exc!r}")
 
 
 def _autocrop(original: Callable[[Any], Any], image: Any) -> Any:
@@ -188,7 +192,7 @@ def _autocrop(original: Callable[[Any], Any], image: Any) -> Any:
             )
         except Exception as exc:  # la captura no debe tumbar la lectura
             capture._pending_crop = None
-            capture.errors.append(f"recorte del papel: {exc!r}")
+            capture.errors.append(f"{_reading_mode()}: recorte del papel: {exc!r}")
     return result
 
 
@@ -231,7 +235,7 @@ def systems_or_empty(musicxml: str, capture: Capture | None = None) -> list[str]
         return systems_of(musicxml)
     except Exception as exc:
         if capture is not None:
-            capture.errors.append(f"sistemas: {exc!r}")
+            capture.errors.append(f"{_reading_mode()}: sistemas: {exc!r}")
         return []
 
 

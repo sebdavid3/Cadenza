@@ -40,9 +40,7 @@ from typing import Any
 
 from cadenza.application import ArtifactNotFound, has_current_data_consent
 from cadenza.domain import ScoreDocument, ScoreIR, materialize
-from cadenza.interchange import score_ir_to_musicxml
 from cadenza.learning.staff_strips import Strip, StripError, plan_strips, strip_sequence
-from cadenza.omr.adapters.homr_capture import raw_musicxml
 from cadenza.persistence import (
     FilesystemArtifactStore,
     SqlAlchemyEditEventRepository,
@@ -54,7 +52,7 @@ from cadenza.persistence import (
 )
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 FORMAT_VERSION = 1
 
@@ -168,6 +166,20 @@ def _final_score(raw: ScoreIR, edits: Any) -> ScoreIR:
     return materialize(raw, edits) if edits else raw
 
 
+def _open_photo(content: bytes) -> Image.Image:
+    """La foto como la ve HOMR, que la lee con OpenCV: con la orientación EXIF aplicada (una foto
+    de móvil) y en 8 bits (OpenCV escala los 16 bits; PIL los recortaría a 255)."""
+
+    opened = Image.open(io.BytesIO(content))
+    opened.load()
+    photo = ImageOps.exif_transpose(opened)
+    if photo.mode in ("I;16", "I;16B", "I;16L", "I"):
+        photo = photo.point(lambda value: value / 256).convert("L")
+    if photo.mode not in ("RGB", "L"):
+        photo = photo.convert("RGB")
+    return photo
+
+
 def _export_session(
     session: Any,
     edits_repo: Any,
@@ -177,34 +189,38 @@ def _export_session(
     rows: list[dict[str, Any]],
 ) -> str | None:
     """Recorta y empareja una sesión: añade sus filas a `rows` y escribe sus archivos. Devuelve
-    None si se exportó, o el motivo por el que queda fuera."""
+    None si se exportó, o el motivo por el que queda fuera. Lo calcula todo antes de escribir
+    nada: una sesión que falla no deja archivos a medias."""
+
+    # Aquí y no arriba: construir la CLI no debe cargar music21 (`ml/cli.py`).
+    from cadenza.interchange import score_ir_to_musicxml
+    from cadenza.omr.adapters.homr_capture import CAPTURE_FORMAT_VERSION, raw_musicxml
 
     document = ScoreDocument.from_primitive(session.document)
     capture = document.omr_capture
     if capture is None:
         return "sin la captura de HOMR (transcrita antes de #403)"
+    if capture.get("format_version") != CAPTURE_FORMAT_VERSION:
+        return f"captura de otro formato ({capture.get('format_version')!r})"
     try:
-        opened = Image.open(io.BytesIO(store.get(session.image_artifact or "")))
-        opened.load()
+        photo = _open_photo(store.get(session.image_artifact or ""))
     except (ArtifactNotFound, OSError, ValueError) as exc:
         return f"sin la imagen ({type(exc).__name__})"
-    # Como HOMR, que la lee con OpenCV: con la orientación EXIF aplicada (una foto de móvil).
-    photo = ImageOps.exif_transpose(opened)
-    if photo.mode not in ("RGB", "L"):
-        photo = photo.convert("RGB")
     raw = document.score
     try:
         strips = plan_strips(capture, raw, photo.size)
     except StripError as exc:
         return str(exc)
     final = _final_score(raw, edits_repo.list_events(session.id))
-    folder = output / "recortes" / session.id
-    folder.mkdir(parents=True, exist_ok=True)
+
+    files: dict[Path, bytes] = {}
     sheet_rows = []
     own_rows: list[dict[str, Any]] = []
     for strip in strips:
         name = f"s{strip.system}_{_staves_name(strip)}.png"
-        photo.crop(strip.box).save(folder / name)
+        buffer = io.BytesIO()
+        photo.crop(strip.box).save(buffer, format="PNG")
+        files[output / "recortes" / session.id / name] = buffer.getvalue()
         read, corrected = strip_sequence(raw, strip), strip_sequence(final, strip)
         sheet_rows.append((strip, read, corrected))
         own_rows.append(
@@ -230,19 +246,21 @@ def _export_session(
             }
         )
     xml_folder = output / "musicxml"
-    xml_folder.mkdir(parents=True, exist_ok=True)
+    stored = capture.get("musicxml") or {}
     for mode, suffix in (("paired", "homr"), ("alone", "homr-alone"), ("importado", "homr")):
-        if mode in (capture.get("musicxml") or {}):
-            (xml_folder / f"{session.id}-{suffix}.musicxml").write_text(
-                raw_musicxml(capture, mode), encoding="utf-8"
-            )
-    (xml_folder / f"{session.id}-final.musicxml").write_text(
-        score_ir_to_musicxml(final), encoding="utf-8"
-    )
+        if mode in stored:
+            text = raw_musicxml(capture, mode)
+            files[xml_folder / f"{session.id}-{suffix}.musicxml"] = text.encode("utf-8")
+    final_xml = score_ir_to_musicxml(final)
+    files[xml_folder / f"{session.id}-final.musicxml"] = final_xml.encode("utf-8")
     if sheets:
-        folder = output / "laminas"
-        folder.mkdir(parents=True, exist_ok=True)
-        _sheet(photo, sheet_rows).save(folder / f"{session.id}.png")
+        buffer = io.BytesIO()
+        _sheet(photo, sheet_rows).save(buffer, format="PNG")
+        files[output / "laminas" / f"{session.id}.png"] = buffer.getvalue()
+
+    for path, content in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
     rows.extend(own_rows)
     return None
 
@@ -259,7 +277,7 @@ def export_staves_command(args: argparse.Namespace) -> int:
     for forbidden in (repository / "results", repository / "data"):
         if output == forbidden or forbidden in output.parents:
             return _fail(f"la salida no puede estar en {forbidden.name}/ del repositorio")
-    if output.exists() and any(output.iterdir()):
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
         # Lo de una exportación anterior (de alguien que ya retiró su permiso) se quedaría.
         return _fail(f"la carpeta de salida no está vacía: {output}")
     rows: list[dict[str, Any]] = []
@@ -282,6 +300,9 @@ def export_staves_command(args: argparse.Namespace) -> int:
                     continue
             try:
                 reason = _export_session(session, edits_repo, store, output, args.laminas, rows)
+            except SQLAlchemyError:
+                # Con PostgreSQL, la transacción quedaría abortada para las que siguen.
+                raise
             except Exception as exc:  # una sesión rara no para la exportación
                 reason = f"no se pudo exportar ({type(exc).__name__}: {exc})"
             if reason is None:

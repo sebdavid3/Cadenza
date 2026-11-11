@@ -178,7 +178,7 @@ def test_the_capture_primitive_keeps_the_raw_musicxml_compressed() -> None:
     primitive = homr_capture.capture_primitive(
         capture, SYSTEMS_XML, homr_version="0.7.0", preprocessed=False
     )
-    assert primitive["format_version"] == 1
+    assert primitive["format_version"] == 2
     assert primitive["systems"] == ["1", "4"]
     assert primitive["readings"][0]["mode"] == "paired"
     # Sin lecturas anotadas, el MusicXML importado.
@@ -264,3 +264,21 @@ def test_a_voice_and_piano_page_gives_one_box_per_staff_and_system() -> None:
         strips = plan_strips(capture, document.score, photo.size)
     assert len(strips) == staves * len(capture["systems"])
     assert {strip.reading for strip in strips} == {"alone"}
+
+
+def test_errors_are_kept_per_reading_and_forgotten_with_it() -> None:
+    capture = homr_capture.Capture()
+    with homr_grand_staff.reading(homr_grand_staff.PianoReading.ALONE):
+        assert homr_capture.systems_or_empty("<no es xml", capture) == []
+    capture.native_musicxml = {"paired": "<p/>", "alone": "<a/>"}
+    assert capture.errors[0].startswith("alone: sistemas")
+    capture.discard("alone")
+    assert capture.errors == [] and capture.native_musicxml == {"paired": "<p/>"}
+
+
+def test_a_staff_box_that_is_not_finite_is_an_error_not_a_crash() -> None:
+    capture = homr_capture.Capture()
+    staffs = [SimpleNamespace(staffs=[_staff(float("nan"), 0, 10, 10)])]
+    with homr_capture.recording(capture):
+        homr_capture._save_staff_positions(lambda *a: None, staffs, (100, 100), "x.txt")
+    assert capture.readings == [] and "no finita" in capture.errors[0]

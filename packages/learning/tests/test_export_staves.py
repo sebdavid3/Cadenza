@@ -303,8 +303,11 @@ def test_the_export_needs_its_sources_and_writes_only_in_the_output_dir(
     assert _export(used, db_url, artifacts) == 1
     # Ni results/ ni data/ del repositorio.
     repository = Path(__file__).resolve().parents[3]
-    assert _export(repository / "results" / "recortes", db_url, artifacts) == 1
-    assert not (repository / "results" / "recortes").exists()
+    for forbidden in ("results", "data"):
+        assert _export(repository / forbidden / "recortes", db_url, artifacts) == 1
+        assert not (repository / forbidden / "recortes").exists()
+    # Ni un archivo.
+    assert _export(used / "viejo.csv", db_url, artifacts) == 1
 
     monkeypatch.chdir(tmp_path)
     before = set(tmp_path.rglob("*"))
@@ -312,3 +315,21 @@ def test_the_export_needs_its_sources_and_writes_only_in_the_output_dir(
     assert _export(output, db_url, artifacts) == 0
     created = set(tmp_path.rglob("*")) - before
     assert created and all(output in p.parents or p == output for p in created)
+
+
+def test_a_session_that_fails_after_its_crops_leaves_nothing_behind(
+    base: tuple[str, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import cadenza.interchange
+
+    def broken(score: object) -> str:
+        raise RuntimeError("el exportador no sabe escribir esto")
+
+    monkeypatch.setattr(cadenza.interchange, "score_ir_to_musicxml", broken)
+    db_url, artifacts = base
+    output = tmp_path / "salida"
+    assert _export(output, db_url, artifacts, "--laminas") == 0
+    info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
+    assert info["sessions"] == [] and info["strips"] == 0
+    assert info["left_out"]["s-estudio"].startswith("no se pudo exportar (RuntimeError")
+    assert sorted(p.name for p in output.iterdir()) == ["pentagramas.csv", "run_info.json"]
