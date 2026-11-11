@@ -185,6 +185,38 @@ def _check_duration(value: object) -> None:
     check_duration(value)
 
 
+def _check_grace_insert(after: Mapping[str, Any]) -> None:
+    """Una nota de adorno insertada (duración 0, ADR-0028, #404): una nota visible, sin
+    ligadura de prolongación y fuera de un acorde."""
+
+    if after.get("kind") != EventKind.NOTE.value or after.get(_HIDDEN_KEY):
+        raise InvalidEditPayload("solo una nota visible puede ser de adorno (duración 0)")
+    if after.get("tie") is not None:
+        raise InvalidEditPayload("una nota de adorno no lleva ligadura de prolongación")
+    if after.get("is_chord"):
+        raise InvalidEditPayload("una nota de adorno no forma acorde desde una edición")
+
+
+def _check_grace_target(score: ScoreIR, anchor: Anchor, target: Event) -> None:
+    """La nota que pasa a ser de adorno (`SetDuration` a 0, #404): visible, sin ligadura de
+    prolongación y fuera de un acorde, porque el exportador dibujaría el acorde entero como
+    adorno y la ligadura quedaría unida a una nota que no ocupa tiempo."""
+
+    if target.kind is not EventKind.NOTE or target.hidden:
+        raise InvalidEditPayload("solo una nota visible puede ser de adorno (duración 0)")
+    if target.duration_beats == 0:
+        raise InvalidEditPayload("la nota ya es de adorno")
+    events = [e for e in _locate_measure(score, anchor).events if e.voice == anchor.voice]
+    index = anchor.event_index
+    if joins_previous(events, index) or is_chord_head(events, index):
+        raise InvalidEditPayload("una nota de un acorde no pasa a ser de adorno")
+    if target.tie is not None:
+        raise InvalidEditPayload(
+            "una nota con ligadura de prolongación no pasa a ser de adorno: quita antes la "
+            "ligadura"
+        )
+
+
 def _check_int(name: str, value: object, low: int, high: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise InvalidEditPayload(f"{name} debe ser un entero entre {low} y {high}: {value!r}")
@@ -283,7 +315,8 @@ def _check_insert(op: EditOp, anchor: Anchor, after: Mapping[str, Any]) -> None:
         raise InvalidEditPayload(f"'hidden' debe ser booleano: {hidden!r}")
     if hidden and kind != EventKind.REST.value:
         raise InvalidEditPayload("solo un silencio puede ser invisible ('hidden')")
-    _check_duration(after["duration_beats"])
+    if check_duration(after["duration_beats"], allow_grace=True) == 0:
+        _check_grace_insert(after)
     tie = after.get("tie")
     if tie is not None and (
         not isinstance(tie, str) or tie not in {member.value for member in Tie}
@@ -353,8 +386,9 @@ def _check_insert_place(score: ScoreIR, anchor: Anchor, after: Mapping[str, Any]
                 "una nota con 'is_chord' va justo tras otra nota de su voz: es una nota más de "
                 "su acorde"
             )
-        if events[index - 1].duration_beats is None:
-            # El exportador dibujaría el acorde entero como adorno con la duración de la nueva.
+        if not events[index - 1].duration_beats:
+            # Una nota de adorno (duración 0 o nula, ADR-0028): el exportador dibujaría el
+            # acorde entero como adorno con la duración de la nueva.
             raise InvalidEditPayload("una nota con duración no se añade a una nota de adorno")
         if any(after.get(key) for key in _EVENT_MARK_KEYS):
             raise InvalidEditPayload(
@@ -540,7 +574,8 @@ def validate_after(
             required=frozenset({"duration_beats"}),
             allowed=frozenset({"duration_beats"}),
         )
-        _check_duration(payload["duration_beats"])
+        if check_duration(payload["duration_beats"], allow_grace=True) == 0:
+            _check_grace_target(score, anchor, target)
         return
 
     if target.kind is not EventKind.NOTE:

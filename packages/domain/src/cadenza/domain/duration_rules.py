@@ -20,8 +20,12 @@ MAX_DURATION_DENOMINATOR: Final[int] = 128
 TUPLET_FACTORS: Final[frozenset[int]] = frozenset({1, 3, 5, 7})
 
 
-def check_duration(value: object) -> Fraction:
-    """La duración de `value` en negras si es una de las admitidas; `InvalidEditPayload` si no."""
+def check_duration(value: object, *, allow_grace: bool = False) -> Fraction:
+    """La duración de `value` en negras si es una de las admitidas; `InvalidEditPayload` si no.
+
+    Con `allow_grace`, también 0: una nota de adorno (ADR-0028, #404). Solo lo piden
+    `InsertEvent` y `SetDuration`, que comprueban además que sea una nota que lo admite.
+    """
 
     if isinstance(value, bool) or not isinstance(value, int | float | str | Fraction):
         raise InvalidEditPayload(f"duración no válida: {value!r}")
@@ -31,6 +35,8 @@ def check_duration(value: object) -> Fraction:
         duration = Fraction(str(value))
     except (ValueError, ZeroDivisionError) as exc:
         raise InvalidEditPayload(f"duración no válida: {value!r}") from exc
+    if allow_grace and duration == 0:
+        return duration
     if not 0 < duration <= MAX_DURATION_BEATS:
         raise InvalidEditPayload(
             f"la duración debe estar entre 0 (excluido) y {MAX_DURATION_BEATS} pulsos: "

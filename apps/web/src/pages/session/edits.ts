@@ -359,6 +359,11 @@ export type EditCommand =
   | { kind: "time"; time: TimeChoice }
   /** Añadir una nota al acorde de la elegida, o formar uno con ella (ADR-0055, #312). */
   | { kind: "chord-add" }
+  /**
+   * Notas de adorno (#404, ADR-0028): convertir la nota elegida en nota de adorno o devolverla a
+   * corchea, o, con `insert`, insertar una antes de ella.
+   */
+  | { kind: "grace"; insert: boolean }
   /** Ligar con la siguiente, o quitar la ligadura que sale o la que llega (ADR-0055, #312). */
   | TieCommand
   /**
@@ -403,8 +408,9 @@ interface KeyLike {
  * y C el calderón; I marca el inicio, y L, < y > crean desde él una ligadura de expresión, un
  * crescendo o un diminuendo hasta el evento elegido. R pone o quita el tresillo de tres figuras
  * desde el evento elegido y Mayús+R, el de todo su compás (#241). E añade una nota al acorde y U
- * pone o quita la ligadura de prolongación con la siguiente (#312). Con Ctrl, ⌘ o Alt nada es de
- * la vista: son atajos del navegador o del sistema (zoom, atrás).
+ * pone o quita la ligadura de prolongación con la siguiente (#312). G convierte la nota elegida en
+ * nota de adorno (o la devuelve a corchea) y Mayús+G inserta una antes de ella (#404). Con Ctrl,
+ * ⌘ o Alt nada es de la vista: son atajos del navegador o del sistema (zoom, atrás).
  */
 export function editCommand(event: KeyLike): EditCommand | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null;
@@ -425,6 +431,9 @@ export function editCommand(event: KeyLike): EditCommand | null {
       return { kind: "chord-add" };
     case "U":
       return { kind: "tie" };
+    case "G":
+      // Con Mayús (no con Bloq Mayús), insertar una antes.
+      return { kind: "grace", insert: event.shiftKey };
     case "W":
       return { kind: "writing" };
   }
@@ -497,10 +506,12 @@ export type RefusalReason =
   /** Una nota que no se puede añadir a ese acorde (#312). */
   | "chord"
   /** Lo que un hueco de una voz no admite (ADR-0058, #317). */
-  | "gap";
+  | "gap"
+  /** Una nota de adorno que no se puede escribir ahí (#404). */
+  | "grace";
 
 /** Rechazos que dicen su motivo con un mensaje propio. */
-type OwnMessage = "no-origin" | "span" | "meter" | "tie" | "chord";
+type OwnMessage = "no-origin" | "span" | "meter" | "tie" | "chord" | "grace";
 
 const REFUSALS: Record<Exclude<RefusalReason, OwnMessage>, string> = {
   "no-target": "Elige primero una nota o un silencio.",
@@ -865,6 +876,7 @@ export function eventName(
   pitch: string | null | undefined,
   beats: string | null,
 ): string {
+  if (kind === "note" && pitch && isGraceBeats(beats)) return `${spoken(pitch)}, nota de adorno`;
   const duration = durationName(beats);
   return kind === "note" && pitch ? `${spoken(pitch)}, ${duration}` : `un silencio de ${duration}`;
 }
@@ -1297,6 +1309,7 @@ export function planCommand(
       case "chord-add":
       case "tie":
       case "untie-in":
+      case "grace":
         return refuse("gap");
     }
   }
@@ -1321,6 +1334,8 @@ export function planCommand(
       return planTuplet(command.scope, target, score, origin);
     case "chord-add":
       return planChordAdd(target, score);
+    case "grace":
+      return planGrace(command.insert, target, score);
     case "tie":
     case "untie-in":
       return planTie(command, target, score);
@@ -1459,9 +1474,76 @@ function planWriteInsert(
   };
 }
 
-/** Una nota de adorno: no ocupa tiempo y no tiene figura (ADR-0028). */
-function isGraceNote(event: ScoreEventPayload | undefined): boolean {
-  return event?.kind === "note" && (event.duration_beats ?? null) === null;
+/**
+ * Una nota de adorno: una nota de duración 0 o nula, que no ocupa tiempo y no tiene figura
+ * (ADR-0028). HOMR las da con duración 0.
+ */
+export function isGraceNote(event: ScoreEventPayload | undefined): boolean {
+  return event?.kind === "note" && isGraceBeats(event.duration_beats ?? null);
+}
+
+/** Si una duración en negras es la de una nota de adorno: 0 o nula. */
+export function isGraceBeats(beats: string | null): boolean {
+  return beats === null || parseBeats(beats)?.[0] === 0;
+}
+
+/** La figura que toma una nota de adorno al volver a ser una nota normal: la corchea. */
+const GRACE_RELEASE = "1/2";
+
+/**
+ * Notas de adorno desde la barra (#404, enmienda de ADR-0028). Sin `insert`, la nota elegida pasa
+ * a ser de adorno (`SetDuration` a 0) o, si ya lo es, vuelve a corchea; con `insert`, se inserta
+ * una nota de adorno con su altura antes de ella (antes del acorde entero, si es de un acorde) y
+ * queda elegida, para subirla o bajarla. Como el servidor, no la admiten un silencio, una nota de
+ * un acorde ni una nota ligada.
+ */
+function planGrace(insert: boolean, target: EditTarget | null, score: ScoreIRPayload): EditPlan {
+  if (!target) return refuse("no-target");
+  const event = target.event;
+  const graceRefusal = (message: string): EditPlan => ({
+    kind: "refused",
+    reason: "grace",
+    message,
+  });
+  if (event.kind !== "note") {
+    return graceRefusal("Un silencio no puede ser una nota de adorno: elige una nota.");
+  }
+  const events = voiceEvents(score, target.anchor) ?? [];
+  const index = target.anchor.event_index;
+  const start = chordStart(events, index);
+  if (insert) {
+    const own = parsePitch(event.pitch);
+    const pitch = own ? canonical(own) : null;
+    if (!pitch) return refuse("unknown-pitch");
+    const after = { kind: "note", pitch, duration_beats: "0" };
+    const anchor = insertionAnchor(target.anchor, start);
+    return {
+      kind: "edit",
+      op: "InsertEvent",
+      after,
+      anchor,
+      select: anchor,
+      change: insertionChange(after),
+    };
+  }
+  if (target.chord || chordEnd(events, index) - start > 1) {
+    return graceRefusal("Una nota de un acorde no pasa a ser de adorno desde la barra.");
+  }
+  if (isGraceNote(event)) {
+    return planFigure(GRACE_RELEASE, target, score);
+  }
+  if (event.tie) {
+    return graceRefusal(
+      "Una nota ligada no pasa a ser de adorno: quita antes la ligadura de prolongación (U).",
+    );
+  }
+  return {
+    kind: "edit",
+    op: "SetDuration",
+    after: { duration_beats: "0" },
+    anchor: target.anchor,
+    change: "nota de adorno",
+  };
 }
 
 /** La altura señalada como una nota más del acorde de la nota (ADR-0055 §5). */

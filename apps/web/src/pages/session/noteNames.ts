@@ -92,6 +92,8 @@ export function describeEvent(
   const spokenPlace = `${staff ? `${staff}, compás` : "Compás"} ${String(where.measure)}, voz ${voice}`;
 
   const duration = durationName(event.duration_beats);
+  // Una nota de adorno (ADR-0028): una nota sin duración, que no ocupa tiempo.
+  const grace = event.kind === "note" && duration === "sin duración";
   // Un hueco de la voz (un silencio invisible, ADR-0032): no se dibuja, pero se elige (ADR-0058).
   if (event.kind === "rest" && event.hidden === true) {
     return {
@@ -115,7 +117,7 @@ export function describeEvent(
   );
   return {
     place,
-    what: `${written} · ${duration}`,
-    spoken: `${spokenPlace}: ${[pitch?.spoken ?? written, duration, ...extras].join(", ")}.`,
+    what: `${written} · ${grace ? "nota de adorno" : duration}`,
+    spoken: `${spokenPlace}: ${[pitch?.spoken ?? written, grace ? "nota de adorno" : duration, ...extras].join(", ")}.`,
   };
 }

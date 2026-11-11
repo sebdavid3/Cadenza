@@ -10,6 +10,7 @@ import {
   figureOf,
   FIGURES,
   isGap,
+  isGraceNote,
   keyLabel,
   eventName,
   planCommand,
@@ -446,16 +447,17 @@ function CommandButton({
   free = false,
 }: CommandButtonProps) {
   const plan = planCommand(command, target, score, origin);
-  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo o una
-  // ligadura de prolongación que no se pueden ahí tampoco: pulsarlo dice por qué (falta el
-  // inicio, una figura con puntillo, lo siguiente no es la misma nota…).
+  // El valor que ya tiene no está inactivo: está pulsado, y pulsarlo lo dice. Un tresillo, una
+  // ligadura de prolongación o una nota de adorno que no se pueden ahí tampoco: pulsarlo dice por
+  // qué (falta el inicio, una figura con puntillo, lo siguiente no es la misma nota, un acorde…).
   const disabled =
     !free &&
     (blocked ||
       (plan.kind === "refused" &&
         plan.reason !== "same" &&
         plan.reason !== "meter" &&
-        plan.reason !== "tie"));
+        plan.reason !== "tie" &&
+        plan.reason !== "grace"));
   return (
     <button
       type="button"
@@ -1076,6 +1078,19 @@ export function EditBar({
                   free={writing !== null}
                   {...shared}
                 />
+                {/* La nota de adorno (#404): convierte la elegida o la devuelve a corchea. Para
+                    insertar una, Mayús+G, o «Nota» y después este botón: la paleta de la mesa
+                    cabía justa a 1440 px y no admite otro botón con texto. Las notas de adorno
+                    no se escriben con el ratón: en el modo «Escribir», no está. */}
+                {!writing && (
+                  <CommandButton
+                    command={{ kind: "grace", insert: false }}
+                    label="Nota de adorno"
+                    icon="figure-grace"
+                    pressed={target ? isGraceNote(target.event) : false}
+                    {...shared}
+                  />
+                )}
               </div>
             </div>
             <div className="editor__group" role="group" aria-labelledby={`${groupId}-structure`}>
@@ -1357,6 +1372,10 @@ export function EditBar({
               </span>
               <span>
                 <KeyCap>E</KeyCap> nota en el acorde
+              </span>
+              <span>
+                <KeyCap>G</KeyCap> nota de adorno; <KeyCap>Mayús</KeyCap>
+                <KeyCap>G</KeyCap> una antes
               </span>
               <span>
                 <KeyCap>U</KeyCap> ligar con la siguiente

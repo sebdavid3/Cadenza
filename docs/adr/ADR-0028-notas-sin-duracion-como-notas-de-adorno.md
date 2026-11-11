@@ -3,6 +3,7 @@
 - **Estado:** Aceptado
 - **Fecha:** 2026-10-23
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0021 y ADR-0027, CLAUDE.md §9)
+- **Enmendado por:** la enmienda de [#404](https://github.com/sebdavid3/Cadenza/issues/404) (al final): las notas de adorno se escriben desde la vista
 - **Relacionado:** [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0027](ADR-0027-seleccion-de-notas-sobre-la-partitura.md), D60, [#152](https://github.com/sebdavid3/Cadenza/issues/152), [#199](https://github.com/sebdavid3/Cadenza/issues/199)
 
 ---
@@ -56,3 +57,23 @@ En ninguno de los dos casos la figura suma tiempo para el `ScoreIR`: el mapa de 
 1. **Escribirla con una duración mínima (una semifusa).** Descartada: seguiría sumando tiempo al compás e inventaría una duración.
 2. **No escribirla.** Descartada: la nota existe en el `ScoreIR` y debe poder verse y elegirse para corregirla.
 3. **Dejar la negra y avisar.** Descartada: es lo que hacía D60. El dibujo contradice la duración del compás justo donde el validador puede señalar un posible error.
+
+## Enmienda de #404 (2026-11-11): las notas de adorno se escriben desde la vista
+
+**El problema.** Las notas de adorno que lee HOMR se importan, se dibujan, se eligen, se validan y se exportan, y se les puede cambiar la altura, borrarlas o devolverlas a nota normal eligiendo una figura. Pero ninguna edición podía crear una: `check_duration` exigía `0 < duración` en `InsertEvent` y `SetDuration`. Si HOMR no ve una nota de adorno, no se podía añadir, y el error no aparecía en el corpus de correcciones. Si la lee como nota normal, solo se podía borrar, y el corpus lo contaba como una nota sobrante en lugar de «era un adorno». El responsable decidió el 2026-11-11 que se puedan escribir, para que esos errores de HOMR queden bien registrados.
+
+**Decisión.**
+
+1. **El dominio admite la duración 0 en una nota.** `InsertEvent` y `SetDuration` aceptan `duration_beats` 0 (`check_duration(..., allow_grace=True)`), pero solo en una nota visible (no en un silencio ni en un hueco), sin ligadura de prolongación y fuera de un acorde. Una nota con `is_chord` tampoco se añade a una nota de adorno de duración 0 (antes solo se impedía con la nula). La nota que ya es de adorno no se vuelve a convertir. El resto de usos de `check_duration` (`SetTuplet`, `SetChordDuration`, rellenar un hueco) siguen exigiendo una duración positiva. Deshacer es exacto en los dos sentidos, porque la compensatoria intercambia `before` y `after`, como en cualquier `SetDuration`.
+2. **En la barra, un conmutador «Nota de adorno» en el grupo «Figura».** Con una nota elegida, la convierte en nota de adorno; con una nota de adorno, la devuelve a **corchea**, la figura con que la dibuja el exportador (§1). Está pulsado cuando la nota elegida es de adorno. Con un silencio, una nota de un acorde o una nota ligada, pulsarlo dice por qué no se puede, en lugar de no hacer nada. No está en el modo «Escribir» (#350), donde las notas de adorno no se escriben con el ratón.
+3. **Teclas: G y Mayús+G.** G hace lo mismo que el conmutador. Mayús+G inserta una nota de adorno con la altura de la nota elegida, antes de ella (antes del acorde entero, si es de un acorde), y la deja elegida para subirla o bajarla. Con el ratón se llega a lo mismo con «Nota» (que inserta una copia de la nota antes de ella, ADR-0033) y después el conmutador. No hay un botón aparte para insertarla: en la mesa (#363), la paleta de la pestaña «Nota» cabía justa a 1440 px (975 de 982 px), y un botón con texto la habría desbordado en 123 px. El conmutador, de 32 px, la desborda en 28, que se recorren con el desplazamiento horizontal que la paleta ya tiene.
+4. **Cómo se nombra.** La barra y el anuncio dicen «Sol4 · nota de adorno» (antes, «sin duración»); el historial, «nota de adorno» para la conversión e «inserción de Sol 4, nota de adorno» para la inserción.
+
+**Lo que no cambia.** No se guardan la figura ni la barra de la nota de adorno (la apoyatura y la acciaccatura siguen siendo iguales), no hay acordes de adorno desde la barra, las notas de adorno siguen sin sonar (ADR-0026) y la importación no cambia. El corpus de correcciones no necesitó cambios: `derive_edit_events` ya derivaba `SetDuration` a 0 e `InsertEvent` con duración 0, y `build_correction_records` los registra con `duration_beats: "0"`.
+
+**Consecuencias.**
+
+- Los dos errores de HOMR con las notas de adorno (la que no ve y la que lee como nota normal) se corrigen desde la vista y llegan al corpus como una inserción y una corrección de figura con duración 0. Lo prueban `packages/domain/tests/test_grace_note_edits.py`, `packages/learning/tests/test_correction_corpus.py` y `apps/api/tests/test_api_edit_payload.py`.
+- Comprobado en local el 2026-11-11 con una sesión de `TS-04` transcrita con HOMR 0.7.0: la nota de adorno del compás 1 vuelve a corchea y otra vez a adorno con G; Mayús+G inserta un Sol4 de adorno antes de la nota siguiente; Ctrl+Z lo deshace; el MusicXML exportado lleva las dos `<grace/>` y el MIDI se exporta.
+- **La barra de la mesa ya no cabe entera a 1440 px** en la pestaña «Nota»: el final del grupo «Acorde y prolongación» queda tras el desplazamiento horizontal. En un móvil, el noveno botón de «Figura» tampoco cabe en la fila de 390 px y se alcanza desplazando la paleta (la página no se desplaza).
+
