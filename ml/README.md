@@ -500,6 +500,11 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url
 
 La salida ha de estar vacía y fuera de `results/` y `data/`, como la de `export-staves`.
 
+Con `--informe` (#415, ADR-0069), además `informe.html`: una página sin red con las cifras
+de los errores de HOMR de estas tablas (qué se corrige, cuánto se mueve la altura, la figura
+leída frente a la correcta, dónde se equivoca más y las partituras con más correcciones) y,
+de cada barra, celda o fila, hasta 12 ejemplos con la foto de su compás. Se abre en local.
+
 | Tabla | Una fila por | Orígenes |
 |---|---|---|
 | `partituras` | sesión (o incipit de PrIMuS) | base y corpus |

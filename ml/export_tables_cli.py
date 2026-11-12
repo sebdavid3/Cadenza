@@ -16,6 +16,9 @@ Con `--recortes` (#414, ADR-0068), en la misma carpeta y para las mismas sesione
 `faltantes` y `compases` dicen en `sistema` y `recorte` la tira de la foto de su compás. Con
 `--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`.
 
+Con `--informe` (#415, ADR-0069), además `informe.html`: las cifras de los CSV y, de cada una,
+ejemplos con la foto de su compás (`ml/tables_report.py`).
+
 No tiene salida por defecto: la ruta se da siempre.
 """
 
@@ -337,12 +340,19 @@ def export_tables_command(args: argparse.Namespace) -> int:
     print(f"  fuera          : {len(left_out)}")
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
+    report = None
+    if args.informe:
+        from ml.tables_report import write_report
+
+        report = write_report(output)
     if recortes is not None:
         print(
             f"  recortes       : {recortes['strips']} tiras de {len(strip_sessions)} sesiones"
             f" ({len(strips_left_out)} sin recortes), {recortes['primus_images']} imágenes"
             " de PrIMuS"
         )
+    if report is not None:
+        print(f"  informe        : {report.name}")
     print(f"  salida         : {output}")
     return 0
 
@@ -383,6 +393,14 @@ def add_parser(subparsers: Any) -> None:
         "--laminas",
         action="store_true",
         help="Con --recortes, una lámina por sesión: la foto con las cajas y cada tira.",
+    )
+    parser.add_argument(
+        "--informe",
+        action="store_true",
+        help=(
+            "Escribir además informe.html: las cifras de los errores de HOMR y sus ejemplos con"
+            " su foto (con --recortes)."
+        ),
     )
     parser.add_argument(
         "--primus-dir",
