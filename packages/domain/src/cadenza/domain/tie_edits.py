@@ -157,6 +157,15 @@ def _event_at(staff: Staff, place: Place) -> Event | None:
     return events[index] if index < len(events) else None
 
 
+def _timeless(event: Event) -> bool:
+    """Si el evento no ocupa tiempo: duración nula, o una nota de adorno de duración 0
+    (ADR-0028). Un silencio de duración 0 sí cuenta: el exportador lo dibuja como negra."""
+
+    return event.duration_beats is None or (
+        event.kind is EventKind.NOTE and event.duration_beats == 0
+    )
+
+
 def _first_timed_group(events: Sequence[Event], start: int = 0) -> tuple[int, int] | None:
     """El primer grupo de la voz desde `start` que ocupa tiempo (sin las notas de adorno). Los
     silencios invisibles del final de la voz no cuentan: tras ellos no hay nada, como en
@@ -165,8 +174,8 @@ def _first_timed_group(events: Sequence[Event], start: int = 0) -> tuple[int, in
     index = start
     while index < len(events):
         group_start, group_end = chord_bounds(events, index)
-        if events[group_start].duration_beats is not None:
-            if all(event.hidden or event.duration_beats is None for event in events[group_start:]):
+        if not _timeless(events[group_start]):
+            if all(event.hidden or _timeless(event) for event in events[group_start:]):
                 return None
             return group_start, group_end
         index = group_end
@@ -253,7 +262,7 @@ def check_tie(score: ScoreIR, anchor: Anchor, after: object) -> None:
         _check_loose(staff, position, anchor, note, tie)
         return
     place, next_tie = nxt
-    if note.duration_beats is None:
+    if not note.duration_beats:
         raise InvalidEditPayload("una nota de adorno no se liga")
     other = _event_at(staff, place)
     if other is None:
@@ -263,7 +272,7 @@ def check_tie(score: ScoreIR, anchor: Anchor, after: object) -> None:
         )
     if other.kind is not EventKind.NOTE:
         raise InvalidEditPayload("la otra nota de la ligadura es un silencio: solo se ligan notas")
-    if other.duration_beats is None:
+    if not other.duration_beats:
         raise InvalidEditPayload("una nota de adorno no se liga")
     if place not in following(staff, position, anchor.voice, anchor.event_index):
         raise InvalidEditPayload(

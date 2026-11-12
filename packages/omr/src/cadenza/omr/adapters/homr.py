@@ -30,7 +30,7 @@ from ..engine import OMREngine
 from ..errors import OMRTranscriptionError
 from ..preprocessing import PreprocessingConfig, preprocess_image_file
 from ..progress import Reading
-from . import homr_grand_staff, homr_piano, homr_progress
+from . import homr_capture, homr_grand_staff, homr_piano, homr_progress
 from .homr_grand_staff import PianoReading
 
 ENGINE_ID = "homr"
@@ -146,6 +146,8 @@ def _import_homr() -> Any:
     homr_grand_staff.install(homr_model.MultiStaff)
     # Los avisos de avance por pentagrama (#375, ADR-0064): sin ellos, HOMR lee igual.
     homr_progress.install(homr_staff_parsing)
+    # Las cajas de los pentagramas y el recorte del papel de cada lectura (#403, ADR-0067).
+    homr_capture.install(homr_main)
     return homr_main
 
 
@@ -241,6 +243,7 @@ def _run_homr(
     image_path: Path,
     use_gpu: bool,
     weights_path: Path | None = None,
+    capture: homr_capture.Capture | None = None,
 ) -> str:
     """Ejecuta el pipeline de HOMR en un directorio temporal y devuelve el MusicXML.
 
@@ -260,7 +263,10 @@ def _run_homr(
         config = homr_main.ProcessingConfig(
             enable_debug=False,
             enable_cache=False,
-            write_staff_positions=False,
+            # Para anotar las cajas de los pentagramas (#403): durante una captura,
+            # `homr_capture` envuelve la función que las guarda y no escribe ningún archivo.
+            # Sin captura (las evaluaciones), HOMR no las guarda, como antes.
+            write_staff_positions=capture is not None,
             read_staff_positions=False,
             selected_staff=-1,
             transformer_use_gpu=use_gpu,
@@ -278,8 +284,14 @@ def _run_homr(
             with (
                 homr_grand_staff.reading(PianoReading.PAIRED) as paired,
                 homr_progress.reading(Reading.FIRST),
+                homr_capture.recording(capture),
             ):
                 paired_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
+            if capture is not None:
+                # Los sistemas, del MusicXML de HOMR: la combinación del piano (abajo) la
+                # escribe Cadenza desde el `ScoreIR`, sin los saltos de sistema.
+                capture.systems = homr_capture.systems_or_empty(paired_xml, capture)
+                capture.native_musicxml["paired"] = paired_xml
             # Solo se combina el piano de los dos pentagramas de abajo (`homr_piano`).
             if [1, 2] not in paired.piano_pairs:
                 return paired_xml
@@ -288,12 +300,36 @@ def _run_homr(
                 with (
                     homr_grand_staff.reading(PianoReading.ALONE),
                     homr_progress.reading(Reading.PIANO),
+                    homr_capture.recording(capture),
                 ):
                     alone_xml = _process_image(homr_main, staged_image, config, xml_generator_args)
             except Exception:
                 _LOGGER.exception("Falló la lectura del piano solo; queda la emparejada")
+                if capture is not None:
+                    capture.discard(PianoReading.ALONE.value)
                 return paired_xml
+    if capture is not None:
+        capture.native_musicxml["alone"] = alone_xml
     return homr_piano.combine_musicxml(paired_xml, alone_xml)
+
+
+def _capture_or_none(
+    capture: homr_capture.Capture,
+    musicxml: str,
+    *,
+    homr_version: str | None,
+    preprocessed: bool,
+) -> dict[str, Any] | None:
+    """La captura de la transcripción (#403), o None si no se pudo armar: nunca hace fallar la
+    transcripción, que es lo que importa."""
+
+    try:
+        return homr_capture.capture_primitive(
+            capture, musicxml, homr_version=homr_version, preprocessed=preprocessed
+        )
+    except Exception:
+        _LOGGER.exception("No se pudo guardar la captura de HOMR; la sesión queda sin ella")
+        return None
 
 
 class HOMREngine(OMREngine):
@@ -373,8 +409,12 @@ class HOMREngine(OMREngine):
         image_path: Path,
         *,
         override_preprocessing: PreprocessingConfig | None = None,
+        capture: homr_capture.Capture | None = None,
     ) -> str:
         """Devuelve el MusicXML nativo de HOMR sin pasar por el `ScoreIR`.
+
+        Con `capture`, anota en ella las cajas de los pentagramas de cada lectura, el recorte
+        del papel y los sistemas (#403, `homr_capture`).
 
         Se usa para evaluar la calidad real del motor OMR (OMR-NED) sin la
         pérdida de información del `ScoreIR` (que no modela armaduras, claves ni
@@ -404,9 +444,12 @@ class HOMREngine(OMREngine):
                     preproc_path,
                     use_gpu,
                     weights_path=self._weights_path,
+                    capture=capture,
                 )
 
-        return _run_homr(homr_main, image_path, use_gpu, weights_path=self._weights_path)
+        return _run_homr(
+            homr_main, image_path, use_gpu, weights_path=self._weights_path, capture=capture
+        )
 
     def transcribe(self, image_path: Path) -> ScoreDocument:
         # Import perezoso: mantiene `cadenza.omr` importable sin music21 hasta que
@@ -418,6 +461,7 @@ class HOMREngine(OMREngine):
 
         source_hash = _sha256(image_path)
         effective_preproc = self._preprocessing
+        capture = homr_capture.Capture()
         preproc_meta: dict[str, Any] | None = None
 
         if effective_preproc is not None and effective_preproc.enabled:
@@ -429,12 +473,19 @@ class HOMREngine(OMREngine):
                 xml_text = self.transcribe_musicxml(
                     image_path,
                     override_preprocessing=effective_preproc,
+                    capture=capture,
                 )
         else:
-            xml_text = self.transcribe_musicxml(image_path)
+            xml_text = self.transcribe_musicxml(image_path, capture=capture)
 
         score = musicxml_to_score_ir(xml_text)
         effective_version = self._model_version or _homr_version()
+        omr_capture = _capture_or_none(
+            capture,
+            xml_text,
+            homr_version=effective_version,
+            preprocessed=effective_preproc is not None and effective_preproc.enabled,
+        )
         return ScoreDocument(
             id=self._document_id or f"homr-{source_hash[:12]}",
             score=score,
@@ -447,4 +498,5 @@ class HOMREngine(OMREngine):
                 preprocessing=preproc_meta
                 or (effective_preproc.to_primitive() if effective_preproc else None),
             ),
+            omr_capture=omr_capture,
         )

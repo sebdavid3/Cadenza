@@ -14,6 +14,8 @@ Comandos implementados:
   - export-tables : exporta a CSV planos, con su `run_info.json`, la lectura de HOMR, sus
                     correcciones, los posibles errores y las sugerencias, para analizarlos fuera
                     de la plataforma (`ml/export_tables_cli.py`).
+  - export-staves : recorta cada pentagrama de las fotos y lo empareja con lo que leyó HOMR y
+                    con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
 """
 
 from __future__ import annotations
@@ -933,6 +935,10 @@ def build_parser() -> argparse.ArgumentParser:
     from ml import export_tables_cli
 
     export_tables_cli.add_parser(subparsers)
+    # Cada pentagrama de la foto con sus compases (#403, ADR-0067)
+    from ml import export_staves_cli
+
+    export_staves_cli.add_parser(subparsers)
 
     return parser
 
@@ -988,6 +994,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import export_tables_cli
 
         return export_tables_cli.export_tables_command(args)
+    if args.subcommand == "export-staves":
+        from ml import export_staves_cli
+
+        return export_staves_cli.export_staves_command(args)
 
     parser.print_help()
     return 1
