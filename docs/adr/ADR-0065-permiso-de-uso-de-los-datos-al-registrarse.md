@@ -55,3 +55,9 @@
 - La redacción no cambia, ni su versión: el texto vive en un solo componente (`DataUseText`), que usan la página y el desplegable.
 
 **Alternativas descartadas.** Un diálogo encima del formulario (interrumpe más, y el acceso no usa ventanas modales) y el texto desplegado entero, sin desplazamiento propio (el formulario se alargaba mucho y la casilla quedaba lejos).
+
+## Enmienda de #400 (2026-11-12): las tablas y el corpus de sugerencias leen el permiso
+
+**El problema.** `ml export-tables` ([#400](https://github.com/sebdavid3/Cadenza/issues/400)) y `ml suggestions build-dataset` comparten `session_records`, que con `--include-self-registered` metía todas las cuentas del registro, tuvieran o no el permiso. `ml export-staves` (ADR-0067) ya exigía el permiso vigente por decisión del responsable del 2026-11-11, así que las dos exportaciones no daban las mismas sesiones.
+
+**Decisión.** §7 deja de valer para esos dos comandos. Por defecto las cuentas del registro siguen fuera; con `--include-self-registered` entran solo las que tienen el permiso de la versión vigente del texto (`has_current_data_consent`), y las demás quedan fuera con el motivo «cuenta del registro sin el permiso de uso de los datos vigente». La columna `permiso_datos` de `partituras.csv` dice si el permiso es vigente, no solo si se dio alguna vez. `ml build-dataset` (D55) y `exp_10` no cambian.

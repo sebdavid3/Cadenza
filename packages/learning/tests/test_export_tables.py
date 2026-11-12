@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cadenza.application import NewSuggestion, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, NewSuggestion, Role, SessionData, User
 from cadenza.domain import (
     Anchor,
     Clef,
@@ -201,7 +201,23 @@ def db_url(tmp_path: Path) -> str:
         users = SqlAlchemyUserRepository(db)
         users.add(_user("ana"))
         users.add(_user("luis", role=Role.INVESTIGADOR))
-        users.add(_user("visita", self_registered=True))
+        # Del registro: con el permiso vigente, sin permiso y con el de un texto anterior.
+        consent = datetime(2026, 11, 10, tzinfo=UTC)
+        users.add(
+            replace(
+                _user("visita", self_registered=True),
+                data_consent_at=consent,
+                data_consent_version=DATA_CONSENT_VERSION,
+            )
+        )
+        users.add(_user("anonima", self_registered=True))
+        users.add(
+            replace(
+                _user("antigua", self_registered=True),
+                data_consent_at=consent,
+                data_consent_version="0",
+            )
+        )
         sessions = SqlAlchemySessionRepository(db)
         edits = SqlAlchemyEditEventRepository(db)
 
@@ -274,6 +290,11 @@ def db_url(tmp_path: Path) -> str:
         sessions.add(
             _session("s-registro", "visita", read, status="finalized", image="cd" * 32), []
         )
+        # 5. y 6. Del registro sin el permiso vigente: fuera también con la opción.
+        for session_id, owner in (("s-sin-permiso", "anonima"), ("s-permiso-antiguo", "antigua")):
+            sessions.add(
+                _session(session_id, owner, read, status="finalized", image="ef" * 32), []
+            )
     return url
 
 
@@ -314,6 +335,8 @@ def test_the_export_writes_one_csv_per_table_and_the_run_info(exported: Path) ->
     assert info["left_out"] == {
         "s-abierta": "sin terminar (status transcribed)",
         "s-registro": "cuenta del registro público",
+        "s-sin-permiso": "cuenta del registro público",
+        "s-permiso-antiguo": "cuenta del registro público",
     }
     for name in TABLES:
         _, rows = _csv(exported / f"{name}.csv")
@@ -474,8 +497,14 @@ def test_options_include_the_sessions_left_out(db_url: str, tmp_path: Path) -> N
         "s-abierta": "estudio",
         "s-registro": "registro",
     }
+    assert {r["session_id"]: r["permiso_datos"] for r in rows}["s-registro"] == "true"
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
-    assert info["left_out"] == {}
+    # Las cuentas del registro solo entran con el permiso de la versión vigente del texto
+    # (ADR-0065, como `ml export-staves`, ADR-0067).
+    assert info["left_out"] == {
+        "s-sin-permiso": "cuenta del registro sin el permiso de uso de los datos vigente",
+        "s-permiso-antiguo": "cuenta del registro sin el permiso de uso de los datos vigente",
+    }
 
 
 def test_each_row_is_the_record_used_for_training(db_url: str) -> None:

@@ -266,7 +266,10 @@ def add_parser(subparsers: Any) -> None:
     p_build.add_argument(
         "--include-self-registered",
         action="store_true",
-        help="Incluir las sesiones de cuentas del registro público (fuera por defecto).",
+        help=(
+            "Incluir las sesiones de cuentas del registro público con el permiso de uso de los"
+            " datos vigente (fuera por defecto)."
+        ),
     )
 
 

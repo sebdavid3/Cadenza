@@ -21,6 +21,7 @@ from fractions import Fraction
 from itertools import zip_longest
 from typing import Any, Final
 
+from cadenza.application import has_current_data_consent
 from cadenza.domain import Clef, KeySignature, Measure, ScoreIR, TimeSignature, materialize
 
 from .primus import primus_work_id
@@ -690,7 +691,7 @@ def database_tables(
                 ),
                 "verified": first.get("verified"),
                 "versiones_capa": "+".join(layer_versions) or None,
-                "permiso_datos": None if owner is None else owner.data_consent_at is not None,
+                "permiso_datos": None if owner is None else has_current_data_consent(owner),
                 "created_at": (
                     None if session.created_at is None else session.created_at.isoformat()
                 ),

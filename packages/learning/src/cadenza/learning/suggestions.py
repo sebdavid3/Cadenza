@@ -20,6 +20,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Final
 
+from cadenza.application import has_current_data_consent
 from cadenza.application.suggestions import suggest as suggest_with_layer
 from cadenza.domain import (
     Anchor,
@@ -866,6 +867,10 @@ def session_records(
     Con `include_unfinished`, también las que no se finalizaron (para `ml export-tables`): su
     estado final es el último del log, no uno que la persona dio por bueno.
 
+    Las cuentas del registro público quedan fuera; con `include_self_registered` entran solo
+    las que tienen el permiso de uso de los datos de la versión vigente del texto (ADR-0065,
+    la misma regla que `ml export-staves`, ADR-0067).
+
     Para cada sesión, `build_correction_records(estado 0, estado final)`, verificados con la
     misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su página de
     origen (todas las sesiones de una página caen del mismo lado, ADR-0036 §10). Las
@@ -875,10 +880,15 @@ def session_records(
     records: list[dict[str, Any]] = []
     left_out: dict[str, str] = {}
     for session in session_repository.list(status=None if include_unfinished else "finalized"):
-        if not include_self_registered:
-            owner = user_repository.get(session.owner_id)
-            if owner is not None and owner.self_registered:
+        owner = user_repository.get(session.owner_id)
+        if owner is not None and owner.self_registered:
+            if not include_self_registered:
                 left_out[session.id] = "cuenta del registro público"
+                continue
+            if not has_current_data_consent(owner):
+                left_out[session.id] = (
+                    "cuenta del registro sin el permiso de uso de los datos vigente"
+                )
                 continue
         page = _page_of(session)
         if page is None:

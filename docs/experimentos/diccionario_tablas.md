@@ -31,7 +31,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `--corpus` | Corpus JSONL de correcciones (formato de `build_correction_records`, versión 1). |
 | `--split-seed` | Obligatoria con la base: la semilla de la partición de #255. |
 | `--test-fraction` | Fracción de prueba de la partición (0,2, como #255). |
-| `--include-self-registered` | Incluye las sesiones de cuentas del registro público (fuera por defecto). |
+| `--include-self-registered` | Incluye las sesiones de cuentas del registro público **con el permiso de uso de los datos de la versión vigente del texto** (ADR-0065; la misma regla que `ml export-staves`, ADR-0067). Las demás cuentas del registro quedan fuera también con la opción. Sin ella, todas fuera. |
 | `--include-unfinished` | Incluye las sesiones sin finalizar; su estado final es el último del log, no uno que la persona dio por bueno. |
 
 ## Formato
@@ -63,7 +63,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `origins.database` | `url`: solo el dialecto y el nombre de la base (`postgresql:cadenza`), sin usuario, host ni contraseña; y el número de sesiones exportadas. |
 | `origins.corpus` | Nombre del archivo (sin la ruta), sha256 y número de registros del corpus; con la base, `cadenza_records_dropped`: los registros de sesiones de Cadenza que se descartaron porque salen de la base. |
 | `filters` | `include_self_registered`, `include_unfinished`, `split_seed`, `test_fraction`. |
-| `left_out` | Las sesiones que quedan fuera, con su motivo: `cuenta del registro público`, `sin terminar (status …)` o `sin página de origen (test_score_id ni imagen)`. |
+| `left_out` | Las sesiones que quedan fuera, con su motivo: `cuenta del registro público`, `cuenta del registro sin el permiso de uso de los datos vigente`, `sin terminar (status …)` o `sin página de origen (test_score_id ni imagen)`. |
 | `tables` | Por tabla: filas, filas por `source` y sha256 del CSV. |
 
 ## Claves comunes
@@ -106,7 +106,7 @@ de HOMR (`seq` 0, ADR-0011); en `sugerencias` y `avisos`, al estado en que se ge
 | `compases_con_indicacion_corregida` | Compases cuya indicación de compás cambió (ver `compases`). | calculado |
 | `verified` | Si `materialize(lectura, derive_edit_events(lectura, final))` reproduce el estado final: solo entonces las correcciones de la sesión son etiquetas de confianza. | `session_records` |
 | `versiones_capa` | Versiones de la capa aprendida de las sugerencias guardadas en la sesión, unidas con `+`. | `suggestions.model_version` |
-| `permiso_datos` | Si la cuenta dio el permiso de uso de los datos (#378, ADR-0065). Solo se informa: no filtra nada. | `users.data_consent_at` |
+| `permiso_datos` | Si la cuenta tiene el permiso de uso de los datos de la versión vigente del texto (#378, ADR-0065). Una cuenta del registro sin él no llega a las tablas. | `users.data_consent_at`, `users.data_consent_version` |
 | `created_at` | Fecha de la sesión (ISO 8601). | `sessions` |
 
 No hay `source_filename`: un nombre de archivo puede llevar datos personales. En PrIMuS solo
