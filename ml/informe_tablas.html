@@ -231,19 +231,21 @@ function render() {
       const dd = DATA.variants[`${s}|${skip ? 1 : 0}`], y = i * (bar + gap); let x = labelW;
       const segs = OUTCOMES.map(([k, l, c]) => {
         const n = dd.outcome[k] || 0; if (!n) return "";
-        const w = plot * n / dd.read, seg = `<rect data-tip="<b>${NAMES[s] || s}</b> · ${l}: ${fmt(n)} (${pct(n, dd.read)})"
+        const tipText = `<b>${esc(NAMES[s] || s)}</b> · ${l}: ${fmt(n)} (${pct(n, dd.read)})`;
+        const w = plot * n / dd.read, seg = `<rect data-tip="${esc(tipText)}"
           x="${x}" y="${y}" width="${Math.max(1, w - 2)}" height="${bar}" rx="4" fill="${c}"/>`;
         const lab = w > 70 ? `<text class="val" x="${x + 6}" y="${y + bar - 7}">${pct(n, dd.read)}</text>` : "";
         x += w; return seg + lab;
       }).join("");
-      return `<text x="${labelW - 10}" y="${y + bar - 7}" text-anchor="end">${NAMES[s] || s}</text>${segs}`;
+      return `<text x="${labelW - 10}" y="${y + bar - 7}" text-anchor="end">${esc(NAMES[s] || s)}</text>${segs}`;
     }).join("") + `</svg>`;
 
   const ops = Object.entries(d.ops).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
-  document.getElementById("ops").innerHTML = ops.length ? hbars(ops.map(([k, n]) => ({
+  document.getElementById("ops").innerHTML = !read ? "<p class='note'>Sin notas leídas.</p>"
+    : ops.length ? hbars(ops.map(([k, n]) => ({
     label: OPS[k] || k, value: 100 * n / read, key: `op:${k}`,
     text: (100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 }),
-    tip: `<b>${OPS[k] || k}</b>: ${fmt(n)} correcciones (${(100 * n / read).toFixed(1)} por cada 100 leídas)`,
+    tip: `<b>${esc(OPS[k] || k)}</b>: ${fmt(n)} correcciones (${(100 * n / read).toFixed(1)} por cada 100 leídas)`,
   }))) : "<p class='note'>Sin correcciones.</p>";
 
   const steps = d.steps, ks = [];
@@ -254,8 +256,8 @@ function render() {
   document.getElementById("steps").innerHTML = total ? `<svg viewBox="0 0 ${SW} ${SH}" role="img">
     <line x1="0" x2="${SW}" y1="${base}" y2="${base}" stroke="var(--line)"/>` + ks.map((k, i) => {
       const n = steps[k] || 0, h = (base - 16) * n / top, x = i * cw;
-      const name = k === 0 ? "misma posición (solo octava o alteración)" : `${Math.abs(k)} ${Math.abs(k) === 1 ? "paso" : "pasos"} ${k > 0 ? "arriba" : "abajo"}${Math.abs(k) === 7 ? " (una octava)" : ""}${Math.abs(k) === 8 ? " o más" : ""}`;
-      return `<g data-tip="<b>${name}</b>: ${fmt(n)} (${pct(n, total)})" ${n ? `data-key="step:${k}" data-title="altura, ${esc(name)}"` : ""}>
+      const name = k === 0 ? "misma línea o espacio (solo cambia la alteración)" : `${Math.abs(k)} ${Math.abs(k) === 1 ? "paso" : "pasos"} ${k > 0 ? "arriba" : "abajo"}${Math.abs(k) === 7 ? " (una octava)" : ""}${Math.abs(k) === 8 ? " o más" : ""}`;
+      return `<g data-tip="${esc(`<b>${name}</b>: ${fmt(n)} (${pct(n, total)})`)}" ${n ? `data-key="step:${k}" data-title="altura, ${esc(name)}"` : ""}>
         <rect class="hit" x="${x}" y="0" width="${cw}" height="${SH}"/>
         ${n ? `<rect class="mark" x="${x + 3}" y="${base - h}" width="${cw - 6}" height="${h}" rx="4" fill="var(--series-1)"/>` : ""}
         <text x="${x + cw / 2}" y="${SH - 6}" text-anchor="middle">${k > 0 ? "+" + k : k}</text></g>`;
@@ -271,10 +273,10 @@ function render() {
     const get = (r, f) => (dur.find(c => c.read === r && c.fix === f) || {}).n || 0;
     const step = n => n ? 1 + Math.min(6, Math.floor(6 * Math.sqrt(n / max))) : 0;
     document.getElementById("durations").innerHTML = `<svg viewBox="0 0 ${lw + fixes.length * cell} ${th + reads.length * cell}" style="max-width:${lw + fixes.length * cell + 40}px" role="img">` +
-      fixes.map((f, j) => `<text x="${lw + j * cell + cell / 2}" y="16" text-anchor="middle">${f}</text>`).join("") +
-      reads.map((r, i) => `<text x="${lw - 8}" y="${th + i * cell + cell / 2 + 4}" text-anchor="end">${r}</text>` +
+      fixes.map((f, j) => `<text x="${lw + j * cell + cell / 2}" y="16" text-anchor="middle">${esc(f)}</text>`).join("") +
+      reads.map((r, i) => `<text x="${lw - 8}" y="${th + i * cell + cell / 2 + 4}" text-anchor="end">${esc(r)}</text>` +
         fixes.map((f, j) => { const n = get(r, f), s = step(n);
-          return `<g data-tip="Leída <b>${r}</b>, correcta <b>${f}</b>: ${fmt(n)}" ${n ? `data-key="dur:${r}>${f}" data-title="figura leída ${r}, correcta ${f}"` : ""}>
+          return `<g data-tip="${esc(`Leída <b>${esc(r)}</b>, correcta <b>${esc(f)}</b>: ${fmt(n)}`)}" ${n ? `data-key="${esc(`dur:${r}>${f}`)}" data-title="${esc(`figura leída ${r}, correcta ${f}`)}"` : ""}>
             <rect x="${lw + j * cell + 1}" y="${th + i * cell + 1}" width="${cell - 2}" height="${cell - 2}" rx="4" fill="var(--seq-${s})"/>
             ${n ? `<text x="${lw + j * cell + cell / 2}" y="${th + i * cell + cell / 2 + 4}" text-anchor="middle" style="fill:${s >= 4 ? "#fff" : "var(--text-primary)"}">${n}</text>` : ""}</g>`;
         }).join("")).join("") + `</svg>`;
@@ -297,7 +299,7 @@ function render() {
 
 const seg = document.getElementById("source");
 seg.innerHTML = ["todas", ...DATA.sources].map(s =>
-  `<button type="button" data-s="${s}" aria-pressed="${s === source}">${NAMES[s] || s}</button>`).join("");
+  `<button type="button" data-s="${esc(s)}" aria-pressed="${s === source}">${esc(NAMES[s] || s)}</button>`).join("");
 seg.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   source = b.dataset.s;

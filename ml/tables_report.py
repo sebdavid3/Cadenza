@@ -106,6 +106,16 @@ def reordered_chords(notas: list[Row]) -> set[int]:
     return found
 
 
+def _score_label(row: Row) -> str:
+    """Cómo se llama una partitura en el informe. En Cadenza, la página del banco y la sesión:
+    varias sesiones de la misma página no se confunden."""
+    if row["source"] == "cadenza":
+        if row["test_score_id"]:
+            return f"{row['test_score_id']} · {row['session_id']}"
+        return row["session_id"] or row["incipit_id"]
+    return row["incipit_id"]
+
+
 def _event(kind: str, pitch: str, beats: str) -> str:
     if kind == "rest":
         return f"silencio {beats}"
@@ -135,6 +145,29 @@ def _example(row: Row, label: str, *, missing: bool = False) -> dict[str, Any]:
         "read": read,
         "fix": fixed,
     }
+
+
+def _key_example(row: Row, label: str, img: str) -> dict[str, Any]:
+    """Un ejemplo de `clave_armadura`: la clave y la armadura leídas frente a las correctas."""
+
+    def describe(clef: str, fifths: str) -> str:
+        parts = [f"clave {clef}" if clef else "", f"armadura {fifths}" if fifths else ""]
+        return ", ".join(p for p in parts if p) or "—"
+
+    return {
+        "score": label,
+        "measure": row["measure"],
+        "staff": f"{row['part']}-{row['staff']}",
+        "img": img,
+        "read": describe(row["read_clef"], row["read_key_fifths"]),
+        "fix": describe(
+            row["fix_clef"] or row["read_clef"], row["fix_key_fifths"] or row["read_key_fifths"]
+        ),
+    }
+
+
+def _ops(row: Row) -> list[str]:
+    return [op for op in row["ops"].split("+") if op]
 
 
 class _Examples:
@@ -207,7 +240,12 @@ def aggregate(
     faltantes = [r for r in tables["faltantes"] if keep(r)]
     claves = [r for r in tables["clave_armadura"] if keep(r)]
     partituras = [r for r in tables["partituras"] if keep(r)]
-    labels = {r["incipit_id"]: r["test_score_id"] or r["incipit_id"] for r in partituras}
+    labels = {r["incipit_id"]: _score_label(r) for r in partituras}
+    photos = {
+        (r["incipit_id"], r["part"], r["staff"], r["measure"]): r.get("recorte", "")
+        for _, r in notas
+        if r.get("recorte")
+    }
 
     def result(index: int, row: Row) -> str:
         if skip_reordered and index in reordered:
@@ -215,7 +253,8 @@ def aggregate(
         return row["resultado"]
 
     def wrong(index: int, row: Row) -> bool:
-        return result(index, row) != "bien"
+        """Con alguna corrección (una nota sin alinear no la tiene: no se sabe cuál es)."""
+        return result(index, row) in ("corregida", "borrada")
 
     examples = _Examples()
     outcome = Counter(result(i, r) for i, r in notas)
@@ -245,7 +284,8 @@ def aggregate(
                 (str(index),),
                 lambda r=row, name=label: _example(r, name),
             )
-    ops["InsertEvent"] = len(faltantes)
+    if faltantes:
+        ops["InsertEvent"] = len(faltantes)
     for number, row in enumerate(faltantes):
         label = labels.get(row["incipit_id"], row["incipit_id"])
         examples.add(
@@ -253,9 +293,16 @@ def aggregate(
             ("faltante", str(number), row["incipit_id"]),
             lambda r=row, name=label: _example(r, name, missing=True),
         )
-    for row in claves:
-        for op in filter(None, row["ops"].split("+")):
+    for number, row in enumerate(claves):
+        label = labels.get(row["incipit_id"], row["incipit_id"])
+        img = photos.get((row["incipit_id"], row["part"], row["staff"], row["measure"]), "")
+        for op in _ops(row):
             ops[op] += 1
+            examples.add(
+                f"op:{op}",
+                ("clave", str(number), row["incipit_id"]),
+                lambda r=row, name=label, i=img: _key_example(r, name, i),
+            )
 
     by_vs_key = _rates(
         notas, "ctx_accidental_vs_key", wrong, lambda v: VS_KEY.get(v, v), examples, labels, "vs"
@@ -271,18 +318,31 @@ def aggregate(
         "readdur",
     )
 
-    per_score: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    # Las correcciones de cada partitura, como `partituras.correcciones_netas`: una por operación
+    # (una nota con la altura y la figura corregidas cuenta dos), las notas que faltaban y la
+    # clave y la armadura.
+    per_score: dict[str, list[int]] = {r["incipit_id"]: [0, 0] for r in partituras}
     for index, row in notas:
-        per_score[row["incipit_id"]][0] += 1
+        counts = per_score.setdefault(row["incipit_id"], [0, 0])
+        counts[0] += 1
+        if skip_reordered and index in reordered:
+            continue
+        counts[1] += len(_ops(row))
         if wrong(index, row):
-            per_score[row["incipit_id"]][1] += 1
             examples.add(
                 f"score:{row['incipit_id']}",
                 (str(index),),
                 lambda r=row: _example(r, labels.get(r["incipit_id"], r["incipit_id"])),
             )
-    for row in faltantes:
-        per_score[row["incipit_id"]][1] += 1
+    for number, row in enumerate(faltantes):
+        per_score.setdefault(row["incipit_id"], [0, 0])[1] += 1
+        examples.add(
+            f"score:{row['incipit_id']}",
+            ("faltante", str(number), row["incipit_id"]),
+            lambda r=row: _example(r, labels.get(r["incipit_id"], r["incipit_id"]), missing=True),
+        )
+    for row in claves:
+        per_score.setdefault(row["incipit_id"], [0, 0])[1] += len(_ops(row))
     sources = {r["incipit_id"]: r["source"] for r in partituras}
     top = sorted(
         (
@@ -302,7 +362,7 @@ def aggregate(
 
     return {
         "scores": len(partituras),
-        "clean_scores": sum(1 for read, fixes in per_score.values() if fixes == 0),
+        "clean_scores": sum(1 for _, fixes in per_score.values() if fixes == 0),
         "read": len(notas),
         "outcome": dict(outcome),
         "missing": len(faltantes),
@@ -338,11 +398,14 @@ def write_report(folder: Path) -> Path:
     """Escribe `informe.html` en la carpeta de la exportación y devuelve su ruta."""
     data = report_data(folder)
     info = json.loads((folder / "run_info.json").read_text(encoding="utf-8"))
+    # Ningún `<` en el script: ni `</script>` ni `<!--` pueden cortarlo. Los datos van los
+    # últimos, para que un `__DATE__` dentro de ellos no se sustituya.
+    payload = json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
     page = (
         TEMPLATE.read_text(encoding="utf-8")
-        .replace("__DATA__", json.dumps(data, ensure_ascii=False).replace("</", "<\\/"))
         .replace("__COMMIT__", html.escape(str(info.get("commit") or "?")[:7]))
         .replace("__DATE__", html.escape(str(info.get("generated_at", ""))[:16].replace("T", " ")))
+        .replace("__DATA__", payload)
     )
     target = folder / REPORT_NAME
     target.write_text(page, encoding="utf-8")

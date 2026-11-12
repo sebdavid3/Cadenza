@@ -19,7 +19,7 @@
 ## Decisión
 
 1. **Un archivo, sin red.** `ml export-tables --informe` escribe `informe.html` en la carpeta de la exportación (`ml/tables_report.py` y la plantilla `ml/informe_tablas.html`). La página lleva dentro los datos agregados y abre los recortes por su ruta relativa: no carga nada de fuera ni manda nada fuera. Se abre en local, y sus fotos son las de la exportación (ADR-0065).
-2. **Sale de los CSV ya escritos.** El informe lee `partituras`, `notas`, `faltantes` y `clave_armadura` de la carpeta, así que sus cifras coinciden con ellos. Una prueba lo comprueba.
+2. **Sale de los CSV ya escritos.** El informe lee `partituras`, `notas`, `faltantes` y `clave_armadura` de la carpeta, así que sus cifras coinciden con ellos. Una prueba lo comprueba. Las correcciones de una partitura son sus `correcciones_netas` (una por operación, con las notas que faltaban, la clave y la armadura). Una nota sin alinear no cuenta como corregida: no se sabe cuál era su corrección. En Cadenza, cada partitura se nombra por su página del banco y su sesión.
 3. **Qué enseña:**
    - las cifras de cabecera;
    - qué pasó con cada nota leída, por origen;
@@ -42,6 +42,7 @@
 - Con el corpus de `exp_12`, la página pesa unos 3 MB: los agregados y los ejemplos de seis variantes (tres orígenes, con y sin acordes reordenados).
 - La tira es la del sistema entero: el ejemplo dice qué compás mirar, pero no lo recuadra, porque HOMR no da cajas por evento (INV-0001).
 - Los ejemplos son los primeros de cada categoría en el orden de las tablas, no una muestra al azar.
+- El texto de las tablas se escapa en la página, y en los datos del script no queda ningún `<`: ni `</script>` ni `<!--` pueden cortarlo.
 
 ## Alternativas consideradas
 - **Una vista en la web de Cadenza.** Llevaría los datos de varias personas a la plataforma, con su contrato y sus permisos; el análisis se hace fuera (#400).
