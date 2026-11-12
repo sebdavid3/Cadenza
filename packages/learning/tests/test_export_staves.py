@@ -279,11 +279,14 @@ def test_registered_accounts_enter_only_with_their_data_consent(
     )
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     assert info["sessions"] == ["s-a-medias", "s-estudio", "s-girada", "s-visita"]
-    assert info["left_out"]["s-anonima"] == "cuenta del registro sin permiso de uso de los datos"
+    assert (
+        info["left_out"]["s-anonima"]
+        == "cuenta del registro sin el permiso de uso de los datos vigente"
+    )
     # Un permiso dado a un texto anterior no vale: no es el vigente (ADR-0065).
     assert (
         info["left_out"]["s-version-antigua"]
-        == "cuenta del registro sin permiso de uso de los datos"
+        == "cuenta del registro sin el permiso de uso de los datos vigente"
     )
 
 

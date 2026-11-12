@@ -22,17 +22,28 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 # sesiones salen de la base, para no repetirlas.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl> `
   --db-url <url> --split-seed <semilla>
+
+# Con los recortes de las fotos (#414, ADR-0068): en la misma carpeta, lo de `ml export-staves`
+# para las mismas sesiones, y cada compás de las tablas con su tira; con --primus-dir, también
+# la imagen de cada incipit de PrIMuS.
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl> `
+  --db-url <url> --split-seed <semilla> --recortes --artifacts-dir <artefactos de la copia> `
+  --primus-dir data/primus
 ```
 
 | Opción | Significado |
 |---|---|
-| `--output-dir` | Obligatoria. Carpeta de los CSV y de `run_info.json`. No hay salida por defecto. |
+| `--output-dir` | Obligatoria. Carpeta de los CSV y de `run_info.json`. No hay salida por defecto. Ha de estar vacía (o no existir) y no puede caer en `results/` ni en `data/` del repositorio (ADR-0068). |
 | `--db-url` | URL de la base. Si no se da `--corpus`, por defecto `CADENZA_DATABASE_URL`; con `--corpus`, la base solo se lee si se da `--db-url`. |
 | `--corpus` | Corpus JSONL de correcciones (formato de `build_correction_records`, versión 1). |
 | `--split-seed` | Obligatoria con la base: la semilla de la partición de #255. |
 | `--test-fraction` | Fracción de prueba de la partición (0,2, como #255). |
 | `--include-self-registered` | Incluye las sesiones de cuentas del registro público **con el permiso de uso de los datos de la versión vigente del texto** (ADR-0065; la misma regla que `ml export-staves`, ADR-0067). Las demás cuentas del registro quedan fuera también con la opción. Sin ella, todas fuera. |
 | `--include-unfinished` | Incluye las sesiones sin finalizar; su estado final es el último del log, no uno que la persona dio por bueno. |
+| `--recortes` | Escribe además, para las mismas sesiones, lo que escribe `ml export-staves` (`recortes/`, `musicxml/`, `pentagramas.csv`; su formato, en ADR-0067) y llena `sistema` y `recorte` (ADR-0068). |
+| `--artifacts-dir` | Con `--recortes` y la base: el directorio de los artefactos de la copia, con las fotos (o `CADENZA_ARTIFACTS_DIR`). |
+| `--laminas` | Con `--recortes`: una lámina por sesión (la foto con las cajas y cada tira). |
+| `--primus-dir` | Con `--recortes`: la carpeta de PrIMuS (`data/primus`, que solo se lee). Copia la imagen de cada incipit de las tablas a `recortes/primus/<id>.png`. |
 
 ## Formato
 
@@ -56,7 +67,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 
 | Campo | Significado |
 |---|---|
-| `format_version` | Versión del formato de las tablas (1). |
+| `format_version` | Versión del formato de las tablas (2: con `sistema` y `recorte`, #414). |
 | `simulated` | Siempre `false`: las tablas son los datos guardados, no una simulación (CLAUDE.md §8). |
 | `commit` | Commit del código que exportó (`git rev-parse HEAD`), o `null` fuera de un repositorio. |
 | `generated_at` | Fecha y hora de la exportación (UTC, ISO 8601). |
@@ -65,6 +76,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `filters` | `include_self_registered`, `include_unfinished`, `split_seed`, `test_fraction`. |
 | `left_out` | Las sesiones que quedan fuera, con su motivo: `cuenta del registro público`, `cuenta del registro sin el permiso de uso de los datos vigente`, `sin terminar (status …)` o `sin página de origen (test_score_id ni imagen)`. |
 | `tables` | Por tabla: filas, filas por `source` y sha256 del CSV. |
+| `recortes` | Solo con `--recortes`: `sessions` (las sesiones con recortes), `left_out` (las sesiones de las tablas sin recortes, con su motivo: sin captura, sin imagen, cajas que no casan…), `strips` y `strips_corrected`, `pentagramas_sha256` (o `null` sin la base), `laminas`, `artifacts_dir` (solo el nombre), `primus_images` (imágenes copiadas) y `primus_missing` (incipits sin imagen). |
 
 ## Claves comunes
 
@@ -82,6 +94,20 @@ El **ancla** (`part`, `staff`, `measure`, `voice`, `event_index`) es la de ADR-0
 parte y pentagrama desde 0, número del compás (`measure`, no su posición) y posición del evento
 en su voz dentro del compás. En `notas`, `faltantes` y `clave_armadura` es relativa a la lectura
 de HOMR (`seq` 0, ADR-0011); en `sugerencias` y `avisos`, al estado en que se generó (`at_seq`).
+
+### La foto: `sistema` y `recorte` (`notas`, `faltantes` y `compases`)
+
+Las tres tablas terminan en dos columnas que llevan a la foto del compás (#414, ADR-0068). Solo
+se llenan con `--recortes`; si no, o si la sesión no tiene recortes, quedan vacías.
+
+| Columna | Significado | Valores |
+|---|---|---|
+| `sistema` | Sistema de la foto en que está el compás, desde 1. | En PrIMuS, 1. |
+| `recorte` | Ruta del PNG de la tira, relativa a la carpeta de la salida. | `recortes/<session_id>/s<sistema>_<parte>-<pentagrama>.png` (`_1-0+1-1` en un gran pentagrama de piano) o `recortes/primus/<id>.png`. |
+
+En Cadenza se une por sesión, parte, pentagrama y número de compás con las filas de
+`pentagramas.csv` (ADR-0067), que tiene además lo que leyó HOMR y lo corregido de toda la tira.
+En PrIMuS, `recorte` es la imagen del incipit entero.
 
 ## Tablas
 

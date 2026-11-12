@@ -11,6 +11,11 @@ Dos orígenes, que pueden ir juntos en las mismas tablas (la columna `source` lo
 - una base de datos de Cadenza (`--db-url`, o `CADENZA_DATABASE_URL` si no se da `--corpus`);
 - un corpus JSONL (`--corpus`): el de PrIMuS de `exp_12` o el de `ml suggestions build-dataset`.
 
+Con `--recortes` (#414, ADR-0068), en la misma carpeta y para las mismas sesiones, lo que escribe
+`ml export-staves` (cada pentagrama de la foto con lo que leyó HOMR y lo corregido); `notas`,
+`faltantes` y `compases` dicen en `sistema` y `recorte` la tira de la foto de su compás. Con
+`--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`.
+
 No tiene salida por defecto: la ruta se da siempre.
 """
 
@@ -23,6 +28,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -32,6 +38,7 @@ from typing import Any
 from cadenza.learning.suggestions import SuggestionTrainingError, file_sha256, read_corpus
 from cadenza.learning.tables import TABLES, cell, corpus_tables, database_tables, merge_tables
 from cadenza.persistence import (
+    FilesystemArtifactStore,
     SqlAlchemyEditEventRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
@@ -40,9 +47,9 @@ from cadenza.persistence import (
     session_scope,
 )
 from sqlalchemy.engine import make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
-TABLES_FORMAT_VERSION = 1
+TABLES_FORMAT_VERSION = 2
 
 
 def _fail(message: str) -> int:
@@ -85,6 +92,116 @@ def _safe_url(url: str) -> str:
     return f"{parsed.get_backend_name()}:{Path(parsed.database or '').name}"
 
 
+Row = dict[str, Any]
+StripKey = tuple[str, int, int, int]
+"""(sesión, parte, pentagrama, número de compás)."""
+
+
+def _database_strips(
+    tables: dict[str, list[Row]],
+    sessions: Any,
+    edits: Any,
+    store: Any,
+    output: Path,
+    sheets: bool,
+) -> tuple[list[Row], list[str], dict[str, str]]:
+    """Los recortes de las sesiones que están en las tablas (las mismas, con el mismo filtro):
+    sus filas de `pentagramas.csv`, las sesiones con recortes y las que no, con su motivo. Una
+    sesión sin recortes sigue en las tablas."""
+
+    from ml.export_staves_cli import export_session_strips
+
+    rows: list[Row] = []
+    exported: list[str] = []
+    left_out: dict[str, str] = {}
+    for score in tables["partituras"]:
+        session_id = str(score["session_id"])
+        session = sessions.get(session_id)
+        if session is None:
+            left_out[session_id] = "la sesión ya no está en la base"
+            continue
+        try:
+            reason = export_session_strips(session, edits, store, output, sheets, rows)
+        except SQLAlchemyError:
+            # Con PostgreSQL, la transacción quedaría abortada para las que siguen.
+            raise
+        except Exception as exc:  # una sesión rara no para la exportación
+            reason = f"no se pudo exportar ({type(exc).__name__}: {exc})"
+        if reason is None:
+            exported.append(session_id)
+        else:
+            left_out[session_id] = reason
+    return rows, sorted(exported), dict(sorted(left_out.items()))
+
+
+def _strip_index(rows: list[Row]) -> dict[StripKey, tuple[int, str]]:
+    """El sistema y el recorte de cada compás de cada pentagrama de una tira."""
+    index: dict[StripKey, tuple[int, str]] = {}
+    for row in rows:
+        strip = row["_strip"]
+        for part, staff in strip.staves:
+            for measure in strip.measures:
+                index[(row["session_id"], part, staff, measure)] = (strip.system, row["recorte"])
+    return index
+
+
+def _primus_images(
+    tables: dict[str, list[Row]], primus_dir: Path, output: Path
+) -> tuple[dict[str, tuple[int, str]], list[str]]:
+    """Copia la imagen de cada incipit de PrIMuS de las tablas
+    (`<primus_dir>/<paquete>/<id>/<id>.png`) a `recortes/primus/`. Devuelve el sistema (1) y el
+    recorte de cada incipit encontrado, y los que faltan."""
+
+    wanted = sorted(
+        {str(r["incipit_id"]) for r in tables["partituras"] if r.get("source") == "primus"}
+    )
+    pending = set(wanted)
+    found: dict[str, Path] = {}
+    for package in sorted(p for p in primus_dir.iterdir() if p.is_dir()):
+        with os.scandir(package) as entries:
+            for entry in entries:
+                if entry.name in pending and entry.is_dir():
+                    image = Path(entry.path) / f"{entry.name}.png"
+                    if image.is_file():
+                        found[entry.name] = image
+                        pending.discard(entry.name)
+    images: dict[str, tuple[int, str]] = {}
+    target = output / "recortes" / "primus"
+    for incipit_id, image in sorted(found.items()):
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(image, target / f"{incipit_id}.png")
+        images[incipit_id] = (1, f"recortes/primus/{incipit_id}.png")
+    return images, [incipit_id for incipit_id in wanted if incipit_id not in found]
+
+
+def _number(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attach_strips(
+    tables: dict[str, list[Row]],
+    strips: dict[StripKey, tuple[int, str]],
+    primus: dict[str, tuple[int, str]],
+) -> None:
+    """Pone en `sistema` y `recorte` de cada fila de notas, faltantes y compases su tira."""
+    for name in ("notas", "faltantes", "compases"):
+        for row in tables[name]:
+            if row.get("source") == "cadenza":
+                part, staff, measure = (
+                    _number(row.get(key)) for key in ("part", "staff", "measure")
+                )
+                if part is None or staff is None or measure is None:
+                    continue
+                hit = strips.get((str(row.get("session_id")), part, staff, measure))
+            else:
+                hit = primus.get(str(row.get("incipit_id")))
+            if hit is not None:
+                row["sistema"], row["recorte"] = hit
+
+
 def export_tables_command(args: argparse.Namespace) -> int:
     corpus_path = Path(args.corpus) if args.corpus else None
     db_url = args.db_url or (None if corpus_path else os.environ.get("CADENZA_DATABASE_URL"))
@@ -94,6 +211,20 @@ def export_tables_command(args: argparse.Namespace) -> int:
         return _fail(
             "la base necesita --split-seed (la semilla de correction_corpus_split.json de #255)"
         )
+    from ml.export_staves_cli import strips_csv, unsafe_output
+
+    output = Path(args.output_dir).resolve()
+    problem = unsafe_output(output)
+    if problem is not None:
+        return _fail(problem)
+    artifacts = args.artifacts_dir or os.environ.get("CADENZA_ARTIFACTS_DIR")
+    if (args.primus_dir or args.laminas) and not args.recortes:
+        return _fail("--primus-dir y --laminas van con --recortes")
+    if args.recortes and db_url is not None and not artifacts:
+        return _fail("los recortes necesitan las fotos: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
+    primus_dir = Path(args.primus_dir) if args.primus_dir else None
+    if primus_dir is not None and not primus_dir.is_dir():
+        return _fail(f"no existe la carpeta de PrIMuS: {primus_dir}")
 
     parts: list[dict[str, list[dict[str, Any]]]] = []
     origins: dict[str, Any] = {}
@@ -115,18 +246,28 @@ def export_tables_command(args: argparse.Namespace) -> int:
             origins["corpus"]["cadenza_records_dropped"] = len(records) - len(kept)
             records = kept
         parts.append(corpus_tables(records))
+    strip_rows: list[Row] = []
+    strip_sessions: list[str] = []
+    strips_left_out: dict[str, str] = {}
     if db_url is not None:
         factory = create_session_factory(create_engine_for_url(db_url))
         with session_scope(factory) as db:
+            sessions = SqlAlchemySessionRepository(db)
+            edits = SqlAlchemyEditEventRepository(db)
             tables, left_out = database_tables(
-                session_repository=SqlAlchemySessionRepository(db),
-                edit_repository=SqlAlchemyEditEventRepository(db),
+                session_repository=sessions,
+                edit_repository=edits,
                 user_repository=SqlAlchemyUserRepository(db),
                 split_seed=args.split_seed,
                 test_fraction=args.test_fraction,
                 include_self_registered=args.include_self_registered,
                 include_unfinished=args.include_unfinished,
             )
+            if args.recortes:
+                store = FilesystemArtifactStore(artifacts, db)
+                strip_rows, strip_sessions, strips_left_out = _database_strips(
+                    tables, sessions, edits, store, output, args.laminas
+                )
         parts.append(tables)
         origins["database"] = {
             "url": _safe_url(db_url),
@@ -134,8 +275,29 @@ def export_tables_command(args: argparse.Namespace) -> int:
         }
     merged = merge_tables(*parts)
 
-    output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
+    recortes: dict[str, Any] | None = None
+    if args.recortes:
+        primus_images: dict[str, tuple[int, str]] = {}
+        primus_missing: list[str] = []
+        if primus_dir is not None:
+            primus_images, primus_missing = _primus_images(merged, primus_dir, output)
+        _attach_strips(merged, _strip_index(strip_rows), primus_images)
+        recortes = {
+            "sessions": strip_sessions,
+            "left_out": strips_left_out,
+            "strips": len(strip_rows),
+            "strips_corrected": sum(1 for row in strip_rows if row["corregido"]),
+            "pentagramas_sha256": None,
+            "laminas": args.laminas,
+            "artifacts_dir": Path(artifacts).name if artifacts else None,
+            "primus_images": len(primus_images),
+            "primus_missing": primus_missing,
+        }
+        if db_url is not None:
+            content = strips_csv(strip_rows)
+            (output / "pentagramas.csv").write_bytes(content)
+            recortes["pentagramas_sha256"] = hashlib.sha256(content).hexdigest()
     summary: dict[str, Any] = {}
     for name in TABLES:
         content = _csv_bytes(name, merged[name])
@@ -161,6 +323,8 @@ def export_tables_command(args: argparse.Namespace) -> int:
         "tables": summary,
         "dictionary": "docs/experimentos/diccionario_tablas.md",
     }
+    if recortes is not None:
+        info["recortes"] = recortes
     (output / "run_info.json").write_text(
         json.dumps(info, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -171,6 +335,12 @@ def export_tables_command(args: argparse.Namespace) -> int:
     print(f"  fuera          : {len(left_out)}")
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
+    if recortes is not None:
+        print(
+            f"  recortes       : {recortes['strips']} tiras de {len(strip_sessions)} sesiones"
+            f" ({len(strips_left_out)} sin recortes), {recortes['primus_images']} imágenes"
+            " de PrIMuS"
+        )
     print(f"  salida         : {output}")
     return 0
 
@@ -194,6 +364,29 @@ def add_parser(subparsers: Any) -> None:
         help="Semilla de la partición de #255 (obligatoria con la base).",
     )
     parser.add_argument("--test-fraction", type=float, default=0.2)
+    parser.add_argument(
+        "--recortes",
+        action="store_true",
+        help=(
+            "Escribir además los recortes de las fotos de las mismas sesiones (como"
+            " export-staves) y unirlos a las tablas por compás."
+        ),
+    )
+    parser.add_argument(
+        "--artifacts-dir",
+        default=None,
+        help="Directorio de los artefactos, con las fotos (o CADENZA_ARTIFACTS_DIR).",
+    )
+    parser.add_argument(
+        "--laminas",
+        action="store_true",
+        help="Con --recortes, una lámina por sesión: la foto con las cajas y cada tira.",
+    )
+    parser.add_argument(
+        "--primus-dir",
+        default=None,
+        help="Con --recortes, la carpeta de PrIMuS (data/primus): copia la imagen de cada incipit.",
+    )
     parser.add_argument(
         "--include-self-registered",
         action="store_true",

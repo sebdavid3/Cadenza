@@ -60,6 +60,9 @@ _CONTEXT: Final[tuple[str, ...]] = (
     "next_duration_beats_dec",
 )
 
+_STRIP: Final[tuple[str, ...]] = ("sistema", "recorte")
+"""La tira de la foto del compás (`ml export-tables --recortes`, #414); vacías sin ella."""
+
 TABLES: Final[dict[str, tuple[str, ...]]] = {
     "partituras": (
         *_KEY,
@@ -107,6 +110,7 @@ TABLES: Final[dict[str, tuple[str, ...]]] = {
         "fix_duration_beats",
         "fix_duration_beats_dec",
         *_CONTEXT,
+        *_STRIP,
     ),
     "faltantes": (
         *_KEY,
@@ -120,6 +124,7 @@ TABLES: Final[dict[str, tuple[str, ...]]] = {
         "ins_is_chord",
         "ins_hidden",
         *_CONTEXT,
+        *_STRIP,
     ),
     "clave_armadura": (
         *_KEY,
@@ -157,6 +162,7 @@ TABLES: Final[dict[str, tuple[str, ...]]] = {
         "avisos_iniciales",
         "avisos_vigentes",
         "avisos_descartados",
+        *_STRIP,
     ),
     "sugerencias": (
         *_KEY,

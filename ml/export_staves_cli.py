@@ -180,7 +180,7 @@ def _open_photo(content: bytes) -> Image.Image:
     return photo
 
 
-def _export_session(
+def export_session_strips(
     session: Any,
     edits_repo: Any,
     store: Any,
@@ -190,7 +190,10 @@ def _export_session(
 ) -> str | None:
     """Recorta y empareja una sesión: añade sus filas a `rows` y escribe sus archivos. Devuelve
     None si se exportó, o el motivo por el que queda fuera. Lo calcula todo antes de escribir
-    nada: una sesión que falla no deja archivos a medias."""
+    nada: una sesión que falla no deja archivos a medias.
+
+    Cada fila lleva además `_strip` (el `Strip`, que no se escribe en el CSV), para que
+    `ml export-tables --recortes` (#414) una cada compás de sus tablas a su tira."""
 
     # Aquí y no arriba: construir la CLI no debe cargar music21 (`ml/cli.py`).
     from cadenza.interchange import score_ir_to_musicxml
@@ -243,6 +246,7 @@ def _export_session(
                 "lectura": read,
                 "corregida": corrected,
                 "corregido": read != corrected,
+                "_strip": strip,
             }
         )
     xml_folder = output / "musicxml"
@@ -265,6 +269,38 @@ def _export_session(
     return None
 
 
+def strips_csv(rows: list[dict[str, Any]]) -> bytes:
+    """`pentagramas.csv`: una fila por tira, en el orden de `COLUMNS`."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(COLUMNS)
+    for row in rows:
+        writer.writerow(
+            [
+                (
+                    ("true" if row[c] else "false")
+                    if isinstance(row[c], bool)
+                    else ("" if row[c] is None else row[c])
+                )
+                for c in COLUMNS
+            ]
+        )
+    return buffer.getvalue().encode("utf-8")
+
+
+def unsafe_output(output: Path) -> str | None:
+    """Por qué no se puede escribir en `output`, o None. La salida no cae en `results/` ni en
+    `data/` del repositorio, y ha de estar vacía: lo de una exportación anterior (de alguien que
+    ya retiró su permiso) se quedaría."""
+    repository = Path(__file__).resolve().parents[1]
+    for forbidden in (repository / "results", repository / "data"):
+        if output == forbidden or forbidden in output.parents:
+            return f"la salida no puede estar en {forbidden.name}/ del repositorio"
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        return f"la carpeta de salida no está vacía: {output}"
+    return None
+
+
 def export_staves_command(args: argparse.Namespace) -> int:
     db_url = args.db_url or os.environ.get("CADENZA_DATABASE_URL")
     if not db_url:
@@ -273,13 +309,9 @@ def export_staves_command(args: argparse.Namespace) -> int:
     if not artifacts:
         return _fail("faltan las imágenes: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
     output = Path(args.output_dir).resolve()
-    repository = Path(__file__).resolve().parents[1]
-    for forbidden in (repository / "results", repository / "data"):
-        if output == forbidden or forbidden in output.parents:
-            return _fail(f"la salida no puede estar en {forbidden.name}/ del repositorio")
-    if output.exists() and (not output.is_dir() or any(output.iterdir())):
-        # Lo de una exportación anterior (de alguien que ya retiró su permiso) se quedaría.
-        return _fail(f"la carpeta de salida no está vacía: {output}")
+    problem = unsafe_output(output)
+    if problem is not None:
+        return _fail(problem)
     rows: list[dict[str, Any]] = []
     left_out: dict[str, str] = {}
     exported: list[str] = []
@@ -296,10 +328,14 @@ def export_staves_command(args: argparse.Namespace) -> int:
                     left_out[session.id] = "cuenta del registro público"
                     continue
                 if not has_current_data_consent(owner):
-                    left_out[session.id] = "cuenta del registro sin permiso de uso de los datos"
+                    left_out[session.id] = (
+                        "cuenta del registro sin el permiso de uso de los datos vigente"
+                    )
                     continue
             try:
-                reason = _export_session(session, edits_repo, store, output, args.laminas, rows)
+                reason = export_session_strips(
+                    session, edits_repo, store, output, args.laminas, rows
+                )
             except SQLAlchemyError:
                 # Con PostgreSQL, la transacción quedaría abortada para las que siguen.
                 raise
@@ -311,21 +347,7 @@ def export_staves_command(args: argparse.Namespace) -> int:
                 left_out[session.id] = reason
 
     output.mkdir(parents=True, exist_ok=True)
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(COLUMNS)
-    for row in rows:
-        writer.writerow(
-            [
-                (
-                    ("true" if row[c] else "false")
-                    if isinstance(row[c], bool)
-                    else ("" if row[c] is None else row[c])
-                )
-                for c in COLUMNS
-            ]
-        )
-    content = buffer.getvalue().encode("utf-8")
+    content = strips_csv(rows)
     (output / "pentagramas.csv").write_bytes(content)
     info = {
         "format_version": FORMAT_VERSION,
