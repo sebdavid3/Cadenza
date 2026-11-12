@@ -490,7 +490,15 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url
 
 # Corpus JSONL (el de PrIMuS de exp_12 o el de `suggestions build-dataset`), mismas columnas.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl>
+
+# Con las fotos (#414, ADR-0068): lo de export-staves para las mismas sesiones, y `sistema` y
+# `recorte` en notas, faltantes y compases; con --primus-dir, la imagen de cada incipit.
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
+  --split-seed <semilla> --corpus <corpus.jsonl> --recortes --artifacts-dir <artefactos> `
+  --primus-dir data/primus
 ```
+
+La salida ha de estar vacía y fuera de `results/` y `data/`, como la de `export-staves`.
 
 | Tabla | Una fila por | Orígenes |
 |---|---|---|
