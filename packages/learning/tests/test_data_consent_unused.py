@@ -2,8 +2,9 @@
 
 El dataset de correcciones (`ml build-dataset`) y la exportación del estudio (`exp_10`) dan lo
 mismo con el permiso que sin él: las cuentas del registro público siguen fuera, lo hayan dado o no.
-Usar el permiso para incluir datos será otro issue. (El corpus de la capa de sugerencias,
-`ml suggestions build-dataset`, se comprueba en `test_suggestions_training.py`.)
+(El corpus de la capa de sugerencias, `ml suggestions build-dataset`, y `ml export-tables`
+sí lo leen con `--include-self-registered`, como `ml export-staves`: enmienda de #400 en
+ADR-0065, probada en `test_export_tables.py`.)
 """
 
 from __future__ import annotations

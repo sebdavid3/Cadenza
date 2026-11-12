@@ -11,6 +11,9 @@ Comandos implementados:
   - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
                     (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
                     red de `PyTorchTrainer`, retirada del código en #271.
+  - export-tables : exporta a CSV planos, con su `run_info.json`, la lectura de HOMR, sus
+                    correcciones, los posibles errores y las sugerencias, para analizarlos fuera
+                    de la plataforma (`ml/export_tables_cli.py`).
   - export-staves : recorta cada pentagrama de las fotos y lo empareja con lo que leyó HOMR y
                     con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
 """
@@ -928,6 +931,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     suggestions_cli.add_parser(subparsers)
 
+    # 9. export-tables (CSV para analizar los errores de HOMR fuera de la plataforma)
+    from ml import export_tables_cli
+
+    export_tables_cli.add_parser(subparsers)
+
     # Cada pentagrama de la foto con sus compases (#403, ADR-0067)
     from ml import export_staves_cli
 
@@ -983,6 +991,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import suggestions_cli
 
         return suggestions_cli.run(args)
+    if args.subcommand == "export-tables":
+        from ml import export_tables_cli
+
+        return export_tables_cli.export_tables_command(args)
     if args.subcommand == "export-staves":
         from ml import export_staves_cli
 
