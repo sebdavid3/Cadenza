@@ -253,6 +253,17 @@ indicación sin mover compases), así que el compás N leído es el compás N fi
 - Las uniones por compás (`compases`, `avisos.compas_con_correccion`) usan el número del
   compás: si una lectura repitiera un número en un pentagrama, esos compases compartirían sus
   recuentos.
-- Una sesión sin ningún registro del corpus (una partitura vacía) sale con `verified` vacío.
+- Una sesión sin ningún registro del corpus (una partitura vacía) sale con `work_id`,
+  `split` y `verified` vacíos.
+- `indicacion_corregida` compara la indicación **vigente** en cada compás. Un solo `SetTime`
+  la cambia desde su compás hasta el siguiente cambio, en todos los pentagramas de la
+  parte: en un piano de 20 compases, poner 3/4 en el primero marca los 40 compases, y
+  `avisos.compas_con_correccion` sale verdadero en todos los avisos de la parte. Para
+  medir el acierto de los avisos de compás, conviene contar solo el compás donde empieza
+  cada tramo (`time_final` distinto del compás anterior).
+- Con solo `--corpus`, las filas `source: cadenza` de un corpus de `build-dataset` se
+  exportan tal cual: si ese corpus se generó con `--include-self-registered` antes de la
+  enmienda de #400 en ADR-0065, puede traer cuentas sin el permiso vigente. Para las
+  sesiones de Cadenza, mejor la base (`--db-url`).
 - `notas` y `faltantes` alinean por voz dentro del compás: un evento cambiado de voz sale como
   borrado y faltante.

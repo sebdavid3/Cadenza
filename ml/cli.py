@@ -935,6 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
     from ml import export_tables_cli
 
     export_tables_cli.add_parser(subparsers)
+
     # Cada pentagrama de la foto con sus compases (#403, ADR-0067)
     from ml import export_staves_cli
 

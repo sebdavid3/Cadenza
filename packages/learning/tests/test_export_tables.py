@@ -292,9 +292,7 @@ def db_url(tmp_path: Path) -> str:
         )
         # 5. y 6. Del registro sin el permiso vigente: fuera también con la opción.
         for session_id, owner in (("s-sin-permiso", "anonima"), ("s-permiso-antiguo", "antigua")):
-            sessions.add(
-                _session(session_id, owner, read, status="finalized", image="ef" * 32), []
-            )
+            sessions.add(_session(session_id, owner, read, status="finalized", image="ef" * 32), [])
     return url
 
 
