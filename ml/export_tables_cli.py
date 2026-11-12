@@ -222,6 +222,8 @@ def export_tables_command(args: argparse.Namespace) -> int:
         return _fail("--primus-dir y --laminas van con --recortes")
     if args.recortes and db_url is not None and not artifacts:
         return _fail("los recortes necesitan las fotos: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
+    if args.recortes and db_url is not None and not Path(str(artifacts)).is_dir():
+        return _fail(f"no existe la carpeta de las fotos: {artifacts}")
     primus_dir = Path(args.primus_dir) if args.primus_dir else None
     if primus_dir is not None and not primus_dir.is_dir():
         return _fail(f"no existe la carpeta de PrIMuS: {primus_dir}")
@@ -290,7 +292,7 @@ def export_tables_command(args: argparse.Namespace) -> int:
             "strips_corrected": sum(1 for row in strip_rows if row["corregido"]),
             "pentagramas_sha256": None,
             "laminas": args.laminas,
-            "artifacts_dir": Path(artifacts).name if artifacts else None,
+            "artifacts_dir": Path(artifacts).name if artifacts and db_url else None,
             "primus_images": len(primus_images),
             "primus_missing": primus_missing,
         }

@@ -293,9 +293,12 @@ def unsafe_output(output: Path) -> str | None:
     `data/` del repositorio, y ha de estar vacía: lo de una exportación anterior (de alguien que
     ya retiró su permiso) se quedaría."""
     repository = Path(__file__).resolve().parents[1]
-    for forbidden in (repository / "results", repository / "data"):
-        if output == forbidden or forbidden in output.parents:
-            return f"la salida no puede estar en {forbidden.name}/ del repositorio"
+    resolved = output.resolve()
+    for folder in ("results", "data"):
+        # Resueltas: `data/` puede ser un enlace o una unión a otra carpeta.
+        forbidden = (repository / folder).resolve()
+        if resolved == forbidden or forbidden in resolved.parents:
+            return f"la salida no puede estar en {folder}/ del repositorio"
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         return f"la carpeta de salida no está vacía: {output}"
     return None

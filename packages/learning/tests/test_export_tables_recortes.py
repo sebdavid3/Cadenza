@@ -12,10 +12,12 @@ import csv
 import io
 import json
 import secrets
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
+from typing import Any
 
 import pytest
 from cadenza.application import DATA_CONSENT_VERSION, Role, SessionData, User
@@ -34,6 +36,7 @@ from cadenza.domain import (
     TimeSignature,
     build_anchor_index,
 )
+from cadenza.learning import derive_edit_events
 from cadenza.omr.adapters import homr_capture
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -260,6 +263,7 @@ def test_the_photos_follow_the_same_filter_as_the_tables(
     assert not (output / "recortes" / "s-anonima").exists()
     for written in output.rglob("*.csv"):
         assert "s-anonima" not in written.read_text(encoding="utf-8"), written.name
+    assert not any("s-anonima" in str(p.relative_to(output)) for p in output.rglob("*"))
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     assert "s-anonima" in info["left_out"]
     assert "s-anonima" not in info["recortes"]["left_out"]
@@ -310,3 +314,173 @@ def test_the_export_refuses_unsafe_outputs_and_missing_photos(
         target = repo / folder / f"export-{secrets.token_hex(4)}"
         assert _export(target, *plain) == 1
         assert not target.exists()
+
+
+# --- Voz y piano: un gran pentagrama, dos partes y compases que no empiezan en 1 -------------
+
+
+def _staff(staff_id: str, first: int, extra: int | None = None) -> Staff:
+    measures = []
+    for n in range(first, first + 4):
+        events = [Event(kind=EventKind.NOTE, pitch="C4", duration_beats=Fraction(4))]
+        if n == extra:  # en lo corregido, una nota que HOMR no vio
+            events = [
+                Event(kind=EventKind.NOTE, pitch="C4", duration_beats=Fraction(2)),
+                Event(kind=EventKind.NOTE, pitch="D4", duration_beats=Fraction(2)),
+            ]
+        measures.append(
+            Measure(
+                number=n,
+                events=tuple(events),
+                time_signature=TimeSignature(4, 4) if n == first else None,
+            )
+        )
+    return Staff(id=staff_id, measures=tuple(measures))
+
+
+def _voice_and_piano(first: int, extra: int | None = None) -> ScoreIR:
+    return ScoreIR(
+        parts=(
+            Part(id="P1", staves=(_staff("P1-S1", first),)),
+            Part(id="P2", staves=(_staff("P2-S1", first), _staff("P2-S2", first, extra))),
+        )
+    )
+
+
+def _piano_capture(first: int) -> dict[str, object]:
+    capture = homr_capture.Capture(systems=[str(first), str(first + 2)])
+    capture.readings.append(
+        homr_capture.ReadingCapture(
+            mode="paired",
+            image_shape=(600, 1000),
+            source_shape=(600, 1000),
+            autocrop=None,
+            staves=[
+                {"grand": False, "cx": 0.5, "cy": 0.1, "w": 0.8, "h": 0.05},
+                {"grand": True, "cx": 0.5, "cy": 0.3, "w": 0.8, "h": 0.15},
+                {"grand": False, "cx": 0.5, "cy": 0.6, "w": 0.8, "h": 0.05},
+                {"grand": True, "cx": 0.5, "cy": 0.8, "w": 0.8, "h": 0.15},
+            ],
+        )
+    )
+    return homr_capture.capture_primitive(
+        capture, "<score-partwise/>", homr_version="0.7.0", preprocessed=False
+    )
+
+
+def _as_stored(value: Any) -> Any:
+    """Como lo guarda la API: las figuras en texto («1/2»), no como Fraction."""
+    if isinstance(value, Mapping):
+        return {k: _as_stored(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_as_stored(v) for v in value]
+    return str(value) if isinstance(value, Fraction) else value
+
+
+def test_a_grand_staff_and_two_parts_join_by_part_staff_and_measure_number(
+    tmp_path: Path,
+) -> None:
+    db_url = f"sqlite:///{(tmp_path / 'piano.db').as_posix()}"
+    artifacts = tmp_path / "artefactos"
+    engine = create_engine_for_url(db_url)
+    create_schema(engine)
+    read = _voice_and_piano(5)
+    final = _voice_and_piano(5, extra=6)
+    with session_scope(create_session_factory(engine)) as db:
+        SqlAlchemyUserRepository(db).add(_user("ana"))
+        photo = Image.new("RGB", (1000, 600), "white")
+        buffer = io.BytesIO()
+        photo.save(buffer, format="PNG")
+        image = FilesystemArtifactStore(artifacts, db).put(
+            buffer.getvalue(), kind="image", media_type="image/png"
+        )
+        document = ScoreDocument(
+            id="doc-s-piano",
+            score=read,
+            anchors=build_anchor_index(read),
+            provenance=Provenance(omr_engine="homr", source_image_hash=image),
+            omr_capture=_piano_capture(5),
+        )
+        SqlAlchemySessionRepository(db).add(
+            SessionData(
+                id="s-piano",
+                document_id=document.id,
+                omr_engine="homr",
+                document=document.to_primitive(),
+                image_artifact=image,
+                status="finalized",
+                owner_id="ana",
+            ),
+            [],
+        )
+        edits = SqlAlchemyEditEventRepository(db)
+        for edit in derive_edit_events(read, final, document_id="doc-s-piano", author="ana"):
+            edits.append(
+                "s-piano",
+                replace(edit, before=_as_stored(edit.before), after=_as_stored(edit.after)),
+            )
+
+    tables = tmp_path / "tablas"
+    args = ["--db-url", db_url, "--split-seed", str(SPLIT_SEED), "--artifacts-dir", str(artifacts)]
+    assert _export(tables, *args, "--recortes") == 0
+    piano = "recortes/s-piano/s{}_1-0+1-1.png"
+    voice = "recortes/s-piano/s{}_0-0.png"
+    compases = {
+        (r["part"], r["staff"], r["measure"]): (r["sistema"], r["recorte"])
+        for r in _rows(tables / "compases.csv")
+    }
+    assert compases[("0", "0", "5")] == ("1", voice.format(1))
+    assert compases[("1", "0", "6")] == ("1", piano.format(1))
+    assert compases[("1", "1", "6")] == ("1", piano.format(1))
+    assert compases[("1", "1", "7")] == ("2", piano.format(2))
+    assert compases[("0", "0", "8")] == ("2", voice.format(2))
+    # La nota que faltaba, en la mano izquierda del compás 6: su tira es la del piano.
+    missing = _rows(tables / "faltantes.csv")
+    assert [(r["part"], r["staff"], r["measure"], r["recorte"]) for r in missing] == [
+        ("1", "1", "6", piano.format(1))
+    ]
+    # Es el mismo pentagramas.csv que el de `ml export-staves`.
+    staves = tmp_path / "staves"
+    assert (
+        main(
+            [
+                "export-staves",
+                "--output-dir",
+                str(staves),
+                "--db-url",
+                db_url,
+                "--artifacts-dir",
+                str(artifacts),
+            ]
+        )
+        == 0
+    )
+    assert (tables / "pentagramas.csv").read_bytes() == (staves / "pentagramas.csv").read_bytes()
+
+
+def test_the_photo_options_need_recortes_and_existing_folders(
+    base: tuple[str, Path], tmp_path: Path
+) -> None:
+    db_url, artifacts = base
+    plain = ["--db-url", db_url, "--split-seed", str(SPLIT_SEED)]
+    attempts = {
+        "primus-sin-recortes": [*plain, "--primus-dir", str(tmp_path)],
+        "laminas-sin-recortes": [*plain, "--laminas"],
+        "primus-que-no-existe": [
+            *plain,
+            "--recortes",
+            "--artifacts-dir",
+            str(artifacts),
+            "--primus-dir",
+            str(tmp_path / "no-existe"),
+        ],
+        "fotos-que-no-existen": [
+            *plain,
+            "--recortes",
+            "--artifacts-dir",
+            str(tmp_path / "no-existe"),
+        ],
+    }
+    for name, args in attempts.items():
+        assert _export(tmp_path / name, *args) == 1, name
+        assert not (tmp_path / name).exists(), name

@@ -35,6 +35,9 @@ Las dos hablan de lo mismo (sesión, parte, pentagrama, compás), pero desde una
 - Con las fotos, la carpeta de salida tiene imágenes de personas: se trata como los datos que son (ADR-0065) y no se comparte sin su permiso.
 - La unión usa el número de compás, como las demás uniones por compás de las tablas: si una lectura repitiera un número en un pentagrama, esos compases compartirían tira.
 - Una imagen de PrIMuS es el incipit entero: su `recorte` no es una tira por sistema.
+- Los recortes se escriben antes que las tablas: si la exportación se corta a medias (un error de la base o de disco), quedan fotos sin `run_info.json`, y la siguiente pide una carpeta vacía. Como en `export-staves`.
+- `results/` y `data/` se protegen en la copia del repositorio desde la que corre `ml` (resueltas, por si son un enlace o una unión); desde un worktree, no las de la carpeta principal.
+- `ml export-staves` cambia solo el texto de un motivo de `left_out`, a «cuenta del registro sin el permiso de uso de los datos vigente», el mismo que las tablas.
 
 ## Alternativas consideradas
 - **Un comando nuevo que llamara a los dos.** Dos filtros que mantener a la par y dos `run_info.json`; se descartó.
