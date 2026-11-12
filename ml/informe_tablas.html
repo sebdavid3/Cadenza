@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Errores de HOMR</title>
+<!-- Plantilla de `ml export-tables --informe` (#415, ADR-0069): sin red ni dependencias. -->
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f6f5f2; --surface-1: #fcfcfb; --line: #e4e2dc; --grid: #ecebe6;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
+  --accent: #6d3fd1;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --neutral: #d3d1ca;
+  --seq-0: #f1f5fb; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5;
+  --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
+  --callout-bg: #fff4d6; --callout-ink: #6b4500;
+  --del-bg: #fde8e6; --del: #b42318; --ins-bg: #e3f4ea; --ins: #146c43;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #121211; --surface-1: #1a1a19; --line: #2e2d2b; --grid: #262624;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --accent: #a88bf0;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --neutral: #4a4945;
+    --seq-0: #1f2530; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #256abf;
+    --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
+    --callout-bg: #3a2f12; --callout-ink: #f2c66d;
+    --del-bg: #3d1d1b; --del: #ff8a80; --ins-bg: #173326; --ins: #7fd6a3;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text-primary);
+  font: 15px/1.5 "Hanken Grotesk", system-ui, sans-serif; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header { padding: 28px 0 12px; }
+h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
+.sub { color: var(--text-secondary); margin: 0; max-width: 72ch; }
+.filters { position: sticky; top: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--line); }
+.filters .wrap { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; padding-top: 10px; padding-bottom: 10px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; border: 0; padding: 6px 12px; background: var(--surface-1); color: var(--text-primary); cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+label.chk { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }
+.tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.tile span { color: var(--text-secondary); font-size: 13px; }
+.callout { background: var(--callout-bg); color: var(--callout-ink); border-radius: 12px; padding: 12px 16px; margin: 0 0 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.card.wide { grid-column: 1 / -1; }
+.card h2 { font-size: 16px; margin: 0; }
+.card h3 { font-size: 13px; margin: 12px 0 6px; color: var(--text-secondary); }
+.card p.note { color: var(--text-secondary); font-size: 13px; margin: 2px 0 12px; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+svg { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font: 12px system-ui, sans-serif; fill: var(--text-secondary); }
+svg text.val { fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+.hit { fill: transparent; }
+[data-key] { cursor: pointer; }
+[data-key]:hover .mark, rect[data-key]:hover { opacity: 0.8; }
+.tip { position: fixed; pointer-events: none; z-index: 10; background: var(--text-primary); color: var(--surface-1);
+  font-size: 13px; padding: 6px 10px; border-radius: 8px; max-width: 280px; opacity: 0; transition: opacity .1s; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+tr[data-key]:hover td { background: var(--grid); }
+.scroll { overflow-x: auto; }
+#examples { scroll-margin-top: 64px; }
+.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.ex { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-1); }
+.ex .photo { background: #fff; padding: 6px; overflow-x: auto; }
+.ex img { display: block; width: 100%; height: auto; min-width: 260px; }
+.ex .nophoto { color: var(--text-muted); font-size: 13px; padding: 10px; background: var(--grid); }
+.ex .txt { padding: 8px 10px; font-size: 13px; }
+.ex .where { color: var(--text-secondary); }
+.ex code { font: 13px ui-monospace, Consolas, monospace; padding: 0 4px; border-radius: 4px; }
+.ex .del { background: var(--del-bg); color: var(--del); }
+.ex .ins { background: var(--ins-bg); color: var(--ins); }
+footer { color: var(--text-muted); font-size: 13px; padding: 24px 0 40px; }
+</style>
+</head>
+<body>
+<header class="wrap">
+  <h1>Errores de HOMR</h1>
+  <p class="sub">Qué lee mal HOMR y cómo se corrige, de las tablas de <code>ml export-tables</code>
+  (commit __COMMIT__, __DATE__). En PrIMuS, las correcciones son las del «corrector ideal» (lo
+  leído frente a la partitura correcta); en Cadenza, las que quedaron en cada sesión. Pincha una
+  barra, una celda o una fila para ver sus ejemplos con su foto.</p>
+</header>
+<nav class="filters"><div class="wrap">
+  <div class="seg" id="source" role="group" aria-label="Origen"></div>
+  <label class="chk"><input type="checkbox" id="reorder"> No contar los acordes solo reordenados</label>
+</div></nav>
+<main class="wrap">
+  <div class="tiles" id="tiles"></div>
+  <div id="callout"></div>
+  <div class="grid">
+    <section class="card wide">
+      <h2>Qué pasó con cada nota leída</h2>
+      <p class="note">Parte de las notas y silencios leídos por HOMR, por origen.</p>
+      <div class="legend" id="outcome-legend"></div>
+      <div id="outcome"></div>
+    </section>
+    <section class="card">
+      <h2>Qué se corrige</h2>
+      <p class="note">Correcciones por cada 100 notas leídas. Insertar es lo que HOMR no leyó.</p>
+      <div id="ops"></div>
+    </section>
+    <section class="card">
+      <h2>Cuánto se movió la altura</h2>
+      <p class="note">En las correcciones de altura: pasos de pentagrama (línea o espacio) entre lo leído y lo correcto.</p>
+      <div id="steps"></div>
+    </section>
+    <section class="card">
+      <h2>Figura leída y figura correcta</h2>
+      <p class="note">En las correcciones de figura, en negras. Filas: lo leído; columnas: lo correcto.</p>
+      <div class="scroll" id="durations"></div>
+    </section>
+    <section class="card">
+      <h2>Dónde se equivoca más</h2>
+      <p class="note">Notas leídas con alguna corrección, por contexto (grupos de 30 notas o más).</p>
+      <div id="contexts"></div>
+    </section>
+    <section class="card wide">
+      <h2>Partituras con más correcciones</h2>
+      <p class="note">Correcciones (incluidas las notas que faltaban) por nota leída; partituras con 10 notas o más.</p>
+      <div class="scroll" id="top"></div>
+    </section>
+    <section class="card wide" id="examples" aria-live="polite">
+      <h2 id="examples-title">Ejemplos</h2>
+      <p class="note" id="examples-note">Pincha una barra, una celda o una fila para ver hasta 12 ejemplos con la foto de su compás.</p>
+      <div class="examples" id="examples-list"></div>
+    </section>
+  </div>
+</main>
+<footer class="wrap">Generado en local desde la carpeta de la exportación; las fotos se abren por su ruta relativa y nada sale del equipo.</footer>
+<div class="tip" id="tip" role="tooltip"></div>
+<script>
+const DATA = __DATA__;
+const NAMES = { todas: "Todos", primus: "PrIMuS", cadenza: "Cadenza" };
+const OPS = { SetPitch: "Altura", SetDuration: "Figura", SetAccidental: "Alteración",
+  DeleteEvent: "Borrar", InsertEvent: "Insertar", SetClef: "Clave", SetKey: "Armadura" };
+const OUTCOMES = [["corregida", "Corregida", "var(--series-1)"], ["borrada", "Borrada", "var(--series-2)"],
+  ["sin_alinear", "Sin alinear", "var(--series-3)"], ["bien", "Bien leída", "var(--neutral)"]];
+const fmt = n => n.toLocaleString("es");
+const pct = (a, b, d = 1) => b ? (100 * a / b).toLocaleString("es", { maximumFractionDigits: d }) + " %" : "—";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let source = "todas";
+let current = null;
+const variant = () => DATA.variants[`${source}|${document.getElementById("reorder").checked ? 1 : 0}`];
+
+const tip = document.getElementById("tip");
+document.addEventListener("pointerover", e => {
+  const t = e.target.closest("[data-tip]");
+  if (!t) { tip.style.opacity = 0; return; }
+  tip.innerHTML = t.dataset.tip; tip.style.opacity = 1;
+});
+document.addEventListener("pointermove", e => {
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = (e.clientY + 14) + "px";
+});
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-key]");
+  if (!t) return;
+  current = { key: t.dataset.key, title: t.dataset.title };
+  showExamples(true);
+});
+
+function showExamples(scroll) {
+  const d = variant(), title = document.getElementById("examples-title");
+  const list = document.getElementById("examples-list"), note = document.getElementById("examples-note");
+  if (!current) return;
+  const ids = d.example_keys[current.key] || [];
+  title.textContent = `Ejemplos: ${current.title}`;
+  note.textContent = ids.length ? `${ids.length} ejemplo${ids.length === 1 ? "" : "s"} (como mucho 12).` : "Ningún ejemplo con este filtro.";
+  list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
+    ${x.img ? `<div class="photo"><img loading="lazy" src="${esc(x.img)}" alt="Tira de la foto del compás ${esc(x.measure)}"></div>`
+      : `<div class="nophoto">Sin foto (exporta con --recortes)</div>`}
+    <div class="txt"><div class="where">${esc(x.score)} · compás ${esc(x.measure)} · pentagrama ${esc(x.staff)}</div>
+    HOMR <code class="${x.read === x.fix ? "" : "del"}">${esc(x.read)}</code> → correcto <code class="${x.read === x.fix ? "" : "ins"}">${esc(x.fix)}</code></div>
+  </article>`).join("");
+  if (scroll) document.getElementById("examples").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Barras horizontales de una serie: [{label, value, text, tip, key}]
+function hbars(rows, { width = 520, color = "var(--series-1)", max } = {}) {
+  const labelW = 170, valW = 70, bar = 16, gap = 10, plot = width - labelW - valW;
+  const top = max ?? Math.max(...rows.map(r => r.value), 1e-9);
+  const h = rows.length * (bar + gap);
+  return `<svg viewBox="0 0 ${width} ${h}" role="img">` + rows.map((r, i) => {
+    const y = i * (bar + gap), w = Math.max(r.value ? 4 : 0, plot * r.value / top);
+    return `<g data-tip="${esc(r.tip)}" data-key="${esc(r.key)}" data-title="${esc(r.title || r.label)}">
+      <rect class="hit" x="0" y="${y - gap / 2}" width="${width}" height="${bar + gap}"/>
+      <text x="${labelW - 10}" y="${y + bar - 4}" text-anchor="end">${esc(r.label)}</text>
+      <rect class="mark" x="${labelW}" y="${y}" width="${w}" height="${bar}" rx="4" fill="${color}"/>
+      <text class="val" x="${labelW + w + 6}" y="${y + bar - 4}">${esc(r.text)}</text></g>`;
+  }).join("") + `</svg>`;
+}
+
+function render() {
+  const d = variant(), skip = document.getElementById("reorder").checked;
+  const o = d.outcome, read = d.read;
+  document.getElementById("tiles").innerHTML = [
+    [fmt(d.scores), "partituras"],
+    [fmt(read), "notas y silencios leídos"],
+    [pct(o.bien || 0, read), "bien leídos"],
+    [fmt(o.corregida || 0), "corregidos"],
+    [fmt(o.borrada || 0), "borrados (sobraban)"],
+    [fmt(d.missing), "faltaban"],
+    [pct(d.clean_scores, d.scores), "partituras sin ningún error"],
+  ].map(([n, l]) => `<div class="tile"><b>${n}</b><span>${l}</span></div>`).join("");
+
+  const reo = DATA.variants[`${source}|0`].reordered;
+  document.getElementById("callout").innerHTML = reo ? `<p class="callout">
+    <strong>${fmt(reo)} correcciones de altura solo reordenan las notas de un acorde</strong>
+    (HOMR las escribe en otro orden que la partitura correcta, y la comparación lo cuenta como
+    error). ${skip ? "Ahora no se cuentan." : "Marca la casilla de arriba para no contarlas."}</p>` : "";
+
+  document.getElementById("outcome-legend").innerHTML = OUTCOMES.map(([, l, c]) =>
+    `<span><i style="background:${c}"></i>${l}</span>`).join("");
+  const srcs = source === "todas" ? DATA.sources : [source];
+  const W = 1000, labelW = 110, bar = 22, gap = 14, plot = W - labelW - 10;
+  document.getElementById("outcome").innerHTML = `<svg viewBox="0 0 ${W} ${srcs.length * (bar + gap)}" role="img">` +
+    srcs.map((s, i) => {
+      const dd = DATA.variants[`${s}|${skip ? 1 : 0}`], y = i * (bar + gap); let x = labelW;
+      const segs = OUTCOMES.map(([k, l, c]) => {
+        const n = dd.outcome[k] || 0; if (!n) return "";
+        const tipText = `<b>${esc(NAMES[s] || s)}</b> · ${l}: ${fmt(n)} (${pct(n, dd.read)})`;
+        const w = plot * n / dd.read, seg = `<rect data-tip="${esc(tipText)}"
+          x="${x}" y="${y}" width="${Math.max(1, w - 2)}" height="${bar}" rx="4" fill="${c}"/>`;
+        const lab = w > 70 ? `<text class="val" x="${x + 6}" y="${y + bar - 7}">${pct(n, dd.read)}</text>` : "";
+        x += w; return seg + lab;
+      }).join("");
+      return `<text x="${labelW - 10}" y="${y + bar - 7}" text-anchor="end">${esc(NAMES[s] || s)}</text>${segs}`;
+    }).join("") + `</svg>`;
+
+  const ops = Object.entries(d.ops).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
+  document.getElementById("ops").innerHTML = !read ? "<p class='note'>Sin notas leídas.</p>"
+    : ops.length ? hbars(ops.map(([k, n]) => ({
+    label: OPS[k] || k, value: 100 * n / read, key: `op:${k}`,
+    text: (100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 }),
+    tip: `<b>${esc(OPS[k] || k)}</b>: ${fmt(n)} correcciones (${(100 * n / read).toFixed(1)} por cada 100 leídas)`,
+  }))) : "<p class='note'>Sin correcciones.</p>";
+
+  const steps = d.steps, ks = [];
+  for (let k = -8; k <= 8; k++) ks.push(k);
+  const total = Object.values(steps).reduce((a, b) => a + b, 0);
+  const top = Math.max(1, ...Object.values(steps));
+  const SW = 520, SH = 180, base = SH - 24, cw = SW / ks.length;
+  document.getElementById("steps").innerHTML = total ? `<svg viewBox="0 0 ${SW} ${SH}" role="img">
+    <line x1="0" x2="${SW}" y1="${base}" y2="${base}" stroke="var(--line)"/>` + ks.map((k, i) => {
+      const n = steps[k] || 0, h = (base - 16) * n / top, x = i * cw;
+      const name = k === 0 ? "misma línea o espacio (solo cambia la alteración)" : `${Math.abs(k)} ${Math.abs(k) === 1 ? "paso" : "pasos"} ${k > 0 ? "arriba" : "abajo"}${Math.abs(k) === 7 ? " (una octava)" : ""}${Math.abs(k) === 8 ? " o más" : ""}`;
+      return `<g data-tip="${esc(`<b>${name}</b>: ${fmt(n)} (${pct(n, total)})`)}" ${n ? `data-key="step:${k}" data-title="altura, ${esc(name)}"` : ""}>
+        <rect class="hit" x="${x}" y="0" width="${cw}" height="${SH}"/>
+        ${n ? `<rect class="mark" x="${x + 3}" y="${base - h}" width="${cw - 6}" height="${h}" rx="4" fill="var(--series-1)"/>` : ""}
+        <text x="${x + cw / 2}" y="${SH - 6}" text-anchor="middle">${k > 0 ? "+" + k : k}</text></g>`;
+    }).join("") + `</svg>` : "<p class='note'>Sin correcciones de altura.</p>";
+
+  const dur = d.durations;
+  if (!dur.length) document.getElementById("durations").innerHTML = "<p class='note'>Sin correcciones de figura.</p>";
+  else {
+    const val = s => { const [a, b] = s.split("/"); return b ? a / b : +a; };
+    const reads = [...new Set(dur.map(c => c.read))].sort((a, b) => val(a) - val(b));
+    const fixes = [...new Set(dur.map(c => c.fix))].sort((a, b) => val(a) - val(b));
+    const max = Math.max(...dur.map(c => c.n)), cell = 40, lw = 48, th = 26;
+    const get = (r, f) => (dur.find(c => c.read === r && c.fix === f) || {}).n || 0;
+    const step = n => n ? 1 + Math.min(6, Math.floor(6 * Math.sqrt(n / max))) : 0;
+    document.getElementById("durations").innerHTML = `<svg viewBox="0 0 ${lw + fixes.length * cell} ${th + reads.length * cell}" style="max-width:${lw + fixes.length * cell + 40}px" role="img">` +
+      fixes.map((f, j) => `<text x="${lw + j * cell + cell / 2}" y="16" text-anchor="middle">${esc(f)}</text>`).join("") +
+      reads.map((r, i) => `<text x="${lw - 8}" y="${th + i * cell + cell / 2 + 4}" text-anchor="end">${esc(r)}</text>` +
+        fixes.map((f, j) => { const n = get(r, f), s = step(n);
+          return `<g data-tip="${esc(`Leída <b>${esc(r)}</b>, correcta <b>${esc(f)}</b>: ${fmt(n)}`)}" ${n ? `data-key="${esc(`dur:${r}>${f}`)}" data-title="${esc(`figura leída ${r}, correcta ${f}`)}"` : ""}>
+            <rect x="${lw + j * cell + 1}" y="${th + i * cell + 1}" width="${cell - 2}" height="${cell - 2}" rx="4" fill="var(--seq-${s})"/>
+            ${n ? `<text x="${lw + j * cell + cell / 2}" y="${th + i * cell + cell / 2 + 4}" text-anchor="middle" style="fill:${s >= 4 ? "#fff" : "var(--text-primary)"}">${n}</text>` : ""}</g>`;
+        }).join("")).join("") + `</svg>`;
+  }
+
+  const block = (title, rows) => rows.length ? `<h3>${title}</h3>` +
+    hbars(rows.map(r => ({ label: r.label, value: r.rate, text: pct(r.wrong, r.n), key: r.key,
+      title: `${title.toLowerCase()}, ${r.label}`,
+      tip: `<b>${esc(r.label)}</b>: ${fmt(r.wrong)} de ${fmt(r.n)} notas con corrección` })), { max: 1 }) : "";
+  document.getElementById("contexts").innerHTML =
+    block("Alteración frente a la armadura", d.by_vs_key) + block("Clave", d.by_clef) + block("Figura leída", d.by_duration);
+
+  document.getElementById("top").innerHTML = d.top.length ? `<table><thead><tr><th>Partitura</th><th>Origen</th>
+    <th class="n">Leídas</th><th class="n">Correcciones</th><th class="n">Por nota</th></tr></thead><tbody>` +
+    d.top.map(r => `<tr data-key="${esc(r.key)}" data-title="${esc(r.label)}"><td>${esc(r.label)}</td><td>${esc(NAMES[r.source] || r.source)}</td>
+      <td class="n">${fmt(r.read)}</td><td class="n">${fmt(r.fixes)}</td><td class="n">${pct(r.fixes, r.read, 0)}</td></tr>`).join("") +
+    `</tbody></table>` : "<p class='note'>Ninguna partitura con 10 notas o más.</p>";
+  showExamples(false);
+}
+
+const seg = document.getElementById("source");
+seg.innerHTML = ["todas", ...DATA.sources].map(s =>
+  `<button type="button" data-s="${esc(s)}" aria-pressed="${s === source}">${esc(NAMES[s] || s)}</button>`).join("");
+seg.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  source = b.dataset.s;
+  seg.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  render();
+});
+document.getElementById("reorder").addEventListener("change", render);
+render();
+</script>
+</body>
+</html>

@@ -43,6 +43,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `--recortes` | Escribe además, para las mismas sesiones, lo que escribe `ml export-staves` (`recortes/`, `musicxml/`, `pentagramas.csv`; su formato, en ADR-0067) y llena `sistema` y `recorte` (ADR-0068). |
 | `--artifacts-dir` | Con `--recortes` y la base: el directorio de los artefactos de la copia, con las fotos (o `CADENZA_ARTIFACTS_DIR`). |
 | `--laminas` | Con `--recortes`: una lámina por sesión (la foto con las cajas y cada tira). |
+| `--informe` | Escribe además `informe.html`: las cifras de los errores de HOMR de estas tablas y, de cada una, hasta 12 ejemplos con la foto de su compás (con `--recortes`). Sin red: se abre en local (#415, ADR-0069). |
 | `--primus-dir` | Con `--recortes`: la carpeta de PrIMuS (`data/primus`, que solo se lee). Copia la imagen de cada incipit de las tablas a `recortes/primus/<id>.png`. |
 
 ## Formato
