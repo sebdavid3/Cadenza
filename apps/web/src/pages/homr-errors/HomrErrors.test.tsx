@@ -60,6 +60,18 @@ describe("la página de los errores de HOMR", () => {
     expect(within(region).getByRole("table")).toBeInTheDocument();
   });
 
+  it("cuenta las barras de compás mal leídas aparte de las notas (#466)", async () => {
+    const stats = values({ ops: { SetPitch: 60, MissingBarline: 9, ExtraBarline: 2 } });
+    render(<HomrErrors load={loader(payload([group("cadenza", { stats })]))} />);
+    await screen.findByText(/calculadas el/);
+
+    const region = section();
+    expect(within(region).getByText("Barra de compás que HOMR no leyó")).toBeInTheDocument();
+    expect(within(region).getByText("Barra de compás que sobraba")).toBeInTheDocument();
+    expect(within(region).getByText(/\(9 barras\)/)).toBeInTheDocument();
+    expect(within(region).getByText(/\(60 correcciones\)/)).toBeInTheDocument();
+  });
+
   it("explica qué son HOMR, PrIMuS y Camera-PrIMuS, con sus enlaces", async () => {
     render(<HomrErrors load={loader(payload([group("primus")]))} />);
     await screen.findByText(/calculadas el/);

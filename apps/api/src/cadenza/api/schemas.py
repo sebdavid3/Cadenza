@@ -1224,7 +1224,7 @@ class HomrErrorStatsValuesRead(BaseModel):
         ...,
         description=(
             "Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y"
-            " `sin_alinear` (en un compás que sobraba)."
+            " `sin_alinear` (en un pentagrama que la partitura correcta no tiene)."
         ),
     )
     missing: int = Field(..., ge=0, description="Notas y silencios que HOMR no leyó.")
@@ -1235,7 +1235,8 @@ class HomrErrorStatsValuesRead(BaseModel):
         ...,
         description=(
             "Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`,"
-            " `InsertEvent`, `SetClef`, `SetKey`…"
+            " `InsertEvent`, `SetClef`, `SetKey`… y las barras de compás mal leídas, que no son"
+            " ediciones (#466): `MissingBarline` (no leída) y `ExtraBarline` (leída de más)."
         ),
     )
     steps: dict[str, int] = Field(

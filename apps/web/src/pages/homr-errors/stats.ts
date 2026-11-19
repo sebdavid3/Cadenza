@@ -133,9 +133,15 @@ export const OPS: Record<string, string> = {
   InsertEvent: "Nota que HOMR no leyó",
   SetClef: "Clave equivocada",
   SetKey: "Armadura equivocada",
+  // No son ediciones: ninguna mueve una barra (#466, ADR-0075).
+  MissingBarline: "Barra de compás que HOMR no leyó",
+  ExtraBarline: "Barra de compás que sobraba",
 };
 
 export const opName = (op: string): string => OPS[op] ?? op;
+
+/** Si la «corrección» es una barra de compás mal leída: no es una edición (ADR-0075). */
+export const isBarline = (op: string): boolean => op === "MissingBarline" || op === "ExtraBarline";
 
 /** Cómo se dice en «Lo que dicen los datos» que una nota leída necesitó esta corrección. */
 const OP_FINDING: Record<string, string> = {
@@ -166,7 +172,7 @@ export const OUTCOMES: readonly Outcome[] = [
   {
     key: "sin_alinear",
     label: "Sin alinear",
-    what: "Está en un compás que HOMR leyó de más: no hay compás correcto con que compararla, así que no se sabe si estaba bien.",
+    what: "Está en un pentagrama que la partitura correcta no tiene: no hay con qué compararla, así que no se sabe si estaba bien.",
   },
   {
     key: "bien",

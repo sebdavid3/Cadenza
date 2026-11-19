@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from fractions import Fraction
@@ -153,55 +153,166 @@ def _substitution_cost(p: Event, g: Event) -> float:
     return cost
 
 
+def _align[T](
+    read: Sequence[T],
+    truth: Sequence[T],
+    substitution: Callable[[T, T], float],
+    gap: Callable[[T], float],
+) -> list[tuple[T | None, T | None]]:
+    """La alineación de mínimo coste de dos secuencias: sustituir con `substitution` (infinito si
+    no se puede) y borrar o insertar con `gap`. En los empates, sustituir, luego insertar y luego
+    borrar, recorriendo desde el final."""
+    n = len(read)
+    m = len(truth)
+
+    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
+    for i in range(1, n + 1):
+        dp[i][0] = dp[i - 1][0] + gap(read[i - 1])
+    for j in range(1, m + 1):
+        dp[0][j] = dp[0][j - 1] + gap(truth[j - 1])
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            sub_total = dp[i - 1][j - 1] + substitution(read[i - 1], truth[j - 1])
+            del_total = dp[i - 1][j] + gap(read[i - 1])
+            ins_total = dp[i][j - 1] + gap(truth[j - 1])
+            dp[i][j] = min(sub_total, del_total, ins_total)
+
+    alignment: list[tuple[T | None, T | None]] = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        if i > 0 and j > 0:
+            cost_sub = substitution(read[i - 1], truth[j - 1])
+            if cost_sub < float("inf") and abs(dp[i][j] - (dp[i - 1][j - 1] + cost_sub)) < 1e-6:
+                alignment.append((read[i - 1], truth[j - 1]))
+                i -= 1
+                j -= 1
+                continue
+        if j > 0 and abs(dp[i][j] - (dp[i][j - 1] + gap(truth[j - 1]))) < 1e-6:
+            alignment.append((None, truth[j - 1]))
+            j -= 1
+            continue
+        if i > 0 and abs(dp[i][j] - (dp[i - 1][j] + gap(read[i - 1]))) < 1e-6:
+            alignment.append((read[i - 1], None))
+            i -= 1
+            continue
+        if i > 0:
+            alignment.append((read[i - 1], None))
+            i -= 1
+        elif j > 0:
+            alignment.append((None, truth[j - 1]))
+            j -= 1
+
+    alignment.reverse()
+    return alignment
+
+
 def align_voice_events(
     pred_events: Sequence[Event],
     gt_events: Sequence[Event],
 ) -> list[tuple[Event | None, Event | None]]:
     """Alinea dos secuencias de eventos de una voz minimizando el costo de edición."""
-    n = len(pred_events)
-    m = len(gt_events)
+    return _align(pred_events, gt_events, _substitution_cost, lambda _: 1.0)
 
-    dp = [[0.0] * (m + 1) for _ in range(n + 1)]
-    for i in range(1, n + 1):
-        dp[i][0] = i * 1.0
-    for j in range(1, m + 1):
-        dp[0][j] = j * 1.0
 
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            cost_sub = _substitution_cost(pred_events[i - 1], gt_events[j - 1])
-            sub_total = dp[i - 1][j - 1] + cost_sub
-            del_total = dp[i - 1][j] + 1.0
-            ins_total = dp[i][j - 1] + 1.0
-            dp[i][j] = min(sub_total, del_total, ins_total)
+BARLINE_GAP_COST: Final[float] = 0.5
+"""Lo que cuesta, al alinear el íncipit entero (ADR-0075), una barra de compás leída de más o no
+leída. Menos que una nota: una barra que falta no se compensa moviendo notas; y más que cero:
+entre dos alineaciones de las notas igual de buenas, gana la que empareja las barras."""
 
-    alignment: list[tuple[Event | None, Event | None]] = []
-    i, j = n, m
-    while i > 0 or j > 0:
-        if i > 0 and j > 0:
-            cost_sub = _substitution_cost(pred_events[i - 1], gt_events[j - 1])
-            if cost_sub < float("inf") and abs(dp[i][j] - (dp[i - 1][j - 1] + cost_sub)) < 1e-6:
-                alignment.append((pred_events[i - 1], gt_events[j - 1]))
-                i -= 1
-                j -= 1
-                continue
-        if j > 0 and abs(dp[i][j] - (dp[i][j - 1] + 1.0)) < 1e-6:
-            alignment.append((None, gt_events[j - 1]))
-            j -= 1
+
+class _Barline:
+    """Una barra de compás entre dos compases, como ficha de la alineación del íncipit."""
+
+    __slots__ = ()
+
+
+_Token = Event | _Barline
+
+
+def _token_substitution(read: _Token, truth: _Token) -> float:
+    if isinstance(read, _Barline) or isinstance(truth, _Barline):
+        return 0.0 if isinstance(read, _Barline) and isinstance(truth, _Barline) else float("inf")
+    return _substitution_cost(read, truth)
+
+
+def _token_gap(token: _Token) -> float:
+    return BARLINE_GAP_COST if isinstance(token, _Barline) else 1.0
+
+
+def _tokens(measures: Sequence[Sequence[Event]]) -> list[_Token]:
+    tokens: list[_Token] = []
+    for index, events in enumerate(measures):
+        if index:
+            tokens.append(_Barline())
+        tokens.extend(events)
+    return tokens
+
+
+@dataclass(frozen=True, slots=True)
+class IncipitVoiceAlignment:
+    """La alineación de una voz en todo el pentagrama, sin agrupar por compás (#466, ADR-0075).
+
+    `pairs` son los pares de eventos (leído, verdad) en orden, como los de `align_voice_events`.
+    `slots[k]` dice dónde cae el par `k` en lo leído: `(compás, índice)`, con el índice del evento
+    leído en la voz de ese compás o, en una inserción, el del evento leído delante del que va.
+    `missing_barlines`, los sitios de lo leído (`(compás, índice)`) donde la verdad tiene una barra
+    de compás que la lectura no tiene; `extra_barlines`, los compases leídos cuya barra inicial no
+    está en la verdad. Los compases son índices de las listas recibidas. `missing_before` y
+    `extra_before` dicen cuántos pares van delante de cada barra en la alineación: su orden.
+    """
+
+    pairs: tuple[tuple[Event | None, Event | None], ...]
+    slots: tuple[tuple[int, int], ...]
+    missing_barlines: tuple[tuple[int, int], ...]
+    extra_barlines: tuple[int, ...]
+    missing_before: tuple[int, ...] = ()
+    extra_before: tuple[int, ...] = ()
+
+
+def align_incipit_voice(
+    read_measures: Sequence[Sequence[Event]],
+    truth_measures: Sequence[Sequence[Event]],
+) -> IncipitVoiceAlignment:
+    """Alinea una voz en todo el íncipit, con sus barras de compás (#466, ADR-0075).
+
+    Los eventos de todos los compases y las barras entre ellos se alinean en orden, como una sola
+    secuencia: una barra solo se empareja con otra barra, sin coste, y quitar o poner una cuesta
+    `BARLINE_GAP_COST`. Una nota bien leída al otro lado de una barra queda bien leída; la barra
+    de la verdad que no tiene pareja es una barra no leída, y la leída sin pareja, una de más.
+    """
+    pairs: list[tuple[Event | None, Event | None]] = []
+    slots: list[tuple[int, int]] = []
+    missing: list[tuple[int, int]] = []
+    extra: list[int] = []
+    missing_before: list[int] = []
+    extra_before: list[int] = []
+    measure = index = 0
+    for read, truth in _align(
+        _tokens(read_measures), _tokens(truth_measures), _token_substitution, _token_gap
+    ):
+        if isinstance(read, _Barline):
+            measure, index = measure + 1, 0
+            if truth is None:
+                extra.append(measure)
+                extra_before.append(len(pairs))
             continue
-        if i > 0 and abs(dp[i][j] - (dp[i - 1][j] + 1.0)) < 1e-6:
-            alignment.append((pred_events[i - 1], None))
-            i -= 1
+        if isinstance(truth, _Barline):
+            missing.append((measure, index))
+            missing_before.append(len(pairs))
             continue
-        if i > 0:
-            alignment.append((pred_events[i - 1], None))
-            i -= 1
-        elif j > 0:
-            alignment.append((None, gt_events[j - 1]))
-            j -= 1
-
-    alignment.reverse()
-    return alignment
+        pairs.append((read, truth))
+        slots.append((measure, index))
+        if read is not None:
+            index += 1
+    return IncipitVoiceAlignment(
+        pairs=tuple(pairs),
+        slots=tuple(slots),
+        missing_barlines=tuple(missing),
+        extra_barlines=tuple(extra),
+        missing_before=tuple(missing_before),
+        extra_before=tuple(extra_before),
+    )
 
 
 def _insert_after(g: Event) -> dict[str, Any]:

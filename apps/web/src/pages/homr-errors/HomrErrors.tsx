@@ -35,6 +35,7 @@ import {
   type Finding,
   groupInfo,
   MIN_ACCOUNTS,
+  isBarline,
   opName,
   OUTCOMES,
   PAGE_SIZE,
@@ -409,8 +410,10 @@ const GroupStats = memo(function GroupStats({
       <section className="homr__panel" aria-labelledby="homr-outcome">
         <h3 id="homr-outcome">Qué pasó con cada nota leída</h3>
         <p className="homr__panel-note">
-          Cada nota o silencio que leyó HOMR, comparado con la partitura correcta. Las notas que
-          HOMR no leyó no están aquí: salen en «Qué se corrige».
+          Cada nota o silencio que leyó HOMR, comparado con la partitura correcta en orden, de
+          principio a fin. Las notas que HOMR no leyó no están aquí: salen en «Qué se corrige». Si
+          HOMR no leyó una barra de compás, las notas de los dos lados siguen bien leídas: lo que
+          falta es la barra, que también sale en «Qué se corrige».
         </p>
         <dl className="homr__defs">
           {OUTCOMES.map((outcome) => (
@@ -430,7 +433,8 @@ const GroupStats = memo(function GroupStats({
         <section className="homr__panel" aria-labelledby="homr-ops">
           <h3 id="homr-ops">Qué se corrige</h3>
           <p className="homr__panel-note">
-            Por cada 100 notas que leyó HOMR, cuántas correcciones de cada tipo hicieron falta.
+            Por cada 100 notas que leyó HOMR, cuántas correcciones de cada tipo hicieron falta y
+            cuántas barras de compás leyó mal.
           </p>
           <OpsBars ops={stats.ops} read={read} choosing={choosing} />
         </section>
@@ -690,12 +694,13 @@ function OpsBars({
     <ul className="homr__bars" role="list">
       {rows.map(([op, n]) => {
         const per100 = perHundred(n, read);
+        const unit = isBarline(op) ? "barras" : "correcciones";
         return (
           <li key={op}>
             <Choice
               className="homr__bar"
               selection={{ key: `op:${op}`, title: opName(op), kicker: "Qué se corrige" }}
-              tip={tipProps(opName(op), `${fmt(n)} correcciones, ${per100} por cada 100 notas`)}
+              tip={tipProps(opName(op), `${fmt(n)} ${unit}, ${per100} por cada 100 notas`)}
               {...choosing}
             >
               <span className="homr__bar-name">{opName(op)}</span>
@@ -704,7 +709,10 @@ function OpsBars({
               </span>
               <span className="homr__bar-value">
                 {per100}
-                <span className="visually-hidden"> por cada 100 notas ({fmt(n)} correcciones)</span>
+                <span className="visually-hidden">
+                  {" "}
+                  por cada 100 notas ({fmt(n)} {unit})
+                </span>
               </span>
             </Choice>
           </li>

@@ -1,6 +1,6 @@
 """`ml export-tables`: los datos para reconocer los errores de HOMR, en CSV planos.
 
-Escribe en `--output-dir` un CSV por tabla (`partituras`, `notas`, `faltantes`,
+Escribe en `--output-dir` un CSV por tabla (`partituras`, `notas`, `faltantes`, `barras`,
 `clave_armadura`, `compases`, `sugerencias`, `avisos`) y un `run_info.json` con el commit, la
 fecha, los filtros, las sesiones que quedan fuera con su motivo, los recuentos y el sha256 de
 cada CSV. El análisis se hace fuera de la plataforma (pandas, R, hojas de cálculo); el
@@ -15,8 +15,8 @@ Dos orígenes, que pueden ir juntos en las mismas tablas (la columna `source` lo
 
 Con `--recortes` (#414, ADR-0068), en la misma carpeta y para las mismas sesiones, lo que escribe
 `ml export-staves` (cada pentagrama de la foto con lo que leyó HOMR y lo corregido); `notas`,
-`faltantes` y `compases` dicen en `sistema` y `recorte` la tira de la foto de su compás. Con
-`--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`; con
+`faltantes`, `barras` y `compases` dicen en `sistema` y `recorte` la tira de la foto de su
+compás. Con `--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`; con
 `--camera-primus-dir`, la imagen distorsionada de cada incipit de Camera-PrIMuS, a
 `recortes/camera-primus/`.
 
@@ -236,9 +236,9 @@ def _attach_strips(
     strips: dict[StripKey, tuple[int, str]],
     corpus_images: dict[str, tuple[int, str]],
 ) -> None:
-    """Pone en `sistema` y `recorte` de cada fila de notas, faltantes y compases su tira, o la
-    imagen de su incipit si sale de un corpus (PrIMuS, Camera-PrIMuS)."""
-    for name in ("notas", "faltantes", "compases"):
+    """Pone en `sistema` y `recorte` de cada fila de notas, faltantes, barras y compases su tira,
+    o la imagen de su incipit si sale de un corpus (PrIMuS, Camera-PrIMuS)."""
+    for name in ("notas", "faltantes", "barras", "compases"):
         for row in tables[name]:
             if row.get("source") == "cadenza":
                 part, staff, measure = (

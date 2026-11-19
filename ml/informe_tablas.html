@@ -342,7 +342,8 @@ const DATA = __DATA__;
 // Solo se separan las pruebas reales de Cadenza (#418): las sesiones de las cuentas del registro público.
 const NAMES = { todas: "Todas", pruebas: "Pruebas reales" };
 const OPS = { SetPitch: "Altura equivocada", SetDuration: "Figura equivocada", SetAccidental: "Alteración equivocada",
-  DeleteEvent: "Nota leída de más", InsertEvent: "Nota que HOMR no leyó", SetClef: "Clave equivocada", SetKey: "Armadura equivocada" };
+  DeleteEvent: "Nota leída de más", InsertEvent: "Nota que HOMR no leyó", SetClef: "Clave equivocada", SetKey: "Armadura equivocada",
+  MissingBarline: "Barra de compás que HOMR no leyó", ExtraBarline: "Barra de compás leída de más" };
 // Cómo se dice en «Lo que dicen los datos» que una nota leída necesitó esta corrección.
 const OP_FINDING = { SetDuration: "tenían mal la figura", SetPitch: "tenían mal la altura",
   SetAccidental: "tenían mal la alteración", DeleteEvent: "no estaban en la partitura: HOMR las leyó de más" };
@@ -350,7 +351,7 @@ const MIN_HEADLINE = 200;  // notas que necesita un grupo para salir en «Lo que
 const OUTCOMES = [
   ["corregida", "Corregida", "var(--ink)", "Está en la partitura correcta, pero hubo que cambiarle la altura, la alteración o la figura."],
   ["borrada", "Leída de más", "url(#trama)", "HOMR leyó una nota o un silencio que no está en la partitura correcta: se borró."],
-  ["sin_alinear", "Sin alinear", "url(#rayado)", "Está en un compás que HOMR leyó de más: no hay compás correcto con que compararla, así que no se sabe si estaba bien."],
+  ["sin_alinear", "Sin alinear", "url(#rayado)", "Está en un pentagrama que la partitura correcta no tiene: no hay con qué compararla, así que no se sabe si estaba bien."],
   ["bien", "Bien leída", "var(--paper-raised)", "Quedó igual en la partitura correcta: no hubo que tocarla."]];
 // --- El símbolo de cada figura ------------------------------------------------------------------
 // Dibujado aquí, sin fuentes: cabeza, plica, corchetes, puntillos, el número de un grupo

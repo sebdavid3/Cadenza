@@ -593,6 +593,7 @@ Se abre en local.
 | `partituras` | sesión (o incipit de PrIMuS) | base y corpus |
 | `notas` | evento leído, con su resultado (`bien`, `corregida`, `borrada`, `sin_alinear`) y su contexto | base y corpus |
 | `faltantes` | evento que faltaba | base y corpus |
+| `barras` | barra de compás que HOMR no leyó o leyó de más (#466, ADR-0075) | base y corpus |
 | `clave_armadura` | compás con la clave o la armadura corregidas | base y corpus |
 | `compases` | compás, comparando lectura y estado final | base |
 | `sugerencias` | sugerencia, con su respuesta (un rechazo heredado se marca) | base (y corpus de `build-dataset`) |

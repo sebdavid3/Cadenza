@@ -21,6 +21,7 @@ from cadenza.domain import (
     Part,
     ScoreIR,
     Staff,
+    Tie,
     TimeSignature,
     materialize,
     snapshot_before,
@@ -35,6 +36,7 @@ from cadenza.learning import (
     derive_edit_events,
     is_structurally_equal,
     primus_work_id,
+    replay_edits,
     semantic_note_pitches,
     with_sounding_pitches,
 )
@@ -379,18 +381,172 @@ def test_records_account_for_every_derived_edit_exactly_once() -> None:
         )
 
 
-def test_records_of_a_measure_without_truth_are_marked_unaligned() -> None:
-    """Los compases leídos de más no tienen verdad con que alinearse: no se etiquetan."""
+def test_records_of_a_measure_read_twice_align_with_the_whole_incipit() -> None:
+    """Un compás leído de más no se queda sin alinear (#466): su nota sobra y su barra también."""
     predicted = _score(_measure(1, _note("C5"), key=0), _measure(2, _note("D5")))
     truth = _score(_measure(1, _note("C5"), key=0))
     records = build_correction_records(
         predicted, truth, incipit_id="c", split="train", verified=False
     )
-    extra = [r for r in records if r["anchor"]["measure"] == 2]
-    assert len(extra) == 1
-    assert extra[0]["aligned"] is False
-    assert extra[0]["correction"] is None
-    assert all(r["aligned"] for r in records if r["anchor"]["measure"] == 1)
+    assert all(r["aligned"] for r in records)
+    extra = [r for r in records if r["record"] == "event" and r["anchor"]["measure"] == 2]
+    assert [r["correction"] for r in extra] == [{"ops": ["DeleteEvent"]}]
+    assert _barlines(records) == [("extra", 2, 0)]
+
+
+def test_records_without_a_truth_staff_are_marked_unaligned() -> None:
+    """Sin pentagrama en la verdad no hay con qué alinear: lo leído no se etiqueta."""
+    predicted = _score(_measure(1, _note("C5"), key=0))
+    truth = ScoreIR(parts=())
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    assert [(r["record"], r["aligned"], r["correction"]) for r in records] == [
+        ("event", False, None)
+    ]
+
+
+# --- Las barras de compás (#466) ----------------------------------------------------------
+
+
+def _barlines(records: list[dict[str, Any]]) -> list[tuple[str, int, int]]:
+    """Las barras de compás mal leídas: qué le pasó, en qué compás leído y delante de qué
+    evento leído."""
+    return [
+        (r["correction"]["barline"], r["anchor"]["measure"], r["anchor"]["event_index"])
+        for r in records
+        if r["record"] == "barline"
+    ]
+
+
+def _outcomes(records: list[dict[str, Any]]) -> list[tuple[int, int, Any]]:
+    return [
+        (r["anchor"]["measure"], r["anchor"]["event_index"], r["correction"])
+        for r in records
+        if r["record"] in ("event", "insertion")
+    ]
+
+
+def test_a_barline_homr_did_not_read_is_neither_extra_nor_missing_notes() -> None:
+    """La verdad tiene dos compases y HOMR leyó lo mismo sin la barra: las notas están bien y el
+    error es la barra que no leyó, no unas notas que sobraban y otras que no leyó (#466)."""
+    second = [_note("C5"), _note("C5", "1/2"), _note("C5", "1/2"), _note("G4")]
+    truth = _score(_measure(1, _note("G4"), key=0), _measure(2, *second))
+    predicted = _score(_measure(1, _note("G4"), *second, key=0))
+
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+
+    assert [r["record"] for r in records].count("insertion") == 0
+    assert _outcomes(records) == [(1, i, None) for i in range(5)]
+    assert _barlines(records) == [("missing", 1, 1)]
+    barline = next(r for r in records if r["record"] == "barline")
+    assert barline["aligned"] is True
+    assert barline["read"] == {"barline": False}
+    assert barline["correction"] == {"barline": "missing"}
+    assert barline["context"]["prev"]["pitch"] == "G4"
+    assert barline["context"]["next"]["pitch"] == "C5"
+    # Las ediciones derivadas siguen siendo válidas para la API, aunque sin barra que mover no
+    # reproducen la verdad (ADR-0075).
+    replay_edits(predicted, derive_edit_events(predicted, truth))
+
+
+def test_camera_primus_000121406_reads_the_whole_incipit_in_one_measure() -> None:
+    """El caso real de Camera-PrIMuS `000121406-1_1_1` (#466): HOMR no leyó tres barras y metió
+    cuatro compases en el primero; también leyó la como do. Antes salían 16 notas que sobraban y
+    4 que no leyó; ahora, 4 alturas y 3 barras de compás no leídas."""
+
+    def notes(spec: str) -> list[Event]:
+        pairs = [item.split(":") for item in spec.split()]
+        return [_note(pitch, beats) for pitch, beats in pairs]
+
+    truth = _score(
+        _measure(1, *notes("G4:1"), key=0, time=TimeSignature(4, 4), clef=Clef.treble()),
+        _measure(2, *notes("C5:1 C5:1/2 C5:1/2 C5:1 G4:1")),
+        _measure(3, *notes("G4:1/2 A4:1/2 G4:1/2 F4:1/2 E4:1 G4:1")),
+        _measure(4, *notes("C5:1 B4:1/2 A4:1/2 G4:1 F#4:1")),
+        _measure(5, *notes("G4:1"), _rest("1"), _rest("1")),
+    )
+    read_first = notes(
+        "G4:1 A4:1 A4:1/2 A4:1/2 A4:1 G4:1 G4:1/2 A4:1/2 G4:1/2 F4:1/2 E4:1 G4:1 "
+        "C5:1 B4:1/2 A4:1/2 G4:1 F#4:1"
+    )
+    predicted = _score(
+        _measure(1, *read_first, key=0, time=TimeSignature(8, 4), clef=Clef.treble()),
+        _measure(2, *notes("G4:1"), _rest("1"), _rest("1")),
+    )
+
+    records = build_correction_records(
+        predicted, truth, incipit_id="camera-primus:000121406-1_1_1", split="test", verified=False
+    )
+
+    assert _ops(records) == {"SetPitch": 4}
+    assert [(m, i) for m, i, fix in _outcomes(records) if fix] == [(1, i) for i in range(1, 5)]
+    assert all(r["record"] != "insertion" for r in records)
+    assert _barlines(records) == [("missing", 1, 1), ("missing", 1, 6), ("missing", 1, 12)]
+    replay_edits(predicted, derive_edit_events(predicted, truth))
+
+
+def test_a_barline_homr_read_in_the_wrong_place_is_one_missing_and_one_extra() -> None:
+    truth = _score(_measure(1, _note("A4"), _note("B4"), key=0), _measure(2, _note("C5")))
+    predicted = _score(_measure(1, _note("A4"), key=0), _measure(2, _note("B4"), _note("C5")))
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=True
+    )
+    assert _outcomes(records) == [(1, 0, None), (2, 0, None), (2, 1, None)]
+    assert sorted(_barlines(records)) == [("extra", 2, 0), ("missing", 2, 1)]
+
+
+def test_missing_notes_at_a_barline_go_to_their_side_of_it() -> None:
+    """Las notas que faltan junto a una barra bien leída van al compás de la verdad: la del
+    primero al final del compás leído 1, la del segundo al principio del 2."""
+    truth = _score(
+        _measure(1, _note("A4"), _note("B4"), key=0), _measure(2, _note("C5"), _note("D5"))
+    )
+    predicted = _score(_measure(1, _note("A4"), key=0), _measure(2, _note("D5")))
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=True
+    )
+    insertions = [
+        (r["anchor"]["measure"], r["anchor"]["event_index"], r["correction"]["event"]["pitch"])
+        for r in records
+        if r["record"] == "insertion"
+    ]
+    assert insertions == [(1, 1, "B4"), (2, 0, "C5")]
+    assert _barlines(records) == []
+    assert _ops(records) == _derived_ops(predicted, truth)
+
+
+def test_missing_measures_at_the_end_are_missing_notes_and_barlines() -> None:
+    """Lo que la verdad tiene tras el último compás leído también falta (antes no contaba)."""
+    truth = _score(_measure(1, _note("A4"), key=0), _measure(2, _note("B4")))
+    predicted = _score(_measure(1, _note("A4"), key=0))
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    insertions = [
+        (r["anchor"]["measure"], r["anchor"]["event_index"], r["correction"]["event"]["pitch"])
+        for r in records
+        if r["record"] == "insertion"
+    ]
+    assert insertions == [(1, 1, "B4")]
+    assert _barlines(records) == [("missing", 1, 1)]
+
+
+def test_barlines_are_counted_once_per_staff_not_per_voice() -> None:
+    truth = _score(
+        _measure(1, _note("A4"), _note("C4", voice=1), key=0),
+        _measure(2, _note("B4"), _note("D4", voice=1)),
+    )
+    predicted = _score(
+        _measure(1, _note("A4"), _note("B4"), _note("C4", voice=1), _note("D4", voice=1), key=0)
+    )
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    assert _barlines(records) == [("missing", 1, 1)]
+    assert all(r["correction"] is None for r in records if r["record"] == "event")
 
 
 # --- La figura de un acorde (ADR-0049) ---------------------------------------------------
@@ -618,3 +774,64 @@ def test_grace_notes_written_in_the_view_reach_the_corpus() -> None:
     assert inserted[0]["correction"]["event"]["pitch"] == "G4"
     derived = derive_edit_events(raw, final, document_id="d")
     assert is_structurally_equal(materialize(raw, derived), final)
+
+
+def test_notes_replaced_on_both_sides_of_a_barline_do_not_move_it() -> None:
+    """PrIMuS `000100134-7_1_1`: HOMR no leyó la ligadura de una nota que cruza la barra. Las dos
+    notas se borran y se insertan, cada una en su compás, y la barra, bien leída, no cuenta (#466).
+    """
+    tied = [
+        Event(kind=EventKind.NOTE, pitch="C5", duration_beats=Fraction(1), tie=Tie.START),
+        Event(kind=EventKind.NOTE, pitch="C5", duration_beats=Fraction(1), tie=Tie.STOP),
+    ]
+    truth = _score(_measure(1, _rest(), tied[0], key=0), _measure(2, tied[1], _note("B4")))
+    predicted = _score(
+        _measure(1, _rest(), _note("C5"), key=0), _measure(2, _note("C5"), _note("B4"))
+    )
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=True
+    )
+    assert _barlines(records) == []
+    assert _ops(records) == _derived_ops(predicted, truth) == {"DeleteEvent": 2, "InsertEvent": 2}
+
+
+def test_records_follow_the_alignment_order_around_a_missing_barline() -> None:
+    """La nota que falta tras la barra no leída va después de la barra; la de antes, delante."""
+    truth = _score(
+        _measure(1, _note("A4"), _note("B4"), key=0), _measure(2, _note("D5"), _note("C5"))
+    )
+    predicted = _score(_measure(1, _note("A4"), _note("B4"), _note("C5"), key=0))
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    assert [r["record"] for r in records] == ["event", "event", "barline", "insertion", "event"]
+
+    truth = _score(
+        _measure(1, _note("A4"), _note("B4"), _note("D5"), key=0), _measure(2, _note("C5"))
+    )
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    assert [r["record"] for r in records] == ["event", "event", "insertion", "barline", "event"]
+
+
+def test_with_several_voices_the_barline_is_placed_by_the_fullest_voice() -> None:
+    """Una voz con compases vacíos no sabe entre cuáles falta la barra: manda la que tiene más."""
+    truth = _score(
+        _measure(1, _note("A4"), _note("C4", voice=1), key=0),
+        _measure(2, _note("D4", voice=1)),
+        _measure(3, _note("E4", voice=1)),
+        _measure(4, _note("F4", voice=1)),
+    )
+    predicted = _score(
+        _measure(1, _note("A4"), _note("C4", voice=1), key=0),
+        _measure(2, _note("D4", voice=1), _note("E4", voice=1)),
+        _measure(3, _note("F4", voice=1)),
+    )
+    records = build_correction_records(
+        predicted, truth, incipit_id="c", split="train", verified=False
+    )
+    barlines = [r for r in records if r["record"] == "barline"]
+    assert [
+        (b["anchor"]["voice"], *t) for b, t in zip(barlines, _barlines(records), strict=True)
+    ] == [(1, "missing", 2, 1)]
