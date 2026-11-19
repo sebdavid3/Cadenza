@@ -419,7 +419,7 @@ artefactos, nunca la de producción, y con la salida fuera de `results/`:
 
 ```powershell
 uv run --no-sync python -m ml export-staves --output-dir <carpeta> --db-url <url de la copia> `
-  --artifacts-dir <artefactos de la copia> [--laminas] [--include-unfinished] [--include-self-registered]
+  --artifacts-dir <artefactos de la copia> [--laminas] [--include-unfinished] [--exclude-self-registered]
 ```
 
 Escribe `recortes/<sesión>/s<sistema>_<parte>-<pentagrama>.png`, `pentagramas.csv` (una fila por
@@ -427,8 +427,10 @@ tira: su caja en la foto, sus compases y las secuencias `lectura` y `corregida`,
 si difieren), `musicxml/<sesión>-homr.musicxml` y `-final.musicxml`, con `--laminas` una lámina
 por sesión para comprobarlo a ojo, y `run_info.json` con las sesiones que quedan fuera y su
 motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por defecto, solo las
-sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
-con el permiso de uso de los datos vigente.
+sesiones finalizadas; de las cuentas del registro, las que tienen el permiso de uso de los datos
+vigente (#422), ninguna con `--exclude-self-registered` y nunca las que no lo tienen, que solo
+se cuentan en `run_info.json` (`consent`). Es la misma regla en todos los comandos que leen la
+base (`cadenza.learning.consent`); `--include-self-registered` se retiró en #422 y darla falla.
 
 ### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0071)
 
@@ -457,7 +459,7 @@ su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
 
 | Comando | Entrada | Salida | Metadatos persistidos |
 |---|---|---|---|
-| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`, `UserRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, `self_registered_included`, muestras |
+| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`, `UserRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, `self_registered_included` (si entraron las cuentas del registro con el permiso vigente, #422), `consent` (las sesiones que dejó fuera el permiso, sin cuáles), muestras |
 | `select` | `dataset.json` | `selected.json` | `dataset_hash`, `source_dataset_hash`, `strategy`, `budget`, `seed`, `self_registered_included` |
 | `train` | `selected.json` | `trained_artifact.json` + `data/artifacts/sha256/...` | `artifact_hash` (pesos), `dataset_hash`, `config_hash`, métricas |
 | `evaluate` | `trained_artifact.json` | `evaluation_report.json` | `metrics` (SER, OMR-NED), `threshold`, `meets_threshold` |
@@ -506,9 +508,11 @@ uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report
 
 # 4. Bucle de aprendizaje: el corpus de exp_12, sin modificarlo, más las sesiones finalizadas
 #    de Cadenza (partidas por obra: las que comparten partitura de prueba o foto, juntas, #437)
-#    y las respuestas a sus sugerencias.
+#    y las respuestas a sus sugerencias. De las cuentas del registro, las del permiso de uso de
+#    los datos vigente (#422); con --exclude-self-registered, ninguna.
 uv run --no-sync python -m ml suggestions build-dataset --corpus <corpus de exp_12> `
-  --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición>
+  --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición> `
+  [--exclude-self-registered]
 ```
 
 | Comando | Entrada | Salida | Trazabilidad |
@@ -537,9 +541,9 @@ por qué, los recuentos y el sha256 de cada CSV. No escribe nada por defecto en 
 `data/`, y se ejecuta sobre una copia de la base, nunca sobre la de producción.
 
 ```powershell
-# Base: sesiones finalizadas, sin cuentas del registro público (opciones para incluirlas).
+# Base: sesiones finalizadas; de las cuentas del registro, las del permiso vigente (#422).
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
-  --split-seed <semilla de la partición> [--include-unfinished] [--include-self-registered]
+  --split-seed <semilla de la partición> [--include-unfinished] [--exclude-self-registered]
 
 # Corpus JSONL (el de PrIMuS de exp_12, el de Camera-PrIMuS de exp_18 o el de
 # `suggestions build-dataset`), mismas columnas. --corpus se repite para juntar varios.

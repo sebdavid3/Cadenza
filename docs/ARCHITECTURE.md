@@ -671,7 +671,7 @@ TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos
 
 | Comando | Función |
 |---|---|
-| `build-dataset` | Lee sesiones y `EditEvent` de la base de datos y produce muestras de entrenamiento con su `dataset_hash`. Deja fuera las sesiones de cuentas del registro público (ADR-0022), salvo con `--include-self-registered` ([#191](https://github.com/sebdavid3/Cadenza/issues/191)). |
+| `build-dataset` | Lee sesiones y `EditEvent` de la base de datos y produce muestras de entrenamiento con su `dataset_hash`. De las cuentas del registro público, entran las que tienen el permiso de uso de los datos vigente y ninguna con `--exclude-self-registered`; las que no lo tienen, nunca (ADR-0065, enmienda de [#422](https://github.com/sebdavid3/Cadenza/issues/422); antes, fuera salvo con `--include-self-registered`, [#191](https://github.com/sebdavid3/Cadenza/issues/191)). Es la misma regla en todos los comandos de `ml` que leen la base (`cadenza.learning.consent`). |
 | `select` | Aplica una `AcquisitionStrategy` con un presupuesto. |
 | `train` | Ajusta el modelo con una configuración versionada y exporta ONNX al `ArtifactStore`. |
 | `evaluate` | Calcula SER y OMR-NED contra el corpus de evaluación. |

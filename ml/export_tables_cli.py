@@ -42,6 +42,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from cadenza.learning.consent import ConsentTally
 from cadenza.learning.suggestions import SuggestionTrainingError, file_sha256, read_corpus
 from cadenza.learning.tables import TABLES, cell, corpus_tables, database_tables, merge_tables
 from cadenza.persistence import (
@@ -55,6 +56,8 @@ from cadenza.persistence import (
 )
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
+
+from ml.consent_cli import add_consent_options
 
 TABLES_FORMAT_VERSION = 2
 
@@ -259,6 +262,9 @@ def export_tables_command(args: argparse.Namespace) -> int:
         return _fail(
             "la base necesita --split-seed (la semilla de correction_corpus_split.json de #255)"
         )
+    if db_url is None and args.exclude_self_registered:
+        # Un corpus trae las sesiones que entraron al hacerlo: no se pueden volver a filtrar.
+        return _fail("--exclude-self-registered va con la base (--db-url)")
     from ml.export_staves_cli import strips_csv, unsafe_output
 
     output = Path(args.output_dir).resolve()
@@ -284,6 +290,7 @@ def export_tables_command(args: argparse.Namespace) -> int:
     corpora: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     left_out: dict[str, str] = {}
+    consent = ConsentTally()
     for corpus_path in corpus_paths:
         try:
             records = read_corpus(corpus_path)
@@ -328,8 +335,9 @@ def export_tables_command(args: argparse.Namespace) -> int:
                 user_repository=SqlAlchemyUserRepository(db),
                 split_seed=args.split_seed,
                 test_fraction=args.test_fraction,
-                include_self_registered=args.include_self_registered,
+                exclude_self_registered=args.exclude_self_registered,
                 include_unfinished=args.include_unfinished,
+                consent=consent,
             )
             if args.recortes:
                 store = FilesystemArtifactStore(artifacts, db)
@@ -388,11 +396,13 @@ def export_tables_command(args: argparse.Namespace) -> int:
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "origins": origins,
         "filters": {
-            "include_self_registered": args.include_self_registered,
+            "exclude_self_registered": args.exclude_self_registered,
             "include_unfinished": args.include_unfinished,
             "split_seed": args.split_seed,
             "test_fraction": args.test_fraction,
         },
+        # Sin la base, nada que contar: el corpus trae lo que se exportó al hacerlo.
+        "consent": consent.to_primitive() if db_url is not None else None,
         "left_out": dict(sorted(left_out.items())),
         "tables": summary,
         "dictionary": "docs/experimentos/diccionario_tablas.md",
@@ -406,7 +416,10 @@ def export_tables_command(args: argparse.Namespace) -> int:
     print("[export-tables] Tablas escritas.")
     for name, data in summary.items():
         print(f"  {name:<15}: {data['rows']} filas {data['by_source']}")
-    print(f"  fuera          : {len(left_out)}")
+    print(
+        f"  fuera          : {len(left_out)}, más {consent.without_current_consent} sin el"
+        f" permiso vigente y {consent.excluded_by_option} con --exclude-self-registered"
+    )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
     report = None
@@ -489,14 +502,7 @@ def add_parser(subparsers: Any) -> None:
             " la imagen distorsionada de cada incipit."
         ),
     )
-    parser.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help=(
-            "Incluir las sesiones de cuentas del registro público con el permiso de uso de los"
-            " datos vigente (fuera por defecto)."
-        ),
-    )
+    add_consent_options(parser)
     parser.add_argument(
         "--include-unfinished",
         action="store_true",

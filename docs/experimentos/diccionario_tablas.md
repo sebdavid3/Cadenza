@@ -9,8 +9,8 @@
 ## Uso
 
 ```powershell
-# Sobre una copia de la base (nunca la de producción): sesiones finalizadas, sin cuentas del
-# registro público.
+# Sobre una copia de la base (nunca la de producción): sesiones finalizadas; de las cuentas del
+# registro público, las que tienen el permiso de uso de los datos vigente (#422).
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> `
   --db-url <url de la copia> --split-seed <semilla de correction_corpus_split.json>
 
@@ -41,7 +41,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `--corpus` | Corpus JSONL de correcciones (formato de `build_correction_records`, versión 1). Se repite para juntar varios en las mismas tablas (#421); un mismo incipit de la misma fuente en dos corpus es un error, porque saldría dos veces. |
 | `--split-seed` | Obligatoria con la base: la semilla de la partición de #255. |
 | `--test-fraction` | Fracción de prueba de la partición (0,2, como #255). |
-| `--include-self-registered` | Incluye las sesiones de cuentas del registro público **con el permiso de uso de los datos de la versión vigente del texto** (ADR-0065; la misma regla que `ml export-staves`, ADR-0067). Las demás cuentas del registro quedan fuera también con la opción. Sin ella, todas fuera. |
+| `--exclude-self-registered` | Deja fuera todas las sesiones de cuentas del registro público. Sin ella entran las que tienen **el permiso de uso de los datos de la versión vigente del texto** (ADR-0065, enmienda de #422; la misma regla en todos los comandos de `ml`). Las que no lo tienen quedan siempre fuera y solo se cuentan (`consent` en `run_info.json`). `--include-self-registered` se retiró en #422: ya es lo de por defecto, y darla falla con un mensaje que lo explica. |
 | `--include-unfinished` | Incluye las sesiones sin finalizar; su estado final es el último del log, no uno que la persona dio por bueno. |
 | `--recortes` | Escribe además, para las mismas sesiones, lo que escribe `ml export-staves` (`recortes/`, `musicxml/`, `pentagramas.csv`; su formato, en ADR-0067) y llena `sistema` y `recorte` (ADR-0068). |
 | `--artifacts-dir` | Con `--recortes` y la base: el directorio de los artefactos de la copia, con las fotos (o `CADENZA_ARTIFACTS_DIR`). |
@@ -78,8 +78,9 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `generated_at` | Fecha y hora de la exportación (UTC, ISO 8601). |
 | `origins.database` | `url`: solo el dialecto y el nombre de la base (`postgresql:cadenza`), sin usuario, host ni contraseña; y el número de sesiones exportadas. |
 | `origins.corpus` | Nombre del archivo (sin la ruta), sha256, número de registros y registros por `source` (`sources`) del corpus; con la base, `cadenza_records_dropped`: los registros de sesiones de Cadenza que se descartaron porque salen de la base. Con varios `--corpus`, una lista con uno por corpus, en el orden dado. |
-| `filters` | `include_self_registered`, `include_unfinished`, `split_seed`, `test_fraction`. |
-| `left_out` | Las sesiones que quedan fuera, con su motivo: `cuenta del registro público`, `cuenta del registro sin el permiso de uso de los datos vigente`, `sin terminar (status …)` o `sin página de origen (test_score_id ni imagen)`. |
+| `filters` | `exclude_self_registered` (antes de #422, `include_self_registered`), `include_unfinished`, `split_seed`, `test_fraction`. |
+| `consent` | Con la base: `version` (la del texto vigente del permiso), `sessions_without_current_consent` (sesiones de cuentas del registro sin el permiso vigente) y `sessions_excluded_by_option` (las que deja fuera `--exclude-self-registered`). Solo el número: esas sesiones no salen en ninguna parte (#422). Se cuentan entre las finalizadas o, con `--include-unfinished`, entre todas. Sin la base, `null`. |
+| `left_out` | Las sesiones que quedan fuera por otros motivos que el permiso, con el suyo: `sin terminar (status …)`, `sin página de origen (test_score_id ni imagen)` o `sin la cuenta de su dueño`. |
 | `tables` | Por tabla: filas, filas por `source` y sha256 del CSV. |
 | `recortes` | Solo con `--recortes`: `sessions` (las sesiones con recortes), `left_out` (las sesiones de las tablas sin recortes, con su motivo: sin captura, sin imagen, cajas que no casan…), `strips` y `strips_corrected`, `pentagramas_sha256` (o `null` sin la base), `laminas`, `artifacts_dir` (solo el nombre), `primus_images` (imágenes copiadas) y `primus_missing` (incipits sin imagen), y lo mismo de Camera-PrIMuS en `camera_primus_images` y `camera_primus_missing`. |
 
@@ -120,7 +121,7 @@ En PrIMuS y Camera-PrIMuS, `recorte` es la imagen del incipit entero.
 
 | Columna | Significado | Origen |
 |---|---|---|
-| `participante` | Nombre de usuario de la cuenta dueña. En las cuentas del estudio es un seudónimo; en las del registro público (`--include-self-registered`) es el que eligió la persona y puede identificarla. | `users.username` |
+| `participante` | Nombre de usuario de la cuenta dueña. En las cuentas del estudio es un seudónimo; en las del registro público (entran por defecto las que tienen el permiso vigente, #422) es el que eligió la persona y puede identificarla. | `users.username` |
 | `origen` | `estudio` si la sesión tiene `test_score_id`; si no, `registro` si la cuenta es del registro público; si no, `equipo`. | calculado |
 | `condition` | Condición del estudio. | `assisted` o `unassisted` |
 | `test_score_id` | Partitura del banco del estudio (TS-01 a TS-04), si la hay. | `sessions` |
@@ -300,12 +301,15 @@ indicación sin mover compases), así que el compás N leído es el compás N fi
   cada tramo (`time_final` distinto del compás anterior).
 - Con solo `--corpus`, las filas `source: cadenza` de un corpus de `build-dataset` se
   exportan tal cual: si ese corpus se generó con `--include-self-registered` antes de la
-  enmienda de #400 en ADR-0065, puede traer cuentas sin el permiso vigente. Para las
-  sesiones de Cadenza, mejor la base (`--db-url`).
+  enmienda de #400 en ADR-0065, puede traer cuentas sin el permiso vigente. Y desde
+  #422 cualquier corpus de `build-dataset` es una foto del permiso al hacerlo: trae
+  las cuentas del registro que lo tenían entonces, aunque lo hayan retirado después, y
+  `--exclude-self-registered` no lo puede filtrar (sin la base, la opción falla). Para
+  las sesiones de Cadenza, mejor la base (`--db-url`).
 - `notas` y `faltantes` alinean por voz dentro del compás: un evento cambiado de voz sale como
   borrado y faltante.
 - La obra de una sesión se forma con las sesiones que entran en la exportación (#437): con
-  `--include-unfinished` o `--include-self-registered`, o con una sesión nueva que une una foto
+  `--include-unfinished` o `--exclude-self-registered`, o con una sesión nueva que une una foto
   a su partitura de prueba, una sesión puede cambiar de `work_id` y de lado. Dos exportaciones
   con filtros distintos no tienen por qué partir igual; dentro de una, ninguna foto está en las
   dos particiones. Dos fotos distintas de la misma página impresa, sin partitura de prueba que
