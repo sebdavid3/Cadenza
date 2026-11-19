@@ -65,8 +65,9 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     assert "http://" not in text and "https://" not in text
 
     data = _data(page)
-    assert data["sources"] == ["cadenza"]
-    assert set(data["variants"]) == {"todas|0", "todas|1", "cadenza|0", "cadenza|1"}
+    # Sin cuentas del registro no hay pruebas reales que separar: solo «todas».
+    assert data["groups"] == []
+    assert set(data["variants"]) == {"todas|0", "todas|1"}
     notas = _rows(output / "notas.csv")
     every = data["variants"]["todas|0"]
     assert every["read"] == len(notas)
@@ -77,11 +78,22 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     # La altura corregida del compás 2 lleva a la tira de su sistema.
     examples = [every["examples"][i] for i in every["example_keys"]["op:SetPitch"]]
     assert {(x["measure"], x["read"], x["fix"], x["img"]) for x in examples} == {
-        ("2", "C4 4", "D4 4", "recortes/s-foto/s1_0-0.png")
+        ("2", "C4 redonda", "D4 redonda", "recortes/s-foto/s1_0-0.png")
     }
     for example in every["examples"]:
         assert not example["img"] or (output / example["img"]).is_file()
     assert every["example_keys"]["step:1"], "un paso arriba: de C4 a D4"
+    # Las tiras escriben cada duración con el nombre de su figura, nunca con una fracción.
+    durations = {
+        match.group(1)
+        for row in _rows(output / "pentagramas.csv")
+        for text in (row["lectura"], row["corregida"])
+        for match in re.finditer(r":([^:\s~]+)~?(?=\s|$)", text)
+    }
+    assert durations and durations <= set(data["figures"])
+    assert {r["read_duration_beats"] for r in notas} <= set(data["figures"])
+    assert all(not re.search(r"\d", f["name"]) and f["symbol"] for f in data["figures"].values())
+    assert all(x["read_beats"] or x["fix_beats"] for x in every["examples"])
 
 
 def test_without_recortes_the_report_has_no_photos(
@@ -101,8 +113,82 @@ def test_the_report_reads_a_primus_corpus(tmp_path: Path) -> None:
         == 0
     )
     data = _data(output / "informe.html")
-    assert data["sources"] == ["primus"]
-    assert data["variants"]["primus|0"]["read"] == len(_rows(output / "notas.csv"))
+    # PrIMuS no se separa de «todas» (#418).
+    assert data["groups"] == [] and set(data["variants"]) == {"todas|0", "todas|1"}
+    assert data["variants"]["todas|0"]["read"] == len(_rows(output / "notas.csv"))
+
+
+def test_only_the_real_tests_of_cadenza_are_split(
+    base: tuple[str, Path], tmp_path: Path  # noqa: F811
+) -> None:
+    output = tmp_path / "con-registro"
+    assert _export(output, base, "--recortes", "--include-self-registered", "--informe") == 0
+    partituras = _rows(output / "partituras.csv")
+    real = {r["incipit_id"] for r in partituras if r["origen"] == "registro"}
+    assert real and len(real) < len(partituras), "la de la visita y las del equipo"
+
+    data = _data(output / "informe.html")
+    assert data["groups"] == ["pruebas"]
+    assert set(data["variants"]) == {"todas|0", "todas|1", "pruebas|0", "pruebas|1"}
+    notas = _rows(output / "notas.csv")
+    assert data["variants"]["pruebas|0"]["read"] == sum(1 for r in notas if r["incipit_id"] in real)
+    assert data["variants"]["pruebas|0"]["scores"] == len(real)
+    assert data["variants"]["todas|0"]["read"] == len(notas)
+    real_sessions = {r["session_id"] for r in partituras if r["origen"] == "registro"}
+    assert {s["session"] for s in data["sessions"] if s["real"]} <= real_sessions
+    origins = {r["origin"] for r in data["variants"]["todas|0"]["top"]}
+    assert origins <= {"Prueba real", "Equipo", "Banco del estudio", "PrIMuS"}
+
+
+@pytest.mark.parametrize(
+    ("beats", "name"),
+    [
+        ("0", "adorno"),
+        ("1/16", "semifusa"),
+        ("1/8", "fusa"),
+        ("3/16", "fusa con puntillo"),
+        ("1/4", "semicorchea"),
+        ("1/2", "corchea"),
+        ("3/4", "corchea con puntillo"),
+        ("1", "negra"),
+        ("3/2", "negra con puntillo"),
+        ("7/4", "negra con doble puntillo"),
+        ("2", "blanca"),
+        ("3", "blanca con puntillo"),
+        ("7/2", "blanca con doble puntillo"),
+        ("4", "redonda"),
+        ("6", "redonda con puntillo"),
+        ("8", "cuadrada"),
+        ("16", "longa"),
+        ("1/3", "corchea de tresillo"),
+        ("2/3", "negra de tresillo"),
+        ("1/5", "semicorchea de quintillo"),
+        ("5/2", "blanca + corchea"),
+        ("9/2", "redonda + corchea"),
+        ("1/7", "semicorchea de septillo"),
+        ("1/9", "figura irregular"),
+        ("?", "figura desconocida"),
+        ("", "figura desconocida"),
+    ],
+)
+def test_each_duration_is_named_by_its_figure(beats: str, name: str) -> None:
+    assert tables_report.figure_name(beats) == name
+
+
+def test_the_symbol_of_a_figure_has_its_dots_tuplet_and_grace() -> None:
+    def symbol(beats: str) -> list[tuple[str, int, int, bool]]:
+        return [
+            (p["figure"], p["dots"], p["tuplet"], p["grace"])
+            for p in tables_report.figure_symbol(beats)
+        ]
+
+    assert symbol("1") == [("negra", 0, 0, False)]
+    assert symbol("3/4") == [("corchea", 1, 0, False)]
+    assert symbol("7/2") == [("blanca", 2, 0, False)]
+    assert symbol("1/3") == [("corchea", 0, 3, False)]
+    assert symbol("0") == [("corchea", 0, 0, True)]
+    assert symbol("5/2") == [("blanca", 0, 0, False), ("corchea", 0, 0, False)]
+    assert symbol("1/9") == [] and symbol("?") == []
 
 
 def _note(
@@ -249,7 +335,7 @@ def test_without_the_reordered_chords_they_count_as_well_read() -> None:
     assert counted["reordered"] == skipped["reordered"] == 2
     assert [
         x["read"] for x in (skipped["examples"][i] for i in skipped["example_keys"]["op:SetPitch"])
-    ] == ["A4 1"]
+    ] == ["A4 negra"]
 
 
 def test_the_report_escapes_what_comes_from_the_tables(

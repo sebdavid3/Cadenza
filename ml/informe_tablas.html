@@ -4,157 +4,374 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Errores de HOMR</title>
-<!-- Plantilla de `ml export-tables --informe` (#415, ADR-0069): sin red ni dependencias. -->
+<!-- Plantilla de `ml export-tables --informe` (#415, #418, ADR-0069): sin red ni dependencias.
+     Sistema visual de Cadenza (DESIGN.md): papel, tinta, filetes de 3 px y un solo acento violeta
+     para lo elegido y lo que falló; los estados, por patrón. -->
 <style>
+/*__FONTS__*/
 :root {
-  color-scheme: light;
-  --bg: #f6f5f2; --surface-1: #fcfcfb; --line: #e4e2dc; --grid: #ecebe6;
-  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7974;
-  --accent: #6d3fd1;
-  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --neutral: #d3d1ca;
-  --seq-0: #f1f5fb; --seq-1: #cde2fb; --seq-2: #9ec5f4; --seq-3: #6da7ec; --seq-4: #3987e5;
-  --seq-5: #256abf; --seq-6: #184f95; --seq-7: #0d366b;
-  --callout-bg: #fff4d6; --callout-ink: #6b4500;
-  --del-bg: #fde8e6; --del: #b42318; --ins-bg: #e3f4ea; --ins: #146c43;
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    color-scheme: dark;
-    --bg: #121211; --surface-1: #1a1a19; --line: #2e2d2b; --grid: #262624;
-    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
-    --accent: #a88bf0;
-    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --neutral: #4a4945;
-    --seq-0: #1f2530; --seq-1: #0d366b; --seq-2: #104281; --seq-3: #184f95; --seq-4: #256abf;
-    --seq-5: #2a78d6; --seq-6: #5598e7; --seq-7: #9ec5f4;
-    --callout-bg: #3a2f12; --callout-ink: #f2c66d;
-    --del-bg: #3d1d1b; --del: #ff8a80; --ins-bg: #173326; --ins: #7fd6a3;
-  }
+  --paper: #f0eff2; --paper-raised: #f7f6f8; --ink: #0a0a0a; --ink-muted: #4a4950;
+  --ink-faint: #8a898d; --rule-soft: #bdbcbf; --accent: #7a2cf0; --on-accent: #f0eff2;
+  --rule: 3px solid var(--ink);
+  --display: "Pixelify Sans", "Silkscreen", monospace;
+  --label: "Silkscreen", "Pixelify Sans", monospace;
+  --body: "Hanken Grotesk", system-ui, sans-serif;
+  --gutter: clamp(16px, 2.8vw, 40px);
+  --bar-h: 56px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text-primary);
-  font: 15px/1.5 "Hanken Grotesk", system-ui, sans-serif; }
-.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
-header { padding: 28px 0 12px; }
-h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: -0.01em; }
-.sub { color: var(--text-secondary); margin: 0; max-width: 72ch; }
-.filters { position: sticky; top: 0; z-index: 3; background: var(--bg); border-bottom: 1px solid var(--line); }
-.filters .wrap { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; padding-top: 10px; padding-bottom: 10px; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.seg button { font: inherit; border: 0; padding: 6px 12px; background: var(--surface-1); color: var(--text-primary); cursor: pointer; }
-.seg button + button { border-left: 1px solid var(--line); }
-.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-label.chk { display: inline-flex; gap: 6px; align-items: center; color: var(--text-secondary); }
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 20px 0; }
-.tile { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
-.tile b { display: block; font-size: 26px; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.tile span { color: var(--text-secondary); font-size: 13px; }
-.callout { background: var(--callout-bg); color: var(--callout-ink); border-radius: 12px; padding: 12px 16px; margin: 0 0 20px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
-.card { background: var(--surface-1); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
-.card.wide { grid-column: 1 / -1; }
-.card h2 { font-size: 16px; margin: 0; }
-.card h3 { font-size: 13px; margin: 12px 0 6px; color: var(--text-secondary); }
-.card p.note { color: var(--text-secondary); font-size: 13px; margin: 2px 0 12px; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-svg { display: block; width: 100%; height: auto; overflow: visible; }
-svg text { font: 12px system-ui, sans-serif; fill: var(--text-secondary); }
-svg text.val { fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+[hidden] { display: none !important; }
+html { background: var(--paper); }
+body { margin: 0; color: var(--ink); font: 400 1rem/1.5 var(--body); font-variant-numeric: tabular-nums; }
+::selection { background: var(--accent); color: var(--on-accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.label { font: 400 0.8125rem/1.3 var(--label); letter-spacing: 0.06em; text-transform: uppercase; }
+/* Las cifras van siempre en Hanken Grotesk: en la tipografía bitmap un 5 se confunde con un 8 o una S (#418). */
+.num { font-family: var(--body); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+/* El símbolo de cada figura, dibujado en SVG: ninguna fuente de símbolos musicales viaja con la página (#418). */
+svg.fig { display: inline-block; height: 1.9em; width: auto; vertical-align: -0.5em; margin-right: 0.35em; overflow: visible; flex: none; }
+svg.fig.grace { height: 1.45em; vertical-align: -0.3em; }
+.muted { color: var(--ink-muted); }
+.small { font-size: 0.875rem; color: var(--ink-muted); }
+
+/* Cabecera */
+.masthead { padding: 40px var(--gutter) 32px; border-bottom: var(--rule); display: grid; gap: 16px 40px; grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+.masthead h1 { font: 700 clamp(2.75rem, 7vw, 5.5rem)/0.86 var(--display); text-transform: uppercase; margin: 8px 0 0; letter-spacing: -0.01em; }
+.masthead .lead { font-size: 1.125rem; line-height: 1.45; max-width: 60ch; margin: 16px 0 0; }
+.masthead .meta { text-align: right; }
+@media (max-width: 900px) { .masthead { grid-template-columns: 1fr; } .masthead .meta { text-align: left; } }
+
+/* Barra de filtros */
+.bar { position: sticky; top: 0; z-index: 5; background: var(--paper); border-bottom: var(--rule); min-height: var(--bar-h);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 6px var(--gutter); }
+.toggle { display: inline-flex; }
+.toggle button { font: 700 0.8125rem/1 var(--label); letter-spacing: 0.05em; text-transform: uppercase; min-height: 40px; padding: 0 14px;
+  background: var(--paper); color: var(--ink); border: var(--rule); cursor: pointer; }
+.toggle button + button { margin-left: -3px; }
+.toggle button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.toggle button:hover:not([aria-pressed="true"]) { background: var(--paper-raised); }
+.switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; min-height: 44px; }
+.switch input { appearance: none; width: 22px; height: 22px; margin: 0; border: var(--rule); background: var(--paper); cursor: pointer; display: grid; place-content: center; }
+.switch input:checked { background: var(--ink); }
+.switch input:checked::after { content: ""; width: 8px; height: 8px; background: var(--paper); }
+
+/* Bandas y cabeceras de sección invertidas */
+.band { border-bottom: var(--rule); }
+.head { background: var(--ink); color: var(--paper); padding: 10px var(--gutter); display: flex; justify-content: space-between; align-items: baseline; gap: 16px; flex-wrap: wrap; }
+.head h2 { font: 700 clamp(1.25rem, 2.6vw, 1.75rem)/1 var(--display); text-transform: uppercase; margin: 0; }
+.head .label { color: var(--paper); opacity: 0.85; }
+.head .count { font: 400 0.9375rem/1.3 var(--body); color: var(--paper); opacity: 0.85; }
+
+/* Lo que dicen los datos */
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); }
+.finding { padding: 24px var(--gutter) 28px; border-right: var(--rule); border-bottom: var(--rule); margin-bottom: -3px; text-align: left; background: var(--paper);
+  border-top: 0; border-left: 0; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 10px; }
+.finding:last-child { border-right: 0; }
+.finding b { font: 500 clamp(2.5rem, 5vw, 3.75rem)/0.95 var(--body); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.finding span { font-size: 1.0625rem; line-height: 1.4; max-width: 34ch; }
+.finding .unit { font-size: 0.9375rem; color: var(--ink-muted); margin-top: -4px; }
+.finding:hover, .finding[aria-current="true"] { background: var(--paper-raised); }
+.finding[aria-current="true"] b { color: var(--accent); }
+.finding .more { color: var(--ink-muted); }
+.callout { padding: 16px var(--gutter); display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.2px); background-size: 5px 5px; }
+.callout p { margin: 0; background: var(--paper); padding: 8px 12px; border: var(--rule); max-width: 80ch; }
+
+/* Cifras */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.tile { padding: 18px var(--gutter) 20px; border-right: var(--rule); border-bottom: var(--rule); margin-bottom: -3px; }
+.tile b { display: block; font: 500 clamp(1.75rem, 3.4vw, 2.5rem)/1 var(--body); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.tile .label { color: var(--ink-muted); display: block; margin-top: 8px; }
+
+/* Cuerpo: gráficos a la izquierda y ejemplos a la derecha */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(360px, 32vw, 480px); }
+.charts { min-width: 0; border-right: var(--rule); }
+.panel { padding: 24px var(--gutter) 32px; border-bottom: var(--rule); }
+.panel:last-child { border-bottom: 0; }
+.panel h3 { font: 700 1.375rem/1.1 var(--display); text-transform: uppercase; margin: 0 0 6px; }
+.panel .small { margin: 0 0 18px; max-width: 64ch; }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)); border-bottom: var(--rule); }
+.pair > .panel { border-bottom: 0; }
+.pair > .panel + .panel { border-left: var(--rule); }
+@media (max-width: 860px) { .pair > .panel + .panel { border-left: 0; border-top: var(--rule); } }
+
+/* Barras en HTML: el texto conserva su tamaño en cualquier ancho */
+.bars { display: grid; gap: 2px; }
+.bars + .label { margin-top: 18px; }
+.brow { display: grid; grid-template-columns: var(--lw, 9.5rem) minmax(0, 1fr) 3.75rem; gap: 12px; align-items: center; padding: 5px 0; cursor: pointer; }
+.brow .name { font-size: 0.875rem; color: var(--ink-muted); text-align: right; line-height: 1.2; }
+.brow .track { height: 18px; border: 1px solid var(--rule-soft); position: relative; background: var(--paper); }
+.brow .fill { position: absolute; inset: -1px auto -1px -1px; background: var(--ink); min-width: 3px; }
+.brow .v { font-weight: 500; font-size: 0.9375rem; }
+.brow:hover .fill { background: var(--paper) radial-gradient(var(--ink) 1.1px, transparent 1.3px) 0 0 / 5px 5px; outline: 2px solid var(--ink); }
+.brow:hover .name, .brow[aria-current="true"] .name { color: var(--ink); }
+.brow[aria-current="true"] .fill { background: var(--accent); outline: 0; }
+@media (max-width: 560px) { .brow { --lw: 7rem !important; } }
+
+/* Pasos de pentagrama: columnas */
+.steps { display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); align-items: end; height: 190px; border-bottom: var(--rule); gap: 3px; }
+.scol { height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; }
+.scol .fill { background: var(--ink); min-height: 0; }
+.scol[data-key]:hover .fill { background: var(--paper) radial-gradient(var(--ink) 1.1px, transparent 1.3px) 0 0 / 5px 5px; outline: 2px solid var(--ink); }
+.scol[aria-current="true"] .fill { background: var(--accent); outline: 0; }
+.steps-ax { display: grid; grid-template-columns: repeat(17, minmax(0, 1fr)); gap: 3px; margin-top: 6px; text-align: center; }
+.steps-ax span { font: 400 0.75rem/1 var(--body); color: var(--ink-muted); }
+.steps-ax span.zero { color: var(--ink); }
+.steps-cap { display: flex; justify-content: space-between; margin-top: 8px; }
+
+/* Matriz de figuras */
+table.matrix { border-collapse: separate; border-spacing: 3px; }
+table.matrix th { font: 400 0.8125rem/1.2 var(--body); color: var(--ink-muted); padding: 2px 6px; white-space: nowrap; }
+table.matrix tbody th { text-align: right; }
+/* Las columnas llevan el nombre de la figura en vertical: caben aunque sea largo. */
+table.matrix thead th.name { writing-mode: vertical-rl; transform: rotate(180deg); text-align: left; vertical-align: bottom; padding: 6px 2px; }
+table.matrix thead th.sym { text-align: center; vertical-align: bottom; padding: 4px 0 2px; color: var(--ink); }
+table.matrix thead th.sym svg.fig { margin: 0; }
+table.matrix th.corner { text-align: left; vertical-align: bottom; font: 400 0.75rem/1.3 var(--label); letter-spacing: 0.05em; text-transform: uppercase; }
+table.matrix td { width: 34px; height: 34px; min-width: 34px; text-align: center; font-size: 0.8125rem; font-weight: 500; border: 1px solid var(--rule-soft); padding: 0; }
+table.matrix td[data-key] { border-color: transparent; }
+table.matrix td[data-key]:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
+table.matrix td[aria-current="true"] { background: var(--accent) !important; color: var(--on-accent) !important; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 14px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.legend svg { width: 22px; height: 14px; }
+.defs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 14px 28px; margin: 0 0 20px; }
+.def { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
+.def svg { width: 22px; height: 14px; margin-top: 1px; }
+.def p { margin: 4px 0 0; font-size: 0.875rem; line-height: 1.4; color: var(--ink-muted); }
+svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
+svg text { font: 13px var(--body); fill: var(--ink); }
+svg text.lbl { fill: var(--ink-muted); }
+svg text.val { font-weight: 500; }
+svg text.ax { font: 500 13px var(--body); fill: var(--ink-muted); }
 .hit { fill: transparent; }
 [data-key] { cursor: pointer; }
-[data-key]:hover .mark, rect[data-key]:hover { opacity: 0.8; }
-.tip { position: fixed; pointer-events: none; z-index: 10; background: var(--text-primary); color: var(--surface-1);
-  font-size: 13px; padding: 6px 10px; border-radius: 8px; max-width: 280px; opacity: 0; transition: opacity .1s; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
-th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
-td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
-tr[data-key]:hover td { background: var(--grid); }
+g[data-key]:hover .mark { fill: url(#trama); stroke: var(--ink); stroke-width: 2; }
+g[data-key][aria-current="true"] .mark { fill: var(--accent); stroke: none; }
+g[data-key]:focus { outline: none; }
+g[data-key]:focus-visible .mark { stroke: var(--accent); stroke-width: 3; }
 .scroll { overflow-x: auto; }
-#examples { scroll-margin-top: 64px; }
-.examples { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
-.ex { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--surface-1); }
-.ex .photo { background: #fff; padding: 6px; overflow-x: auto; }
-.ex img { display: block; width: 100%; height: auto; min-width: 260px; }
-.ex .nophoto { color: var(--text-muted); font-size: 13px; padding: 10px; background: var(--grid); }
-.ex .txt { padding: 8px 10px; font-size: 13px; }
-.ex .where { color: var(--text-secondary); }
-.ex code { font: 13px ui-monospace, Consolas, monospace; padding: 0 4px; border-radius: 4px; }
-.ex .del { background: var(--del-bg); color: var(--del); }
-.ex .ins { background: var(--ins-bg); color: var(--ins); }
-footer { color: var(--text-muted); font-size: 13px; padding: 24px 0 40px; }
+table.top { width: 100%; border-collapse: collapse; border: 0; padding: 0; display: table; }
+table.top th { font: 400 0.75rem/1.2 var(--label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted); text-align: left; padding: 8px 10px; border-bottom: var(--rule); }
+table.top td { padding: 9px 10px; border-bottom: 1px solid var(--rule-soft); }
+table.top .n { text-align: right; }
+table.top tr[data-key]:hover td { background: var(--ink); color: var(--paper); }
+table.top tr[aria-current="true"] td { background: var(--accent); color: var(--on-accent); }
+
+/* Ejemplos */
+.examples { position: sticky; top: var(--bar-h); align-self: start; max-height: calc(100vh - var(--bar-h)); overflow: auto; }
+.examples .ex-head { padding: 20px var(--gutter) 16px; border-bottom: var(--rule); background: var(--paper); position: sticky; top: 0; z-index: 2; }
+.examples h3 { font: 700 1.375rem/1.1 var(--display); text-transform: uppercase; margin: 6px 0 4px; }
+.examples .ex-list { padding: 16px var(--gutter) 32px; display: grid; gap: 20px; }
+.ex { border: var(--rule); background: var(--paper); }
+.photo { background: var(--paper-raised); border-bottom: var(--rule); overflow-x: auto; }
+.photo img { display: block; width: 100%; min-width: 300px; height: auto; filter: grayscale(1) contrast(1.05); mix-blend-mode: multiply; }
+.nophoto { padding: 14px; border-bottom: var(--rule); background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.2px); background-size: 5px 5px; }
+.nophoto span { background: var(--paper); padding: 2px 6px; }
+.ex .txt { padding: 10px 12px 12px; display: grid; gap: 6px; }
+.change { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.tok { font: 500 0.9375rem/1.4 var(--body); padding: 1px 6px; border: 2px solid transparent; white-space: nowrap; }
+.tok.del { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--ink-muted); }
+.tok.ins { background: var(--accent); color: var(--on-accent); }
+.tok.reord { border: 2px dashed var(--ink); }
+.arrow { font: 400 0.8125rem var(--label); color: var(--ink-muted); }
+.close { display: none; }
+@media (max-width: 1180px) {
+  .layout { grid-template-columns: 1fr; }
+  .charts { border-right: 0; }
+  .examples { position: static; max-height: none; border-top: var(--rule); scroll-margin-top: var(--bar-h); }
+  .examples .ex-head { position: static; }
+  .examples .ex-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
+  .close { display: inline-flex; }
+}
+
+/* Tiras de cada sesión */
+.sessions-tools { padding: 16px var(--gutter); border-bottom: var(--rule); display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.session { border-bottom: var(--rule); }
+.session > h4 { margin: 0; padding: 14px var(--gutter); font: 700 1.125rem/1.1 var(--display); text-transform: uppercase; border-bottom: 1px solid var(--rule-soft); display: flex; gap: 16px; flex-wrap: wrap; align-items: baseline; }
+.session > h4 .small { font: 400 0.875rem/1.3 var(--body); text-transform: none; }
+.strip { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); border-bottom: 1px solid var(--rule-soft); }
+.strip:last-child { border-bottom: 0; }
+.strip .photo { border-bottom: 0; border-right: var(--rule); }
+.strip .meta { padding: 12px var(--gutter) 6px 16px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
+.flag { font: 700 0.75rem/1 var(--label); letter-spacing: 0.05em; text-transform: uppercase; padding: 4px 6px; border: 2px solid var(--ink); }
+.flag.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+table.measures { border-collapse: collapse; width: 100%; }
+table.measures td, table.measures th { padding: 6px 8px; vertical-align: top; border-top: 1px solid var(--rule-soft); text-align: left; }
+table.measures th { font: 500 0.8125rem/1.4 var(--body); color: var(--ink-muted); white-space: nowrap; width: 1%; }
+table.measures td .tok { font-size: 0.875rem; padding: 0 4px; }
+.voice { color: var(--ink-faint); padding: 0 4px; }
+@media (max-width: 960px) { .strip { grid-template-columns: 1fr; } .strip .photo { border-right: 0; border-bottom: 1px solid var(--rule-soft); } }
+.empty { padding: 24px var(--gutter); color: var(--ink-muted); }
+
+/* Tooltip */
+.tip { position: fixed; z-index: 20; pointer-events: none; background: var(--ink); color: var(--paper); font-size: 0.875rem; padding: 6px 10px; max-width: 300px; opacity: 0; }
+.tip b { font-weight: 500; }
+footer { padding: 24px var(--gutter) 40px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 </style>
 </head>
 <body>
-<header class="wrap">
-  <h1>Errores de HOMR</h1>
-  <p class="sub">Qué lee mal HOMR y cómo se corrige, de las tablas de <code>ml export-tables</code>
-  (commit __COMMIT__, __DATE__). En PrIMuS, las correcciones son las del «corrector ideal» (lo
-  leído frente a la partitura correcta); en Cadenza, las que quedaron en cada sesión. Pincha una
-  barra, una celda o una fila para ver sus ejemplos con su foto.</p>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="trama" width="5" height="5" patternUnits="userSpaceOnUse"><rect width="5" height="5" fill="#f0eff2"/><circle cx="2.5" cy="2.5" r="1.1" fill="#0a0a0a"/></pattern>
+    <pattern id="rayado" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#f0eff2"/><rect width="2" height="6" fill="#0a0a0a"/></pattern>
+  </defs>
+</svg>
+
+<header class="masthead">
+  <div>
+    <div class="label muted">Informe de la toma de datos · ml export-tables</div>
+    <h1>Errores de HOMR</h1>
+    <p class="lead">Qué lee mal HOMR y cómo se corrige. En PrIMuS, las correcciones salen de comparar
+    lo leído con la partitura correcta; en Cadenza, son las que quedaron en cada sesión. Pincha
+    cualquier cifra para ver sus ejemplos con la foto de su compás.</p>
+  </div>
+  <div class="meta small">Commit __COMMIT__<br>__DATE__ UTC</div>
 </header>
-<nav class="filters"><div class="wrap">
-  <div class="seg" id="source" role="group" aria-label="Origen"></div>
-  <label class="chk"><input type="checkbox" id="reorder"> No contar los acordes solo reordenados</label>
-</div></nav>
-<main class="wrap">
-  <div class="tiles" id="tiles"></div>
+
+<nav class="bar" aria-label="Filtros">
+  <span class="label muted" id="source-label" hidden>Partituras</span>
+  <div class="toggle" id="source" role="group" aria-label="Partituras" hidden></div>
+  <label class="switch"><input type="checkbox" id="reorder"><span class="label">No contar los acordes solo reordenados</span></label>
+</nav>
+
+<section class="band" aria-labelledby="h-findings">
+  <div class="head"><h2 id="h-findings">Lo que dicen los datos</h2><span class="count" id="scope"></span></div>
+  <div class="findings" id="findings"></div>
   <div id="callout"></div>
-  <div class="grid">
-    <section class="card wide">
-      <h2>Qué pasó con cada nota leída</h2>
-      <p class="note">Parte de las notas y silencios leídos por HOMR, por origen.</p>
-      <div class="legend" id="outcome-legend"></div>
+</section>
+
+<section class="band" aria-labelledby="h-tiles">
+  <div class="head"><h2 id="h-tiles">Las cifras</h2></div>
+  <div class="tiles" id="tiles"></div>
+</section>
+
+<div class="layout band">
+  <main class="charts">
+    <div class="head"><h2>Dónde y cómo falla</h2><span class="label">Pincha para ver ejemplos</span></div>
+    <section class="panel">
+      <h3>Qué pasó con cada nota leída</h3>
+      <p class="small">Cada nota o silencio que leyó HOMR, comparado con la partitura correcta: en PrIMuS, la de
+      referencia; en Cadenza, la que dejó quien corrigió. Lo que HOMR no leyó («faltaba») no está aquí: va en «Qué se corrige».</p>
+      <div class="defs" id="outcome-legend"></div>
       <div id="outcome"></div>
     </section>
-    <section class="card">
-      <h2>Qué se corrige</h2>
-      <p class="note">Correcciones por cada 100 notas leídas. Insertar es lo que HOMR no leyó.</p>
-      <div id="ops"></div>
-    </section>
-    <section class="card">
-      <h2>Cuánto se movió la altura</h2>
-      <p class="note">En las correcciones de altura: pasos de pentagrama (línea o espacio) entre lo leído y lo correcto.</p>
-      <div id="steps"></div>
-    </section>
-    <section class="card">
-      <h2>Figura leída y figura correcta</h2>
-      <p class="note">En las correcciones de figura, en negras. Filas: lo leído; columnas: lo correcto.</p>
-      <div class="scroll" id="durations"></div>
-    </section>
-    <section class="card">
-      <h2>Dónde se equivoca más</h2>
-      <p class="note">Notas leídas con alguna corrección, por contexto (grupos de 30 notas o más).</p>
-      <div id="contexts"></div>
-    </section>
-    <section class="card wide">
-      <h2>Partituras con más correcciones</h2>
-      <p class="note">Correcciones (incluidas las notas que faltaban) por nota leída; partituras con 10 notas o más.</p>
+    <div class="pair">
+      <section class="panel">
+        <h3>Qué se corrige</h3>
+        <p class="small">Correcciones por cada 100 notas leídas. «Faltaba» es lo que HOMR no leyó.</p>
+        <div id="ops"></div>
+      </section>
+      <section class="panel">
+        <h3>Cuánto se movió la altura</h3>
+        <p class="small">En las correcciones de altura, cuántas líneas o espacios hay entre lo leído y lo correcto.</p>
+        <div id="steps"></div>
+      </section>
+    </div>
+    <div class="pair">
+      <section class="panel">
+        <h3>Dónde se equivoca más</h3>
+        <p class="small">Parte de las notas con alguna corrección, en grupos de 30 notas o más.</p>
+        <div id="contexts"></div>
+      </section>
+      <section class="panel">
+        <h3>Figura leída y correcta</h3>
+        <p class="small">En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta. Más tinta, más casos.</p>
+        <div class="scroll" id="durations"></div>
+      </section>
+    </div>
+    <section class="panel">
+      <h3>Las partituras con más correcciones</h3>
+      <p class="small">Correcciones por nota leída (con las notas que faltaban, la clave y la armadura), en partituras de 10 notas o más.</p>
       <div class="scroll" id="top"></div>
     </section>
-    <section class="card wide" id="examples" aria-live="polite">
-      <h2 id="examples-title">Ejemplos</h2>
-      <p class="note" id="examples-note">Pincha una barra, una celda o una fila para ver hasta 12 ejemplos con la foto de su compás.</p>
-      <div class="examples" id="examples-list"></div>
-    </section>
+  </main>
+  <aside class="examples" id="examples" aria-live="polite" aria-labelledby="ex-title">
+    <div class="ex-head">
+      <div class="label muted" id="ex-kicker">Ejemplos</div>
+      <h3 id="ex-title">Ejemplos</h3>
+      <p class="small" id="ex-note" style="margin:0"></p>
+    </div>
+    <div class="ex-list" id="ex-list"></div>
+  </aside>
+</div>
+
+<section class="band" aria-labelledby="h-sessions" id="sessions-band">
+  <div class="head"><h2 id="h-sessions">Las tiras de cada sesión</h2><span class="count" id="sessions-count"></span></div>
+  <div class="sessions-tools">
+    <label class="switch"><input type="checkbox" id="only-fixed" checked><span class="label">Solo las tiras corregidas</span></label>
+    <span class="small">Cada pentagrama de la foto con lo que leyó HOMR y lo que quedó, compás a compás. Tachado, lo que se quitó; en violeta, lo que entró; con raya discontinua, las mismas notas en otro orden.</span>
   </div>
-</main>
-<footer class="wrap">Generado en local desde la carpeta de la exportación; las fotos se abren por su ruta relativa y nada sale del equipo.</footer>
+  <div id="sessions"></div>
+</section>
+
+<footer class="small">Generado en local desde la carpeta de la exportación. Las fotos se abren por su ruta relativa y nada sale del equipo.</footer>
 <div class="tip" id="tip" role="tooltip"></div>
+
 <script>
 const DATA = __DATA__;
-const NAMES = { todas: "Todos", primus: "PrIMuS", cadenza: "Cadenza" };
+// Solo se separan las pruebas reales de Cadenza (#418): las sesiones de las cuentas del registro público.
+const NAMES = { todas: "Todas", pruebas: "Pruebas reales" };
 const OPS = { SetPitch: "Altura", SetDuration: "Figura", SetAccidental: "Alteración",
-  DeleteEvent: "Borrar", InsertEvent: "Insertar", SetClef: "Clave", SetKey: "Armadura" };
-const OUTCOMES = [["corregida", "Corregida", "var(--series-1)"], ["borrada", "Borrada", "var(--series-2)"],
-  ["sin_alinear", "Sin alinear", "var(--series-3)"], ["bien", "Bien leída", "var(--neutral)"]];
-const fmt = n => n.toLocaleString("es");
-const pct = (a, b, d = 1) => b ? (100 * a / b).toLocaleString("es", { maximumFractionDigits: d }) + " %" : "—";
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-let source = "todas";
-let current = null;
-const variant = () => DATA.variants[`${source}|${document.getElementById("reorder").checked ? 1 : 0}`];
+  DeleteEvent: "Sobraba", InsertEvent: "Faltaba", SetClef: "Clave", SetKey: "Armadura" };
+const OP_TEXT = { SetPitch: "la altura", SetDuration: "la figura", SetAccidental: "la alteración",
+  DeleteEvent: "una nota que sobraba", InsertEvent: "una nota que faltaba", SetClef: "la clave", SetKey: "la armadura" };
+const OUTCOMES = [
+  ["corregida", "Corregida", "var(--ink)", "Está en la partitura correcta, pero hubo que cambiarle la altura, la alteración o la figura."],
+  ["borrada", "Sobraba", "url(#trama)", "HOMR leyó una nota o un silencio que no está en la partitura correcta: se borró."],
+  ["sin_alinear", "Sin alinear", "url(#rayado)", "Está en un compás que HOMR leyó de más: no hay compás correcto con que compararla, así que no se sabe si estaba bien."],
+  ["bien", "Bien leída", "var(--paper-raised)", "Quedó igual en la partitura correcta: no hubo que tocarla."]];
+// --- El símbolo de cada figura ------------------------------------------------------------------
+// Dibujado aquí, sin fuentes: cabeza, plica, corchetes, puntillos, el número de un grupo
+// irregular y, en las de adorno, la raya. Usa currentColor, así sigue el color de lo elegido.
+const FLAGS = { corchea: 1, semicorchea: 2, fusa: 3, semifusa: 4, garrapatea: 5 };
+function noteSvg(p) {
+  const L = 'stroke="currentColor" fill="none" stroke-linecap="round"';
+  // Caja de 32 de alto: la cabeza abajo (y = 26) y la plica hasta arriba, con sitio para cuatro corchetes.
+  let out = "", w, dotY = 25;
+  if (p.figure === "cuadrada" || p.figure === "longa") {
+    out += `<rect x="3" y="13" width="8" height="7" ${L} stroke-width="1.7"/><line x1="1.5" y1="10.5" x2="1.5" y2="22.5" ${L} stroke-width="1.5"/><line x1="12.5" y1="10.5" x2="12.5" y2="22.5" ${L} stroke-width="1.5"/>`;
+    if (p.figure === "longa") out += `<line x1="12.5" y1="20" x2="12.5" y2="30" ${L} stroke-width="1.5"/>`;
+    w = 14; dotY = 16.5;
+  } else if (p.figure === "redonda") {
+    // Sin plica: la cabeza a media altura, como se ve junto al texto.
+    out += `<ellipse cx="6.5" cy="17" rx="5.3" ry="3.7" transform="rotate(-12 6.5 17)" ${L} stroke-width="2.2"/>`;
+    w = 13; dotY = 16;
+  } else {
+    const hollow = p.figure === "blanca";
+    out += `<ellipse cx="5.4" cy="26" rx="4.6" ry="3.3" transform="rotate(-22 5.4 26)" fill="${hollow ? "none" : "currentColor"}" stroke="currentColor" stroke-width="${hollow ? 1.7 : 0}"/>`;
+    out += `<line x1="9.6" y1="25.2" x2="9.6" y2="1.5" ${L} stroke-width="1.4"/>`;
+    w = 11;
+    const flags = FLAGS[p.figure] || 0;
+    for (let i = 0; i < flags; i++) out += `<path d="M9.6 ${1.5 + i * 4.4} c0.5 2.6 5.4 3.2 4.6 7.4" ${L} stroke-width="1.6"/>`;
+    if (flags) w = 15.5;
+  }
+  for (let i = 0; i < p.dots; i++) out += `<circle cx="${w + 1.8 + i * 3.6}" cy="${dotY}" r="1.5" fill="currentColor"/>`;
+  if (p.dots) w += 1.8 + p.dots * 3.6;
+  if (p.tuplet) out += `<text x="0" y="8" style="font:600 9px var(--body);fill:currentColor">${p.tuplet}</text>`;
+  if (p.grace) out += `<line x1="4.5" y1="14" x2="16" y2="5" ${L} stroke-width="1.5"/>`;
+  return { out, w };
+}
+function figSym(beats) {
+  const f = DATA.figures[beats];
+  if (!f || !f.symbol.length) return "";
+  let x = 0, g = "";
+  f.symbol.forEach((p, i) => { const s = noteSvg(p); g += `<g transform="translate(${x} 0)">${s.out}</g>`; x += s.w + (i < f.symbol.length - 1 ? 3 : 0); });
+  return `<svg class="fig${f.symbol[0].grace ? " grace" : ""}" viewBox="0 0 ${x.toFixed(1)} 32" width="${x.toFixed(1)}" height="32" aria-hidden="true">${g}</svg>`;
+}
+const figName = beats => (DATA.figures[beats] || {}).name || "figura desconocida";
 
+const fmt = n => Number(n).toLocaleString("es");
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
+const pctN = (a, b) => b ? 100 * a / b : 0;
+const pct = (a, b, d = 1) => b ? pctN(a, b).toLocaleString("es", { maximumFractionDigits: d }) + " %" : "—";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+let source = "todas";
+let selected = null;
+const skip = () => document.getElementById("reorder").checked;
+const variant = () => DATA.variants[`${source}|${skip() ? 1 : 0}`];
+
+// --- Tooltip y selección ---------------------------------------------------------------------
 const tip = document.getElementById("tip");
 document.addEventListener("pointerover", e => {
   const t = e.target.closest("[data-tip]");
@@ -163,142 +380,276 @@ document.addEventListener("pointerover", e => {
 });
 document.addEventListener("pointermove", e => {
   const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8);
-  tip.style.left = Math.max(8, x) + "px"; tip.style.top = (e.clientY + 14) + "px";
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = (e.clientY + 16) + "px";
 });
-document.addEventListener("click", e => {
-  const t = e.target.closest("[data-key]");
-  if (!t) return;
-  current = { key: t.dataset.key, title: t.dataset.title };
-  showExamples(true);
+function choose(t) {
+  selected = { key: t.dataset.key, title: t.dataset.title, kicker: t.dataset.kicker || "" };
+  markSelected();
+  showExamples();
+  if (matchMedia("(max-width: 1180px)").matches) document.getElementById("examples").scrollIntoView({ block: "start" });
+}
+document.addEventListener("click", e => { const t = e.target.closest("[data-key]"); if (t) choose(t); });
+document.addEventListener("keydown", e => {
+  const t = e.target.closest && e.target.closest("[data-key]");
+  if (t && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); choose(t); }
 });
+function markSelected() {
+  document.querySelectorAll("[data-key]").forEach(el =>
+    el.setAttribute("aria-current", selected && el.dataset.key === selected.key ? "true" : "false"));
+}
+const attrs = (key, title, kicker, tipHtml) =>
+  `data-key="${esc(key)}" data-title="${esc(title)}" data-kicker="${esc(kicker)}" data-tip="${esc(tipHtml)}" tabindex="0" role="button" aria-label="${esc(title)}"`;
 
-function showExamples(scroll) {
-  const d = variant(), title = document.getElementById("examples-title");
-  const list = document.getElementById("examples-list"), note = document.getElementById("examples-note");
-  if (!current) return;
-  const ids = d.example_keys[current.key] || [];
-  title.textContent = `Ejemplos: ${current.title}`;
-  note.textContent = ids.length ? `${ids.length} ejemplo${ids.length === 1 ? "" : "s"} (como mucho 12).` : "Ningún ejemplo con este filtro.";
-  list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
-    ${x.img ? `<div class="photo"><img loading="lazy" src="${esc(x.img)}" alt="Tira de la foto del compás ${esc(x.measure)}"></div>`
-      : `<div class="nophoto">Sin foto (exporta con --recortes)</div>`}
-    <div class="txt"><div class="where">${esc(x.score)} · compás ${esc(x.measure)} · pentagrama ${esc(x.staff)}</div>
-    HOMR <code class="${x.read === x.fix ? "" : "del"}">${esc(x.read)}</code> → correcto <code class="${x.read === x.fix ? "" : "ins"}">${esc(x.fix)}</code></div>
-  </article>`).join("");
-  if (scroll) document.getElementById("examples").scrollIntoView({ behavior: "smooth", block: "start" });
+// --- Lo que dicen los datos --------------------------------------------------------------------
+function findings(d) {
+  const out = [];
+  const read = d.read;
+  const ops = Object.entries(d.ops).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
+  if (read && ops.length) {
+    const [k, n] = ops[0];
+    out.push({ big: `${(100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 })}`, unit: "de cada 100",
+      text: `Lo que más se corrige es ${OP_TEXT[k] || k}: ${fmt(n)} correcciones en ${fmt(read)} notas leídas.`,
+      key: `op:${k}`, title: OPS[k] || k, kicker: "Qué se corrige" });
+  }
+  const dur = d.by_duration[0];
+  if (dur && dur.wrong) out.push({ big: pct(dur.wrong, dur.n, 0), text: `de las notas leídas como ${dur.label} tienen alguna corrección: es la figura que peor lee.`,
+    html: `de las notas leídas como ${figSym(dur.key.slice("readdur:".length))}${esc(dur.label)} tienen alguna corrección: es la figura que peor lee.`,
+    key: dur.key, title: dur.label, kicker: "Figura leída" });
+  const against = d.by_vs_key.find(r => r.key === "vs:against_key"), inKey = d.by_vs_key.find(r => r.key === "vs:in_key");
+  if (against && inKey) out.push({ big: pct(against.wrong, against.n, 0), text: `de las notas con una alteración contra la armadura se corrigen, frente al ${pct(inKey.wrong, inKey.n, 0)} de las que van según la armadura.`,
+    key: against.key, title: "contra la armadura", kicker: "Alteración frente a la armadura" });
+  const clef = d.by_clef[0];
+  if (clef && clef.wrong && out.length < 4) out.push({ big: pct(clef.wrong, clef.n, 0), text: `de las notas en clave de ${clef.label} tienen alguna corrección, la clave en que más falla.`,
+    key: clef.key, title: `clave ${clef.label}`, kicker: "Clave" });
+  if (out.length < 4 && d.scores) out.push({ big: pct(d.clean_scores, d.scores, 0), text: `de las partituras salieron sin ningún error.`, key: "", title: "", kicker: "" });
+  return out.slice(0, 4);
 }
 
-// Barras horizontales de una serie: [{label, value, text, tip, key}]
-function hbars(rows, { width = 520, color = "var(--series-1)", max } = {}) {
-  const labelW = 170, valW = 70, bar = 16, gap = 10, plot = width - labelW - valW;
+// --- Gráficos ----------------------------------------------------------------------------------
+function hbars(rows, { max, labelWidth = "9.5rem" } = {}) {
   const top = max ?? Math.max(...rows.map(r => r.value), 1e-9);
-  const h = rows.length * (bar + gap);
-  return `<svg viewBox="0 0 ${width} ${h}" role="img">` + rows.map((r, i) => {
-    const y = i * (bar + gap), w = Math.max(r.value ? 4 : 0, plot * r.value / top);
-    return `<g data-tip="${esc(r.tip)}" data-key="${esc(r.key)}" data-title="${esc(r.title || r.label)}">
-      <rect class="hit" x="0" y="${y - gap / 2}" width="${width}" height="${bar + gap}"/>
-      <text x="${labelW - 10}" y="${y + bar - 4}" text-anchor="end">${esc(r.label)}</text>
-      <rect class="mark" x="${labelW}" y="${y}" width="${w}" height="${bar}" rx="4" fill="${color}"/>
-      <text class="val" x="${labelW + w + 6}" y="${y + bar - 4}">${esc(r.text)}</text></g>`;
-  }).join("") + `</svg>`;
+  return `<div class="bars">` + rows.map(r => `<div class="brow" style="--lw:${labelWidth}" ${attrs(r.key, r.title || r.label, r.kicker || "", r.tip)}>
+      <span class="name">${r.icon || ""}${esc(r.label)}</span>
+      <span class="track"><span class="fill" style="width:${(100 * r.value / top).toFixed(2)}%"></span></span>
+      <span class="v">${esc(r.text)}</span></div>`).join("") + `</div>`;
 }
+const swatch = fill => `<svg viewBox="0 0 22 14" aria-hidden="true"><rect x="1" y="1" width="20" height="12" fill="${fill}" stroke="var(--ink)" stroke-width="2"/></svg>`;
 
 function render() {
-  const d = variant(), skip = document.getElementById("reorder").checked;
-  const o = d.outcome, read = d.read;
-  document.getElementById("tiles").innerHTML = [
-    [fmt(d.scores), "partituras"],
-    [fmt(read), "notas y silencios leídos"],
-    [pct(o.bien || 0, read), "bien leídos"],
-    [fmt(o.corregida || 0), "corregidos"],
-    [fmt(o.borrada || 0), "borrados (sobraban)"],
-    [fmt(d.missing), "faltaban"],
-    [pct(d.clean_scores, d.scores), "partituras sin ningún error"],
-  ].map(([n, l]) => `<div class="tile"><b>${n}</b><span>${l}</span></div>`).join("");
+  const d = variant(), read = d.read;
+  document.getElementById("scope").textContent = `${NAMES[source] || source} · ${plural(d.scores, "partitura", "partituras")}`;
+
+  const fs = findings(d);
+  document.getElementById("findings").innerHTML = fs.map(f => f.key
+    ? `<button type="button" class="finding" ${attrs(f.key, f.title, f.kicker, "Ver ejemplos")}><b>${esc(f.big)}</b>${f.unit ? `<span class="unit">${esc(f.unit)}</span>` : ""}<span>${f.html || esc(f.text)}</span><span class="label more">Ver ejemplos →</span></button>`
+    : `<div class="finding" style="cursor:default"><b>${esc(f.big)}</b><span>${esc(f.text)}</span></div>`).join("");
 
   const reo = DATA.variants[`${source}|0`].reordered;
-  document.getElementById("callout").innerHTML = reo ? `<p class="callout">
-    <strong>${fmt(reo)} correcciones de altura solo reordenan las notas de un acorde</strong>
-    (HOMR las escribe en otro orden que la partitura correcta, y la comparación lo cuenta como
-    error). ${skip ? "Ahora no se cuentan." : "Marca la casilla de arriba para no contarlas."}</p>` : "";
+  document.getElementById("callout").innerHTML = reo ? `<div class="callout"><p><strong>${fmt(reo)} correcciones de altura solo reordenan las notas de un acorde.</strong>
+    HOMR las escribe en otro orden que la partitura correcta y la comparación lo cuenta como error; con las correcciones de una persona no pasa.
+    ${skip() ? "Ahora no se cuentan." : "Activa «No contar los acordes solo reordenados» para quitarlas."}</p></div>` : "";
 
-  document.getElementById("outcome-legend").innerHTML = OUTCOMES.map(([, l, c]) =>
-    `<span><i style="background:${c}"></i>${l}</span>`).join("");
-  const srcs = source === "todas" ? DATA.sources : [source];
-  const W = 1000, labelW = 110, bar = 22, gap = 14, plot = W - labelW - 10;
-  document.getElementById("outcome").innerHTML = `<svg viewBox="0 0 ${W} ${srcs.length * (bar + gap)}" role="img">` +
+  const o = d.outcome;
+  document.getElementById("tiles").innerHTML = [
+    [fmt(d.scores), "Partituras"], [fmt(read), "Notas y silencios leídos"], [pct(o.bien || 0, read), "Bien leídos"],
+    [fmt(o.corregida || 0), "Corregidos"], [fmt(o.borrada || 0), "Sobraban"], [fmt(d.missing), "Faltaban"],
+  ].map(([n, l]) => `<div class="tile"><b>${n}</b><span class="label">${l}</span></div>`).join("");
+
+  // Qué pasó con cada nota: barras apiladas al 100 %, por patrón.
+  document.getElementById("outcome-legend").innerHTML = OUTCOMES.map(([, l, f, what]) =>
+    `<div class="def">${swatch(f)}<div><span class="label">${l}</span><p>${esc(what)}</p></div></div>`).join("");
+  const srcs = source === "todas" ? ["todas", ...DATA.groups] : [source];
+  // Al ancho real del panel: el texto de la barra se lee igual en un móvil que en una pantalla grande.
+  const W = Math.max(300, Math.round(document.getElementById("outcome").clientWidth) || 1000);
+  const labelW = W < 560 ? 104 : 150, bar = 30, gap = 18, plot = W - labelW;
+  document.getElementById("outcome").innerHTML = `<svg class="chart" viewBox="0 0 ${W} ${srcs.length * (bar + gap)}" role="img">` +
     srcs.map((s, i) => {
-      const dd = DATA.variants[`${s}|${skip ? 1 : 0}`], y = i * (bar + gap); let x = labelW;
-      const segs = OUTCOMES.map(([k, l, c]) => {
+      const dd = DATA.variants[`${s}|${skip() ? 1 : 0}`], y = i * (bar + gap); let x = labelW;
+      const segs = OUTCOMES.map(([k, l, f]) => {
         const n = dd.outcome[k] || 0; if (!n) return "";
-        const tipText = `<b>${esc(NAMES[s] || s)}</b> · ${l}: ${fmt(n)} (${pct(n, dd.read)})`;
-        const w = plot * n / dd.read, seg = `<rect data-tip="${esc(tipText)}"
-          x="${x}" y="${y}" width="${Math.max(1, w - 2)}" height="${bar}" rx="4" fill="${c}"/>`;
-        const lab = w > 70 ? `<text class="val" x="${x + 6}" y="${y + bar - 7}">${pct(n, dd.read)}</text>` : "";
-        x += w; return seg + lab;
+        const w = plot * n / dd.read, tipHtml = `<b>${esc(NAMES[s] || s)}</b> · ${l}: ${fmt(n)} (${pct(n, dd.read)})`;
+        const lab = w > 64 ? `<text x="${x + 8}" y="${y + bar / 2 + 5}" style="fill:${k === "corregida" ? "var(--paper)" : "var(--ink)"};font-weight:500">${pct(n, dd.read)}</text>` : "";
+        const seg = `<g data-tip="${esc(tipHtml)}"><rect x="${x}" y="${y}" width="${w}" height="${bar}" fill="${f}"/>${lab}</g>`;
+        x += w; return seg;
       }).join("");
-      return `<text x="${labelW - 10}" y="${y + bar - 7}" text-anchor="end">${esc(NAMES[s] || s)}</text>${segs}`;
+      return `<text class="ax" x="${labelW - 12}" y="${y + bar / 2 + 4}" text-anchor="end">${esc(NAMES[s] || s)}</text>${segs}
+        <rect x="${labelW}" y="${y}" width="${plot}" height="${bar}" fill="none" stroke="var(--ink)" stroke-width="3"/>`;
     }).join("") + `</svg>`;
 
   const ops = Object.entries(d.ops).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
-  document.getElementById("ops").innerHTML = !read ? "<p class='note'>Sin notas leídas.</p>"
-    : ops.length ? hbars(ops.map(([k, n]) => ({
-    label: OPS[k] || k, value: 100 * n / read, key: `op:${k}`,
+  document.getElementById("ops").innerHTML = !read ? "<p class='small'>Sin notas leídas.</p>" : ops.length ? hbars(ops.map(([k, n]) => ({
+    label: OPS[k] || k, value: 100 * n / read, key: `op:${k}`, kicker: "Qué se corrige",
     text: (100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 }),
-    tip: `<b>${esc(OPS[k] || k)}</b>: ${fmt(n)} correcciones (${(100 * n / read).toFixed(1)} por cada 100 leídas)`,
-  }))) : "<p class='note'>Sin correcciones.</p>";
+    tip: `<b>${esc(OPS[k] || k)}</b>: ${fmt(n)} correcciones, ${(100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 })} por cada 100 notas`,
+  }))) : "<p class='small'>Sin correcciones.</p>";
 
+  // Pasos de pentagrama.
   const steps = d.steps, ks = [];
   for (let k = -8; k <= 8; k++) ks.push(k);
-  const total = Object.values(steps).reduce((a, b) => a + b, 0);
-  const top = Math.max(1, ...Object.values(steps));
-  const SW = 520, SH = 180, base = SH - 24, cw = SW / ks.length;
-  document.getElementById("steps").innerHTML = total ? `<svg viewBox="0 0 ${SW} ${SH}" role="img">
-    <line x1="0" x2="${SW}" y1="${base}" y2="${base}" stroke="var(--line)"/>` + ks.map((k, i) => {
-      const n = steps[k] || 0, h = (base - 16) * n / top, x = i * cw;
-      const name = k === 0 ? "misma línea o espacio (solo cambia la alteración)" : `${Math.abs(k)} ${Math.abs(k) === 1 ? "paso" : "pasos"} ${k > 0 ? "arriba" : "abajo"}${Math.abs(k) === 7 ? " (una octava)" : ""}${Math.abs(k) === 8 ? " o más" : ""}`;
-      return `<g data-tip="${esc(`<b>${name}</b>: ${fmt(n)} (${pct(n, total)})`)}" ${n ? `data-key="step:${k}" data-title="altura, ${esc(name)}"` : ""}>
-        <rect class="hit" x="${x}" y="0" width="${cw}" height="${SH}"/>
-        ${n ? `<rect class="mark" x="${x + 3}" y="${base - h}" width="${cw - 6}" height="${h}" rx="4" fill="var(--series-1)"/>` : ""}
-        <text x="${x + cw / 2}" y="${SH - 6}" text-anchor="middle">${k > 0 ? "+" + k : k}</text></g>`;
-    }).join("") + `</svg>` : "<p class='note'>Sin correcciones de altura.</p>";
+  const total = Object.values(steps).reduce((a, b) => a + b, 0), topN = Math.max(1, ...Object.values(steps));
+  document.getElementById("steps").innerHTML = total ? `<div class="steps">` + ks.map(k => {
+      const n = steps[k] || 0;
+      const name = k === 0 ? "misma línea o espacio (solo la alteración)" : `${Math.abs(k)} ${Math.abs(k) === 1 ? "línea o espacio" : "líneas o espacios"} ${k > 0 ? "arriba" : "abajo"}${Math.abs(k) === 7 ? " (una octava)" : ""}${Math.abs(k) === 8 ? " o más" : ""}`;
+      const fill = `<span class="fill" style="height:${(100 * n / topN).toFixed(2)}%"></span>`;
+      return n ? `<div class="scol" ${attrs(`step:${k}`, `Altura: ${name}`, "Cuánto se movió la altura", `<b>${esc(name)}</b>: ${fmt(n)} (${pct(n, total)})`)}>${fill}</div>` : `<div class="scol"></div>`;
+    }).join("") + `</div><div class="steps-ax">` + ks.map(k => `<span class="${k === 0 ? "zero" : ""}">${k > 0 ? "+" + k : k}</span>`).join("") +
+    `</div><div class="steps-cap label muted"><span>← Abajo</span><span>Arriba →</span></div>` : "<p class='small'>Sin correcciones de altura.</p>";
 
+  // Contextos.
+  const block = (title, rows, labelWidth) => rows.length ? `<div class="label muted" style="margin:0 0 6px">${esc(title)}</div>` +
+    hbars(rows.map(r => ({ label: r.label, value: r.rate, text: pct(r.wrong, r.n, 0), key: r.key, kicker: title, title: r.label,
+      icon: r.key.startsWith("readdur:") ? figSym(r.key.slice("readdur:".length)) : "",
+      tip: `<b>${esc(r.label)}</b>: ${fmt(r.wrong)} de ${fmt(r.n)} notas con corrección` })), { max: 1, labelWidth }) : "";
+  document.getElementById("contexts").innerHTML =
+    (block("Alteración frente a la armadura", d.by_vs_key, "10rem") + block("Clave", d.by_clef, "10rem") + block("Figura leída", d.by_duration, "10rem")) || "<p class='small'>Pocas notas para comparar.</p>";
+
+  // Matriz de figuras: más tinta, más casos.
   const dur = d.durations;
-  if (!dur.length) document.getElementById("durations").innerHTML = "<p class='note'>Sin correcciones de figura.</p>";
+  if (!dur.length) document.getElementById("durations").innerHTML = "<p class='small'>Sin correcciones de figura.</p>";
   else {
+    // Ordenadas por duración; se enseña el nombre de la figura, nunca la fracción (#418).
     const val = s => { const [a, b] = s.split("/"); return b ? a / b : +a; };
+    const name = {};
+    dur.forEach(c => { name[c.read] = c.read_name; name[c.fix] = c.fix_name; });
     const reads = [...new Set(dur.map(c => c.read))].sort((a, b) => val(a) - val(b));
     const fixes = [...new Set(dur.map(c => c.fix))].sort((a, b) => val(a) - val(b));
-    const max = Math.max(...dur.map(c => c.n)), cell = 40, lw = 48, th = 26;
+    const max = Math.max(...dur.map(c => c.n));
     const get = (r, f) => (dur.find(c => c.read === r && c.fix === f) || {}).n || 0;
-    const step = n => n ? 1 + Math.min(6, Math.floor(6 * Math.sqrt(n / max))) : 0;
-    document.getElementById("durations").innerHTML = `<svg viewBox="0 0 ${lw + fixes.length * cell} ${th + reads.length * cell}" style="max-width:${lw + fixes.length * cell + 40}px" role="img">` +
-      fixes.map((f, j) => `<text x="${lw + j * cell + cell / 2}" y="16" text-anchor="middle">${esc(f)}</text>`).join("") +
-      reads.map((r, i) => `<text x="${lw - 8}" y="${th + i * cell + cell / 2 + 4}" text-anchor="end">${esc(r)}</text>` +
-        fixes.map((f, j) => { const n = get(r, f), s = step(n);
-          return `<g data-tip="${esc(`Leída <b>${esc(r)}</b>, correcta <b>${esc(f)}</b>: ${fmt(n)}`)}" ${n ? `data-key="${esc(`dur:${r}>${f}`)}" data-title="${esc(`figura leída ${r}, correcta ${f}`)}"` : ""}>
-            <rect x="${lw + j * cell + 1}" y="${th + i * cell + 1}" width="${cell - 2}" height="${cell - 2}" rx="4" fill="var(--seq-${s})"/>
-            ${n ? `<text x="${lw + j * cell + cell / 2}" y="${th + i * cell + cell / 2 + 4}" text-anchor="middle" style="fill:${s >= 4 ? "#fff" : "var(--text-primary)"}">${n}</text>` : ""}</g>`;
-        }).join("")).join("") + `</svg>`;
+    document.getElementById("durations").innerHTML = `<table class="matrix"><thead><tr><th class="corner" rowspan="2">Leída ↓<br>Correcta →</th>` +
+      fixes.map(f => `<th class="name" scope="col">${esc(name[f])}</th>`).join("") + `</tr><tr>` +
+      fixes.map(f => `<th class="sym" aria-hidden="true">${figSym(f)}</th>`).join("") + `</tr></thead><tbody>` +
+      reads.map(r => `<tr><th scope="row">${figSym(r)}${esc(name[r])}</th>` + fixes.map(f => {
+        const n = get(r, f); if (!n) return `<td></td>`;
+        const a = 0.12 + 0.88 * Math.sqrt(n / max);
+        return `<td style="background:rgba(10,10,10,${a.toFixed(2)});color:${a > 0.5 ? "var(--paper)" : "var(--ink)"}" ${attrs(`dur:${r}>${f}`, `Leída ${name[r]}, correcta ${name[f]}`, "Figura leída y correcta", `Leída <b>${esc(name[r])}</b>, correcta <b>${esc(name[f])}</b>: ${fmt(n)}`)}>${fmt(n)}</td>`;
+      }).join("") + `</tr>`).join("") + `</tbody></table>`;
   }
 
-  const block = (title, rows) => rows.length ? `<h3>${title}</h3>` +
-    hbars(rows.map(r => ({ label: r.label, value: r.rate, text: pct(r.wrong, r.n), key: r.key,
-      title: `${title.toLowerCase()}, ${r.label}`,
-      tip: `<b>${esc(r.label)}</b>: ${fmt(r.wrong)} de ${fmt(r.n)} notas con corrección` })), { max: 1 }) : "";
-  document.getElementById("contexts").innerHTML =
-    block("Alteración frente a la armadura", d.by_vs_key) + block("Clave", d.by_clef) + block("Figura leída", d.by_duration);
-
-  document.getElementById("top").innerHTML = d.top.length ? `<table><thead><tr><th>Partitura</th><th>Origen</th>
+  document.getElementById("top").innerHTML = d.top.length ? `<table class="top"><thead><tr><th>Partitura</th><th>Origen</th>
     <th class="n">Leídas</th><th class="n">Correcciones</th><th class="n">Por nota</th></tr></thead><tbody>` +
-    d.top.map(r => `<tr data-key="${esc(r.key)}" data-title="${esc(r.label)}"><td>${esc(r.label)}</td><td>${esc(NAMES[r.source] || r.source)}</td>
+    d.top.map(r => `<tr ${attrs(r.key, r.label, "Partitura", `<b>${esc(r.label)}</b>: ver sus correcciones`)}><td>${esc(r.label)}</td><td>${esc(r.origin)}</td>
       <td class="n">${fmt(r.read)}</td><td class="n">${fmt(r.fixes)}</td><td class="n">${pct(r.fixes, r.read, 0)}</td></tr>`).join("") +
-    `</tbody></table>` : "<p class='note'>Ninguna partitura con 10 notas o más.</p>";
-  showExamples(false);
+    `</tbody></table>` : "<p class='small'>Ninguna partitura con 10 notas o más.</p>";
+
+  if (!selected || !d.example_keys[selected.key]) {
+    const first = fs.find(f => f.key);
+    selected = first ? { key: first.key, title: first.title, kicker: first.kicker } : null;
+  }
+  markSelected();
+  showExamples();
+  renderSessions();
 }
 
+// --- Ejemplos -----------------------------------------------------------------------------------
+function changeHtml(x) {
+  const read = `${x.read_beats ? figSym(x.read_beats) : ""}${esc(x.read)}`, fix = `${x.fix_beats ? figSym(x.fix_beats) : ""}${esc(x.fix)}`;
+  if (x.read === x.fix) return `<span class="tok">${read}</span>`;
+  return `<span class="label arrow">HOMR</span><span class="tok del">${read}</span><span class="label arrow">→ correcto</span><span class="tok ins">${fix}</span>`;
+}
+function photoHtml(img, alt) {
+  return img ? `<div class="photo"><img loading="lazy" src="${esc(img)}" alt="${esc(alt)}"></div>`
+    : `<div class="nophoto"><span class="label">Sin foto · exporta con --recortes</span></div>`;
+}
+function showExamples() {
+  const d = variant(), list = document.getElementById("ex-list");
+  if (!selected) {
+    document.getElementById("ex-title").textContent = "Ejemplos";
+    document.getElementById("ex-note").textContent = "Pincha una cifra, una barra o una fila.";
+    list.innerHTML = ""; return;
+  }
+  const ids = d.example_keys[selected.key] || [];
+  document.getElementById("ex-kicker").textContent = selected.kicker || "Ejemplos";
+  document.getElementById("ex-title").textContent = selected.title;
+  document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? ", los 12 primeros" : ""}. Cada foto es el pentagrama entero del sistema; el compás es el que se indica.` : "Ningún ejemplo con este filtro.";
+  list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
+    ${photoHtml(x.img, `Pentagrama ${x.staff}, sistema del compás ${x.measure}`)}
+    <div class="txt"><div class="small">${esc(x.score)} · compás ${esc(x.measure)} · pentagrama ${esc(x.staff)}</div>
+    <div class="change">${changeHtml(x)}</div></div></article>`).join("");
+}
+
+// --- Tiras de cada sesión ---------------------------------------------------------------------------
+// "c1: F4:1 +D4:1 G4:1/2 / Bb2:2 | c2: ..." -> [{m, voices: [[acorde, ...], ...]}]
+function parse(text) {
+  if (!text) return [];
+  return text.split(" | ").map(chunk => {
+    const i = chunk.indexOf(": ");
+    return { m: chunk.slice(0, i).replace(/^c/, ""), voices: chunk.slice(i + 2).split(" / ").map(v => {
+      const chords = [];
+      for (const tok of v.trim().split(/\s+/).filter(Boolean)) {
+        if (tok.startsWith("+") && chords.length) chords[chords.length - 1].push(tok.slice(1)); else chords.push([tok]);
+      }
+      return chords;
+    }) };
+  });
+}
+function diff(a, b, loose) {
+  const key = c => (loose ? [...c].sort() : c).join(" +");
+  const ka = a.map(key), kb = b.map(key), n = ka.length, m = kb.length;
+  const t = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--)
+    t[i][j] = ka[i] === kb[j] ? t[i + 1][j + 1] + 1 : Math.max(t[i + 1][j], t[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && ka[i] === kb[j]) { ops.push(["eq", a[i], b[j]]); i++; j++; }
+    else if (j < m && (i >= n || t[i][j + 1] >= t[i + 1][j])) { ops.push(["ins", null, b[j]]); j++; }
+    else { ops.push(["del", a[i], null]); i++; }
+  }
+  return ops;
+}
+// "F4:3/4" -> "F4 corchea con puntillo"; "r:1" -> "silencio de negra"; "_:1" -> "hueco de negra"; "~", ligada.
+// Cada uno con el símbolo de su figura delante.
+function tokenHtml(chord) {
+  return chord.map(t => {
+    const tied = t.endsWith("~"), body = tied ? t.slice(0, -1) : t, i = body.lastIndexOf(":");
+    const head = body.slice(0, i), beats = body.slice(i + 1), fig = figName(beats);
+    const text = head === "r" ? `silencio de ${fig}` : head === "_" ? `hueco de ${fig}` : `${head} ${fig}`;
+    return figSym(beats) + esc(tied ? `${text} (ligada)` : text);
+  }).join(" + ");
+}
+function side(voices, which) {
+  return voices.map(ops => ops.filter(([op]) => op === "eq" || op === (which === "read" ? "del" : "ins")).map(([op, a, b]) => {
+    const chord = which === "read" ? (a || b) : (b || a);
+    const reord = op === "eq" && a.join() !== b.join();
+    const cls = op === "eq" ? (reord ? "reord" : "") : op;
+    return `<span class="tok ${cls}"${reord ? ' title="Las mismas notas en otro orden"' : ""}>${tokenHtml(chord)}</span>`;
+  }).join("")).join('<span class="voice">/</span>');
+}
+function renderSessions() {
+  const box = document.getElementById("sessions"), only = document.getElementById("only-fixed").checked;
+  const sessions = (DATA.sessions || []).filter(s => source !== "pruebas" || s.real);
+  if (!sessions.length) { box.innerHTML = `<p class="empty">Sin tiras: exporta con --recortes y la base.</p>`; document.getElementById("sessions-count").textContent = ""; return; }
+  let shownStrips = 0;
+  box.innerHTML = sessions.map(s => {
+    const strips = s.strips.filter(st => !only || st.corrected);
+    if (!strips.length) return "";
+    shownStrips += strips.length;
+    const corrected = s.strips.filter(st => st.corrected).length;
+    return `<article class="session"><h4>${esc(s.label)} <span class="small">${plural(s.strips.length, "tira", "tiras")} · ${plural(corrected, "corregida", "corregidas")}</span></h4>` +
+      strips.map(st => {
+        const r = parse(st.read), f = parse(st.fixed);
+        const rows = [];
+        for (let k = 0; k < Math.max(r.length, f.length); k++) {
+          const rm = r[k] || { m: (f[k] || {}).m, voices: [] }, fm = f[k] || { m: rm.m, voices: [] };
+          const voices = [];
+          for (let v = 0; v < Math.max(rm.voices.length, fm.voices.length); v++) voices.push(diff(rm.voices[v] || [], fm.voices[v] || [], skip()));
+          const changed = voices.some(ops => ops.some(([op, a, b]) => op !== "eq" || (!skip() && a.join() !== b.join())));
+          if (only && !changed) continue;
+          rows.push(`<tr><th rowspan="2">C${esc(fm.m)}</th><th>HOMR</th><td>${side(voices, "read")}</td></tr><tr><th>Final</th><td>${side(voices, "final")}</td></tr>`);
+        }
+        return `<div class="strip">${photoHtml(st.img, `Sistema ${st.system}, pentagrama ${st.staves}`)}
+          <div><div class="meta"><span class="small">Sistema ${esc(st.system)} · pentagrama ${esc(st.staves)} · compases ${esc(st.first)}–${esc(st.last)}</span>
+          <span class="flag ${st.corrected ? "on" : ""}">${st.corrected ? "Corregida" : "Sin cambios"}</span></div>
+          <div class="scroll"><table class="measures">${rows.join("") || `<tr><td class="small">Sin cambios en estos compases.</td></tr>`}</table></div></div></div>`;
+      }).join("") + `</article>`;
+  }).join("") || `<p class="empty">Ninguna tira corregida.</p>`;
+  document.getElementById("sessions-count").textContent = `${plural(sessions.length, "sesión", "sesiones")} · ${plural(shownStrips, "tira", "tiras")}`;
+}
+
+// --- Arranque ------------------------------------------------------------------------------------
+// El filtro solo aparece si hay pruebas reales de Cadenza que separar.
 const seg = document.getElementById("source");
-seg.innerHTML = ["todas", ...DATA.sources].map(s =>
+seg.hidden = document.getElementById("source-label").hidden = !DATA.groups.length;
+seg.innerHTML = ["todas", ...DATA.groups].map(s =>
   `<button type="button" data-s="${esc(s)}" aria-pressed="${s === source}">${esc(NAMES[s] || s)}</button>`).join("");
 seg.addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -307,6 +658,12 @@ seg.addEventListener("click", e => {
   render();
 });
 document.getElementById("reorder").addEventListener("change", render);
+let resizing = 0, lastWidth = innerWidth;
+addEventListener("resize", () => {
+  clearTimeout(resizing);
+  resizing = setTimeout(() => { if (innerWidth !== lastWidth) { lastWidth = innerWidth; render(); } }, 150);
+});
+document.getElementById("only-fixed").addEventListener("change", renderSessions);
 render();
 </script>
 </body>
