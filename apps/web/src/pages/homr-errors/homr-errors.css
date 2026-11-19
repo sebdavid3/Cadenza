@@ -858,6 +858,33 @@
   mix-blend-mode: multiply;
 }
 
+/* El compás grabado con OSMD, como en el editor: cada pentagrama con su rótulo a la izquierda. */
+.homr__engraved {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  overflow-x: auto;
+}
+
+.homr__engraved-tag {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.homr__engraved-staff {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.homr__engraved-staff svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 .homr__ex-text {
   display: grid;
   gap: 6px;
@@ -1030,7 +1057,7 @@
 }
 
 .homr__history-table tbody tr {
-  position: relative;
+  cursor: pointer;
 }
 
 .homr__history-table tbody th,
@@ -1053,7 +1080,7 @@
   color: var(--color-ink-faint);
 }
 
-/* La partitura es el botón; su ::after cubre la fila entera, que se elige con un clic. */
+/* La partitura es el botón (para el teclado); con el ratón, se elige toda la fila. */
 .homr__history-pick {
   width: 100%;
   min-height: 40px;
@@ -1066,12 +1093,6 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
-}
-
-.homr__history-pick::after {
-  position: absolute;
-  inset: 0;
-  content: "";
 }
 
 .homr__history-pick:focus-visible {

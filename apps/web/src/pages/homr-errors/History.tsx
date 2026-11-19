@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ApiError } from "../../api/errors";
 import type { HomrErrorHistoryRowRead, HomrErrorScoreRead } from "../../types";
 import { ExamplesPanel, Pager } from "./Examples";
 import {
@@ -48,7 +49,10 @@ export function ScoreExamples(props: {
 }
 
 type Detail =
-  { status: "loading" } | { status: "failed" } | { status: "ready"; detail: HomrErrorScoreRead };
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "gone" }
+  | { status: "ready"; detail: HomrErrorScoreRead };
 
 /** Se monta de nuevo con cada partitura elegida (`key` en quien lo usa): la pide una vez. */
 function FetchedScoreExamples({
@@ -72,8 +76,12 @@ function FetchedScoreExamples({
       (found) => {
         if (!controller.signal.aborted) setDetail({ status: "ready", detail: found });
       },
-      () => {
-        if (!controller.signal.aborted) setDetail({ status: "failed" });
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        // Un 404: el corpus cambió desde que se cargó la página y la partitura ya no está.
+        setDetail({
+          status: error instanceof ApiError && error.status === 404 ? "gone" : "failed",
+        });
       },
     );
     return () => {
@@ -89,11 +97,18 @@ function FetchedScoreExamples({
     content = { examples, bars, figures, empty: CLEAN, imageOf: () => url };
   } else if (detail.status === "loading") {
     content = { ...EMPTY, empty: "Cargando sus correcciones…" };
+  } else if (detail.status === "gone") {
+    content = {
+      ...EMPTY,
+      empty: "Esta partitura ya no está en el historial: el corpus cambió. Recarga la página.",
+    };
   } else {
     content = {
       ...EMPTY,
       empty: "Ahora no se pueden cargar sus correcciones.",
       retry: () => {
+        // El botón desaparece al reintentar: el foco pasa al título del panel.
+        document.getElementById("homr-ex-title")?.focus();
         setDetail({ status: "loading" });
         setAttempt((n) => n + 1);
       },
@@ -206,16 +221,18 @@ export function HistoryPanel({
             <tbody>
               {shown.map((row) => {
                 const selection = scoreSelection(row);
+                const choose = () => {
+                  onChoose(selection);
+                };
                 return (
-                  <tr key={row.id}>
+                  // La fila entera se elige con el ratón; con el teclado, su botón (el clic de
+                  // este sube hasta la fila).
+                  <tr key={row.id} onClick={choose}>
                     <th scope="row">
                       <button
                         type="button"
                         className="homr__history-pick"
                         aria-current={selected?.key === selection.key ? "true" : undefined}
-                        onClick={() => {
-                          onChoose(selection);
-                        }}
                       >
                         {row.label}
                       </button>

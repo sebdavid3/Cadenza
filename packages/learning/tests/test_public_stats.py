@@ -594,3 +594,33 @@ def test_the_images_command_puts_each_score_image_next_to_its_corpus(tmp_path: P
         "camera-primus": (0, len(camera_ids)),
         "primus": (0, len(primus_ids)),
     }
+
+
+def test_the_images_command_never_writes_into_results_or_data() -> None:
+    root = Path(public_stats.__file__).resolve().parents[1]
+    for name in ("results", "data"):
+        with pytest.raises(ValueError, match=f"no se escribe en {name}/"):
+            public_stats.copy_images(root / name / "corpus", None, None)
+
+
+def test_a_corpus_not_saved_is_computed_again_on_the_next_round(
+    db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    write_corpus(corpus_dir / "primus.jsonl", works=3)
+    process: dict[str, str] = {}
+
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("la base se cayó al guardar")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(SqlAlchemyPublicStatsRepository, "replace_scores", broken)
+        with pytest.raises(RuntimeError):
+            _compute(db_url, corpus_dir, fresh=process)
+    # No quedó apuntado: la vuelta siguiente lo calcula y lo guarda, con el detalle.
+    assert process == {}
+    _compute(db_url, corpus_dir, when=LATER, fresh=process)
+    assert process == {"primus": file_sha256(corpus_dir / "primus.jsonl")}
+    assert _stored(db_url)["primus"].computed_at == LATER
+    assert _scores(db_url)

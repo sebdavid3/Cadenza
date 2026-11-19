@@ -28,7 +28,7 @@ import shutil
 import signal
 import sys
 import threading
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
@@ -396,16 +396,17 @@ def corpus_groups(
     corpus_dir: Path,
     stored: Sequence[PublicStatsGroup],
     computed_at: datetime.datetime,
-    fresh: dict[str, str],
+    fresh: Mapping[str, str],
 ) -> tuple[list[PublicStatsGroup], dict[str, tuple[ScoreDetails, Images]]]:
     """Un grupo por cada `<grupo>.jsonl` de la carpeta; uno que no se puede leer se salta con un
     aviso. Con el detalle de las partituras de los que se calcularon y sus imágenes (los
     conservados ya lo tienen guardado). Las imágenes no cambian el sha256: si se añaden, se
     toman en el siguiente arranque del servicio.
 
-    `fresh` dice qué corpus (y con qué sha256) se calcularon ya en este proceso: solo esos se
-    conservan tal cual si no cambian. Así, cada arranque del servicio (cada despliegue) los
-    recalcula una vez con el código nuevo."""
+    `fresh` dice qué corpus (y con qué sha256) se calcularon y guardaron ya en este proceso:
+    solo esos se conservan tal cual si no cambian. Así, cada arranque del servicio (cada
+    despliegue) los recalcula una vez con el código nuevo, y un cálculo que no se pudo guardar se
+    repite en la vuelta siguiente."""
     previous = {g.id: g for g in stored if g.source == CORPUS}
     groups: list[PublicStatsGroup] = []
     details: dict[str, tuple[ScoreDetails, Images]] = {}
@@ -427,7 +428,6 @@ def corpus_groups(
             group, scores, found = _corpus_group(path, sha256, computed_at)
             groups.append(group)
             details[group.id] = (scores, found)
-            fresh[path.stem] = sha256
         except Exception as exc:  # un corpus roto no para las cifras en vivo
             logger.warning(
                 "public_stats_corpus_skipped file=%s reason=%s: %s",
@@ -451,7 +451,8 @@ def compute_once(
 ) -> list[PublicStatsGroup]:
     """Un cálculo: lee (en solo lectura), calcula y guarda. Sin `corpus_dir`, los grupos de
     corpus guardados no se tocan; con él, quedan los de sus archivos. `fresh` lo comparten los
-    cálculos de un mismo proceso (`corpus_groups`); sin él, los corpus se recalculan."""
+    cálculos de un mismo proceso (`corpus_groups`), y apunta un corpus solo cuando se ha guardado;
+    sin él, los corpus se recalculan."""
     computed_at = now()
     live = cadenza_groups(cadenza_tables(factory), computed_at)
     corpus: list[PublicStatsGroup] | None = None
@@ -462,9 +463,7 @@ def compute_once(
             stored = SqlAlchemyPublicStatsRepository(db).list()
         corpus = []
         if corpus_dir.is_dir():
-            corpus, details = corpus_groups(
-                corpus_dir, stored, computed_at, {} if fresh is None else fresh
-            )
+            corpus, details = corpus_groups(corpus_dir, stored, computed_at, fresh or {})
     with session_scope(factory) as db:
         repository = SqlAlchemyPublicStatsRepository(db)
         repository.replace(LIVE, live)
@@ -481,6 +480,10 @@ def compute_once(
             if group.id in details:
                 scores, images = details[group.id]
                 repository.replace_scores(group, scores, images)
+    if fresh is not None:
+        fresh.update(
+            {g.id: g.source_sha256 for g in corpus or [] if g.id in details and g.source_sha256}
+        )
     groups = live + (corpus or [])
     logger.info(
         "public_stats_computed %s",
@@ -591,6 +594,10 @@ def add_parser(subparsers: Any) -> None:
 
 CAMERA_PRIMUS: Final = "camera-primus"
 """El corpus de Camera-PrIMuS: sus imágenes son las distorsionadas, en JPEG."""
+_IMAGE_LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+"""El nombre de una partitura que puede dar nombre a un archivo: sin separadores ni «..»."""
+_PROTECTED: Final = ("results", "data")
+"""Las carpetas del repositorio donde no escribe el comando de las imágenes (CLAUDE.md §8)."""
 
 
 def _primus_index(primus_dir: Path) -> dict[str, Path]:
@@ -611,6 +618,11 @@ def copy_images(
     `<grupo>/<íncipit>.png` (o `.jpg`), de donde la toma el cálculo: de Camera-PrIMuS, la
     distorsionada; de los demás, la de PrIMuS. Devuelve, por grupo, cuántas copió y cuántas no
     encontró. Solo lee los corpus y las carpetas de las imágenes."""
+    root = Path(__file__).resolve().parents[1]
+    target_root = corpus_dir.resolve()
+    for name in _PROTECTED:
+        if target_root.is_relative_to(root / name):
+            raise ValueError(f"no se escribe en {name}/: copia el corpus a otra carpeta")
     result: dict[str, tuple[int, int]] = {}
     primus: dict[str, Path] | None = None
     for path in sorted(corpus_dir.glob("*.jsonl")):
@@ -631,7 +643,12 @@ def copy_images(
                     primus = _primus_index(primus_dir) if primus_dir else {}
                 source = primus.get(label)
             destination = target / f"{label}.{extension}"
-            if source is None or not source.is_file() or destination.parent != target:
+            if (
+                not _IMAGE_LABEL.fullmatch(label)
+                or ".." in label
+                or source is None
+                or not source.is_file()
+            ):
                 missing += 1
                 continue
             target.mkdir(exist_ok=True)
@@ -648,7 +665,12 @@ def public_stats_images_command(args: argparse.Namespace) -> int:
         return 1
     primus_dir = Path(args.primus_dir) if args.primus_dir else None
     camera_dir = Path(args.camera_dir) if args.camera_dir else None
-    for group, (copied, missing) in copy_images(corpus_dir, primus_dir, camera_dir).items():
+    try:
+        copied_by_group = copy_images(corpus_dir, primus_dir, camera_dir)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    for group, (copied, missing) in copied_by_group.items():
         print(f"  {group:<14}: {copied} imágenes copiadas, {missing} sin imagen")
     return 0
 

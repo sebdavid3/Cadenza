@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAuthStore } from "../../auth/store";
+import { ApiError } from "../../api/errors";
 import { routes } from "../../router";
 import type { HomrErrorStatsRead } from "../../types";
 import {
@@ -331,7 +332,7 @@ describe("los ejemplos de los corpus", () => {
 
     const panel = screen.getByRole("region", { name: "Figura equivocada" });
     expect(within(panel).getByText(/Calvo-Zaragoza y Rizo, 2018/)).toBeInTheDocument();
-    expect(within(panel).getByText(/Cada compás lo dibuja Cadenza desde los datos/)).toBeVisible();
+    expect(within(panel).getByText(/Cada compás lo graba Cadenza desde los datos/)).toBeVisible();
     expect(
       within(panel).getAllByRole("img", { name: /^Compás \d+: lo que leyó HOMR/ }),
     ).toHaveLength(4);
@@ -476,8 +477,33 @@ describe("el historial de transcripciones de un corpus", () => {
     await userEvent.click(screen.getByRole("button", { name: "00010104-1_1_1" }));
     await userEvent.click(await screen.findByRole("button", { name: "Volver a intentarlo" }));
 
+    // El botón desaparece: el foco queda en el título del panel, no en la página.
+    expect(screen.getByRole("heading", { name: "00010104-1_1_1" })).toHaveFocus();
     expect(await screen.findByText("00010104-1_1_1 · compás 3 · pentagrama 0-0")).toBeVisible();
     expect(loadScore).toHaveBeenCalledTimes(2);
+  });
+
+  it("una partitura que ya no está lo dice, sin un reintento que no serviría", async () => {
+    const loadScore = vi.fn<ScoreLoader>().mockRejectedValue(new ApiError("not-found", 404));
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    await userEvent.click(screen.getByRole("button", { name: "00010104-1_1_1" }));
+
+    expect(await screen.findByText(/ya no está en el historial/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Volver a intentarlo" })).toBeNull();
+  });
+
+  it("toda la fila elige la partitura", async () => {
+    const loadScore = vi.fn<ScoreLoader>((_group, score) => Promise.resolve(scoreDetail(score)));
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    const row = screen.getByRole("row", { name: /00010104-1_1_1/ });
+    await userEvent.click(within(row).getAllByRole("cell")[0] ?? row);
+
+    expect(within(row).getByRole("button")).toHaveAttribute("aria-current", "true");
+    expect(loadScore).toHaveBeenCalledTimes(1);
   });
 
   it("los grupos de Cadenza no tienen historial", async () => {

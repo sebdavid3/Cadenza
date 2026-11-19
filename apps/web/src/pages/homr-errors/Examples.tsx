@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import type { FigureRead, HomrErrorExampleRead } from "../../types";
-import { DrawnBar } from "./DrawnBar";
+import { EngravedBar } from "./EngravedBar";
 import { FigureSymbol } from "./FigureSymbol";
 import type { ExamplesContent, Selection } from "./selection";
 import { EXAMPLES_PAGE_SIZE, fmt, pageList, plural } from "./stats";
@@ -185,15 +185,15 @@ export function ExamplesPanel({
     <section className="homr__examples" aria-labelledby="homr-ex-title" id={EXAMPLES_ID}>
       <div className="homr__ex-head">
         <p className="label homr__muted">{selected?.kicker ?? "Ejemplos"}</p>
-        <h3 id="homr-ex-title" aria-live="polite">
+        <h3 id="homr-ex-title" aria-live="polite" tabIndex={-1}>
           <WithNumbers text={selected?.title ?? "Ejemplos"} />
         </h3>
         <p className="homr__panel-note">
           {examples.length
             ? `${plural(examples.length, "ejemplo", "ejemplos")}. ${
                 withImages
-                  ? `Arriba, la imagen del íncipit en ${corpus} (Calvo-Zaragoza y Rizo, 2018); debajo, su compás dibujado por Cadenza desde los datos`
-                  : `Cada compás lo dibuja Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018)`
+                  ? `Arriba, la imagen del íncipit en ${corpus} (Calvo-Zaragoza y Rizo, 2018); debajo, su compás grabado por Cadenza desde los datos`
+                  : `Cada compás lo graba Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018)`
               }: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.`
             : content.empty}
         </p>
@@ -221,7 +221,7 @@ export function ExamplesPanel({
                   </div>
                 )}
                 {bar && (
-                  <DrawnBar
+                  <EngravedBar
                     bar={bar}
                     atRead={example.at_read}
                     atFix={example.at_fix}
