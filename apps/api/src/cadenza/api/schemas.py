@@ -1160,7 +1160,8 @@ class DrawnBarRead(BaseModel):
 
 class HomrErrorExampleRead(BaseModel):
     """Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
-    qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."""
+    qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza; la imagen de su
+    partitura, si la tiene, se pide aparte (`image` en `history`)."""
 
     score: str = Field(..., description="El íncipit del corpus («000100134-7_1_1»).")
     measure: str = Field(..., description="El compás.")
@@ -1181,6 +1182,30 @@ class HomrErrorExampleRead(BaseModel):
     )
     at_fix: int | None = Field(
         default=None, description="La posición del evento en `fixed` del compás dibujado."
+    )
+
+
+class HomrErrorHistoryRowRead(BaseModel):
+    """Una partitura del historial de un corpus público: su nombre, sus notas leídas y sus
+    correcciones. Su detalle, en `GET /stats/homr-errors/{group_id}/scores/{id}`."""
+
+    id: str = Field(..., description="Su íncipit («primus:000100134-7_1_1»): la clave del detalle.")
+    label: str = Field(..., description="Su nombre en la página, el íncipit sin el corpus.")
+    read: int = Field(..., ge=0, description="Notas y silencios que leyó HOMR.")
+    fixes: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Sus correcciones: una por operación, con las notas que HOMR no leyó, la clave y la"
+            " armadura."
+        ),
+    )
+    image: bool = Field(
+        default=False,
+        description=(
+            "Si tiene la imagen del corpus, en"
+            " `GET /stats/homr-errors/{group_id}/scores/{id}/image`."
+        ),
     )
 
 
@@ -1249,6 +1274,13 @@ class HomrErrorStatsValuesRead(BaseModel):
     bars: dict[str, DrawnBarRead] | None = Field(
         default=None, description="Solo en los corpus: los compases dibujados de los ejemplos."
     )
+    history: list[HomrErrorHistoryRowRead] | None = Field(
+        default=None,
+        description=(
+            "Solo en los corpus: el historial de sus partituras, como en el informe local. Null"
+            " en los de Cadenza, que nunca dicen nada de una transcripción."
+        ),
+    )
 
 
 class HomrErrorStatsGroupRead(BaseModel):
@@ -1288,4 +1320,27 @@ class HomrErrorStatsRead(BaseModel):
     )
     groups: list[HomrErrorStatsGroupRead] = Field(
         ..., description="Los grupos: primero los de Cadenza y después los de los corpus."
+    )
+
+
+class HomrErrorScoreRead(BaseModel):
+    """El detalle de una partitura del historial de un corpus público (ADR-0073, enmienda de
+    #424): sus cifras y sus ejemplos (hasta 12) con el compás dibujado. Nunca de Cadenza."""
+
+    group_id: str = Field(..., description="El corpus («primus», «camera-primus»).")
+    id: str = Field(..., description="Su íncipit, como en `history`.")
+    label: str = Field(..., description="Su nombre en la página.")
+    computed_at: datetime = Field(..., description="Cuándo se calculó.")
+    read: int = Field(..., ge=0, description="Notas y silencios que leyó HOMR.")
+    fixes: int = Field(..., ge=0, description="Sus correcciones, como en `history`.")
+    image: bool = Field(default=False, description="Si tiene la imagen del corpus (`.../image`).")
+    examples: list[HomrErrorExampleRead] = Field(
+        ...,
+        description="Sus correcciones de ejemplo, como en el informe local; vacía sin ninguna.",
+    )
+    bars: dict[str, DrawnBarRead] = Field(
+        ..., description="Los compases dibujados de los ejemplos."
+    )
+    figures: dict[str, FigureRead] = Field(
+        ..., description="El nombre y el símbolo de cada duración que sale en sus ejemplos."
     )

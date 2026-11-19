@@ -191,7 +191,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
-from .public_stats import CACHE_CONTROL, StatsCache, etag_matches
+from .public_stats import (
+    CACHE_CONTROL,
+    IMAGE_CACHE_CONTROL,
+    StatsCache,
+    etag_matches,
+    render_image,
+    render_score,
+)
 from .schemas import (
     AnchorIndexPayload,
     AnchorPayload,
@@ -209,6 +216,7 @@ from .schemas import (
     FinalizeResponse,
     FindingRead,
     HealthStatusResponse,
+    HomrErrorScoreRead,
     HomrErrorStatsRead,
     PartInstrumentRead,
     PreviewClaimRequest,
@@ -894,6 +902,74 @@ def create_app(
         if etag_matches(request.headers.get("If-None-Match"), stats.etag):
             return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
         return Response(content=stats.body, media_type="application/json", headers=headers)
+
+    @app.get(
+        "/stats/homr-errors/{group_id}/scores/{score_id}",
+        response_model=HomrErrorScoreRead,
+        tags=["Stats"],
+        summary="Detalle de una partitura del historial de un corpus",
+        description=(
+            "Sin cuenta. Las cifras de una partitura del historial de un corpus público "
+            "(`history` de su grupo) y sus correcciones de ejemplo con el compás dibujado, "
+            "como en el informe local. Solo de los corpus: las partituras de Cadenza no tienen "
+            "historial ni detalle (ADR-0073, enmienda de #424). Con `Cache-Control` y `ETag`."
+        ),
+        responses={
+            **NOT_FOUND_404,
+            status.HTTP_304_NOT_MODIFIED: {"description": "Sin cambios desde ese ETag"},
+        },
+    )
+    def get_homr_error_score_endpoint(
+        group_id: str, score_id: str, request: Request, db: DbDep
+    ) -> Response:
+        score = render_score(SqlAlchemyPublicStatsRepository(db).get_score(group_id, score_id))
+        if score is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Esa partitura no está en el historial de ningún corpus.",
+            )
+        headers = {"Cache-Control": CACHE_CONTROL, "ETag": score.etag}
+        if etag_matches(request.headers.get("If-None-Match"), score.etag):
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+        return Response(content=score.body, media_type="application/json", headers=headers)
+
+    @app.get(
+        "/stats/homr-errors/{group_id}/scores/{score_id}/image",
+        tags=["Stats"],
+        summary="Imagen de una partitura del historial de un corpus",
+        description=(
+            "Sin cuenta. La imagen del corpus de una partitura de su historial (PrIMuS: la del "
+            "íncipit; Camera-PrIMuS: su versión distorsionada), si la tiene (`image` en su "
+            "detalle), para enseñarla con sus ejemplos como el informe local. Solo de los "
+            "corpus públicos, que se citan (ADR-0073, enmienda de #424). PNG o JPEG, con "
+            "`Cache-Control` y `ETag`."
+        ),
+        response_class=Response,
+        responses={
+            status.HTTP_200_OK: {
+                "content": {"image/png": {}, "image/jpeg": {}},
+                "description": "La imagen",
+            },
+            **NOT_FOUND_404,
+            status.HTTP_304_NOT_MODIFIED: {"description": "Sin cambios desde ese ETag"},
+        },
+    )
+    def get_homr_error_score_image_endpoint(
+        group_id: str, score_id: str, request: Request, db: DbDep
+    ) -> Response:
+        repository = SqlAlchemyPublicStatsRepository(db)
+        image = render_image(
+            repository.get_score(group_id, score_id), repository.get_image(group_id, score_id)
+        )
+        if image is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Esa partitura no tiene imagen en el historial de ningún corpus.",
+            )
+        headers = {"Cache-Control": IMAGE_CACHE_CONTROL, "ETag": image.etag}
+        if etag_matches(request.headers.get("If-None-Match"), image.etag):
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+        return Response(content=image.body, media_type=image.media_type, headers=headers)
 
     app.state.session_factory = session_factory
     app.state.stats_cache = StatsCache(app_settings.stats_cache_seconds)

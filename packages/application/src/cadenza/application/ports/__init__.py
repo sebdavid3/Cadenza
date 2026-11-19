@@ -30,7 +30,9 @@ from .public_stats import (
     PUBLIC_STATS_FORMAT_VERSION,
     InMemoryPublicStatsRepository,
     PublicStatsGroup,
+    PublicStatsImage,
     PublicStatsRepository,
+    PublicStatsScore,
 )
 from .recognition_stage import RecognitionStage
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
@@ -100,7 +102,9 @@ __all__ = [
     "PromotionRejected",
     "PromotionThreshold",
     "PublicStatsGroup",
+    "PublicStatsImage",
     "PublicStatsRepository",
+    "PublicStatsScore",
     "RecognitionStage",
     "ScoreExporter",
     "ScoreStateCache",

@@ -3,6 +3,7 @@
 import type {
   ErrorRateRead,
   FigureRead,
+  HomrErrorScoreRead,
   HomrErrorStatsGroupRead,
   HomrErrorStatsRead,
   HomrErrorStatsValuesRead,
@@ -131,5 +132,51 @@ export function withExamples(stats: HomrErrorStatsValuesRead): HomrErrorStatsVal
         ],
       },
     },
+  };
+}
+
+/** El historial de un corpus: 30 partituras; la 7 sin ninguna corrección y la 3 con pocas notas. */
+export function withHistory(stats: HomrErrorStatsValuesRead): HomrErrorStatsValuesRead {
+  return {
+    ...stats,
+    history: Array.from({ length: 30 }, (_, i) => {
+      const label = `00010${String(100 + i)}-1_1_1`;
+      return {
+        id: `primus:${label}`,
+        label,
+        read: i === 3 ? 4 : 40 + i,
+        fixes: i === 7 ? 0 : i === 3 ? 4 : 1 + (i % 5),
+      };
+    }),
+  };
+}
+
+/** El detalle de una partitura del historial, con un ejemplo de su corrección. */
+export function scoreDetail(id: string): HomrErrorScoreRead {
+  const label = id.replace(/^primus:/, "");
+  return {
+    group_id: "primus",
+    id,
+    label,
+    computed_at: "2026-11-19T12:00:00Z",
+    read: 40,
+    fixes: 1,
+    examples: [
+      {
+        score: label,
+        measure: "3",
+        staff: "0-0",
+        kind: "change",
+        read: "Bb4 negra",
+        fix: "B4 negra",
+        read_beats: "1",
+        fix_beats: "1",
+        bar: "b0",
+        at_read: 0,
+        at_fix: 0,
+      },
+    ],
+    bars: withExamples(values()).bars ?? {},
+    figures: FIGURES,
   };
 }

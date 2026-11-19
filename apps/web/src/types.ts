@@ -515,7 +515,8 @@ export interface HealthStatusResponse {
 
 /**
  * Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
- * qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen.
+ * qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza; la imagen de su
+ * partitura, si la tiene, se pide aparte (`image` en `history`).
  */
 export interface HomrErrorExampleRead {
   /** El íncipit del corpus («000100134-7_1_1»). */
@@ -540,6 +541,50 @@ export interface HomrErrorExampleRead {
   at_read?: number | null;
   /** La posición del evento en `fixed` del compás dibujado. */
   at_fix?: number | null;
+}
+
+/**
+ * Una partitura del historial de un corpus público: su nombre, sus notas leídas y sus
+ * correcciones. Su detalle, en `GET /stats/homr-errors/{group_id}/scores/{id}`.
+ */
+export interface HomrErrorHistoryRowRead {
+  /** Su íncipit («primus:000100134-7_1_1»): la clave del detalle. */
+  id: string;
+  /** Su nombre en la página, el íncipit sin el corpus. */
+  label: string;
+  /** Notas y silencios que leyó HOMR. */
+  read: number;
+  /** Sus correcciones: una por operación, con las notas que HOMR no leyó, la clave y la armadura. */
+  fixes: number;
+  /** Si tiene la imagen del corpus, en `GET /stats/homr-errors/{group_id}/scores/{id}/image`. */
+  image?: boolean;
+}
+
+/**
+ * El detalle de una partitura del historial de un corpus público (ADR-0073, enmienda de
+ * #424): sus cifras y sus ejemplos (hasta 12) con el compás dibujado. Nunca de Cadenza.
+ */
+export interface HomrErrorScoreRead {
+  /** El corpus («primus», «camera-primus»). */
+  group_id: string;
+  /** Su íncipit, como en `history`. */
+  id: string;
+  /** Su nombre en la página. */
+  label: string;
+  /** Cuándo se calculó. */
+  computed_at: string;
+  /** Notas y silencios que leyó HOMR. */
+  read: number;
+  /** Sus correcciones, como en `history`. */
+  fixes: number;
+  /** Si tiene la imagen del corpus (`.../image`). */
+  image?: boolean;
+  /** Sus correcciones de ejemplo, como en el informe local; vacía sin ninguna. */
+  examples: HomrErrorExampleRead[];
+  /** Los compases dibujados de los ejemplos. */
+  bars: Record<string, DrawnBarRead>;
+  /** El nombre y el símbolo de cada duración que sale en sus ejemplos. */
+  figures: Record<string, FigureRead>;
 }
 
 /**
@@ -613,6 +658,8 @@ export interface HomrErrorStatsValuesRead {
   example_keys?: Record<string, number[]> | null;
   /** Solo en los corpus: los compases dibujados de los ejemplos. */
   bars?: Record<string, DrawnBarRead> | null;
+  /** Solo en los corpus: el historial de sus partituras, como en el informe local. Null en los de Cadenza, que nunca dicen nada de una transcripción. */
+  history?: HomrErrorHistoryRowRead[] | null;
 }
 
 /**

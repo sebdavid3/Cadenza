@@ -19,6 +19,8 @@ Comandos implementados:
   - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
                     con la partición por obra y la ficha del dataset, para entrenar un lector
                     (`ml/export_pairs_cli.py`, #420, ADR-0071).
+  - public-stats-images: pone junto a cada corpus de las cifras públicas la imagen de cada
+                    partitura, de PrIMuS o de Camera-PrIMuS (#424).
   - public-stats  : calcula las cifras públicas de los errores de HOMR y las guarda para la
                     API; con --every, cada tantos segundos (`ml/public_stats.py`, #423,
                     ADR-0073).
@@ -960,6 +962,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import public_stats
 
         return public_stats.public_stats_command(args)
+    if args.subcommand == "public-stats-images":
+        from ml import public_stats
+
+        return public_stats.public_stats_images_command(args)
 
     parser.print_help()
     return 1

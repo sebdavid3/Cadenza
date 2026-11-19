@@ -687,15 +687,40 @@
   margin: 0;
 }
 
-.homr__corner {
-  color: var(--color-ink-muted);
+/* Los dos ejes, con su nombre: arriba, sobre las columnas, la figura que era; a la izquierda, en
+   vertical junto a las filas, la que leyó HOMR. Cada uno con un filete hacia su lado. */
+.homr__matrix .homr__axis {
+  color: var(--color-ink);
   font-family: var(--font-label);
   font-size: 0.75rem;
+  font-weight: 700;
   letter-spacing: 0.05em;
-  line-height: 1.3;
-  text-align: left;
   text-transform: uppercase;
-  vertical-align: bottom;
+}
+
+/* La esquina, vacía: sin el marco de las casillas. */
+.homr__matrix td.homr__corner {
+  border: 0;
+}
+
+.homr__axis--top {
+  padding: 0 0 6px 6px;
+  border-bottom: var(--rule);
+  text-align: left;
+}
+
+.homr__matrix tbody th.homr__axis--side {
+  position: static;
+  padding: 8px 8px 6px 0;
+  border-right: var(--rule);
+  text-align: center;
+  vertical-align: top;
+}
+
+.homr__axis--side span {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
 }
 
 .homr__matrix td {
@@ -842,6 +867,49 @@
   background: var(--color-paper);
 }
 
+/* La imagen del íncipit en el corpus, como la foto del informe: en gris, sobre el papel. */
+.homr__ex-photo {
+  overflow-x: auto;
+  border-bottom: var(--rule);
+  background: var(--color-paper-raised);
+}
+
+.homr__ex-photo img {
+  display: block;
+  width: 100%;
+  min-width: 300px;
+  height: auto;
+  filter: grayscale(1) contrast(1.05);
+  mix-blend-mode: multiply;
+}
+
+/* El compás grabado con OSMD, como en el editor: cada pentagrama con su rótulo a la izquierda. */
+.homr__engraved {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0 var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  overflow-x: auto;
+}
+
+.homr__engraved-tag {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  white-space: nowrap;
+}
+
+.homr__engraved-staff {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.homr__engraved-staff svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
 .homr__ex-text {
   display: grid;
   gap: 6px;
@@ -952,6 +1020,150 @@
   font-weight: 500;
 }
 
+/* --- Historial de transcripciones (solo los corpus), como el del informe ---------------------- */
+
+.homr__history-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 20px;
+  margin-bottom: 14px;
+}
+
+.homr__history-tools label {
+  display: grid;
+  gap: 4px;
+}
+
+.homr__history-search {
+  flex: 1 1 260px;
+}
+
+.homr__history-tools input,
+.homr__history-tools select {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: var(--rule);
+  border-radius: 0;
+  background: var(--color-paper-raised);
+  color: var(--color-ink);
+  font: 400 1rem/1.3 var(--font-text);
+}
+
+.homr__history-tools input:focus-visible,
+.homr__history-tools select:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.homr__history-count {
+  margin-bottom: 12px;
+  color: var(--color-ink-muted);
+  font-family: var(--font-text);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.homr__history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.homr__history-table thead th {
+  padding: 8px 10px;
+  border-bottom: var(--rule);
+  color: var(--color-ink-muted);
+  font: 400 0.75rem/1.2 var(--font-label);
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.homr__history-table tbody tr {
+  cursor: pointer;
+}
+
+.homr__history-table tbody th,
+.homr__history-table td {
+  border-bottom: 1px solid var(--color-rule-soft);
+  font-family: var(--font-text);
+  font-variant-numeric: tabular-nums;
+  transition: background-color var(--duration-quick) var(--ease-out);
+}
+
+.homr__history-table td {
+  padding: 9px 10px;
+}
+
+.homr__history-table .homr__n {
+  text-align: right;
+}
+
+.homr__history-table .homr__clean {
+  color: var(--color-ink-faint);
+}
+
+/* La partitura es el botón (para el teclado); con el ratón, se elige toda la fila. */
+.homr__history-pick {
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.homr__history-pick:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: -3px;
+}
+
+.homr__history-table tbody tr:hover > * {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.homr__history-table tbody tr:has([aria-current="true"]) > * {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.homr__history-table tbody tr:has([aria-current="true"]) .homr__history-pick:focus-visible {
+  outline-color: var(--color-ink);
+}
+
+.homr__pager-gap {
+  min-width: 24px;
+  color: var(--color-ink-muted);
+  text-align: center;
+}
+
+.homr__retry {
+  min-height: 44px;
+  margin-top: var(--space-3);
+  padding: 0 14px;
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.homr__retry:hover {
+  background: var(--color-paper-raised);
+}
+
 @media (max-width: 1180px) {
   .homr__layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1012,6 +1224,20 @@
   .homr__findings > li {
     border-right: 0;
   }
+
+  /* El historial cabe en un teléfono sin desplazarse: cabeceras en dos líneas y menos aire. */
+  .homr__history-table thead th {
+    padding: 8px 4px;
+    font-size: 0.6875rem;
+    letter-spacing: 0.03em;
+    white-space: normal;
+  }
+
+  .homr__history-table td,
+  .homr__history-pick {
+    padding-inline: 4px;
+    font-size: 0.875rem;
+  }
 }
 
 @media (forced-colors: active) {
@@ -1019,5 +1245,10 @@
   .homr__bar-fill,
   .homr__steps-fill {
     background: CanvasText;
+  }
+
+  .homr__history-pick[aria-current="true"] {
+    outline: 3px solid Highlight;
+    outline-offset: -3px;
   }
 }
