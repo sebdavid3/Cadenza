@@ -17,6 +17,7 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InMemoryUserRepository,
+    NewSuggestion,
     SessionData,
     User,
     append_edit,
@@ -29,11 +30,14 @@ from cadenza.domain import (
     EditOp,
     Event,
     EventKind,
+    Finding,
     KeySignature,
     Measure,
     Part,
     ScoreIR,
+    Severity,
     Staff,
+    SuggestedEdit,
     TimeSignature,
 )
 from cadenza.learning import assign_split, build_correction_records
@@ -534,6 +538,81 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     assert len(json_lines(output)) == len(json_lines(exp12)) + len(records)
     # La salida nunca es el corpus de exp_12.
     assert main([*command[:-1], str(exp12), "--db-url", db_url, "--split-seed", "1"]) == 1
+
+
+def test_a_bank_photo_without_its_test_score_falls_on_its_side() -> None:
+    """La fuga de #437: las fotos del banco son idénticas byte a byte, así que una página del
+    banco subida sin `test_score_id` es la misma obra que su partitura de prueba. Partir por la
+    página de cada sesión la ponía en la otra partición."""
+    from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
+
+    read, _ = incipit_pair(0, 0)
+    document = ScoreDocument(
+        id="doc",
+        score=read,
+        anchors=build_anchor_index(read),
+        provenance=Provenance(omr_engine="homr"),
+    ).to_primitive()
+    staff_id = read.parts[0].staves[0].id
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id=staff_id)
+    finding = Finding(
+        anchor=anchor, rule_id="learned.accidental", severity=Severity.WARNING, message="m"
+    )
+    suggestion = NewSuggestion(
+        SuggestedEdit(op=EditOp.SET_ACCIDENTAL, anchor=anchor, after={"accidental": "#"})
+    )
+    team = User(id="u1", username="ana", password_hash="h")
+    visitor = User(id="u2", username="pub", password_hash="h", self_registered=True)
+    sessions = InMemorySessionRepository(edit_repository=InMemoryEditEventRepository())
+    for sid, owner, status, test_score, image in (
+        ("banco", team, "finalized", "TS-01", "h1"),
+        # La foto de TS-01, subida sin su partitura de prueba, con una sugerencia.
+        ("subida", team, "finalized", None, "h1"),
+        ("otra", team, "finalized", None, "h2"),  # no comparte nada de lo que entra: su página
+        ("abierta", team, "transcribed", "TS-02", "h2"),  # sin finalizar: no une a nadie
+        ("fuera", visitor, "finalized", "TS-06", "h3"),  # cuenta del registro: tampoco
+        ("sola", team, "finalized", None, "h3"),
+    ):
+        sessions.add(
+            SessionData(
+                id=sid,
+                document_id=f"doc-{sid}",
+                omr_engine="homr",
+                document=document,
+                image_artifact=image,
+                owner_id=owner.id,
+                status=status,
+                test_score_id=test_score,
+            ),
+            [finding] if sid == "subida" else [],
+            [[suggestion]] if sid == "subida" else None,
+        )
+
+    # Con la semilla, la página de cada sesión las ponía en particiones distintas: la fuga.
+    def side(work: str) -> str:
+        return assign_split(work, seed=SPLIT_SEED, test_fraction=0.2)
+
+    assert side("test_score:TS-01") != side("image:h1")
+
+    records, left_out = session_records(
+        session_repository=sessions,
+        edit_repository=InMemoryEditEventRepository(),
+        user_repository=InMemoryUserRepository([team, visitor]),
+        split_seed=SPLIT_SEED,
+        test_fraction=0.2,
+    )
+    assert left_out == {"fuera": "cuenta del registro público"}
+    works = {r["session_id"]: (r["work_id"], r["split"]) for r in records}
+    assert works == {
+        "banco": ("test_score:TS-01", side("test_score:TS-01")),
+        "subida": ("test_score:TS-01", side("test_score:TS-01")),
+        "otra": ("image:h2", side("image:h2")),
+        "sola": ("image:h3", side("image:h3")),
+    }
+    # Todos los registros de una sesión, también los de sus sugerencias, llevan su obra.
+    assert any(r["record"] == "suggestion" and r["session_id"] == "subida" for r in records)
+    for record in records:
+        assert (record["work_id"], record["split"]) == works[record["session_id"]]
 
 
 def json_lines(path: Path) -> list[dict[str, Any]]:
