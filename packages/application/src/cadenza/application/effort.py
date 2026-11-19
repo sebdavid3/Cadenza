@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime
 from typing import Any, Final
 
@@ -133,25 +133,6 @@ def refreshed_effort(
     )
 
 
-@dataclass(frozen=True)
-class MeasureInterventionComparison:
-    """Comparación de intervenciones en un compás entre lo reportado y el log de ediciones."""
-
-    measure: str
-    reported_count: int
-    logged_count: int
-
-    @property
-    def difference(self) -> int:
-        """Diferencia entre lo reportado y lo registrado (positivo = más reportadas)."""
-        return self.reported_count - self.logged_count
-
-    @property
-    def matches(self) -> bool:
-        """Indica si lo reportado coincide exactamente con el log de ediciones."""
-        return self.reported_count == self.logged_count
-
-
 def compute_interventions_from_edits(
     edits: Sequence[EditEvent | dict[str, Any]],
     *,
@@ -199,56 +180,3 @@ def compute_interventions_from_edits(
         key = str(measure_num)
         counts[key] = counts.get(key, 0) + 1
     return counts
-
-
-def count_reversions_from_edits(
-    edits: Sequence[EditEvent | dict[str, Any]],
-) -> dict[str, int]:
-    """Calcula el conteo de eventos compensatorios (reversiones/deshacer) por compás (#35)."""
-    counts: dict[str, int] = {}
-    for edit in edits:
-        is_reversion = False
-        measure_num = 0
-        if isinstance(edit, EditEvent):
-            is_reversion = edit.is_reversion
-            measure_num = edit.anchor.measure
-        elif isinstance(edit, dict):
-            is_reversion = bool(edit.get("reverts_edit_id"))
-            anchor = edit.get("anchor") or {}
-            measure_num = anchor.get("measure", 0)
-        else:
-            is_reversion = getattr(edit, "is_reversion", False)
-            measure_num = getattr(edit, "anchor", {}).measure
-        if is_reversion:
-            key = str(measure_num)
-            counts[key] = counts.get(key, 0) + 1
-    return counts
-
-
-def contrast_interventions(
-    reported: dict[str, int],
-    edits: Sequence[EditEvent | dict[str, Any]],
-    *,
-    active_only: bool = False,
-) -> tuple[MeasureInterventionComparison, ...]:
-    """Contrasta las intervenciones por compás reportadas frente al log de `edit_events`.
-
-    Permite auditar si el cliente reportó fielmente las intervenciones
-    observadas en el log append-only de la sesión.
-    """
-    logged = compute_interventions_from_edits(edits, active_only=active_only)
-    all_measures = sorted(
-        set(reported.keys()) | set(logged.keys()),
-        key=lambda m: (0, int(m)) if m.isdigit() else (1, str(m)),
-    )
-
-    comparisons: list[MeasureInterventionComparison] = []
-    for measure in all_measures:
-        comparisons.append(
-            MeasureInterventionComparison(
-                measure=measure,
-                reported_count=reported.get(measure, 0),
-                logged_count=logged.get(measure, 0),
-            )
-        )
-    return tuple(comparisons)

@@ -44,16 +44,6 @@ class SqlAlchemyEffortRepository(EffortRepository):
         ).all()
         return tuple(self._to_dto(r) for r in records)
 
-    def get_latest(self, session_id: str) -> EffortMetricsData | None:
-        record = self._session.scalars(
-            select(EffortMetricsRecord)
-            .where(EffortMetricsRecord.session_id == session_id)
-            .order_by(EffortMetricsRecord.created_at.desc(), EffortMetricsRecord.id.desc())
-        ).first()
-        if record is None:
-            return None
-        return self._to_dto(record)
-
     def _accumulated(
         self, session_id: str, *, for_update: bool = False
     ) -> EffortMetricsRecord | None:

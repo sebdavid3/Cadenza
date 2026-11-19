@@ -21,7 +21,6 @@ from cadenza.domain import (
     Severity,
 )
 from cadenza.learning import (
-    DatasetBuilder,
     RepositoryDatasetReader,
     dataset_hash,
 )
@@ -294,12 +293,6 @@ def test_read_dataset_with_real_database() -> None:
         hash_result = dataset_hash(samples)
         assert len(hash_result) == 64
         assert hash_result == dataset_hash(samples)
-
-        # El método de conveniencia en DatasetBuilder produce exactamente lo mismo
-        builder_samples = DatasetBuilder().read_from_repositories(
-            session_repo, edit_repo, user_repository=users, status="finalized"
-        )
-        assert builder_samples == samples
 
 
 def _user(user_id: str, *, self_registered: bool) -> User:

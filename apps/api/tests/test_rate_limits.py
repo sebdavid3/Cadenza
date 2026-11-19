@@ -120,20 +120,20 @@ def test_rate_limiter_purges_with_amortized_cost(monkeypatch: pytest.MonkeyPatch
     limiter = SmallLimiter(max_attempts=5, window_seconds=60)
 
     for n in range(4):
-        limiter.record_failure(f"k{n}")
+        limiter.hit(f"k{n}")
     # Cuatro claves vigentes: la purga no quita ninguna y el umbral pasa al doble.
-    limiter.record_failure("k4")
+    limiter.hit("k4")
     assert len(limiter._failures) == 5
     assert limiter._next_purge == 8
 
     # Hasta llegar a 8 claves no se vuelve a recorrer el diccionario.
-    limiter.record_failure("k5")
-    limiter.record_failure("k6")
+    limiter.hit("k5")
+    limiter.hit("k6")
     assert limiter._next_purge == 8
 
     # Vencida la ventana, la purga quita las antiguas y el umbral vuelve al mínimo.
     now[0] += 120
-    limiter.record_failure("k7")
-    limiter.record_failure("k8")
+    limiter.hit("k7")
+    limiter.hit("k8")
     assert set(limiter._failures) == {"k7", "k8"}
     assert limiter._next_purge == 4

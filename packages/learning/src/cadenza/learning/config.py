@@ -67,17 +67,6 @@ def compute_config_hash(path_or_data: Path | Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
-def load_training_config(path: Path) -> TrainingConfig:
-    """Lee una configuración de entrenamiento reproducible desde JSON."""
-
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return TrainingConfig(
-        seed=int(data["seed"]),
-        epochs=int(data["epochs"]),
-        learning_rate=float(data["learning_rate"]),
-    )
-
-
 def load_job_config(path: Path) -> JobConfig:
     """Lee y valida una configuración de job de aprendizaje activo desde JSON."""
     raw = json.loads(path.read_text(encoding="utf-8"))

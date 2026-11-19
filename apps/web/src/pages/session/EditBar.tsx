@@ -330,11 +330,6 @@ function feedback(
         text: `No se aplicó la sugerencia (${inline(status.request)}): ya no es de la última validación, porque se revalidó o se respondió en otra pestaña o dispositivo. Revalida para tener las sugerencias al día.`,
         reload: false,
       };
-    case "forbidden":
-      return {
-        text: `${WORDS[status.request.kind].notDone}: solo la persona que hizo la transcripción puede corregirla.`,
-        reload: false,
-      };
     case "missing":
       return {
         text: `${WORDS[status.request.kind].notDone}: la sesión ya no existe o no tienes acceso a ella.`,

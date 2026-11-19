@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from cadenza.learning import (
     FakeTrainer,
     TrainingConfig,
     TrainingSample,
-    load_training_config,
+    load_job_config,
 )
 
 from .support import make_anchor, make_document, make_edit
@@ -49,10 +50,10 @@ def test_config_change_changes_artifact_hash() -> None:
 
 def test_loads_versioned_config() -> None:
     path = Path(__file__).resolve().parents[3] / "configs" / "learning" / "default.json"
-    config = load_training_config(path)
-    assert config.seed == 42
-    assert config.epochs == 10
-    assert config.learning_rate == 0.0001
+    config = load_job_config(path)
+    assert config.raw_data == json.loads(path.read_text(encoding="utf-8"))
+    assert (config.seed, config.epochs, config.learning_rate) == (42, 10, 0.0001)
+    assert config.strategy == config.raw_data["strategy"]
 
 
 def test_fake_trainer_has_no_reserve_metrics() -> None:
