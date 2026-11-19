@@ -15,7 +15,6 @@ from cadenza.application import (
     InMemoryUserRepository,
     NotAuthenticated,
     PasswordHasher,
-    Role,
     User,
     authenticate,
 )
@@ -59,7 +58,6 @@ def repo(hasher: CountingPasswordHasher) -> InMemoryUserRepository:
             id="usr-activa",
             username="activa",
             password_hash=hasher.hash(ACTIVE_PASSWORD),
-            role=Role.TRANSCRIPTOR,
             active=True,
         )
     )
@@ -68,7 +66,6 @@ def repo(hasher: CountingPasswordHasher) -> InMemoryUserRepository:
             id="usr-desactivada",
             username="desactivada",
             password_hash=hasher.hash(INACTIVE_PASSWORD),
-            role=Role.TRANSCRIPTOR,
             active=False,
         )
     )

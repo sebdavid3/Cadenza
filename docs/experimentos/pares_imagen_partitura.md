@@ -2,7 +2,7 @@
 
 > El responsable pidió (2026-11-09, #400) que los datos de la plataforma sirvan para entrenar un
 > modelo de transcripción mejor. `ml export-pairs` ([#420](https://github.com/sebdavid3/Cadenza/issues/420),
-> [ADR-0070](../adr/ADR-0070-pares-imagen-partitura-para-entrenar-un-lector.md)) deja listos
+> [ADR-0071](../adr/ADR-0071-pares-imagen-partitura-para-entrenar-un-lector.md)) deja listos
 > los pares: la tira de la foto de cada pentagrama y su partitura en MusicXML, la que leyó HOMR
 > y la corregida, con la partición fija por obra y la ficha del dataset. **No entrena nada**:
 > reentrenar HOMR es trabajo futuro (D14, [#103](https://github.com/sebdavid3/Cadenza/issues/103)).
@@ -27,11 +27,12 @@ uv run --no-sync python -m ml export-pairs --output-dir <carpeta> `
 
 ## Qué sesiones entran
 
-| Regla | Motivo en `run_info.json` (`left_out`) |
+| Regla | Motivo en `run_info.json` |
 |---|---|
 | Solo las finalizadas | (las demás no se leen: su corrección no la dio nadie por buena) |
-| Cuenta del registro sin el permiso del texto vigente (nunca dado, retirado o de otro texto), siempre | `cuenta del registro sin el permiso de uso de los datos vigente` |
-| Cuenta del registro con `--exclude-self-registered` | `cuenta del registro, fuera con --exclude-self-registered` |
+| Cuenta del registro sin el permiso del texto vigente (nunca dado, retirado o de otro texto), siempre | solo se cuentan, en `consent.sessions_without_current_consent`: ni su identificador sale |
+| Cuenta del registro con `--exclude-self-registered` | solo se cuentan, en `consent.sessions_excluded_by_option` |
+| Sesión cuya cuenta no está en la base | `sin la cuenta de su dueño` (en `left_out`, como las siguientes) |
 | Sin partitura de prueba ni imagen | `sin página de origen (test_score_id ni imagen)` |
 | Sin la captura de HOMR (transcrita antes de #403) | `sin la captura de HOMR (transcrita antes de #403)` |
 | Corrección que no se verifica (`correction_verified`) | `la corrección no se verifica: …` |
@@ -62,9 +63,10 @@ su primer compás lleva la clave, la armadura y el compás que rigen allí.
 |---|---|
 | `par` | Identificador del par: `<sesión>/s<sistema>_<pentagramas>` |
 | `split` | `train` o `test`: la partición fija por obra de #255 |
-| `work_id` | La obra sobre la que se parte: `test_score:<id>` o `image:<sha256 de la foto>` |
+| `work_id` | La obra sobre la que se parte: `test_score:<id>` o `image:<sha256 de la foto>`. Las sesiones que comparten partitura de prueba o foto son la misma obra (`shared_works`): una página del banco subida sin su partitura de prueba va con ella |
 | `session_id` | La sesión de Cadenza |
 | `test_score_id` | La partitura de prueba del banco del estudio, si la tiene |
+| `source_image_hash` | El sha256 de la foto de la sesión (como en `pentagramas.csv`) |
 | `sistema` | Número del sistema en la página, desde 1 |
 | `pentagramas` | `parte-pentagrama` del `ScoreIR`, desde 0; dos unidos por `+` en un gran pentagrama |
 | `compases`, `primer_compas`, `ultimo_compas` | Cuántos compases tiene la tira, el primero y el último |
@@ -73,7 +75,7 @@ su primer compás lleva la clave, la armadura y el compás que rigen allí.
 | `imagen`, `ancho`, `alto`, `imagen_sha256` | La tira en PNG (ruta relativa), su tamaño en píxeles y su sha256 |
 | `homr`, `homr_sha256` | El MusicXML de lo que leyó HOMR y su sha256 |
 | `corregida`, `corregida_sha256` | El MusicXML corregido y su sha256 |
-| `corregido` | `true` si la corrección cambió algo de la tira (como en `pentagramas.csv`) |
+| `corregido` | `true` si los dos MusicXML difieren: cualquier corrección de la tira, también de la clave, la armadura, el compás o las marcas (más que el `corregido` de `pentagramas.csv`, que solo mira las notas) |
 
 Las filas van por partición y sesión, y dentro de cada sesión en el orden de la página. La misma
 base da el mismo `pares.csv` byte a byte: los MusicXML se escriben sin fecha y con las partes
@@ -86,8 +88,9 @@ el nombre de la base, y el nombre de la carpeta de artefactos), `format` (PNG y 
 ADR), `filters` (`status`, `verified_only`, `exclude_self_registered`, `split_seed`,
 `test_fraction`), `consent` (`version` del texto, `sessions_without_current_consent`: las
 sesiones de cuentas del registro sin el permiso vigente, y `sessions_excluded_by_option`: las
-que deja fuera `--exclude-self-registered`), `sessions` (las exportadas), `left_out` (las que quedan fuera,
-con su motivo), `counts` (pares, pares corregidos, sesiones y obras, en total y por partición),
+que deja fuera `--exclude-self-registered`; de esas sesiones no sale el identificador),
+`sessions` (las exportadas), `left_out` (las que quedan fuera por otros motivos, con el suyo),
+`counts` (pares, pares corregidos, sesiones y obras, en total y por partición),
 `homr_versions` (sesiones por versión) y `sha256` de `pares.csv` y de `README.md`.
 
 ## Para entrenar HOMR
@@ -96,7 +99,7 @@ HOMR entrena con un índice de líneas `imagen,archivo.tokens`, en su formato pr
 desde MusicXML con su conversor (`training/omr_datasets/music_xml_parser.py`), como hace con
 OpenScore Lieder y PDMX. Para cada fila de `pares.csv`, `imagen` es la imagen y `corregida` el
 MusicXML que se pasa a `.tokens`. Antes conviene decidir si se quita el compás de las tiras que no
-empiezan la obra, que la imagen no dibuja (ADR-0070). Esa conversión y el entrenamiento son de
+empiezan la obra, que la imagen no dibuja (ADR-0071). Esa conversión y el entrenamiento son de
 #103.
 
 ## Cuidado con los datos

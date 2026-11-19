@@ -503,8 +503,8 @@ def _study_sessions(
     """Las sesiones finalizadas del estudio, por orden de creación.
 
     Solo las de las partituras evaluadas (`scores`, por defecto las de la matriz del
-    manifiesto: el calentamiento no se evalúa) y de cuentas de transcriptor que no son del
-    registro público (ADR-0022): ni las pruebas del investigador ni las del registro. Una
+    manifiesto: el calentamiento no se evalúa) y de cuentas que no son del registro público
+    (ADR-0022). Una
     partitura sin finalizar no entra en el análisis (protocolo §3.4, #244).
     """
     wanted = (
@@ -514,7 +514,6 @@ def _study_sessions(
         select(SessionRecord, UserRecord)
         .join(UserRecord, SessionRecord.owner_id == UserRecord.id)
         .where(UserRecord.self_registered.is_(False))
-        .where(UserRecord.role == "transcriptor")
         .where(SessionRecord.status == "finalized")
         .where(SessionRecord.test_score_id.in_(wanted))
         .order_by(SessionRecord.created_at)

@@ -55,7 +55,7 @@ export function LandingPage() {
                   ¿Sin cuenta? <Link to="/registro">Créala</Link> y pruébalo en el momento.
                 </>
               ) : (
-                "No hay registro abierto: las cuentas las crea el equipo del proyecto."
+                "No hay registro abierto: ahora no se pueden crear cuentas."
               )}
             </p>
           </div>
@@ -137,7 +137,7 @@ export function LandingPage() {
           <p className="access__text">
             {registrationEnabled()
               ? "Entra con tu usuario y tu contraseña. Si aún no tienes cuenta, créala: solo pide un usuario y una contraseña, sin correo, y entras en el momento. No hay recuperación de contraseña por correo."
-              : "Si el equipo del proyecto te dio una cuenta, entra con tu usuario y tu contraseña. No hay registro abierto ni recuperación de contraseña por correo: las cuentas las crea un investigador del proyecto."}
+              : "Si ya tienes una cuenta, entra con tu usuario y tu contraseña. Ahora no se pueden crear cuentas ni hay recuperación de contraseña por correo."}
           </p>
           <div className="access__actions">
             <Link className="button access__button" to="/entrar">

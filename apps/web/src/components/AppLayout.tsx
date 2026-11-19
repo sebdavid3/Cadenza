@@ -1,5 +1,4 @@
 import { Link, NavLink, Outlet, useMatch } from "react-router";
-import { useAuthStore } from "../auth/store";
 import { AccountControls } from "./AccountControls";
 import "./app-layout.css";
 import { BrandWordmark } from "./BrandWordmark";
@@ -11,7 +10,6 @@ import "./button.css";
  * y las acciones de la sesión, para dejar el alto a la partitura (#363).
  */
 export function AppLayout() {
-  const user = useAuthStore((state) => state.user);
   const ownHeader = useMatch("/sesiones/:sessionId") !== null;
 
   return (
@@ -25,11 +23,6 @@ export function AppLayout() {
             <NavLink className="label" to="/transcripcion">
               Transcripción
             </NavLink>
-            {user?.role === "investigador" && (
-              <NavLink className="label" to="/cuentas">
-                Cuentas
-              </NavLink>
-            )}
           </nav>
           <AccountControls />
         </header>

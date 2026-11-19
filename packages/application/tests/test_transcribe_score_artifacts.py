@@ -9,7 +9,6 @@ import pytest
 from cadenza.application import (
     InMemoryArtifactStore,
     InMemorySessionRepository,
-    Role,
     SessionNotFound,
     User,
     detect_image_media_type,
@@ -49,7 +48,6 @@ def test_transcribe_score_stores_image_in_artifact_store() -> None:
         id="user-1",
         username="transcriptor1",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
 
@@ -87,21 +85,12 @@ def test_get_session_image_success_and_permissions() -> None:
         id="user-1",
         username="transcriptor1",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
     other_transcriptor = User(
         id="user-2",
         username="transcriptor2",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
-        active=True,
-    )
-    investigator = User(
-        id="inv-1",
-        username="investigador1",
-        password_hash="h",
-        role=Role.INVESTIGADOR,
         active=True,
     )
 
@@ -129,16 +118,7 @@ def test_get_session_image_success_and_permissions() -> None:
         assert img_data.content == PNG_SAMPLE
         assert img_data.media_type == "image/png"
 
-        # 2. Investigador puede recuperar imagen de sesión ajena
-        inv_data = get_session_image(
-            result.session_id,
-            session_repository=session_repo,
-            artifact_store=artifact_store,
-            current_user=investigator,
-        )
-        assert inv_data.content == PNG_SAMPLE
-
-        # 3. Transcriptor ajeno recibe SessionNotFound (404, no filtra existencia)
+        # 2. Cuenta ajena recibe SessionNotFound (404, no filtra existencia)
         with pytest.raises(SessionNotFound):
             get_session_image(
                 result.session_id,
@@ -166,7 +146,7 @@ def test_the_meter_stage_runs_after_the_engine_in_both_conditions(condition: str
     dos condiciones del estudio parten de la misma lectura (ADR-0059 §4)."""
 
     session_repo = InMemorySessionRepository()
-    owner = User(id="u", username="t", password_hash="h", role=Role.TRANSCRIPTOR, active=True)
+    owner = User(id="u", username="t", password_hash="h", active=True)
     with tempfile.TemporaryDirectory() as tmp:
         image = Path(tmp) / "page.png"
         image.write_bytes(PNG_SAMPLE)
@@ -191,7 +171,7 @@ def test_the_meter_stage_runs_after_the_engine_in_both_conditions(condition: str
 
 def test_without_a_meter_stage_the_engine_reading_is_kept() -> None:
     session_repo = InMemorySessionRepository()
-    owner = User(id="u", username="t", password_hash="h", role=Role.TRANSCRIPTOR, active=True)
+    owner = User(id="u", username="t", password_hash="h", active=True)
     with tempfile.TemporaryDirectory() as tmp:
         image = Path(tmp) / "page.png"
         image.write_bytes(PNG_SAMPLE)

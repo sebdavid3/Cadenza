@@ -165,7 +165,7 @@ def test_event_tokens_and_the_sequence_of_a_strip() -> None:
     assert strip_sequence(_score(), strips[1]).count("||") == 1
 
 
-# --- La partitura de una tira (#420, ADR-0070) -------------------------------------------------
+# --- La partitura de una tira (#420, ADR-0071) -------------------------------------------------
 
 
 def _with_attributes(score: ScoreIR) -> ScoreIR:

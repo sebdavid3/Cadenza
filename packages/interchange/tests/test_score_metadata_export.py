@@ -184,7 +184,7 @@ def test_exporter_port_passes_the_metadata() -> None:
 
 
 def test_a_stable_export_gives_the_same_bytes_any_day() -> None:
-    """Sin la fecha ni los id al azar de music21 (ADR-0070): los pares de `ml export-pairs`."""
+    """Sin la fecha ni los id al azar de music21 (ADR-0071): los pares de `ml export-pairs`."""
     score = _voice_and_piano()
 
     first = score_ir_to_musicxml(score, METADATA, stable=True)

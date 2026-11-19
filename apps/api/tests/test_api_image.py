@@ -6,7 +6,6 @@ from pathlib import Path
 
 from cadenza.api import Settings, create_app
 from cadenza.application import (
-    Role,
     User,
     compute_sha256,
 )
@@ -43,7 +42,6 @@ def _build_test_app(
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="test",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -52,16 +50,6 @@ def _build_test_app(
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="test",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="test",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -78,21 +66,13 @@ def _build_test_app(
         settings=settings,
     )
 
-    t1_token = app.state.token_service.create_access_token(
-        user_id="user-t1", role=Role.TRANSCRIPTOR
-    )
-    t2_token = app.state.token_service.create_access_token(
-        user_id="user-t2", role=Role.TRANSCRIPTOR
-    )
-    inv_token = app.state.token_service.create_access_token(
-        user_id="user-inv", role=Role.INVESTIGADOR
-    )
+    t1_token = app.state.token_service.create_access_token(user_id="user-t1")
+    t2_token = app.state.token_service.create_access_token(user_id="user-t2")
 
     client = TestClient(app)
     tokens = {
         "t1": t1_token,
         "t2": t2_token,
-        "inv": inv_token,
     }
     return client, tokens
 
@@ -138,12 +118,6 @@ def test_get_session_image_permissions_adr0012(tmp_path: Path) -> None:
     client.headers["Authorization"] = f"Bearer {tokens['t2']}"
     resp_t2 = client.get(f"/sessions/{session_id}/image")
     assert resp_t2.status_code == 404
-
-    # Investigador descarga la imagen de cualquier sesión -> 200
-    client.headers["Authorization"] = f"Bearer {tokens['inv']}"
-    resp_inv = client.get(f"/sessions/{session_id}/image")
-    assert resp_inv.status_code == 200
-    assert resp_inv.content == PNG_BYTES
 
     # Sesión inexistente -> 404
     resp_missing = client.get("/sessions/non-existent-session/image")

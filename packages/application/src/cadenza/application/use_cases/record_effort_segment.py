@@ -6,8 +6,9 @@ import re
 from datetime import UTC, datetime
 from typing import Final
 
+from ..access import require_owner
 from ..effort import merge_segment, refreshed_effort, total_active_ms
-from ..exceptions import Forbidden, InvalidEffortSegment, SessionClosed, SessionNotFound
+from ..exceptions import InvalidEffortSegment, SessionClosed, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.effort_repository import (
     EffortMetricsData,
@@ -17,7 +18,7 @@ from ..ports.effort_repository import (
 )
 from ..ports.session_repository import SessionRepository
 from ..session_status import SessionStatus
-from ..user import Role, User
+from ..user import User
 
 MAX_EFFORT_SEGMENTS: Final[int] = 500
 """Tramos como mucho por sesión: una pestaña por carga sin `sessionStorage` sería uno por
@@ -68,8 +69,7 @@ def record_effort_segment(
 ) -> EffortMetricsData:
     """Suma al registro acumulado de la sesión lo que midió una pestaña hasta ahora.
 
-    - Solo mide quien la transcribió (ADR-0012): un transcriptor ajeno recibe 404 y un
-      investigador ajeno 403.
+    - Solo mide quien la transcribió (ADR-0012, ADR-0070): una sesión ajena responde 404.
     - Una sesión finalizada no suma más tiempo: 409 (`SessionClosed`). El registro acumula
       hasta la última finalización; al reabrirla se sigue sumando (protocolo §3.4).
     - El tramo solo crece (`merge_segment`): repetir o retrasar una petición no cuenta dos veces.
@@ -78,10 +78,7 @@ def record_effort_segment(
     session = session_repository.get(session_id)
     if session is None:
         raise SessionNotFound(session_id)
-    if current_user.role == Role.TRANSCRIPTOR and session.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-    if current_user.role == Role.INVESTIGADOR and session.owner_id != current_user.id:
-        raise Forbidden("Solo quien transcribió la sesión mide su esfuerzo")
+    require_owner(session.owner_id, current_user, session_id)
     if session.status == SessionStatus.FINALIZED:
         raise SessionClosed(session_id)
 

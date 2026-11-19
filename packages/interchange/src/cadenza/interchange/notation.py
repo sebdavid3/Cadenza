@@ -1390,7 +1390,7 @@ def score_ir_to_musicxml(
 
     Con ``stable``, sin la fecha de codificación y con las partes numeradas en orden (P1,
     P2…) en vez de los identificadores al azar de music21: la misma partitura da los mismos
-    bytes cualquier día (los pares imagen-partitura de `ml export-pairs`, ADR-0070).
+    bytes cualquier día (los pares imagen-partitura de `ml export-pairs`, ADR-0071).
     """
 
     if not score.parts:

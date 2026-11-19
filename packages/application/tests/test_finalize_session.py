@@ -19,7 +19,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     PersistedFinding,
-    Role,
     SessionClosed,
     SessionStatus,
     User,
@@ -120,7 +119,6 @@ def owner() -> User:
         id="user-owner",
         username="owner",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
 

@@ -1,4 +1,4 @@
-"""`ml export-pairs`: los pares imagen-partitura para entrenar un lector OMR (#420, ADR-0070).
+"""`ml export-pairs`: los pares imagen-partitura para entrenar un lector OMR (#420, ADR-0071).
 
 Por cada tira de pentagrama de las sesiones que se pueden usar (la misma de `ml export-staves`,
 ADR-0067), escribe en `--output-dir`:
@@ -226,7 +226,7 @@ def dataset_card(info: dict[str, Any]) -> str:
 
 Exportado el {info["generated_at"][:10]} con `ml export-pairs` (commit `{info["commit"]}`), \
 desde `{info["origin"]["database"]}`. Formato {info["format_version"]} de la exportación \
-(ADR-0070, #420). **No es un resultado:** son los datos para entrenar un lector en el futuro \
+(ADR-0071, #420). **No es un resultado:** son los datos para entrenar un lector en el futuro \
 (#103).
 
 Pares: {counts["pairs"]}, de {counts["sessions"]} sesiones y {counts["works"]} obras \
@@ -406,7 +406,7 @@ def export_pairs_command(args: argparse.Namespace) -> int:
             "image": "png",
             "score": "musicxml",
             "writer": "cadenza.interchange.score_ir_to_musicxml(stable=True)",
-            "adr": "docs/adr/ADR-0070-pares-imagen-partitura-para-entrenar-un-lector.md",
+            "adr": "docs/adr/ADR-0071-pares-imagen-partitura-para-entrenar-un-lector.md",
         },
         "filters": {
             "status": "finalized",

@@ -102,7 +102,6 @@ def generate_typescript_definitions(openapi: dict[str, Any]) -> str:
         "export type BBox = [number, number, number, number];",
         'export type EventKind = "note" | "rest" | "clef" | "key" | "time";',
         'export type Severity = "info" | "warning" | "error";',
-        'export type UserRole = "transcriptor" | "investigador";',
         "",
     ]
 
@@ -144,8 +143,6 @@ def generate_typescript_definitions(openapi: dict[str, Any]) -> str:
                     ts_type = "EventKind"
                 elif schema_name == "FindingRead" and prop_name == "severity":
                     ts_type = "Severity"
-                elif schema_name in ("UserRead", "UserCreate") and prop_name == "role":
-                    ts_type = "UserRole"
                 elif (
                     schema_name in ("EditEventRead", "EditEventCreate", "EditAppliedRead")
                     and prop_name == "op"

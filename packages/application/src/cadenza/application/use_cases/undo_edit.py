@@ -19,8 +19,8 @@ from cadenza.domain import (
     has_complete_before,
 )
 
+from ..access import require_owner
 from ..exceptions import (
-    Forbidden,
     InvalidEdit,
     NoEditsToUndo,
     SequenceConflict,
@@ -34,7 +34,7 @@ from ..ports.session_repository import SessionRepository
 from ..score_state import load_state, raw_score_of, store_state, timing_of, try_musicxml_of
 from ..session_status import SessionStatus
 from ..stage_timing import timed_stage
-from ..user import Role, User
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -86,11 +86,7 @@ def undo_edit(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede editar sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
 
     if session_data.status == SessionStatus.FINALIZED:
         raise SessionClosed(session_id)

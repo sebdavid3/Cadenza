@@ -54,7 +54,7 @@ Es el proyecto de una tesis.
 
 **Terminar.** Finalizar o reabrir la sesión y descargarla en MusicXML, MIDI o PDF.
 
-**Cuentas.** Registro libre con un permiso explícito de uso de los datos, que se puede retirar desde «Tu cuenta». Los investigadores moderan las cuentas.
+**Cuentas.** Registro libre con un permiso explícito de uso de los datos, que se puede retirar desde «Tu cuenta». Todas las cuentas son iguales y cada una ve solo sus sesiones.
 
 ---
 
@@ -121,9 +121,8 @@ export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"          # "true" con la GPU
-
-# El primer usuario (con SQLite, crea también el esquema). Sin --password, la pide sin eco.
-uv run --no-sync python -m cadenza.api.cli create-investigator --username admin
+export CADENZA_AUTO_CREATE_SCHEMA="true"    # con SQLite, crea el esquema al arrancar
+export CADENZA_REGISTRATION_ENABLED="true"  # las cuentas se crean desde /registro
 
 uv run --no-sync uvicorn cadenza.api.main:create_default_app --factory --host 127.0.0.1 --port 8000
 ```
@@ -192,13 +191,12 @@ El diseño completo está en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## API v1
 
-Treinta rutas y treinta y cinco operaciones. Todo salvo `/health`, `/version`, `/auth/login` y `/auth/register` pide un token Bearer. Un transcriptor ve sus sesiones; un investigador ve todas, edita las suyas y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)).
+Veintiocho rutas y treinta y dos operaciones. Todo salvo `/health`, `/version`, `/auth/login` y `/auth/register` pide un token Bearer. Cada cuenta ve y corrige solo sus sesiones ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md), [ADR-0070](docs/adr/ADR-0070-una-sola-clase-de-cuenta.md)).
 
 | Área | Rutas |
 |---|---|
 | Sistema | `/health` · `/version` |
 | Cuenta | `/auth/login` · `/auth/register` · `/auth/me` · `/auth/password` · `/auth/data-consent` |
-| Usuarios | `/users` · `/users/{id}` |
 | Transcripción | `/transcription-jobs` (en segundo plano, con su avance) · `/transcribe` (síncrona, para guiones) · `/previews` (sin cuenta, apagada) |
 | Sesiones | `/sessions` · `/sessions/{id}` · su imagen, exportación (`musicxml` o `midi`) y mapa de tiempos |
 | Edición | `/sessions/{id}/edits` · `/undo` · rechazar una sugerencia |
@@ -266,7 +264,6 @@ Cada cambio de código lleva además una revisión independiente del diff cuando
   ```bash
   cp .env.example .env        # contraseña de PostgreSQL y clave JWT
   docker compose up --build
-  docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>
   ```
 
   La imagen de la API trae HOMR con sus pesos, así que transcribe sin red. Con `--build-arg CADENZA_OMR_DEVICE=gpu` lleva además ONNX Runtime con CUDA ([ADR-0066](docs/adr/ADR-0066-homr-en-la-gpu-de-produccion.md)).
@@ -274,7 +271,7 @@ Cada cambio de código lleva además una revisión independiente del diff cuando
 - **Copias de seguridad** de la base y los artefactos, con verificación SHA-256: `scripts/backup_restore.py {backup,verify,restore}`.
 
 > [!NOTE]
-> Las migraciones de Alembic son solo para PostgreSQL (usan `JSONB`). En local con SQLite, el esquema lo crea `create-investigator`.
+> Las migraciones de Alembic son solo para PostgreSQL (usan `JSONB`). En local con SQLite, el esquema lo crea la API al arrancar con `CADENZA_AUTO_CREATE_SCHEMA=true`.
 
 Todo lo de la operación (salud, registros, copias, GPU y los interruptores de producción) está en [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md).
 

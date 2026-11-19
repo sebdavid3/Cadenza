@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from ..access import require_owner
 from ..exceptions import (
-    Forbidden,
     SessionClosed,
     SessionNotFound,
     SuggestionConflict,
@@ -12,7 +12,7 @@ from ..exceptions import (
 from ..ports.session_repository import PersistedSuggestion, SessionRepository
 from ..session_status import SessionStatus
 from ..suggestions import ACCEPTED, REJECTED
-from ..user import Role, User
+from ..user import User
 
 
 def reject_suggestion(
@@ -24,18 +24,15 @@ def reject_suggestion(
 ) -> PersistedSuggestion:
     """Rechaza una sugerencia: queda guardado quién y cuándo, y no cambia después.
 
-    Como descartar un hallazgo: un transcriptor ajeno recibe 404 y un investigador ajeno 403;
-    en una sesión finalizada, 409. Una sugerencia aceptada no se puede rechazar (409) y
-    rechazar una ya rechazada la devuelve tal cual. Rechazar una de una validación anterior
-    se admite. Rechazar no descarta el hallazgo.
+    Como descartar un hallazgo: una sesión ajena responde 404; en una sesión finalizada, 409.
+    Una sugerencia aceptada no se puede rechazar (409) y rechazar una ya rechazada la devuelve
+    tal cual. Rechazar una de una validación anterior se admite. Rechazar no descarta el
+    hallazgo.
     """
     session_data = session_repository.get(session_id)
     if session_data is None:
         raise SessionNotFound(session_id)
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede responder sugerencias de sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
     if session_data.status == SessionStatus.FINALIZED:
         raise SessionClosed(session_id)
 

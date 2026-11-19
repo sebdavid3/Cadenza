@@ -135,7 +135,6 @@ def test_openapi_spec_metadata_and_security() -> None:
     tag_names = {t["name"] for t in spec.get("tags", [])}
     expected_tags = {
         "Auth",
-        "Users",
         "Transcription",
         "Sessions",
         "Edits",
@@ -211,7 +210,7 @@ def test_login_declares_its_own_401() -> None:
 
 
 def test_protected_endpoints_have_error_responses() -> None:
-    """Verifica que los endpoints protegidos documentan respuestas 401 y 403."""
+    """Verifica que los endpoints protegidos documentan respuestas 401 y 404."""
     with open(OPENAPI_JSON_PATH, encoding="utf-8") as f:
         spec: dict[str, Any] = json.load(f)
 
@@ -224,11 +223,9 @@ def test_protected_endpoints_have_error_responses() -> None:
         "401" in paths["/transcribe"]["post"]["responses"]
     ), "POST /transcribe debe documentar respuesta 401"
 
-    # Endpoints con control de acceso por rol o tenencia ADR-0012 (documentan 401 y 403)
-    role_or_tenancy_paths = [
-        ("/users", "get"),
-        ("/users", "post"),
-        ("/users/{user_id}", "patch"),
+    # Endpoints con control de acceso por tenencia ADR-0012, ADR-0070: una sesión ajena responde
+    # como si no existiera (documentan 401 y 404)
+    tenancy_paths = [
         ("/sessions/{session_id}/finalize", "post"),
         ("/sessions/{session_id}/reopen", "post"),
         ("/sessions/{session_id}/findings/{finding_id}/dismiss", "post"),
@@ -238,9 +235,10 @@ def test_protected_endpoints_have_error_responses() -> None:
         ("/sessions/{session_id}/effort", "post"),
     ]
 
-    for path, method in role_or_tenancy_paths:
+    for path, method in tenancy_paths:
         assert path in paths, f"Ruta {path} no encontrada en OpenAPI"
         operation = paths[path].get(method, {})
         responses = operation.get("responses", {})
         assert "401" in responses, f"{method.upper()} {path} debe documentar respuesta 401"
-        assert "403" in responses, f"{method.upper()} {path} debe documentar respuesta 403"
+        assert "404" in responses, f"{method.upper()} {path} debe documentar respuesta 404"
+        assert "403" not in responses, f"{method.upper()} {path} ya no tiene un 403 de permisos"

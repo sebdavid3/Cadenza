@@ -18,7 +18,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import pytest
-from cadenza.application import DATA_CONSENT_VERSION, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, SessionData, User
 from cadenza.domain import (
     Anchor,
     EditEvent,
@@ -158,7 +158,6 @@ def base(tmp_path: Path) -> tuple[str, Path]:
                 id=user_id,
                 username=user_id,
                 password_hash=secrets.token_hex(8),
-                role=Role.TRANSCRIPTOR,
                 self_registered=self_registered,
             )
             if consented:

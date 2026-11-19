@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr import ALL_METER_FEATURES, MeterFeature, MeterStage
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
@@ -85,9 +85,7 @@ def test_the_transcription_goes_through_the_stage_and_keeps_it(tmp_path: Path) -
     create_schema(db_engine)
     factory = create_session_factory(db_engine)
     with factory() as db:
-        SqlAlchemyUserRepository(db).add(
-            User(id="u1", username="transcriptor1", password_hash="x", role=Role.TRANSCRIPTOR)
-        )
+        SqlAlchemyUserRepository(db).add(User(id="u1", username="transcriptor1", password_hash="x"))
         db.commit()
     app = create_app(
         factory,
@@ -96,7 +94,7 @@ def test_the_transcription_goes_through_the_stage_and_keeps_it(tmp_path: Path) -
         meter_stage=MeterStage({MeterFeature.SYMBOL}),
     )
     client = TestClient(app)
-    token = app.state.token_service.create_access_token(user_id="u1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="u1")
     client.headers["Authorization"] = f"Bearer {token}"
 
     response = client.post("/transcribe", files={"file": ("p.png", PNG_BYTES, "image/png")})

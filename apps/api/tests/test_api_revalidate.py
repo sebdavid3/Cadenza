@@ -6,7 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import (
     Event,
     EventKind,
@@ -91,7 +91,6 @@ def _setup_environment(
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -100,16 +99,6 @@ def _setup_environment(
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -126,15 +115,8 @@ def _setup_environment(
     )
 
     tokens = {
-        "owner": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "other": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "researcher": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "owner": app.state.token_service.create_access_token(user_id="user-t1"),
+        "other": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     client = TestClient(app)
@@ -268,12 +250,6 @@ def test_revalidate_authorization(tmp_path: Path) -> None:
     client.headers["Authorization"] = f"Bearer {tokens['other']}"
     forbidden_resp = client.post(f"/sessions/{session_id}/validate")
     assert forbidden_resp.status_code == 404
-
-    # Investigador: 200
-    client.headers["Authorization"] = f"Bearer {tokens['researcher']}"
-    inv_resp = client.post(f"/sessions/{session_id}/validate")
-    assert inv_resp.status_code == 200
-    assert inv_resp.json()["session_id"] == session_id
 
 
 def test_revalidate_idempotent_multiple_calls_same_seq(tmp_path: Path) -> None:

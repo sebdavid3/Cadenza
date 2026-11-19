@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import replace
 
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.api.security import LoginRateLimiter, client_network_key
-from cadenza.application import Role, User
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,
@@ -24,7 +24,6 @@ ORIGIN = "https://cadenza.test"
 PASSWORD = secrets.token_urlsafe(12)
 OTHER_PASSWORD = secrets.token_urlsafe(12)
 SHORT_PASSWORD = PASSWORD[:5]
-INV_PASSWORD = secrets.token_urlsafe(12)
 
 
 def _app(
@@ -55,23 +54,6 @@ def _client(
     return TestClient(app), app
 
 
-def _add_investigator(app: FastAPI) -> str:
-    """Investigadora con token, para activar cuentas con PATCH /users/{id}."""
-    state = app.state
-    with state.session_factory() as db:
-        user = SqlAlchemyUserRepository(db).add(
-            User(
-                id="inv-1",
-                username="investigadora",
-                password_hash=state.password_hasher.hash(INV_PASSWORD),
-                role=Role.INVESTIGADOR,
-            )
-        )
-        db.commit()
-    token: str = state.token_service.create_access_token(user_id=user.id, role=user.role)
-    return token
-
-
 def _register(client: TestClient, username: str, password: str = PASSWORD) -> int:
     response = client.post("/auth/register", json={"username": username, "password": password})
     code: int = response.status_code
@@ -86,7 +68,7 @@ def test_register_creates_an_active_self_registered_transcriptor() -> None:
     assert response.status_code == 201
     body = response.json()
     assert body["username"] == "ana"
-    assert body["role"] == "transcriptor"
+    assert "role" not in body
     assert body["active"] is True
     assert body["self_registered"] is True
     assert "password" not in body and "password_hash" not in body
@@ -99,16 +81,15 @@ def test_self_registered_account_logs_in_right_away_until_deactivated() -> None:
 
     assert client.post("/auth/login", data=form).status_code == 200
 
-    # Un investigador puede desactivarla (moderación): entonces no entra, como con unas
+    # Desactivada en la base (moderación a mano, ADR-0070): entonces no entra, como con unas
     # credenciales incorrectas.
-    token = _add_investigator(app)
-    deactivated = client.patch(
-        f"/users/{created.json()['id']}",
-        json={"active": False},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert deactivated.status_code == 200
-    assert deactivated.json()["self_registered"] is True
+    assert created.json()["self_registered"] is True
+    with app.state.session_factory() as db:
+        repo = SqlAlchemyUserRepository(db)
+        account = repo.get(created.json()["id"])
+        assert account is not None
+        repo.update(replace(account, active=False))
+        db.commit()
     assert client.post("/auth/login", data=form).status_code == 401
 
 
@@ -184,21 +165,6 @@ def test_registration_requires_a_closed_cors_policy() -> None:
         Settings(auth_secret_key=SECRET, registration_enabled=True, cors_origins=["*"])
 
     assert Settings(auth_secret_key=SECRET, registration_enabled=True, cors_origins=[ORIGIN])
-
-
-def test_accounts_created_by_an_investigator_are_not_self_registered() -> None:
-    client, app = _client()
-    token = _add_investigator(app)
-
-    created = client.post(
-        "/users",
-        json={"username": "participante_07", "password": PASSWORD, "role": "transcriptor"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert created.status_code == 201
-    assert created.json()["self_registered"] is False
-    assert created.json()["active"] is True
 
 
 def test_rate_limiter_hit_checks_and_records_atomically() -> None:

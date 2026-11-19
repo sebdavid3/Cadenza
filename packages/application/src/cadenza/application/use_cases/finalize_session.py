@@ -6,14 +6,15 @@ from dataclasses import dataclass
 
 from cadenza.validation import ValidationEngine
 
+from ..access import require_owner
 from ..current_validation import store_current_validation
-from ..exceptions import Forbidden, SessionClosed, SessionNotFound
+from ..exceptions import SessionClosed, SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.effort_repository import EffortRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
 from ..ports.suggestion_model import SuggestionModel
 from ..session_status import SessionStatus
-from ..user import Role, User
+from ..user import User
 from .record_effort_segment import refresh_accumulated_effort
 
 
@@ -56,11 +57,7 @@ def finalize_session(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede finalizar sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
 
     if session_data.status == SessionStatus.FINALIZED:
         raise SessionClosed(session_id)

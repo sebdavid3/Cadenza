@@ -249,7 +249,7 @@ def strip_sequence(score: ScoreIR, strip: Strip) -> str:
     return " || ".join(staves_text)
 
 
-# --- La partitura de una tira (#420, ADR-0070) -------------------------------------------------
+# --- La partitura de una tira (#420, ADR-0071) -------------------------------------------------
 
 
 def strip_score(score: ScoreIR, strip: Strip) -> ScoreIR:

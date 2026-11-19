@@ -1,7 +1,7 @@
 import { queryOptions, type QueryClient } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/client";
 import { ApiError } from "../../api/errors";
-import type { SessionSummaryRead, UserRead } from "../../types";
+import type { SessionSummaryRead } from "../../types";
 
 export const SESSIONS_PAGE_SIZE = 20;
 export const SESSIONS_QUERY_KEY = ["sessions"] as const;
@@ -45,10 +45,6 @@ export function refreshSessions(queryClient: QueryClient) {
     pendingRefresh.delete(queryClient);
     invalidate();
   });
-}
-
-export function listUsers(api: ApiClient, signal?: AbortSignal) {
-  return api.request<UserRead[]>("/users", { signal });
 }
 
 export function sessionImage(api: ApiClient, sessionId: string, signal?: AbortSignal) {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from cadenza.application import DuplicateUsername, Role, User, UserNotFound, UserRepository
+from cadenza.application import DuplicateUsername, User, UserNotFound, UserRepository
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
@@ -30,7 +30,6 @@ class SqlAlchemyUserRepository(UserRepository):
             id=user.id,
             username=user.username,
             password_hash=user.password_hash,
-            role=user.role.value,
             active=user.active,
             self_registered=user.self_registered,
             data_consent_at=user.data_consent_at,
@@ -70,7 +69,6 @@ class SqlAlchemyUserRepository(UserRepository):
             raise UserNotFound(user.id)
         record.username = user.username
         record.password_hash = user.password_hash
-        record.role = user.role.value
         record.active = user.active
         record.data_consent_at = user.data_consent_at
         record.data_consent_version = user.data_consent_version
@@ -87,7 +85,6 @@ class SqlAlchemyUserRepository(UserRepository):
             id=record.id,
             username=record.username,
             password_hash=record.password_hash,
-            role=Role(record.role),
             active=record.active,
             created_at=record.created_at,
             self_registered=record.self_registered,

@@ -6,10 +6,8 @@ from pathlib import Path
 
 import pytest
 from cadenza.application import (
-    Forbidden,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
-    Role,
     SessionNotFound,
     User,
     append_edit,
@@ -34,17 +32,12 @@ def edit_repo() -> InMemoryEditEventRepository:
 
 @pytest.fixture
 def owner() -> User:
-    return User(id="usr-owner", username="alice", password_hash="h1", role=Role.TRANSCRIPTOR)
+    return User(id="usr-owner", username="alice", password_hash="h1")
 
 
 @pytest.fixture
 def other_transcriptor() -> User:
-    return User(id="usr-other", username="bob", password_hash="h2", role=Role.TRANSCRIPTOR)
-
-
-@pytest.fixture
-def researcher() -> User:
-    return User(id="usr-res", username="carol", password_hash="h3", role=Role.INVESTIGADOR)
+    return User(id="usr-other", username="bob", password_hash="h2")
 
 
 def test_transcribe_score_orchestration(
@@ -91,7 +84,6 @@ def test_get_session_ownership_rules(
     edit_repo: InMemoryEditEventRepository,
     owner: User,
     other_transcriptor: User,
-    researcher: User,
 ) -> None:
     fake_image = tmp_path / "score.png"
     fake_image.write_bytes(b"dummy")
@@ -120,15 +112,6 @@ def test_get_session_ownership_rules(
             edit_repository=edit_repo,
             current_user=other_transcriptor,
         )
-
-    # 3. Un investigador puede leer cualquier sesión
-    detail_res = get_session(
-        result.session_id,
-        session_repository=session_repo,
-        edit_repository=edit_repo,
-        current_user=researcher,
-    )
-    assert detail_res.session_id == result.session_id
 
 
 def test_append_edit_success_and_server_author(
@@ -199,7 +182,6 @@ def test_append_edit_ownership_rules(
     edit_repo: InMemoryEditEventRepository,
     owner: User,
     other_transcriptor: User,
-    researcher: User,
 ) -> None:
     fake_image = tmp_path / "score.png"
     fake_image.write_bytes(b"dummy")
@@ -223,35 +205,17 @@ def test_append_edit_ownership_rules(
             current_user=other_transcriptor,
         )
 
-    # 2. Un investigador intentando editar sesión ajena -> Forbidden (403)
-    with pytest.raises(Forbidden):
-        append_edit(
-            result.session_id,
-            anchor=anchor,
-            op=EditOp.SET_PITCH,
-            session_repository=session_repo,
-            edit_repository=edit_repo,
-            current_user=researcher,
-        )
-
-    # 3. Un investigador editando su propia sesión -> permitido
-    res_session = transcribe_score(
-        fake_image,
-        omr_engine=FakeOMREngine(),
-        validator=ValidationEngine([]),
-        session_repository=session_repo,
-        current_user=researcher,
-    )
+    # 2. El dueño edita su sesión; el autor lo fija el servidor (ADR-0012)
     edit_res = append_edit(
-        res_session.session_id,
+        result.session_id,
         anchor=anchor,
         op=EditOp.SET_PITCH,
         after={"pitch": "D4"},
         session_repository=session_repo,
         edit_repository=edit_repo,
-        current_user=researcher,
+        current_user=owner,
     )
-    assert edit_res.author == "carol"
+    assert edit_res.author == owner.username
 
 
 def test_list_findings_ownership_rules(
@@ -259,7 +223,6 @@ def test_list_findings_ownership_rules(
     session_repo: InMemorySessionRepository,
     owner: User,
     other_transcriptor: User,
-    researcher: User,
 ) -> None:
     fake_image = tmp_path / "score.png"
     fake_image.write_bytes(b"dummy")
@@ -271,13 +234,9 @@ def test_list_findings_ownership_rules(
         current_user=owner,
     )
 
-    # Dueño e investigador pueden listar
+    # El dueño puede listar
     assert (
         list_findings(result.session_id, session_repository=session_repo, current_user=owner) == ()
-    )
-    assert (
-        list_findings(result.session_id, session_repository=session_repo, current_user=researcher)
-        == ()
     )
 
     # Otro transcriptor recibe SessionNotFound

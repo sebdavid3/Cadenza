@@ -148,7 +148,7 @@ export function LoginPage() {
                 y entra en el momento.{" "}
               </>
             ) : (
-              "Las cuentas las crea un investigador del proyecto. "
+              "Ahora no se pueden crear cuentas. "
             )}
             No hay recuperación de contraseña por correo.
           </p>

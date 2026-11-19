@@ -28,7 +28,6 @@ from cadenza.application import (
     ArtifactStore,
     DuplicateUsername,
     FindingNotFound,
-    Forbidden,
     InMemoryScoreStateCache,
     InvalidEdit,
     InvalidEffortSegment,
@@ -38,7 +37,6 @@ from cadenza.application import (
     PasswordHasher,
     PreviewCapacityExceeded,
     PreviewNotFound,
-    Role,
     ScoreExporter,
     ScoreStateCache,
     SequenceConflict,
@@ -79,9 +77,6 @@ from cadenza.application import (
     create_preview as create_preview_use_case,
 )
 from cadenza.application import (
-    create_user as create_user_use_case,
-)
-from cadenza.application import (
     dismiss_finding as dismiss_finding_use_case,
 )
 from cadenza.application import (
@@ -107,9 +102,6 @@ from cadenza.application import (
 )
 from cadenza.application import (
     list_sessions as list_sessions_use_case,
-)
-from cadenza.application import (
-    list_users as list_users_use_case,
 )
 from cadenza.application import (
     record_effort as record_effort_use_case,
@@ -143,9 +135,6 @@ from cadenza.application import (
 )
 from cadenza.application import (
     update_session_metadata as update_session_metadata_use_case,
-)
-from cadenza.application import (
-    update_user as update_user_use_case,
 )
 from cadenza.domain import (
     COMPOSER_MAX_LENGTH,
@@ -240,9 +229,7 @@ from .schemas import (
     TranscriptionJobRead,
     UndoRequest,
     UndoResponse,
-    UserCreate,
     UserRead,
-    UserUpdate,
     VersionResponse,
 )
 from .security import (
@@ -275,12 +262,6 @@ AUTH_401: dict[int | str, dict[str, Any]] = {
     status.HTTP_401_UNAUTHORIZED: {
         "model": ErrorDetail,
         "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-    }
-}
-FORBIDDEN_403: dict[int | str, dict[str, Any]] = {
-    status.HTTP_403_FORBIDDEN: {
-        "model": ErrorDetail,
-        "description": "Permisos insuficientes para realizar la operación solicitada",
     }
 }
 CROSS_SITE_403: dict[int | str, dict[str, Any]] = {
@@ -748,7 +729,6 @@ def create_app(
         ),
         openapi_tags=[
             {"name": "Auth", "description": "Autenticación JWT e identidad del usuario"},
-            {"name": "Users", "description": "Gestión de cuentas (exclusivo para investigadores)"},
             {"name": "Transcription", "description": "Ingesta de imágenes y transcripción OMR"},
             {
                 "name": "Sessions",
@@ -1139,13 +1119,6 @@ def create_app(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    @app.exception_handler(Forbidden)
-    def forbidden_handler(request: Request, exc: Forbidden) -> JSONResponse:
-        return JSONResponse(
-            status_code=status.HTTP_403_FORBIDDEN,
-            content={"detail": exc.message},
-        )
-
     @app.exception_handler(DuplicateUsername)
     def duplicate_username_handler(request: Request, exc: DuplicateUsername) -> JSONResponse:
         return JSONResponse(
@@ -1233,7 +1206,7 @@ def create_app(
             password_hasher=hasher,
         )
         rate_limiter.reset(rate_key)
-        token = token_serv.create_access_token(user_id=user.id, role=user.role)
+        token = token_serv.create_access_token(user_id=user.id)
         return TokenResponse(access_token=token, token_type="bearer")
 
     @app.post(
@@ -1243,9 +1216,8 @@ def create_app(
         tags=["Auth"],
         summary="Registro de una cuenta por la propia persona",
         description=(
-            "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede "
-            "iniciar sesión en el momento, y un investigador puede desactivarla con "
-            "PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión "
+            "Crea una cuenta activa y marcada como autorregistrada: puede iniciar sesión en el "
+            "momento (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión "
             "del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la "
             "cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). "
             "Limitado por IP (red /64 en IPv6); si el registro está desactivado en la "
@@ -1260,7 +1232,7 @@ def create_app(
         dependencies=[Depends(require_registration_enabled)],
     )
     def register(payload: RegisterRequest, request: Request, db: DbDep) -> UserRead:
-        """Registra una cuenta activa de transcriptor (ADR-0022, ADR-0025)."""
+        """Registra una cuenta activa (ADR-0022, ADR-0025)."""
         client_host = request.client.host if request.client else "unknown"
         rate_limiter: LoginRateLimiter = request.app.state.registration_rate_limiter
         # Todo intento que llega aquí cuenta, también el que acaba en 409: así no se pueden
@@ -1288,9 +1260,7 @@ def create_app(
         response_model=UserRead,
         tags=["Auth"],
         summary="Perfil del usuario autenticado",
-        description=(
-            "Devuelve el perfil y rol del usuario correspondiente al token Bearer provisto."
-        ),
+        description=("Devuelve el perfil del usuario correspondiente al token Bearer provisto."),
         responses={**AUTH_401},
     )
     def get_me(current_user: CurrentUserDep) -> UserRead:
@@ -1360,92 +1330,6 @@ def create_app(
             password_hasher=hasher,
         )
         return StatusResponse(status="success", message="Contraseña actualizada")
-
-    @app.get(
-        "/users",
-        response_model=list[UserRead],
-        tags=["Users"],
-        summary="Listar cuentas registradas",
-        description=(
-            "Lista las cuentas registradas en el sistema. "
-            "Operación exclusiva para usuarios con rol investigador (ADR-0012)."
-        ),
-        responses={**AUTH_401, **FORBIDDEN_403},
-    )
-    def list_users_endpoint(
-        db: DbDep,
-        current_user: CurrentUserDep,
-    ) -> list[UserRead]:
-        """Lista las cuentas registradas en el sistema. Exclusivo para investigadores."""
-        user_repo = SqlAlchemyUserRepository(db)
-        users = list_users_use_case(
-            current_user=current_user,
-            user_repository=user_repo,
-        )
-        return [UserRead.from_user(u) for u in users]
-
-    @app.post(
-        "/users",
-        response_model=UserRead,
-        status_code=status.HTTP_201_CREATED,
-        tags=["Users"],
-        summary="Dar de alta una nueva cuenta de usuario",
-        description=(
-            "Crea una nueva cuenta de usuario con rol tipado. "
-            "Exclusivo para investigadores (ADR-0012)."
-        ),
-        responses={**AUTH_401, **FORBIDDEN_403, **CONFLICT_409, **UNPROCESSABLE_422},
-    )
-    def create_user_endpoint(
-        payload: UserCreate,
-        request: Request,
-        db: DbDep,
-        current_user: CurrentUserDep,
-    ) -> UserRead:
-        """Crea una nueva cuenta de usuario. Exclusivo para investigadores."""
-        user_repo = SqlAlchemyUserRepository(db)
-        hasher: PasswordHasher = request.app.state.password_hasher
-        new_user = create_user_use_case(
-            payload.username,
-            payload.password,
-            Role(payload.role),
-            current_user=current_user,
-            user_repository=user_repo,
-            password_hasher=hasher,
-        )
-        return UserRead.from_user(new_user)
-
-    @app.patch(
-        "/users/{user_id}",
-        response_model=UserRead,
-        tags=["Users"],
-        summary="Modificar rol, estado o restablecer contraseña",
-        description=(
-            "Permite a un investigador modificar datos de acceso " "o rol de una cuenta existente."
-        ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **UNPROCESSABLE_422},
-    )
-    def update_user_endpoint(
-        user_id: str,
-        payload: UserUpdate,
-        request: Request,
-        db: DbDep,
-        current_user: CurrentUserDep,
-    ) -> UserRead:
-        """Modifica el rol, estado o restablece contraseña de una cuenta."""
-        user_repo = SqlAlchemyUserRepository(db)
-        hasher: PasswordHasher = request.app.state.password_hasher
-        role = Role(payload.role) if payload.role is not None else None
-        updated = update_user_use_case(
-            user_id,
-            current_user=current_user,
-            user_repository=user_repo,
-            role=role,
-            active=payload.active,
-            new_password=payload.password,
-            password_hasher=hasher,
-        )
-        return UserRead.from_user(updated)
 
     @app.post(
         "/transcribe",
@@ -1710,7 +1594,7 @@ def create_app(
         description=(
             "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más "
             "reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca "
-            "las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de "
+            "las de otra persona (ADR-0012). Tras un reinicio de "
             "la API, la lista está vacía (#375, ADR-0064)."
         ),
         responses={**AUTH_401},
@@ -2031,7 +1915,7 @@ def create_app(
     ) -> list[SessionSummaryRead]:
         """Lista las sesiones con resúmenes ligeros paginados (#27, ADR-0009, ADR-0012).
 
-        Un transcriptor solo ve sus sesiones; un investigador las ve todas.
+        Cada cuenta solo ve sus sesiones (ADR-0070).
         La consulta no carga la columna JSONB document.
         """
         session_repo = SqlAlchemySessionRepository(db)
@@ -2073,7 +1957,7 @@ def create_app(
             "Recupera la imagen física de origen desde el ArtifactStore "
             "verificando permisos de acceso (ADR-0012)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def get_session_image_endpoint(
         session_id: str,
@@ -2100,7 +1984,7 @@ def create_app(
             "Exporta el ScoreIR materializado de la sesión a formato "
             "MusicXML 4.0 o MIDI 1.0 (Issue #12, ADR-0010)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **UNPROCESSABLE_422},
+        responses={**AUTH_401, **NOT_FOUND_404, **UNPROCESSABLE_422},
     )
     def export_session_endpoint(
         session_id: str,
@@ -2147,7 +2031,7 @@ def create_app(
             "Con fields=view devuelve SessionViewRead: lo mismo sin document ni anchor_index, "
             "que no se calcula (#275, ADR-0037)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def get_session(
         session_id: str,
@@ -2226,7 +2110,7 @@ def create_app(
             "log ni cambia el estado de la sesión; el MusicXML y el MIDI exportados llevan los "
             "datos nuevos (#235, ADR-0041)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **UNPROCESSABLE_422},
+        responses={**AUTH_401, **NOT_FOUND_404, **UNPROCESSABLE_422},
     )
     def update_session_metadata_endpoint(
         session_id: str,
@@ -2267,7 +2151,7 @@ def create_app(
             "Calcula y devuelve el mapa determinista de tiempos de inicio y duración "
             "en pulsos para cada evento musical de la sesión (#42, D12)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def get_session_timing(
         session_id: str,
@@ -2297,7 +2181,7 @@ def create_app(
             "Devuelve los hallazgos de la sesión, filtrando por defecto "
             "solo los activos no descartados (ADR-0013, #36)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def list_findings(
         session_id: str,
@@ -2327,7 +2211,7 @@ def create_app(
             "Marca un hallazgo como falso positivo descartado con motivo opcional "
             "y autoría fijada por el servidor (#36)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )
     def dismiss_finding_endpoint(
         session_id: str,
@@ -2358,7 +2242,7 @@ def create_app(
             "Restaura un falso positivo previamente descartado "
             "al catálogo de hallazgos activos (#36)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )
     def restore_finding_endpoint(
         session_id: str,
@@ -2388,7 +2272,7 @@ def create_app(
             "rechazada o de una validación anterior responde 200. No descarta el hallazgo "
             "(ADR-0036 §5)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )
     def reject_suggestion_endpoint(
         session_id: str,
@@ -2415,7 +2299,7 @@ def create_app(
             "Los hallazgos vigentes pasan a asociarse a current_seq, y los hallazgos "
             "de estados anteriores se conservan para análisis de esfuerzo (ADR-0013, #11)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def validate_session(
         session_id: str,
@@ -2453,7 +2337,7 @@ def create_app(
             "reglas y guarda los hallazgos vacíos. 409 si la sesión ya está finalizada "
             "(#187, ADR-0043)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )
     def finalize_session_endpoint(
         session_id: str,
@@ -2492,7 +2376,7 @@ def create_app(
             "Reabre una sesión finalizada permitiendo retomar "
             "la adición de correcciones (ADR-0014, #34)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def reopen_session_endpoint(
         session_id: str,
@@ -2531,7 +2415,6 @@ def create_app(
         ),
         responses={
             **AUTH_401,
-            **FORBIDDEN_403,
             **NOT_FOUND_404,
             **CONFLICT_409,
             **UNPROCESSABLE_422,
@@ -2589,7 +2472,6 @@ def create_app(
         ),
         responses={
             **AUTH_401,
-            **FORBIDDEN_403,
             **NOT_FOUND_404,
             **CONFLICT_409,
             **UNPROCESSABLE_422,
@@ -2647,7 +2529,7 @@ def create_app(
             "Persiste la duración, latencia hasta la primera edición e intervenciones por compás. "
             "Solo el dueño de la sesión puede registrar esfuerzo (ADR-0012, #13)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def record_effort_endpoint(
         session_id: str,
@@ -2680,11 +2562,10 @@ def create_app(
             "ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), "
             "suma los tramos, cuenta las ediciones del log por compás y por clase, y las "
             "respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta "
-            "dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador "
-            "ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser "
-            "(#188, ADR-0050)."
+            "dos veces. Solo el dueño (404 a cualquier otra cuenta); 409 si la sesión está "
+            "finalizada; 422 si el tramo no puede ser (#188, ADR-0050)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404, **CONFLICT_409},
+        responses={**AUTH_401, **NOT_FOUND_404, **CONFLICT_409},
     )
     def record_effort_segment_endpoint(
         session_id: str,
@@ -2724,7 +2605,7 @@ def create_app(
             "Devuelve el historial de registros de métricas de esfuerzo "
             "de la sesión (ADR-0012, #13)."
         ),
-        responses={**AUTH_401, **FORBIDDEN_403, **NOT_FOUND_404},
+        responses={**AUTH_401, **NOT_FOUND_404},
     )
     def get_effort_endpoint(
         session_id: str,

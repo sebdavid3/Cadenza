@@ -1,8 +1,9 @@
-"""`ml export-pairs` (#420, ADR-0070): los pares imagen-partitura para entrenar un lector.
+"""`ml export-pairs` (#420, ADR-0071): los pares imagen-partitura para entrenar un lector.
 
 Una base SQLite temporal con una foto de dos sistemas de un pentagrama (como en
 `test_export_tables_recortes`): sesiones que entran, sin captura, sin finalizar, sin verificar,
-de dos páginas distintas, de una cuenta del equipo, de una del estudio y de cuentas del registro
+de tres páginas (una del banco subida también sin su partitura de prueba), con un cambio de
+clave, de una cuenta del equipo, de una del estudio y de cuentas del registro
 con el permiso vigente, con el de un texto anterior y sin él (nunca dado o retirado: retirarlo
 borra las dos columnas, ADR-0065 §1). Aparte, una página de voz y piano con el gran pentagrama.
 """
@@ -22,9 +23,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cadenza.application import DATA_CONSENT_VERSION, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, SessionData, User
 from cadenza.domain import (
     Anchor,
+    Clef,
     EditEvent,
     EditOp,
     Event,
@@ -40,7 +42,7 @@ from cadenza.domain import (
 )
 from cadenza.interchange import musicxml_to_score_ir
 from cadenza.learning import assign_split, derive_edit_events
-from cadenza.learning.suggestions import correction_verified
+from cadenza.learning.suggestions import correction_verified, shared_works
 from cadenza.omr.adapters import homr_capture
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -63,13 +65,15 @@ STAFF_ID = "P1-S1"
 TEST_FRACTION = 0.5
 
 
-def _photo() -> bytes:
+def _photo(page: int = 0) -> bytes:
     image = Image.new("RGB", PHOTO, "white")
     draw = ImageDraw.Draw(image)
     for center in (100, 300):  # dos pentagramas, uno por sistema
         for line in range(5):
             y = center - 20 + line * 10
             draw.line((100, y, 900, y), fill="black", width=2)
+        if page:  # otra página: un punto en cada pentagrama
+            draw.ellipse((200 + 40 * page, center - 4, 208 + 40 * page, center + 4), fill="black")
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -140,7 +144,6 @@ def _user(user_id: str, *, self_registered: bool = False, consent: str | None = 
         id=user_id,
         username=user_id,
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=self_registered,
     )
     if consent is not None:
@@ -180,16 +183,19 @@ def base(tmp_path: Path) -> tuple[str, Path]:
         users.add(_user("visita", self_registered=True, consent=DATA_CONSENT_VERSION))
         users.add(_user("antigua", self_registered=True, consent="2026-01-01"))
         users.add(_user("anonima", self_registered=True))
-        image = FilesystemArtifactStore(artifacts, db).put(
-            _photo(), kind="image", media_type="image/png"
+        store = FilesystemArtifactStore(artifacts, db)
+        image, train_image, test_image = (
+            store.put(_photo(page), kind="image", media_type="image/png") for page in range(3)
         )
         sessions = SqlAlchemySessionRepository(db)
         for session in (
-            # s-foto y s-otra-foto son de la misma foto: la misma obra.
+            # s-foto, s-otra-foto y s-visita son de la misma foto: la misma obra.
             _session("s-foto", "ana", image),
             _session("s-otra-foto", "ana", image),
-            _session("s-train", "participante", image, test_score_id=TRAIN_PAGE),
-            _session("s-test", "ana", image, test_score_id=TEST_PAGE),
+            _session("s-train", "participante", train_image, test_score_id=TRAIN_PAGE),
+            _session("s-test", "ana", test_image, test_score_id=TEST_PAGE),
+            # La misma página del banco, subida sin su partitura de prueba: es la misma foto.
+            _session("s-banco", "ana", test_image),
             _session("s-sin-captura", "ana", image, captured=False),
             _session("s-abierta", "ana", image, status="transcribed"),
             _session("s-visita", "visita", image),
@@ -214,6 +220,29 @@ def base(tmp_path: Path) -> tuple[str, Path]:
                 after={"pitch": "D4"},
             ),
         )
+        # En s-test se puso la clave de fa del compás 1: rige también en el sistema 2.
+        clef = ScoreIR(
+            parts=(
+                Part(
+                    id="P1",
+                    staves=(
+                        Staff(
+                            id=STAFF_ID,
+                            measures=(
+                                replace(_score().parts[0].staves[0].measures[0], clef=Clef("F", 4)),
+                                *_score().parts[0].staves[0].measures[1:],
+                            ),
+                        ),
+                    ),
+                ),
+            )
+        )
+        edits = SqlAlchemyEditEventRepository(db)
+        for edit in derive_edit_events(_score(), clef, document_id="doc-s-test", author="ana"):
+            edits.append(
+                "s-test",
+                replace(edit, before=_as_stored(edit.before), after=_as_stored(edit.after)),
+            )
     return db_url, artifacts
 
 
@@ -294,7 +323,24 @@ def test_each_strip_is_a_pair_of_its_photo_and_its_two_scores(
     second = musicxml_to_score_ir((output / rows[1]["corregida"]).read_text(encoding="utf-8"))
     opening = second.parts[0].staves[0].measures[0]
     assert (opening.number, opening.time_signature) == (3, TimeSignature(4, 4))
-    assert (output / rows[1]["homr"]).read_bytes() == (output / rows[1]["corregida"]).read_bytes()
+    # Sin corrección, los dos MusicXML son el mismo; con ella, difieren.
+    for row in rows:
+        same = (output / row["homr"]).read_bytes() == (output / row["corregida"]).read_bytes()
+        assert same == (row["corregido"] == "false")
+    assert {r["source_image_hash"] for r in rows} == {first["work_id"].removeprefix("image:")}
+
+
+def test_a_clef_correction_marks_every_strip_it_rules(
+    base: tuple[str, Path], tmp_path: Path
+) -> None:
+    output = tmp_path / "pares"
+    assert _export(output, *_db_args(base)) == 0
+    rows = [r for r in _rows(output / "pares.csv") if r["session_id"] == "s-test"]
+    assert [r["corregido"] for r in rows] == ["true", "true"]
+    second = musicxml_to_score_ir((output / rows[1]["corregida"]).read_text(encoding="utf-8"))
+    assert second.parts[0].staves[0].measures[0].clef == Clef("F", 4)
+    read = musicxml_to_score_ir((output / rows[1]["homr"]).read_text(encoding="utf-8"))
+    assert read.parts[0].staves[0].measures[0].clef != Clef("F", 4)
 
 
 def test_the_same_base_gives_the_same_pairs(base: tuple[str, Path], tmp_path: Path) -> None:
@@ -317,27 +363,31 @@ def test_the_partition_is_by_work_without_leaks(base: tuple[str, Path], tmp_path
     assert all(len(found) == 1 for found in sides.values()), sides
     # Las dos sesiones de la misma foto, del mismo lado; cada partitura de prueba, del suyo.
     split_of = {r["session_id"]: r["split"] for r in rows}
-    assert split_of["s-foto"] == split_of["s-otra-foto"]
+    assert split_of["s-foto"] == split_of["s-otra-foto"] == split_of["s-visita"]
     assert (split_of["s-train"], split_of["s-test"]) == ("train", "test")
-    assert {r["work_id"] for r in rows if r["session_id"] == "s-test"} == {
+    # La página del banco subida sin su partitura de prueba va con ella: es la misma foto.
+    assert {r["work_id"] for r in rows if r["session_id"] in ("s-test", "s-banco")} == {
         f"test_score:{TEST_PAGE}"
     }
+    for column in ("source_image_hash", "imagen_sha256"):
+        found: dict[str, set[str]] = {}
+        for row in rows:
+            found.setdefault(row[column], set()).add(row["split"])
+        assert all(len(sides) == 1 for sides in found.values()), column
     assert sorted(p.name for p in output.iterdir() if p.is_dir()) == ["test", "train"]
 
     counts = _info(output)["counts"]
-    assert counts["pairs"] == len(rows) == 10
+    assert counts["pairs"] == len(rows) == 12
     assert counts["by_split"]["test"]["pairs"] == sum(1 for r in rows if r["split"] == "test")
     assert counts["works"] == len(sides) == 3
     filters = _info(output)["filters"]
     assert (filters["split_seed"], filters["test_fraction"]) == (SPLIT_SEED, TEST_FRACTION)
 
 
-WITHOUT_CONSENT = "cuenta del registro sin el permiso de uso de los datos vigente"
-
-
 def _nothing_of(output: Path, session_id: str) -> None:
+    """Ni un archivo, ni una fila, ni su identificador en la ficha o en `run_info.json`."""
     assert not any(session_id in str(p.relative_to(output)) for p in output.rglob("*"))
-    for name in ("pares.csv", "README.md"):
+    for name in ("pares.csv", "README.md", "run_info.json"):
         assert session_id not in (output / name).read_text(encoding="utf-8"), name
 
 
@@ -351,9 +401,8 @@ def test_registered_accounts_with_the_current_consent_enter_by_default(
     exported = {r["session_id"] for r in _rows(output / "pares.csv")}
     # El permiso vigente, la cuenta del equipo y la del estudio (a la que no se le pide).
     assert {"s-visita", "s-foto", "s-train"} <= exported
-    # Sin el permiso vigente (de otro texto, o nunca dado o retirado), fuera y sin rastro.
+    # Sin el permiso vigente (de otro texto, o nunca dado o retirado): fuera, solo contadas.
     for session_id in ("s-antigua", "s-anonima"):
-        assert info["left_out"][session_id] == WITHOUT_CONSENT
         _nothing_of(output, session_id)
     assert info["consent"] == {
         "version": DATA_CONSENT_VERSION,
@@ -370,10 +419,9 @@ def test_an_option_leaves_out_every_registered_account(
     output = tmp_path / "sin-registro"
     assert _export(output, *_db_args(base), "--exclude-self-registered") == 0
     info = _info(output)
-    assert info["left_out"]["s-visita"].endswith("--exclude-self-registered")
-    _nothing_of(output, "s-visita")
-    # Las que no tienen el permiso siguen fuera por eso, no por la opción.
-    assert info["left_out"]["s-antigua"] == info["left_out"]["s-anonima"] == WITHOUT_CONSENT
+    for session_id in ("s-visita", "s-antigua", "s-anonima"):
+        _nothing_of(output, session_id)
+    # Las que no tienen el permiso siguen contadas por eso, no por la opción.
     assert (
         info["consent"]["sessions_without_current_consent"],
         info["consent"]["sessions_excluded_by_option"],
@@ -403,7 +451,8 @@ def test_sessions_without_capture_unfinished_or_unverified_are_left_out(
     assert info["left_out"]["s-sin-captura"].startswith("sin la captura de HOMR")
     assert info["left_out"]["s-otra-foto"].startswith("la corrección no se verifica")
     assert "s-abierta" not in exported and "s-abierta" not in info["left_out"]
-    assert exported == {"s-foto", "s-train", "s-test", "s-visita"} == set(info["sessions"])
+    assert exported == {"s-foto", "s-train", "s-test", "s-banco", "s-visita"}
+    assert exported == set(info["sessions"])
     assert info["filters"]["status"] == "finalized"
     assert info["filters"]["verified_only"] is True
 
@@ -417,8 +466,9 @@ def test_run_info_and_the_dataset_card(base: tuple[str, Path], tmp_path: Path) -
     assert "commit" in info and info["format"]["score"] == "musicxml"
     for name in ("pares.csv", "README.md"):
         assert info["sha256"][name] == hashlib.sha256((output / name).read_bytes()).hexdigest()
-    assert info["counts"]["pairs_corrected"] == 1
-    assert info["homr_versions"] == {"0.7.0": 5}
+    # La altura de s-foto (una tira) y la clave de s-test (sus dos tiras).
+    assert info["counts"]["pairs_corrected"] == 3
+    assert info["homr_versions"] == {"0.7.0": 6}
 
     card = (output / "README.md").read_text(encoding="utf-8")
     for heading in ("## Origen", "## Licencias", "## Permiso", "## Partición", "## Limitaciones"):
@@ -576,3 +626,33 @@ def test_a_grand_staff_is_one_pair_with_both_staves(tmp_path: Path) -> None:
     assert [e.pitch for e in lower.measures[1].events] == ["C4", "D4"]
     read_back = musicxml_to_score_ir((output / piano["homr"]).read_text(encoding="utf-8"))
     assert [e.pitch for e in read_back.parts[0].staves[1].measures[1].events] == ["C4"]
+
+
+def test_sessions_that_share_a_test_score_or_a_photo_are_one_work() -> None:
+    def session(sid: str, test_score: str | None, image: str | None) -> SessionData:
+        return SessionData(
+            id=sid,
+            document_id=f"doc-{sid}",
+            omr_engine="homr",
+            document={},
+            image_artifact=image,
+            test_score_id=test_score,
+        )
+
+    works = shared_works(
+        [
+            session("a", "TS-02", "h1"),
+            session("b", None, "h1"),  # la foto de TS-02, sin su partitura de prueba
+            session("c", None, "h2"),
+            session("d", "TS-01", "h3"),
+            session("e", "TS-03", "h3"),  # dos partituras con la misma foto: la menor
+            session("f", None, None),
+        ]
+    )
+    assert works == {
+        "a": "test_score:TS-02",
+        "b": "test_score:TS-02",
+        "c": "image:h2",
+        "d": "test_score:TS-01",
+        "e": "test_score:TS-01",
+    }

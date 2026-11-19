@@ -401,7 +401,7 @@ motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por def
 sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
 con el permiso de uso de los datos vigente.
 
-### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0070)
+### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0071)
 
 Deja listos, para un reentrenamiento futuro (#103), los pares de cada tira de pentagrama: el PNG
 de la tira (el mismo recorte de `export-staves`), el MusicXML de lo que leyó HOMR y el MusicXML

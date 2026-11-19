@@ -9,12 +9,10 @@ from pathlib import Path
 
 import pytest
 from cadenza.application import (
-    Forbidden,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InvalidEdit,
     PersistedSuggestion,
-    Role,
     SequenceConflict,
     SessionClosed,
     SessionNotFound,
@@ -156,12 +154,7 @@ class FakeModel:
 
 @pytest.fixture
 def owner() -> User:
-    return User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
-
-
-@pytest.fixture
-def researcher() -> User:
-    return User(id="u3", username="inv", password_hash="h", role=Role.INVESTIGADOR)
+    return User(id="u1", username="ana", password_hash="h")
 
 
 @pytest.fixture
@@ -373,15 +366,12 @@ def test_rejecting_a_suggestion(
     tmp_path: Path,
     repos: Repos,
     owner: User,
-    researcher: User,
 ) -> None:
     sessions, edits = repos
     session_id = _transcribe(tmp_path, sessions, owner, FakeModel())
     balance = next(f for f in sessions.list_findings(session_id) if f.rule_id == "measure.balance")
     sid = balance.suggestions[0].id
-    with pytest.raises(Forbidden):
-        reject_suggestion(session_id, sid, session_repository=sessions, current_user=researcher)
-    other = User(id="u2", username="otro", password_hash="h", role=Role.TRANSCRIPTOR)
+    other = User(id="u2", username="otro", password_hash="h")
     with pytest.raises(SessionNotFound):
         reject_suggestion(session_id, sid, session_repository=sessions, current_user=other)
     with pytest.raises(SuggestionNotFound):

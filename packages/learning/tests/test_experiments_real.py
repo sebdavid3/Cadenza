@@ -1095,7 +1095,6 @@ def _exp_10_session(
     *,
     status: str = "finalized",
     self_registered: bool = False,
-    role: str = "transcriptor",
     test_score_id: str | None = "TS-01",
     condition: str = "assisted",
     score: Any | None = None,
@@ -1109,7 +1108,6 @@ def _exp_10_session(
                 id=owner,
                 username=owner,
                 password_hash="hash",
-                role=role,
                 self_registered=self_registered,
             )
         )
@@ -1279,16 +1277,15 @@ def _with_pitch(score: Any, measure: int, index: int, pitch: str) -> Any:
 
 
 def test_exp_10_only_exports_the_evaluated_scores_of_study_transcribers() -> None:
-    """Ni el calentamiento, ni una sesión sin partitura de prueba, ni las pruebas de una cuenta
-    de investigador entran en el estudio (#250, protocolo §2.3)."""
+    """Ni el calentamiento ni una sesión sin partitura de prueba entran en el estudio (#250,
+    protocolo §2.3)."""
     from ml.experiments import exp_10_effort_study
 
     with _exp_10_db() as db:
         _exp_10_session(db, "s-ts02", "P01", test_score_id="TS-02", condition="unassisted")
         _exp_10_session(db, "s-calentamiento", "P01", test_score_id="calentamiento")
         _exp_10_session(db, "s-libre", "P01", test_score_id=None)
-        _exp_10_session(db, "s-investigador", "inv", role="investigador")
-        for session_id in ("s-ts02", "s-calentamiento", "s-libre", "s-investigador"):
+        for session_id in ("s-ts02", "s-calentamiento", "s-libre"):
             _exp_10_effort(db, session_id, f"e-{session_id}")
         db.commit()
 

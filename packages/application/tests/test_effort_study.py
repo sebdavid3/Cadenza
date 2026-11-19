@@ -8,7 +8,6 @@ import pytest
 from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
-    Role,
     User,
     get_session,
     list_sessions,
@@ -59,12 +58,7 @@ def edit_repo() -> InMemoryEditEventRepository:
 
 @pytest.fixture
 def participant() -> User:
-    return User(id="usr-p01", username="P01", password_hash="hash", role=Role.TRANSCRIPTOR)
-
-
-@pytest.fixture
-def researcher() -> User:
-    return User(id="usr-res", username="investigador", password_hash="hash", role=Role.INVESTIGADOR)
+    return User(id="usr-p01", username="P01", password_hash="hash")
 
 
 def test_normalize_condition_canonical_values() -> None:
@@ -181,7 +175,6 @@ def test_get_session_and_list_sessions_filters(
     session_repo: InMemorySessionRepository,
     edit_repo: InMemoryEditEventRepository,
     participant: User,
-    researcher: User,
 ) -> None:
     fake_img = tmp_path / "score.png"
     fake_img.write_bytes(b"dummy")
@@ -219,7 +212,7 @@ def test_get_session_and_list_sessions_filters(
     # Listados filtrados
     summaries_ast = list_sessions(
         session_repository=session_repo,
-        current_user=researcher,
+        current_user=participant,
         condition="assisted",
     )
     assert len(summaries_ast) == 1
@@ -227,7 +220,7 @@ def test_get_session_and_list_sessions_filters(
 
     summaries_una = list_sessions(
         session_repository=session_repo,
-        current_user=researcher,
+        current_user=participant,
         condition="unassisted",
     )
     assert len(summaries_una) == 1
@@ -235,7 +228,7 @@ def test_get_session_and_list_sessions_filters(
 
     summaries_ts2 = list_sessions(
         session_repository=session_repo,
-        current_user=researcher,
+        current_user=participant,
         test_score_id="TS-02",
     )
     assert len(summaries_ts2) == 1

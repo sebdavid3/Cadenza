@@ -8,7 +8,6 @@
 export type BBox = [number, number, number, number];
 export type EventKind = "note" | "rest" | "clef" | "key" | "time";
 export type Severity = "info" | "warning" | "error";
-export type UserRole = "transcriptor" | "investigador";
 
 /**
  * Entrada individual en el mapa de anclas del ScoreDocument.
@@ -552,8 +551,8 @@ export interface ProvenancePayload {
 /**
  * Registro de una cuenta por la propia persona (ADR-0022, #154).
  * 
- * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
- * siempre transcriptor y cualquier otro campo se rechaza.
+ * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier
+ * otro campo se rechaza.
  */
 export interface RegisterRequest {
   /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
@@ -893,21 +892,11 @@ export interface UndoResponse {
 }
 
 /**
- * Payload para dar de alta una cuenta (ADR-0012, #46).
- */
-export interface UserCreate {
-  username: string;
-  password: string;
-  role: UserRole;
-}
-
-/**
  * Perfil público de un usuario autenticado (ADR-0012).
  */
 export interface UserRead {
   id: string;
   username: string;
-  role: UserRole;
   active: boolean;
   created_at?: string | null;
   /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
@@ -918,15 +907,6 @@ export interface UserRead {
   data_consent_at?: string | null;
   /** Versión del texto del permiso que se aceptó; null, sin permiso */
   data_consent_version?: string | null;
-}
-
-/**
- * Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46).
- */
-export interface UserUpdate {
-  role?: string | null;
-  active?: boolean | null;
-  password?: string | null;
 }
 
 export interface ValidationError {

@@ -59,10 +59,6 @@
   text-decoration-thickness: 3px;
 }
 
-.app-header__role {
-  color: var(--color-ink-muted);
-}
-
 .app-header__exit {
   min-height: 44px;
   padding-block: var(--space-2);

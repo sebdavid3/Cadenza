@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -38,9 +38,7 @@ def client(tmp_path: Path) -> TestClient:
     create_schema(engine)
     session_factory = create_session_factory(engine)
     with session_factory() as db:
-        SqlAlchemyUserRepository(db).add(
-            User(id="u1", username="transcriptor1", password_hash="x", role=Role.TRANSCRIPTOR)
-        )
+        SqlAlchemyUserRepository(db).add(User(id="u1", username="transcriptor1", password_hash="x"))
         db.commit()
     app = create_app(
         session_factory,
@@ -52,7 +50,7 @@ def client(tmp_path: Path) -> TestClient:
             cors_origins=["http://localhost:5173"],
         ),
     )
-    token = app.state.token_service.create_access_token(user_id="u1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="u1")
     test_client = TestClient(app, raise_server_exceptions=False)
     test_client.headers["Authorization"] = f"Bearer {token}"
     return test_client

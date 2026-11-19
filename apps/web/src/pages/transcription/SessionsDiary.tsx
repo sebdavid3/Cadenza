@@ -1,14 +1,13 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/instance";
 import { errorMessage } from "../../api/errors";
-import { useAuthStore } from "../../auth/store";
 import type { SessionSummaryRead } from "../../types";
 import { dayParts, daysWithToday, groupByDay, relativeDay, type Day } from "./days";
 import { useQueueStore } from "./queue";
 import { QueuePanel } from "./QueuePanel";
 import { SessionPlate } from "./SessionPlate";
-import { listSessions, listUsers, SESSIONS_PAGE_SIZE, SESSIONS_QUERY_KEY } from "./sessions";
+import { listSessions, SESSIONS_PAGE_SIZE, SESSIONS_QUERY_KEY } from "./sessions";
 
 /**
  * La paginación es por offset: si se crea una sesión entre dos páginas, la última de una vuelve
@@ -28,11 +27,10 @@ interface DayBandProps {
   now: Date;
   /** Lo que va en el día de hoy antes de sus sesiones: la cola, o la invitación a empezar. */
   lead: ReactNode;
-  owner: (session: SessionSummaryRead) => string | null;
 }
 
 /** Un día del diario: la fecha en el margen y sus láminas, la más reciente primero. */
-function DayBand({ day, now, lead, owner }: DayBandProps) {
+function DayBand({ day, now, lead }: DayBandProps) {
   const parts = dayParts(day);
   const relative = relativeDay(day, now);
   const headingId = `day-${day.key}`;
@@ -64,7 +62,7 @@ function DayBand({ day, now, lead, owner }: DayBandProps) {
           // role="list": sin viñetas, Safari y VoiceOver dejan de tratarla como lista.
           <ol className="plates" role="list">
             {day.sessions.map((session) => (
-              <SessionPlate key={session.session_id} session={session} owner={owner(session)} />
+              <SessionPlate key={session.session_id} session={session} />
             ))}
           </ol>
         )}
@@ -112,8 +110,6 @@ function useToday(): Date {
  * dentro de hoy. Sustituye a la tabla y a la columna de la cola.
  */
 export function SessionsDiary() {
-  const user = useAuthStore((state) => state.user);
-  const isResearcher = user?.role === "investigador";
   const queued = useQueueStore((state) => state.items.length > 0);
 
   const sessions = useInfiniteQuery({
@@ -123,23 +119,6 @@ export function SessionsDiary() {
     getNextPageParam: (lastPage, _pages, lastOffset) =>
       lastPage.length === SESSIONS_PAGE_SIZE ? lastOffset + SESSIONS_PAGE_SIZE : undefined,
   });
-
-  // Solo un investigador ve sesiones ajenas; sus nombres salen de GET /users.
-  const users = useQuery({
-    queryKey: ["users"],
-    queryFn: ({ signal }) => listUsers(api, signal),
-    enabled: isResearcher,
-    staleTime: 5 * 60_000,
-  });
-  const owner = (session: SessionSummaryRead): string | null => {
-    if (!isResearcher) return null;
-    const ownerId = session.owner_id;
-    if (!ownerId) return "—";
-    if (ownerId === user.id) return "Tú";
-    return (
-      users.data?.find((candidate) => candidate.id === ownerId)?.username ?? ownerId.slice(0, 8)
-    );
-  };
 
   const pages = sessions.data?.pages;
   const rows = useMemo(() => uniqueSessions(pages ?? []), [pages]);
@@ -183,7 +162,6 @@ export function SessionsDiary() {
           key={day.key}
           day={day}
           now={now}
-          owner={owner}
           lead={relativeDay(day, now) === "Hoy" ? todayLead : null}
         />
       ))}

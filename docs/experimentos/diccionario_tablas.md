@@ -117,7 +117,6 @@ En PrIMuS, `recorte` es la imagen del incipit entero.
 | Columna | Significado | Origen |
 |---|---|---|
 | `participante` | Nombre de usuario de la cuenta dueña. En las cuentas del estudio es un seudónimo; en las del registro público (`--include-self-registered`) es el que eligió la persona y puede identificarla. | `users.username` |
-| `rol` | Rol de la cuenta. | `transcriptor` o `investigador` |
 | `origen` | `estudio` si la sesión tiene `test_score_id`; si no, `registro` si la cuenta es del registro público; si no, `equipo`. | calculado |
 | `condition` | Condición del estudio. | `assisted` o `unassisted` |
 | `test_score_id` | Partitura del banco del estudio (TS-01 a TS-04), si la hay. | `sessions` |

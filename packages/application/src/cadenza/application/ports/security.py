@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from ..exceptions import NotAuthenticated
-from ..user import Role
 
 
 class PasswordHasher(ABC):
@@ -35,7 +34,6 @@ class TokenPayload:
     """Contenido verificado de un token de acceso."""
 
     sub: str
-    role: Role
     exp: datetime | None = None
 
 
@@ -46,10 +44,9 @@ class TokenService(ABC):
     def create_access_token(
         self,
         user_id: str,
-        role: Role,
         expires_in_seconds: int | None = None,
     ) -> str:
-        """Emite un token de acceso firmado para el usuario y rol dados."""
+        """Emite un token de acceso firmado para el usuario dado."""
 
     @abstractmethod
     def decode_token(self, token: str) -> TokenPayload:
@@ -79,24 +76,22 @@ class InMemoryTokenService(TokenService):
     def create_access_token(
         self,
         user_id: str,
-        role: Role,
         expires_in_seconds: int | None = None,
     ) -> str:
         seconds = (
             expires_in_seconds if expires_in_seconds is not None else self._default_expire_seconds
         )
         exp_timestamp = int((datetime.now(UTC) + timedelta(seconds=seconds)).timestamp())
-        return f"mock-token:{user_id}:{role.value}:{exp_timestamp}"
+        return f"mock-token:{user_id}:{exp_timestamp}"
 
     def decode_token(self, token: str) -> TokenPayload:
         if not token.startswith("mock-token:"):
             raise NotAuthenticated("Token inválido")
         parts = token.split(":")
-        if len(parts) != 4:
+        if len(parts) != 3:
             raise NotAuthenticated("Token inválido")
-        _, user_id, role_str, exp_str = parts
+        _, user_id, exp_str = parts
         try:
-            role = Role(role_str)
             exp_timestamp = int(exp_str)
         except (ValueError, TypeError) as err:
             raise NotAuthenticated("Token inválido") from err
@@ -105,4 +100,4 @@ class InMemoryTokenService(TokenService):
         if datetime.now(UTC) > exp_time:
             raise NotAuthenticated("Token caducado")
 
-        return TokenPayload(sub=user_id, role=role, exp=exp_time)
+        return TokenPayload(sub=user_id, exp=exp_time)

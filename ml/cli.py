@@ -18,7 +18,7 @@ Comandos implementados:
                     con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
   - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
                     con la partición por obra y la ficha del dataset, para entrenar un lector
-                    (`ml/export_pairs_cli.py`, #420, ADR-0070).
+                    (`ml/export_pairs_cli.py`, #420, ADR-0071).
 """
 
 from __future__ import annotations
@@ -944,7 +944,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_staves_cli.add_parser(subparsers)
 
-    # Pares imagen-partitura para entrenar un lector (#420, ADR-0070)
+    # Pares imagen-partitura para entrenar un lector (#420, ADR-0071)
     from ml import export_pairs_cli
 
     export_pairs_cli.add_parser(subparsers)

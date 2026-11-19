@@ -777,7 +777,6 @@ class UserRead(BaseModel):
 
     id: str
     username: str
-    role: str
     active: bool
     created_at: datetime | None = None
     self_registered: bool = Field(
@@ -806,7 +805,6 @@ class UserRead(BaseModel):
         return cls(
             id=user.id,
             username=user.username,
-            role=user.role.value,
             active=user.active,
             created_at=user.created_at,
             self_registered=user.self_registered,
@@ -819,8 +817,8 @@ class UserRead(BaseModel):
 class RegisterRequest(BaseModel):
     """Registro de una cuenta por la propia persona (ADR-0022, #154).
 
-    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
-    siempre transcriptor y cualquier otro campo se rechaza.
+    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier
+    otro campo se rechaza.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -861,22 +859,6 @@ class DataConsentUpdate(BaseModel):
             "'stale_data_consent'. Al retirarlo no hace falta."
         ),
     )
-
-
-class UserCreate(BaseModel):
-    """Payload para dar de alta una cuenta (ADR-0012, #46)."""
-
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=8)
-    role: str = Field(pattern="^(transcriptor|investigador)$")
-
-
-class UserUpdate(BaseModel):
-    """Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."""
-
-    role: str | None = Field(default=None, pattern="^(transcriptor|investigador)$")
-    active: bool | None = None
-    password: str | None = Field(default=None, min_length=8)
 
 
 class ChangePasswordRequest(BaseModel):

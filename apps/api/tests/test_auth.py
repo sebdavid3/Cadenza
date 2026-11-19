@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import secrets
+import time
+from dataclasses import replace
 
+import jwt
 import pytest
 from cadenza.api import Argon2PasswordHasher, JwtTokenService, Settings, create_app
-from cadenza.application import NotAuthenticated, Role, User
+from cadenza.application import NotAuthenticated, User
 from cadenza.persistence import (
+    SessionFactory,
     SqlAlchemyUserRepository,
     create_memory_engine,
     create_schema,
@@ -52,17 +56,14 @@ def test_argon2_dummy_hash_uses_the_real_parameters_and_matches_no_password() ->
 
 def test_jwt_token_service() -> None:
     service = JwtTokenService(secret_key=JWT_TEST_KEY, default_expire_minutes=30)
-    token = service.create_access_token(user_id="usr-123", role=Role.TRANSCRIPTOR)
+    token = service.create_access_token(user_id="usr-123")
 
     payload = service.decode_token(token)
     assert payload.sub == "usr-123"
-    assert payload.role == Role.TRANSCRIPTOR
     assert payload.exp is not None
 
     # Token caducado
-    expired_token = service.create_access_token(
-        user_id="usr-123", role=Role.TRANSCRIPTOR, expires_in_seconds=-10
-    )
+    expired_token = service.create_access_token(user_id="usr-123", expires_in_seconds=-10)
     with pytest.raises(NotAuthenticated) as exc_info:
         service.decode_token(expired_token)
     assert "caducado" in exc_info.value.message.lower()
@@ -92,7 +93,6 @@ def auth_client() -> TestClient:
                 id="usr-alice",
                 username="alice",
                 password_hash=hasher.hash(PASS_ALICE),
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -102,7 +102,6 @@ def auth_client() -> TestClient:
                 id="usr-bob",
                 username="bob",
                 password_hash=hasher.hash(PASS_BOB),
-                role=Role.INVESTIGADOR,
                 active=False,
             )
         )
@@ -195,7 +194,7 @@ def test_get_me_success(auth_client: TestClient) -> None:
     data = response.json()
     assert data["id"] == "usr-alice"
     assert data["username"] == "alice"
-    assert data["role"] == "transcriptor"
+    assert "role" not in data
     assert data["active"] is True
     assert "password" not in data
     assert "password_hash" not in data
@@ -223,7 +222,6 @@ def test_get_me_expired_token_returns_401(auth_client: TestClient) -> None:
     )
     expired_token = service.create_access_token(
         user_id="usr-alice",
-        role=Role.TRANSCRIPTOR,
         expires_in_seconds=-60,
     )
 
@@ -234,6 +232,95 @@ def test_get_me_expired_token_returns_401(auth_client: TestClient) -> None:
     assert response.status_code == 401
     data = response.json()
     assert "Token inválido o expirado" in data["detail"]
+
+
+def test_get_me_accepts_a_token_issued_with_a_role(auth_client: TestClient) -> None:
+    """Un token emitido antes de ADR-0070, con `role`, vale hasta que caduque."""
+    now = int(time.time())
+    old_token = jwt.encode(
+        {"sub": "usr-alice", "role": "investigador", "exp": now + 600, "iat": now},
+        JWT_TEST_KEY,
+        algorithm="HS256",
+    )
+
+    response = auth_client.get("/auth/me", headers={"Authorization": f"Bearer {old_token}"})
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "usr-alice"
+
+
+def test_get_me_token_without_subject_returns_401(auth_client: TestClient) -> None:
+    now = int(time.time())
+    for claims in ({"exp": now + 600}, {"sub": "", "exp": now + 600}):
+        token = jwt.encode(claims, JWT_TEST_KEY, algorithm="HS256")
+        response = auth_client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 401
+
+
+def _client_and_factory() -> tuple[TestClient, SessionFactory, str]:
+    engine = create_memory_engine()
+    create_schema(engine)
+    session_factory = create_session_factory(engine)
+    hasher = Argon2PasswordHasher()
+    password = secrets.token_urlsafe(16)
+    with session_factory() as db:
+        SqlAlchemyUserRepository(db).add(
+            User(id="usr-carol", username="carol", password_hash=hasher.hash(password))
+        )
+        db.commit()
+    app = create_app(
+        session_factory,
+        settings=Settings(auth_secret_key=JWT_TEST_KEY),
+        password_hasher=hasher,
+    )
+    return TestClient(app), session_factory, password
+
+
+def test_deactivated_account_with_valid_token_returns_401() -> None:
+    """Desactivar una cuenta en la base (ADR-0070) deja sin efecto su token al momento."""
+    client, session_factory, password = _client_and_factory()
+    token = client.post("/auth/login", data=_form_credentials("carol", password)).json()[
+        "access_token"
+    ]
+    headers = {"Authorization": f"Bearer {token}"}
+    assert client.get("/auth/me", headers=headers).status_code == 200
+
+    with session_factory() as db:
+        repo = SqlAlchemyUserRepository(db)
+        account = repo.get("usr-carol")
+        assert account is not None
+        repo.update(replace(account, active=False))
+        db.commit()
+
+    assert client.get("/auth/me", headers=headers).status_code == 401
+
+
+def test_change_password_endpoint_flow() -> None:
+    client, _, password = _client_and_factory()
+    token = client.post("/auth/login", data=_form_credentials("carol", password)).json()[
+        "access_token"
+    ]
+    headers = {"Authorization": f"Bearer {token}"}
+    new_password = secrets.token_urlsafe(16)
+
+    wrong = client.post(
+        "/auth/password",
+        json={"current_password": secrets.token_urlsafe(16), "new_password": new_password},
+        headers=headers,
+    )
+    assert wrong.status_code == 401
+
+    changed = client.post(
+        "/auth/password",
+        json={"current_password": password, "new_password": new_password},
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    assert changed.json()["status"] == "success"
+
+    login = client.post("/auth/login", data=_form_credentials("carol", new_password))
+    assert login.status_code == 200
+    assert client.post("/auth/login", data=_form_credentials("carol", password)).status_code == 401
 
 
 def test_openapi_documents_oauth2_login(auth_client: TestClient) -> None:
