@@ -58,7 +58,7 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     base: tuple[str, Path], tmp_path: Path  # noqa: F811
 ) -> None:
     output = tmp_path / "salida"
-    assert _export(output, base, "--recortes", "--informe") == 0
+    assert _export(output, base, "--recortes", "--informe", "--exclude-self-registered") == 0
     page = output / "informe.html"
     text = page.read_text(encoding="utf-8")
     # Sin red: ni scripts, ni hojas de estilo, ni imágenes, ni fuentes de fuera. Los enlaces a
@@ -72,7 +72,8 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     }
 
     data = _data(page)
-    # Sin cuentas del registro no hay pruebas reales que separar: solo «todas».
+    # Sin cuentas del registro (`--exclude-self-registered`) no hay pruebas reales que separar:
+    # solo «todas».
     assert data["groups"] == []
     assert set(data["variants"]) == {"todas|0", "todas|1"}
     notas = _rows(output / "notas.csv")
@@ -139,7 +140,7 @@ def test_only_the_real_tests_of_cadenza_are_split(
     base: tuple[str, Path], tmp_path: Path  # noqa: F811
 ) -> None:
     output = tmp_path / "con-registro"
-    assert _export(output, base, "--recortes", "--include-self-registered", "--informe") == 0
+    assert _export(output, base, "--recortes", "--informe") == 0
     partituras = _rows(output / "partituras.csv")
     real = {r["incipit_id"] for r in partituras if r["origen"] == "registro"}
     assert real and len(real) < len(partituras), "la de la visita y las del equipo"

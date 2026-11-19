@@ -35,9 +35,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from cadenza.application import DATA_CONSENT_VERSION, ArtifactNotFound, has_current_data_consent
+from cadenza.application import ArtifactNotFound
 from cadenza.domain import ScoreDocument, materialize
 from cadenza.learning import assign_split
+from cadenza.learning.consent import ConsentTally, filter_by_consent
 from cadenza.learning.staff_strips import StripError, plan_strips, strip_score
 from cadenza.learning.suggestions import correction_verified, shared_works
 from cadenza.persistence import (
@@ -51,6 +52,7 @@ from cadenza.persistence import (
 )
 from sqlalchemy.exc import SQLAlchemyError
 
+from ml.consent_cli import add_consent_options
 from ml.export_staves_cli import _commit, _safe_url, _staves_name, open_photo, unsafe_output
 
 FORMAT_VERSION = 1
@@ -345,29 +347,22 @@ def export_pairs_command(args: argparse.Namespace) -> int:
     left_out: dict[str, str] = {}
     exported: list[str] = []
     versions: Counter[str] = Counter()
-    without_consent = excluded = 0
+    consent = ConsentTally()
     factory = create_session_factory(create_engine_for_url(db_url))
     with session_scope(factory) as db:
         sessions = SqlAlchemySessionRepository(db)
         edits_repo = SqlAlchemyEditEventRepository(db)
         users = SqlAlchemyUserRepository(db)
         store = FilesystemArtifactStore(artifacts, db)
-        eligible = []
-        for session in sessions.list(status="finalized"):
-            owner = users.get(session.owner_id)
-            if owner is None:
-                left_out[session.id] = "sin la cuenta de su dueño"
-                continue
-            if owner.self_registered:
-                # Sin el permiso vigente (nunca dado, retirado o de otro texto), nunca entra. De
-                # estas y de las que deja fuera la opción solo se cuentan: ni su identificador.
-                if not has_current_data_consent(owner):
-                    without_consent += 1
-                    continue
-                if args.exclude_self_registered:
-                    excluded += 1
-                    continue
-            eligible.append(session)
+        # Sin el permiso vigente (nunca dado, retirado o de otro texto), nunca entra. De estas
+        # y de las que deja fuera la opción solo se cuentan: ni su identificador.
+        eligible, no_owner = filter_by_consent(
+            sessions.list(status="finalized"),
+            users,
+            exclude_self_registered=args.exclude_self_registered,
+            tally=consent,
+        )
+        left_out.update(no_owner)
         works = shared_works(eligible)
         for session in eligible:
             work = works.get(session.id)
@@ -418,11 +413,7 @@ def export_pairs_command(args: argparse.Namespace) -> int:
             "split_seed": args.split_seed,
             "test_fraction": args.test_fraction,
         },
-        "consent": {
-            "version": DATA_CONSENT_VERSION,
-            "sessions_without_current_consent": without_consent,
-            "sessions_excluded_by_option": excluded,
-        },
+        "consent": consent.to_primitive(),
         "sessions": sorted(exported),
         "left_out": dict(sorted(left_out.items())),
         "counts": _counts(rows),
@@ -444,8 +435,8 @@ def export_pairs_command(args: argparse.Namespace) -> int:
         print(f"  {split:<10} : {part['pairs']} pares de {part['works']} obras")
     print(f"  corregidos : {counts['pairs_corrected']}")
     print(
-        f"  fuera      : {len(left_out)}, más {without_consent} sin el permiso vigente y"
-        f" {excluded} con --exclude-self-registered"
+        f"  fuera      : {len(left_out)}, más {consent.without_current_consent} sin el permiso"
+        f" vigente y {consent.excluded_by_option} con --exclude-self-registered"
     )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
@@ -475,11 +466,4 @@ def add_parser(subparsers: Any) -> None:
         help="Semilla de la partición por obra de #255 (obligatoria).",
     )
     parser.add_argument("--test-fraction", type=float, default=0.2)
-    parser.add_argument(
-        "--exclude-self-registered",
-        action="store_true",
-        help=(
-            "Dejar fuera las cuentas del registro público, también las que tienen el permiso"
-            " vigente (por defecto entran; las que no lo tienen quedan siempre fuera)."
-        ),
-    )
+    add_consent_options(parser)

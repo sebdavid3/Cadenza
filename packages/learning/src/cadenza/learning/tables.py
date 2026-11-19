@@ -24,6 +24,7 @@ from typing import Any, Final
 from cadenza.application import has_current_data_consent
 from cadenza.domain import Clef, KeySignature, Measure, ScoreIR, TimeSignature, materialize
 
+from .consent import ConsentTally, filter_by_consent
 from .primus import primus_work_id
 from .suggestions import session_records
 
@@ -603,13 +604,16 @@ def database_tables(
     user_repository: Any,
     split_seed: int,
     test_fraction: float,
-    include_self_registered: bool = False,
+    exclude_self_registered: bool = False,
     include_unfinished: bool = False,
+    consent: ConsentTally | None = None,
 ) -> tuple[dict[str, list[Row]], dict[str, str]]:
     """Las tablas de las sesiones de la base, y las que se dejan fuera con su motivo.
 
-    Las sesiones son las de `session_records` (por defecto, finalizadas y sin cuentas del
-    registro público); las demás van a `left_out` con su motivo.
+    Las sesiones son las de `session_records` (por defecto, finalizadas y, de las cuentas del
+    registro, las que tienen el permiso de uso de los datos vigente, #422); las demás van a
+    `left_out` con su motivo, salvo las que deja fuera el permiso, que solo se cuentan en
+    `consent`.
     """
     records, left_out = session_records(
         session_repository=session_repository,
@@ -617,15 +621,26 @@ def database_tables(
         user_repository=user_repository,
         split_seed=split_seed,
         test_fraction=test_fraction,
-        include_self_registered=include_self_registered,
+        exclude_self_registered=exclude_self_registered,
         include_unfinished=include_unfinished,
+        consent=consent,
     )
     by_session: dict[str, list[dict[str, Any]]] = {}
     for record in records:
         by_session.setdefault(str(record["session_id"]), []).append(record)
 
     tables = _empty()
-    for session in session_repository.list():
+    # El mismo filtro que session_records, sobre todas: una sesión que el permiso deja fuera no
+    # sale ni como «sin terminar». Ya se contaron allí, así que aquí no se cuentan; una sin su
+    # cuenta, sin terminar, sale con ese motivo.
+    admitted, orphans = filter_by_consent(
+        session_repository.list(),
+        user_repository,
+        exclude_self_registered=exclude_self_registered,
+    )
+    for session_id, reason in orphans.items():
+        left_out.setdefault(session_id, reason)
+    for session in admitted:
         if session.id in left_out:
             continue
         if session.status != "finalized" and not include_unfinished:

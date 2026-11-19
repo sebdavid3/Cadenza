@@ -41,6 +41,7 @@ from cadenza.domain import (
     TimeSignature,
 )
 from cadenza.learning import assign_split, build_correction_records
+from cadenza.learning.consent import ConsentTally
 from cadenza.learning.suggestions import (
     SuggestionTrainingError,
     artifact_bytes,
@@ -484,29 +485,36 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
         SessionData(id="open", document_id="d", omr_engine="f", document={}, owner_id="u1"), []
     )
 
+    tally = ConsentTally()
     records, left_out = session_records(
         session_repository=sessions,
         edit_repository=edits,
         user_repository=users,
         split_seed=SPLIT_SEED,
         test_fraction=0.2,
+        consent=tally,
     )
-    assert left_out == {ids[2]: "cuenta del registro público"}
+    # La cuenta del registro no dio el permiso de uso de los datos: queda fuera y solo se
+    # cuenta, sin su identificador (#422, ADR-0065).
+    assert left_out == {}
+    assert (tally.without_current_consent, tally.excluded_by_option) == (1, 0)
     assert {r["session_id"] for r in records} == {ids[0], ids[1]}
-    # Sin --include-self-registered, el permiso de uso de los datos no cambia nada (#378,
-    # ADR-0065): la cuenta del registro sigue fuera aunque lo haya dado.
+    # Con el permiso vigente entra por defecto, y la opción la deja fuera.
     consented = InMemoryUserRepository(
         [
             replace(user, data_consent_at=CONSENT_AT, data_consent_version=DATA_CONSENT_VERSION)
             for user in (owner, outsider)
         ]
     )
+    repositories: dict[str, Any] = {
+        "session_repository": sessions,
+        "edit_repository": edits,
+        "user_repository": consented,
+    }
+    with_consent, _ = session_records(**repositories, split_seed=SPLIT_SEED, test_fraction=0.2)
+    assert {r["session_id"] for r in with_consent} == set(ids)
     assert session_records(
-        session_repository=sessions,
-        edit_repository=edits,
-        user_repository=consented,
-        split_seed=SPLIT_SEED,
-        test_fraction=0.2,
+        **repositories, split_seed=SPLIT_SEED, test_fraction=0.2, exclude_self_registered=True
     ) == (records, left_out)
     assert all(r["source"] == "cadenza" and r["work_id"] == "test_score:TS-01" for r in records)
     expected_split = assign_split("test_score:TS-01", seed=SPLIT_SEED, test_fraction=0.2)
@@ -528,7 +536,13 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     exp12 = write_corpus(tmp_path / "exp12.jsonl", works=2)
     original = exp12.read_bytes()
     output = tmp_path / "joined.jsonl"
-    monkeypatch.setattr(suggestions_cli, "session_records", lambda **_: (records, left_out))
+    seen: dict[str, Any] = {}
+
+    def fake_records(**kwargs: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        seen.update(kwargs)
+        return records, left_out
+
+    monkeypatch.setattr(suggestions_cli, "session_records", fake_records)
     db_url = f"sqlite:///{(tmp_path / 'empty.db').as_posix()}"
     create_schema(create_engine_for_url(db_url))
     command = ["suggestions", "build-dataset", "--corpus", str(exp12), "--output", str(output)]
@@ -536,6 +550,10 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     assert exp12.read_bytes() == original
     assert output.read_bytes().startswith(original)
     assert len(json_lines(output)) == len(json_lines(exp12)) + len(records)
+    assert seen["exclude_self_registered"] is False
+    excluded = [*command[:-1], str(tmp_path / "sin-registro.jsonl"), "--exclude-self-registered"]
+    assert main([*excluded, "--db-url", db_url, "--split-seed", str(SPLIT_SEED)]) == 0
+    assert seen["exclude_self_registered"] is True
     # La salida nunca es el corpus de exp_12.
     assert main([*command[:-1], str(exp12), "--db-url", db_url, "--split-seed", "1"]) == 1
 
@@ -570,7 +588,7 @@ def test_a_bank_photo_without_its_test_score_falls_on_its_side() -> None:
         ("subida", team, "finalized", None, "h1"),
         ("otra", team, "finalized", None, "h2"),  # no comparte nada de lo que entra: su página
         ("abierta", team, "transcribed", "TS-02", "h2"),  # sin finalizar: no une a nadie
-        ("fuera", visitor, "finalized", "TS-06", "h3"),  # cuenta del registro: tampoco
+        ("fuera", visitor, "finalized", "TS-06", "h3"),  # del registro sin el permiso: tampoco
         ("sola", team, "finalized", None, "h3"),
     ):
         sessions.add(
@@ -601,7 +619,7 @@ def test_a_bank_photo_without_its_test_score_falls_on_its_side() -> None:
         split_seed=SPLIT_SEED,
         test_fraction=0.2,
     )
-    assert left_out == {"fuera": "cuenta del registro público"}
+    assert left_out == {}
     works = {r["session_id"]: (r["work_id"], r["split"]) for r in records}
     assert works == {
         "banco": ("test_score:TS-01", side("test_score:TS-01")),

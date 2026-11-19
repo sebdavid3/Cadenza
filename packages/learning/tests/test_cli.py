@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import secrets
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from cadenza.application import (
+    DATA_CONSENT_VERSION,
     User,
     append_edit,
     finalize_session,
@@ -757,8 +760,11 @@ def test_cli_promote_marks_artifact_without_flag_as_simulated(tmp_path: Path) ->
     assert "simulation_warning" in result
 
 
-def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
-    """Una cuenta del registro público con una sesión finalizada y una edición (ADR-0022, D55)."""
+def _add_self_registered_session(
+    tmp_path: Path, db_url: str, *, consent: str | None = DATA_CONSENT_VERSION
+) -> None:
+    """Una cuenta del registro público con una sesión finalizada y una edición (ADR-0022), por
+    defecto con el permiso de uso de los datos vigente (ADR-0065)."""
     factory = create_session_factory(create_engine_for_url(db_url))
     visitor = User(
         id="user-registro",
@@ -766,6 +772,12 @@ def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
         password_hash=secrets.token_hex(8),
         self_registered=True,
     )
+    if consent is not None:
+        visitor = replace(
+            visitor,
+            data_consent_at=datetime.datetime(2026, 11, 19, tzinfo=datetime.UTC),
+            data_consent_version=consent,
+        )
     img_path = tmp_path / "otra.png"
     img_path.write_bytes(b"\x89PNG\r\n\x1a\notraimagen")
     with session_scope(factory) as db:
@@ -802,28 +814,79 @@ def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
         )
 
 
-def test_cli_build_dataset_leaves_out_self_registered_accounts(
+def test_cli_build_dataset_includes_registered_accounts_with_the_current_consent(
     tmp_path: Path, populated_db_url: str
 ) -> None:
+    # Por defecto entran (#422): la sesión del equipo (dos ediciones) y la del registro (una).
     _add_self_registered_session(tmp_path, populated_db_url)
 
-    default_path = tmp_path / "sin_registro.json"
-    included_path = tmp_path / "con_registro.json"
+    default_path = tmp_path / "con_registro.json"
+    excluded_path = tmp_path / "sin_registro.json"
     base = ["build-dataset", "--db-url", populated_db_url, "--output"]
     assert main([*base, str(default_path)]) == 0
-    assert main([*base, str(included_path), "--include-self-registered"]) == 0
+    assert main([*base, str(excluded_path), "--exclude-self-registered"]) == 0
 
     default = json.loads(default_path.read_text(encoding="utf-8"))
-    included = json.loads(included_path.read_text(encoding="utf-8"))
-    # Solo la sesión del estudio (dos ediciones), salvo que se pida la del registro (una más).
-    assert default["count"] == 2
-    assert default["self_registered_included"] is False
-    assert included["count"] == 3
-    assert included["self_registered_included"] is True
-    assert included["dataset_hash"] != default["dataset_hash"]
+    excluded = json.loads(excluded_path.read_text(encoding="utf-8"))
+    assert default["count"] == 3
+    assert default["self_registered_included"] is True
+    assert default["consent"] == {
+        "version": DATA_CONSENT_VERSION,
+        "sessions_without_current_consent": 0,
+        "sessions_excluded_by_option": 0,
+    }
+    assert excluded["count"] == 2
+    assert excluded["self_registered_included"] is False
+    assert excluded["consent"]["sessions_excluded_by_option"] == 1
+    assert excluded["dataset_hash"] != default["dataset_hash"]
 
 
-def test_cli_run_passes_include_self_registered_down_the_pipeline(
+@pytest.mark.parametrize("consent", [None, "2026-11-09"])
+def test_cli_build_dataset_never_includes_accounts_without_the_current_consent(
+    tmp_path: Path, populated_db_url: str, consent: str | None
+) -> None:
+    # Nunca dado o retirado (None), o dado para el texto anterior: fuera, solo contada.
+    _add_self_registered_session(tmp_path, populated_db_url, consent=consent)
+    output = tmp_path / "dataset.json"
+    assert main(["build-dataset", "--db-url", populated_db_url, "--output", str(output)]) == 0
+    dataset = json.loads(output.read_text(encoding="utf-8"))
+    assert dataset["count"] == 2
+    assert dataset["consent"]["sessions_without_current_consent"] == 1
+    # dataset.json no lleva sesiones: el doble de OMR da a todas el mismo documento, pero la
+    # foto de la visita es otra, y su sha256 no está.
+    with session_scope(create_session_factory(create_engine_for_url(populated_db_url))) as db:
+        visit = SqlAlchemySessionRepository(db).get("sess-registro")
+    assert visit is not None and visit.image_artifact
+    assert visit.image_artifact not in output.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["build-dataset"],
+        ["run"],
+        ["export-tables"],
+        ["export-staves"],
+        ["export-pairs"],
+        ["suggestions", "build-dataset"],
+    ],
+)
+def test_cli_the_old_option_to_include_registered_accounts_is_retired(
+    tmp_path: Path, command: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Es lo de por defecto desde #422: falla al leer las opciones, antes de escribir nada, y
+    # dice qué hacer.
+    output = tmp_path / "salida"
+    with pytest.raises(SystemExit) as exit_info:
+        main([*command, "--include-self-registered", "--output", str(output)])
+    assert exit_info.value.code == 2
+    error = capsys.readouterr().err
+    assert "--include-self-registered ya no existe" in error
+    assert "--exclude-self-registered" in error
+    assert not output.exists()
+
+
+def test_cli_run_passes_exclude_self_registered_down_the_pipeline(
     tmp_path: Path, populated_db_url: str
 ) -> None:
     _add_self_registered_session(tmp_path, populated_db_url)
@@ -846,29 +909,29 @@ def test_cli_run_passes_include_self_registered_down_the_pipeline(
             "0.02",
             "--omr-ned",
             "0.03",
-            "--include-self-registered",
+            "--exclude-self-registered",
         ]
     )
 
     assert rc == 0
     dataset = json.loads((work_dir / "dataset.json").read_text(encoding="utf-8"))
     selected = json.loads((work_dir / "selected.json").read_text(encoding="utf-8"))
-    assert dataset["count"] == 3
-    assert dataset["self_registered_included"] is True
-    assert selected["self_registered_included"] is True
+    assert dataset["count"] == 2
+    assert dataset["self_registered_included"] is False
+    assert selected["self_registered_included"] is False
 
 
-def test_cli_build_dataset_rejects_an_owner_outside_the_study(
+def test_cli_build_dataset_rejects_an_owner_that_does_not_enter(
     tmp_path: Path, populated_db_url: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Sin la opción, pedir una cuenta del registro daría un dataset vacío sin avisar.
+    # Con la opción, pedir una cuenta del registro daría un dataset vacío sin avisar.
     _add_self_registered_session(tmp_path, populated_db_url)
     output = tmp_path / "visita.json"
     base = ["build-dataset", "--db-url", populated_db_url, "--owner-id", "user-registro"]
 
-    assert main([*base, "--output", str(output)]) == 1
-    assert "no es del estudio" in capsys.readouterr().err
+    assert main([*base, "--output", str(output), "--exclude-self-registered"]) == 1
+    assert "--exclude-self-registered" in capsys.readouterr().err
     assert not output.exists()
 
-    assert main([*base, "--output", str(output), "--include-self-registered"]) == 0
+    assert main([*base, "--output", str(output)]) == 0
     assert json.loads(output.read_text(encoding="utf-8"))["count"] == 1
