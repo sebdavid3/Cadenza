@@ -48,3 +48,17 @@
 - **Una vista en la web de Cadenza.** Llevaría los datos de varias personas a la plataforma, con su contrato y sus permisos; el análisis se hace fuera (#400).
 - **Un cuaderno de Jupyter.** Exige instalar el entorno para mirarlo.
 - **Una biblioteca de gráficos desde un CDN.** Rompe el «sin red» y obliga a tener conexión para abrir los datos.
+
+## Enmienda de #418 (2026-11-19): el informe con el sistema de Cadenza, que se explica solo
+
+Lo iteró el responsable sobre la página generada, en cinco vueltas.
+
+- **Sistema visual de Cadenza** (`DESIGN.md`): papel, tinta, filetes de 3 px, rótulos bitmap en mayúsculas y texto en Hanken Grotesk. Las fuentes van dentro de la página (OFL 1.1, con sus licencias en `ml/informe_fuentes/`), así que sigue sin red. **Las cifras van siempre en Hanken Grotesk**: en la tipografía bitmap, «50 %» se leía «80 %».
+- **Arriba, qué es HOMR y qué es PrIMuS**, con sus enlaces, y de dónde salen las sesiones de Cadenza. Los enlaces solo se abren si se siguen: la página no carga nada de fuera (lo comprueba una prueba). Después vienen «Lo que dicen los datos», en frases calculadas de los CSV que dicen qué pasa y sobre cuántas notas. Los grupos de menos de 200 notas no entran ahí.
+- **Las figuras, por su nombre y su símbolo, nunca como fracción:** `figure_name` y `figure_symbol`, con puntillos, grupos irregulares, adornos y figuras ligadas. El símbolo se dibuja en SVG dentro de la página, porque ninguna fuente de símbolos musicales viaja con ella. **Las claves**, en lenguaje musical: «clave de sol», «clave de fa en 3.ª».
+- **Las correcciones**, con nombres que se entienden solos: «Figura equivocada», «Nota leída de más», «Nota que HOMR no leyó». La barra de «Qué pasó con cada nota leída» explica corregida, leída de más, sin alinear y bien leída. La matriz de figuras va en un degradado violeta: cuanto más violeta, más casos.
+- **Cada ejemplo dibuja su compás bajo la foto,** en dos pentagramas: lo que leyó HOMR y lo correcto, con la nota del ejemplo en violeta. Lo saca de las propias tablas (`_Bars`: clave, armadura, alteraciones, puntillos, corchetes y silencios, sin barras de unión), y solo se guardan los compases que algún ejemplo usa. El ejemplo dice qué pasó (`change`, `extra` o `missing`), en vez de un «—».
+- **Historial de transcripciones:** todas las partituras de la exportación, con buscador (sin distinguir tildes), orden y paginación. Elegir una enseña sus correcciones o su foto. Sustituye a la tabla de las 15 con más correcciones, que pasa a ser el orden por defecto. No lleva el nombre de ninguna cuenta.
+- **Un solo filtro:** las pruebas reales de Cadenza (`partituras.origen = registro`), y solo si las hay. Se quita la división entre «Todos» y PrIMuS. Tampoco aparece la casilla de los acordes reordenados cuando no los hay, ni el pie, ni el commit visible, que queda en una etiqueta `meta`.
+
+§6 queda así: el único filtro es el de las pruebas reales. Lo demás de la decisión no cambia: un archivo sin red, que sale de los CSV ya escritos.
