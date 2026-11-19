@@ -480,6 +480,118 @@ El servicio carga en memoria las tablas de todas las sesiones en cada cálculo. 
 
 **Cambiar el ritmo:** `CADENZA_STATS_EVERY_SECONDS` en el `.env` y `$DC up -d stats`. **Pararlo:** `$DC stop stats`; la API sigue sirviendo el último cálculo, con su hora en `computed_at`. **En local**, una vez y sin bucle: `uv run --no-sync python -m ml.public_stats --db-url sqlite:///./cadenza.db [--corpus-dir carpeta]`.
 
+### 2.5 Exportar los pares para entrenar un lector ([#420](https://github.com/sebdavid3/Cadenza/issues/420), [ADR-0071](../adr/ADR-0071-pares-imagen-partitura-para-entrenar-un-lector.md))
+
+`ml export-pairs` deja listos los pares foto–partitura con los que se podría reentrenar un lector como HOMR. No entrena nada: reentrenar es trabajo futuro ([#103](https://github.com/sebdavid3/Cadenza/issues/103)). Las reglas y las columnas están en [`pares_imagen_partitura.md`](../experimentos/pares_imagen_partitura.md). Esta sección dice cómo se exporta en producción y qué se entrega.
+
+**Qué es un par y qué entra.**
+
+- **Un par** es la tira de un pentagrama de la foto (o del gran pentagrama del piano, los dos juntos) con dos partituras en MusicXML de esos mismos compases: lo que leyó HOMR (el estado 0 de la sesión) y lo corregido (el estado final, la etiqueta). Las dos llevan en su primer compás la clave, la armadura y el compás que rigen allí.
+- **Entran** solo las sesiones finalizadas cuya corrección se verifica (las ediciones reproducen el estado final). Son las de las cuentas del equipo y las de las cuentas del registro con el permiso de uso de los datos vigente ([#422](https://github.com/sebdavid3/Cadenza/issues/422)). Una cuenta sin el permiso vigente nunca entra, y `--exclude-self-registered` deja fuera todas las del registro.
+- **Quedan fuera,** con su motivo en `run_info.json`, las sesiones sin la captura de HOMR (transcritas antes de [#403](https://github.com/sebdavid3/Cadenza/issues/403)), sin la foto o con una foto que no casa con las cajas de HOMR.
+- **La partición es fija y va por obra** ([#255](https://github.com/sebdavid3/Cadenza/issues/255)): `--split-seed 20260920` y `--test-fraction 0.2`, los de `results/correction_corpus_split.json`. Las sesiones que comparten partitura de prueba o foto son la misma obra y caen del mismo lado, así que ninguna foto está en `train` y en `test` a la vez.
+
+**El procedimiento en producción.**
+
+- **Sobre una copia, nunca sobre la base de producción:** una copia de seguridad verificada (§4.2), restaurada en una base aparte del mismo PostgreSQL (`cadenza_pares`), con sus fotos en una carpeta de trabajo.
+- **Fuera del clon:** todo va en `/opt/docker/cadenza-pares`, así que el árbol de `git` de `/opt/docker/cadenza` sigue limpio y la salida no cae en `results/` ni en `data/` del repositorio (la exportación se niega a escribir ahí).
+- **Con la imagen del servicio `stats`** (`cadenza-stats:prod`, §2.4):
+  - lleva `cadenza-learning` y `cadenza-persistence` con sus dependencias (music21 y Pillow, sin HOMR ni GPU);
+  - de `ml/` solo trae los dos módulos de las cifras, así que se monta encima, en solo lectura, el `ml/` del clon;
+  - con solo esas dependencias pasan las pruebas de `export-pairs` (`packages/learning/tests/test_export_pairs.py`), pero **la orden no se ha ensayado aún en el servidor**.
+- **La contraseña no sale en la línea de órdenes:** la URL de la copia se forma dentro del contenedor, desde su `CADENZA_DATABASE_URL`.
+
+```bash
+cd /opt/docker/cadenza
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+P=/opt/docker/cadenza-pares
+
+# 1. Carpeta de trabajo, fuera del clon: de papoi y cerrada (700), con dos subcarpetas del
+#    usuario de los contenedores (UID 10001), que escribe la restauración y la exportación
+mkdir -m 700 "$P"
+docker run --rm --user 0 --entrypoint sh -v "$P:/pares" cadenza-stats:prod \
+  -c 'mkdir /pares/artefactos /pares/salida && chown 10001:10001 /pares/artefactos /pares/salida'
+
+# 2. Copia verificada de la base y de las fotos (§4.2)
+COPIA="cadenza-$(date +%F-%H%M)-pares.tar.gz"
+$DC --profile backup run --rm backup backup --output "/backups/$COPIA"
+$DC --profile backup run --rm backup verify --archive "/backups/$COPIA"
+
+# 3. Restaurarla en una base aparte y las fotos en $P/artefactos (producción no se toca)
+$DC exec -T postgres sh -c 'createdb -U "$POSTGRES_USER" cadenza_pares'
+$DC --profile backup run --rm --no-deps -v "$P:/pares" --entrypoint sh backup -c \
+  'CADENZA_DATABASE_URL="${CADENZA_DATABASE_URL%/*}/cadenza_pares" exec python3 /app/backup_restore.py restore --archive "/backups/$1" --artifacts-dir /pares/artefactos --owner 10001:10001' \
+  sh "$COPIA"
+
+# 4. Exportar los pares desde la copia, con el ml/ del clon
+$DC run --rm --no-deps -v "$PWD/ml:/app/ml:ro" -v "$P:/pares" --entrypoint sh stats -c \
+  'CADENZA_DATABASE_URL="${CADENZA_DATABASE_URL%/*}/cadenza_pares" exec python -m ml export-pairs --output-dir /pares/salida --artifacts-dir /pares/artefactos --split-seed 20260920 --test-fraction 0.2'
+git rev-parse --short HEAD          # el código que exportó: en el contenedor no hay git y run_info.json lo deja en null
+
+# 5. Empaquetarla para sacarla
+tar -C "$P" -czf "$P/pares-$(date +%F).tar.gz" salida
+sha256sum "$P"/pares-*.tar.gz
+```
+
+La orden imprime cuántos pares salieron, por partición, y cuántas sesiones quedaron fuera. Los detalles están en `$P/salida/run_info.json`.
+
+En el portátil (PowerShell), fuera del repositorio y de cualquier carpeta sincronizada:
+
+```powershell
+$dest = Join-Path $env:USERPROFILE "cadenza-pares"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+scp r2d2:/opt/docker/cadenza-pares/pares-AAAA-MM-DD.tar.gz $dest
+Get-FileHash "$dest\pares-AAAA-MM-DD.tar.gz" -Algorithm SHA256   # el mismo que dio sha256sum
+tar -xzf "$dest\pares-AAAA-MM-DD.tar.gz" -C $dest
+```
+
+Después, en el servidor no queda nada de la exportación. La copia de seguridad del paso 2 sigue la rotación de las demás (§4.3).
+
+```bash
+$DC exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" cadenza_pares'
+docker run --rm --user 0 --entrypoint rm -v "$P:/pares" cadenza-stats:prod -rf /pares/artefactos /pares/salida
+rm -rf "$P"
+```
+
+**La estructura que se entrega** (nombres de ejemplo; cada sesión es su identificador):
+
+```text
+salida/
+  README.md                         la ficha del dataset, con las cifras de esta exportación
+  run_info.json                     cómo se hizo: filtros, permiso, sesiones fuera, recuentos y sha256
+  pares.csv                         una fila por par
+  train/
+    3f2a9c1e-5b7d-4e0a-9c21-8d4f6a2b7b21/          una página de piano
+      s1_0-0+0-1.png                el gran pentagrama del sistema 1 (los dos de la parte 0)
+      s1_0-0+0-1.homr.musicxml      lo que leyó HOMR en esos compases
+      s1_0-0+0-1.musicxml           lo corregido: la etiqueta
+      s2_0-0+0-1.png  s2_0-0+0-1.homr.musicxml  s2_0-0+0-1.musicxml
+    9b0d44e2-1c6f-4a8e-b2d7-5f3e9a10c3a8/          voz y piano
+      s1_0-0.png  s1_0-0.homr.musicxml  s1_0-0.musicxml                    la voz
+      s1_1-0+1-1.png  s1_1-0+1-1.homr.musicxml  s1_1-0+1-1.musicxml        el piano
+  test/
+    5e7c02aa-7d3b-4f19-8e60-2b9c4d1a019f/
+      s1_0-0.png  s1_0-0.homr.musicxml  s1_0-0.musicxml
+```
+
+| Archivo | Qué lleva |
+|---|---|
+| `train/<sesión>/`, `test/<sesión>/` | Los pares de cada sesión, en la partición de su obra. |
+| `s<sistema>_<parte>-<pentagrama>.png` | La tira de la foto, enderezada como la vio HOMR. Un gran pentagrama une sus dos pentagramas con `+` (`_1-0+1-1`). |
+| `….homr.musicxml` | Lo que leyó HOMR en los compases de la tira, con sus números de la página: la línea de base. |
+| `….musicxml` | Lo corregido por la persona en esos compases: la etiqueta para entrenar. |
+| `pares.csv` | Una fila por par: partición, obra, sesión, sistema, pentagramas, compases, versión de HOMR, rutas y sha256 de sus tres archivos, tamaño de la imagen y si la corrección cambió la tira (`corregido`). Columnas en [`pares_imagen_partitura.md`](../experimentos/pares_imagen_partitura.md#parescsv). |
+| `run_info.json` | Formato, fecha, filtros (`split_seed`, `test_fraction`, `exclude_self_registered`), el permiso (versión del texto y cuántas sesiones quedaron fuera por él, sin sus identificadores), las sesiones exportadas y las que quedaron fuera con su motivo, recuentos por partición, versiones de HOMR y el sha256 de `pares.csv` y de la ficha (`"simulated": false`). |
+| `README.md` | La ficha del dataset: de dónde salen los datos, licencias, permiso, partición y limitaciones. |
+
+Para entrenar HOMR, cada fila de `pares.csv` da la imagen (`imagen`) y la etiqueta (`corregida`). HOMR pasa el MusicXML a sus `.tokens` con su conversor, como hace con OpenScore Lieder ([`pares_imagen_partitura.md`](../experimentos/pares_imagen_partitura.md#para-entrenar-homr)). Un modelo se evalúa con la partición `test` de la misma exportación con la que se entrenó: entre dos exportaciones, una obra puede cambiar de lado.
+
+**El cuidado de los datos** (ADR-0065, ADR-0071):
+
+- **No se publica:** la exportación tiene fotos de personas y partituras con derechos de terceros. No se publica, no se comparte fuera del proyecto y no se sube a un repositorio ni a un servicio de fuera sin una decisión del responsable.
+- **Se rehace si alguien retira su permiso:** una exportación es una foto fija. Si alguien retira su permiso, se borra (también las copias que se hayan hecho de ella) y se vuelve a exportar. Por eso conviene saber dónde está cada copia, con la fecha de `run_info.json` (`generated_at`).
+- **En el servidor no queda nada:** se borran la base copia, las fotos copiadas y la salida (el último paso del procedimiento).
+
 ---
 
 ## 3. Sondas de Salud y Observabilidad

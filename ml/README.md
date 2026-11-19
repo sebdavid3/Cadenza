@@ -424,7 +424,8 @@ su obra, sus compases y el sha256 de sus archivos), `run_info.json` (filtros, se
 su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
 `"simulated": false`) y `README.md`, la ficha del dataset
 (origen, licencias, permiso, partición y limitaciones). Columnas y uso en
-[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md).
+[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md); en producción,
+[`docs/infra/operacion_backend.md` §2.5](../docs/infra/operacion_backend.md).
 
 ### Las cifras públicas de los errores de HOMR (`ml public-stats`, #423, ADR-0073)
 
