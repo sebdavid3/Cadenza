@@ -57,6 +57,7 @@ from cadenza.learning import (
     read_mung,
     score_ser_pair,
 )
+from cadenza.learning.muscima import measure_length, usual_length
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -74,6 +75,7 @@ from ml.experiments.common import (  # noqa: E402
 from ml.experiments.external_corpus import (  # noqa: E402
     OPS,
     check_complete,
+    clear_predictions,
     data_root,
     distribution,
     load_manifest,
@@ -115,11 +117,14 @@ CSV_FIELDS = [
     "gt_notes",
     "measures_with_capacity",
     "measures_filled",
+    "measures_with_usual_length",
+    "measures_filled_usual",
     "verified",
     *OPS,
     "Total",
     "ser",
     "omr_ned",
+    "omr_ned_error",
 ]
 
 LIMITATIONS: dict[str, str] = {
@@ -154,6 +159,13 @@ LIMITATIONS: dict[str, str] = {
         "Las correcciones son las del corrector ideal: la alineación de coste mínimo entre lo "
         "que leyó HOMR y la verdad, no las que haría una persona."
     ),
+    "measure_alignment": (
+        "La derivación empareja los compases por su posición y no corrige cuántos hay: si HOMR "
+        "lee otro número de compases, las correcciones de los compases desplazados son de "
+        "alineación, no de lectura, y las de los compases que sobran o faltan no se cuentan. "
+        "Por eso la distribución de correcciones solo se da para las imágenes con el mismo "
+        "número de compases; la SER y el OMR-NED no dependen de alinear compases."
+    ),
 }
 
 
@@ -172,7 +184,8 @@ def prepare(data_dir: Path = DATA_DIR, *, force: bool = False) -> dict[str, Any]
     target = data_dir / CORPUS_DIR / LABEL / "manifest.json"
     if target.is_file() and not force:
         raise FileExistsError(
-            f"Ya hay un manifiesto en {target}; sus predicciones son de él. Repite con --force."
+            f"Ya hay un manifiesto en {target}; sus predicciones son de él. Repite con --force "
+            "(borra las predicciones)."
         )
     annotations = data_dir / ANNOTATIONS
     images = data_dir / IMAGES
@@ -191,6 +204,8 @@ def prepare(data_dir: Path = DATA_DIR, *, force: bool = False) -> dict[str, Any]
             f"Las anotaciones y las imágenes no coinciden ({len(missing)} sin pareja, p. ej. "
             f"{missing[:3]})"
         )
+    if clear_predictions(target):
+        print(f"[{LABEL}] borradas las predicciones de la muestra anterior", flush=True)
     out_dir = target.parent / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -258,21 +273,32 @@ def _score_counts(score: ScoreIR) -> dict[str, int]:
     }
 
 
-def _measure_fill(score: ScoreIR) -> tuple[int, int]:
-    """(compases con compás conocido, de ellos los que suman lo que deben)."""
+def _measure_fill(score: ScoreIR) -> dict[str, int]:
+    """Cuántos compases suman lo que deben: con compás anotado, lo que pide; sin él, lo que
+    suman más a menudo los compases de la página (una comprobación más débil, aparte)."""
+    measures = score.parts[0].staves[0].measures
+    usual = usual_length(measures)
     time_signature = None
-    known = filled = 0
-    for measure in score.parts[0].staves[0].measures:
+    counts = dict.fromkeys(
+        (
+            "measures_with_capacity",
+            "measures_filled",
+            "measures_with_usual_length",
+            "measures_filled_usual",
+        ),
+        0,
+    )
+    for measure in measures:
         time_signature = measure.time_signature or time_signature
-        if time_signature is None:
-            continue
-        known += 1
-        beats = sum(
-            (e.duration_beats or 0 for e in measure.events if not e.is_chord),
-            start=0,
-        )
-        filled += int(beats == time_signature.quarter_length)
-    return known, filled
+        if time_signature is not None:
+            counts["measures_with_capacity"] += 1
+            counts["measures_filled"] += int(
+                measure_length(measure) == time_signature.quarter_length
+            )
+        elif usual is not None:
+            counts["measures_with_usual_length"] += 1
+            counts["measures_filled_usual"] += int(measure_length(measure) == usual)
+    return counts
 
 
 def _reason(error: str) -> str:
@@ -283,6 +309,8 @@ def _reason(error: str) -> str:
         return "polyphony"
     if "abrevia compases" in error:
         return "measure_shorthand"
+    if "clave de do" in error:
+        return "ambiguous_c_clef"
     return "other"
 
 
@@ -304,8 +332,6 @@ def build(
     rows: list[dict[str, Any]] = []
     corpus: list[dict[str, Any]] = []
     truths: dict[str, dict[str, ScoreIR]] = defaultdict(dict)
-    ops_all: Counter[str] = Counter()
-    ops_verified: Counter[str] = Counter()
     unreadable: dict[str, str] = {}
     derive_errors: dict[str, str] = {}
     started = time.monotonic()
@@ -337,15 +363,13 @@ def build(
         except MungConversionError as exc:
             row.update({"truth": "not_convertible", "truth_reason": _reason(str(exc))})
         else:
-            known, filled = _measure_fill(truth)
             truths[page][item] = truth
             row.update(
                 {
                     "truth": "converted",
                     "gt_measures": len(truth.parts[0].staves[0].measures),
                     "gt_notes": _score_counts(truth)["notes_read"],
-                    "measures_with_capacity": known,
-                    "measures_filled": filled,
+                    **_measure_fill(truth),
                 }
             )
 
@@ -386,9 +410,6 @@ def build(
                 rows.append(row)
                 continue
             corpus.extend(measured.records)
-            ops_all.update({op: measured.counts[op] for op in OPS})
-            if measured.verified:
-                ops_verified.update({op: measured.counts[op] for op in OPS})
             row.update(measured.row())
         rows.append(row)
         if position % 20 == 0:
@@ -404,8 +425,6 @@ def build(
         corpus,
         truths,
         homr_info=homr_info,
-        ops_all=ops_all,
-        ops_verified=ops_verified,
         unreadable=unreadable,
         derive_errors=derive_errors,
         seed=seed,
@@ -461,8 +480,6 @@ def _summary(
     truths: Mapping[str, Mapping[str, ScoreIR]],
     *,
     homr_info: Mapping[str, Any],
-    ops_all: Counter[str],
-    ops_verified: Counter[str],
     unreadable: Mapping[str, str],
     derive_errors: Mapping[str, str],
     seed: int,
@@ -474,6 +491,14 @@ def _summary(
     converted = [r for r in rows if r["truth"] == "converted"]
     derived = [r for r in rows if r["status"] == "derived"]
     verified = [r for r in derived if r["verified"]]
+    aligned = [r for r in derived if r["measures_read"] == r["gt_measures"]]
+    unusable = [r for r in converted if r["status"] in ("failure", "prediction_unreadable")]
+
+    def ops(scope: list[dict[str, Any]]) -> Counter[str]:
+        return Counter({op: sum(int(r[op]) for r in scope) for op in OPS})
+
+    def per_note(scope: list[dict[str, Any]]) -> dict[str, Any]:
+        return rate(sum(ops(scope).values()), sum(int(r["gt_notes"]) for r in scope))
 
     by_texture: dict[str, Any] = {}
     for texture in sorted({r["texture"] for r in rows}):
@@ -492,8 +517,9 @@ def _summary(
     def values(key: str, scope: list[dict[str, Any]]) -> list[float]:
         return [float(r[key]) for r in scope if r[key] != ""]
 
-    measures_known = sum(int(r["measures_with_capacity"]) for r in converted)
-    measures_filled = sum(int(r["measures_filled"]) for r in converted)
+    def total_of(key: str) -> int:
+        return sum(int(r[key]) for r in converted)
+
     converted_pages = sorted({r["page"] for r in converted})
     return {
         "experiment": "exp_16_muscima_homr",
@@ -512,6 +538,8 @@ def _summary(
             "failures": rate(len(failures), total),
             "failures_by_error": dict(Counter(r["error"] for r in failures)),
             "prediction_unreadable_count": len(unreadable),
+            # Lo que Cadenza no puede usar: un fallo del motor o un MusicXML que no lee.
+            "unusable": rate(len(failures) + len(unreadable), total),
             "prediction_unreadable": dict(sorted(unreadable.items())),
         },
         "counts": {
@@ -533,8 +561,19 @@ def _summary(
             "converted_by_page": dict(Counter(r["page"] for r in converted)),
         },
         "truth_quality": {
-            "measures_with_known_time_signature": measures_known,
-            "measures_filled_exactly": rate(measures_filled, measures_known),
+            "measures_with_known_time_signature": total_of("measures_with_capacity"),
+            "measures_filled_exactly": rate(
+                total_of("measures_filled"), total_of("measures_with_capacity")
+            ),
+            "without_time_signature": {
+                "definition": (
+                    "Compases sin compás anotado frente a lo que suman más a menudo los de su "
+                    "página: una comprobación más débil, que no ve un error repetido."
+                ),
+                "measures_filled_usual": rate(
+                    total_of("measures_filled_usual"), total_of("measures_with_usual_length")
+                ),
+            },
             "writer_agreement": _writer_agreement(truths),
         },
         "converted_subset": {
@@ -548,12 +587,32 @@ def _summary(
             ),
             "ser": stats(values("ser", derived)),
             "omr_ned": stats(values("omr_ned", derived)),
+            # Como exp_03: cada imagen que no se puede usar cuenta con la distancia máxima.
+            "ser_penalized": stats(values("ser", derived) + [1.0] * len(unusable)),
+            "omr_ned_penalized": (
+                stats(values("omr_ned", derived) + [1.0] * len(unusable))
+                if values("omr_ned", derived)
+                else None
+            ),
+            "unusable": rate(len(unusable), len(converted)),
             "edit_distribution": {
-                "all_derived": distribution(ops_all),
-                "verified": distribution(ops_verified),
-                "edits_per_truth_note": rate(
-                    sum(ops_all.values()), sum(int(r["gt_notes"]) for r in derived)
+                "scope": (
+                    "Solo las imágenes en que HOMR lee tantos compases como la verdad: en las "
+                    "demás la derivación empareja compases desplazados (ver measure_alignment)."
                 ),
+                "same_measure_count": distribution(ops(aligned)),
+                "edits_per_truth_note_same_measure_count": per_note(aligned),
+                "verified": distribution(ops(verified)),
+                "all_derived_misaligned": {
+                    "note": (
+                        "Todas las imágenes derivadas, compases desplazados incluidos: no "
+                        "describe errores de lectura y no se cita como tal."
+                    ),
+                    **distribution(ops(derived)),
+                },
+            },
+            "omr_ned_errors": {
+                r["id"]: r["omr_ned_error"] for r in derived if r.get("omr_ned_error")
             },
             "derive_errors": dict(sorted(derive_errors.items())),
         },
@@ -581,7 +640,7 @@ def _summary(
                 "failure_rate": (len(failures), total),
                 "verification_rate": (len(verified), len(derived)),
             },
-            worst_case={"corrections": sum(ops_all.values())},
+            worst_case={"corrections_same_measure_count": sum(ops(aligned).values())},
         ),
         "methodological_limitations": LIMITATIONS,
     }

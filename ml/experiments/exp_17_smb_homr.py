@@ -60,6 +60,7 @@ from ml.experiments.common import (  # noqa: E402
 from ml.experiments.external_corpus import (  # noqa: E402
     OPS,
     check_complete,
+    clear_predictions,
     data_root,
     distribution,
     load_manifest,
@@ -92,6 +93,7 @@ CSV_FIELDS = [
     "Total",
     "ser",
     "omr_ned",
+    "omr_ned_error",
 ]
 
 LIMITATIONS: dict[str, str] = {
@@ -150,8 +152,11 @@ def prepare_pages(
     target = data_dir / CORPUS_DIR / LABEL / "manifest.json"
     if target.is_file() and not force:
         raise FileExistsError(
-            f"Ya hay un manifiesto en {target}; sus predicciones son de él. Repite con --force."
+            f"Ya hay un manifiesto en {target}; sus predicciones son de él. Repite con --force "
+            "(borra las predicciones)."
         )
+    if clear_predictions(target):
+        print(f"[{LABEL}] borradas las predicciones de la muestra anterior", flush=True)
     images_dir = target.parent / "images"
     kern_dir = target.parent / "kern"
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -184,7 +189,17 @@ def prepare_pages(
                 skipped["without_kern"] += 1
                 continue
             box = region["bbox"]
-            # La caja va en porcentajes de la imagen.
+            # La caja va en porcentajes de la imagen: otra unidad es un error, no una región
+            # que se salta.
+            values = [float(box[k]) for k in ("x", "y", "width", "height")]
+            if (
+                any(not 0 <= v <= 100 for v in values)
+                or values[0] + values[2] > 100.5
+                or values[1] + values[3] > 100.5
+            ):
+                raise ValueError(
+                    f"La región {index} de la página {page_id} no viene en porcentajes: {box}"
+                )
             x0 = box["x"] / 100 * width
             y0 = box["y"] / 100 * height
             x1 = x0 + box["width"] / 100 * width
@@ -270,7 +285,6 @@ def build(
 
     rows: list[dict[str, Any]] = []
     corpus: list[dict[str, Any]] = []
-    ops_by_texture: dict[str, Counter[str]] = {}
     pred_unreadable: dict[str, str] = {}
     gt_unreadable: dict[str, str] = {}
     derive_errors: dict[str, str] = {}
@@ -325,13 +339,20 @@ def build(
             row.update({"status": "derive_error", "error": derive_errors[item]})
             continue
         corpus.extend(measured.records)
-        ops_by_texture.setdefault(texture, Counter()).update(
-            {op: measured.counts[op] for op in OPS}
-        )
         row.update(measured.row())
 
     def values(key: str, scope: list[dict[str, Any]]) -> list[float]:
         return [float(r[key]) for r in scope if r[key] != ""]
+
+    def aligned(scope: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # La derivación empareja compases por su posición: solo cuando HOMR lee tantos
+        # compases como la verdad describen las correcciones errores de lectura.
+        return [
+            r for r in scope if r["status"] == "derived" and r["pred_measures"] == r["gt_measures"]
+        ]
+
+    def ops(scope: list[dict[str, Any]]) -> Counter[str]:
+        return Counter({op: sum(int(r[op]) for r in scope) for op in OPS})
 
     def group(scope: list[dict[str, Any]]) -> dict[str, Any]:
         derived = [r for r in scope if r["status"] == "derived"]
@@ -340,14 +361,13 @@ def build(
             "failures": rate(sum(1 for r in scope if r["status"] == "failure"), len(scope)),
             "derived": len(derived),
             "verification": rate(sum(1 for r in derived if r["verified"]), len(derived)),
+            "measure_count_match": rate(len(aligned(scope)), len(derived)),
             "ser": stats(values("ser", derived)),
             "omr_ned": stats(values("omr_ned", derived)),
         }
 
     textures = sorted({r["texture"] for r in rows})
-    total_ops: Counter[str] = Counter()
-    for counter in ops_by_texture.values():
-        total_ops.update(counter)
+    total_ops = ops(aligned(rows))
     failures_count = sum(1 for r in rows if r["status"] == "failure")
     derived_rows = [r for r in rows if r["status"] == "derived"]
     summary: dict[str, Any] = {
@@ -369,6 +389,8 @@ def build(
                 Counter(r["error"] for r in rows if r["status"] == "failure")
             ),
             "prediction_unreadable": dict(sorted(pred_unreadable.items())),
+            # Lo que Cadenza no puede usar: un fallo del motor o un MusicXML que no lee.
+            "unusable": rate(failures_count + len(pred_unreadable), len(rows)),
         },
         "ground_truth": {
             "unreadable_count": len(gt_unreadable),
@@ -377,9 +399,14 @@ def build(
         "all": group(rows),
         "by_texture": {t: group([r for r in rows if r["texture"] == t]) for t in textures},
         "edit_distribution": {
-            "all_derived": distribution(total_ops),
-            "by_texture": {t: distribution(c) for t, c in sorted(ops_by_texture.items())},
+            "scope": "regiones en que HOMR lee tantos compases como la verdad",
+            "same_measure_count": distribution(total_ops),
+            "by_texture": {
+                t: distribution(ops(aligned([r for r in rows if r["texture"] == t])))
+                for t in textures
+            },
         },
+        "omr_ned_errors": {r["id"]: r["omr_ned_error"] for r in rows if r.get("omr_ned_error")},
         "derive_errors": dict(sorted(derive_errors.items())),
         "correction_corpus": {
             "records": len(corpus),
@@ -397,7 +424,7 @@ def build(
             "smb",
             counts={"regions": len(rows), "derived_regions": len(derived_rows)},
             proportions={"failure_rate": (failures_count, len(rows))},
-            worst_case={"corrections": sum(total_ops.values())},
+            worst_case={"corrections_same_measure_count": sum(total_ops.values())},
         ),
         "methodological_limitations": LIMITATIONS,
     }

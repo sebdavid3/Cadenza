@@ -153,8 +153,8 @@ def test_build_measures_failures_counts_conversion_and_corrections(tmp_path: Pat
     subset = summary["converted_subset"]
     assert subset["derived"] == 2
     assert subset["verification"]["cases"] == 2
-    assert subset["edit_distribution"]["all_derived"]["counts"]["SetPitch"] == 1
-    assert subset["edit_distribution"]["all_derived"]["counts"]["Total"] == 1
+    assert subset["edit_distribution"]["same_measure_count"]["counts"]["SetPitch"] == 1
+    assert subset["edit_distribution"]["same_measure_count"]["counts"]["Total"] == 1
     assert subset["measure_count_match"]["rate"] == 1.0
     assert subset["omr_ned"]["count"] == 2 and subset["omr_ned"]["median"] > 0
     assert subset["ser"]["count"] == 2
@@ -196,3 +196,28 @@ def test_build_fails_while_the_sample_is_not_fully_transcribed(tmp_path: Path) -
     external_corpus.transcribe(manifest_path, label="exp_16", engine=engine, limit=1)
     with pytest.raises(ValueError, match="1 de 2"):
         exp_16.build(manifest_path, with_omr_ned=False)
+
+
+def test_prepare_force_clears_the_predictions_of_the_previous_sample(tmp_path: Path) -> None:
+    manifest_path, _ = _run(tmp_path)
+    predictions = manifest_path.parent / "predictions"
+    assert predictions.is_dir()
+    exp_16.prepare(manifest_path.parents[2], force=True)
+    assert not predictions.exists()
+
+
+def test_an_omr_ned_failure_keeps_the_derived_corrections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path, _ = _run(tmp_path)
+
+    def broken(*_: object, **__: object) -> None:
+        raise ValueError("musicdiff no lee el par")
+
+    monkeypatch.setattr(external_corpus, "omr_ned_pair", broken)
+    summary = exp_16.build(manifest_path, with_omr_ned=True)
+
+    subset = summary["converted_subset"]
+    assert subset["derived"] == 2 and subset["omr_ned"] is None
+    assert set(subset["omr_ned_errors"]) == {A, B}
+    assert subset["edit_distribution"]["same_measure_count"]["counts"]["SetPitch"] == 1

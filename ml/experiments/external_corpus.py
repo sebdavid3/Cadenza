@@ -19,6 +19,7 @@ sus salidas en su propio `RESULTS_DIR`.
 from __future__ import annotations
 
 import json
+import shutil
 import statistics
 import time
 from collections.abc import Mapping
@@ -216,6 +217,7 @@ class PairMeasure:
     records: list[dict[str, Any]]
     ser: float
     omr_ned: float | None
+    omr_ned_error: str | None = None
 
     def row(self) -> dict[str, Any]:
         return {
@@ -225,6 +227,7 @@ class PairMeasure:
             "Total": self.counts["Total"],
             "ser": round(self.ser, 4),
             "omr_ned": "" if self.omr_ned is None else round(self.omr_ned, 4),
+            "omr_ned_error": self.omr_ned_error or "",
         }
 
 
@@ -243,7 +246,8 @@ def measure_pair(
 
     Los registros llevan `source` y `work_id`, que leen `ml export-tables` y la capa de
     sugerencias. Sin `truth_file` no se calcula el OMR-NED. Un `ValueError` o un `IndexError`
-    al derivar sube: el experimento lo registra como error de derivación.
+    al derivar sube: el experimento lo registra como error de derivación. Un fallo del OMR-NED
+    (musicdiff no lee el par) no descarta lo derivado: queda en `omr_ned_error`.
     """
     edits = derive_edit_events(predicted, truth, document_id=item)
     verified = is_structurally_equal(materialize(predicted, edits), truth)
@@ -254,14 +258,31 @@ def measure_pair(
         record["source"] = source
         record["work_id"] = work
     counts = count_edits_by_op(edits).to_dict()
-    ned = None if truth_file is None else omr_ned_pair(pred_file, truth_file).omr_ned
+    ser = score_ser_pair(truth, predicted).ser
+    ned: float | None = None
+    ned_error: str | None = None
+    if truth_file is not None:
+        try:
+            ned = omr_ned_pair(pred_file, truth_file).omr_ned
+        except Exception as exc:
+            ned_error = f"{type(exc).__name__}: {exc}"
     return PairMeasure(
         verified=verified,
         counts={**{op: counts[op] for op in OPS}, "Total": counts["Total"]},
         records=records,
-        ser=score_ser_pair(truth, predicted).ser,
+        ser=ser,
         omr_ned=ned,
+        omr_ned_error=ned_error,
     )
+
+
+def clear_predictions(manifest_path: Path) -> bool:
+    """Borra las predicciones de una muestra que se va a sustituir: son de la anterior."""
+    predictions = manifest_path.parent / "predictions"
+    if not predictions.is_dir():
+        return False
+    shutil.rmtree(predictions)
+    return True
 
 
 def stats(values: list[float]) -> dict[str, Any] | None:

@@ -356,3 +356,156 @@ def test_a_notehead_without_staff_position_is_an_error() -> None:
     page.link(head, staff.id)
     with pytest.raises(MungConversionError, match="posición"):
         mung_to_score(page.nodes)
+
+
+# --- Casos de la revisión ----------------------------------------------------------------
+
+
+def test_heads_on_different_stems_that_overlap_a_little_are_polyphony() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    staff.note(2, 100)
+    staff.note(-2, 120)  # comparte 4 de sus 24 píxeles con la anterior
+    staff.separator(200)
+    with pytest.raises(MungConversionError, match="polifonía"):
+        mung_to_score(page.nodes)
+
+
+def test_a_c_clef_between_two_lines_takes_the_previous_c_clef_or_fails() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.symbol("cClef", 10, top=staff.y(1) - 1.5 * GAP, height=3 * GAP)  # entre 3.ª y 4.ª
+    staff.note(0, 100)
+    staff.separator(160)
+    with pytest.raises(MungConversionError, match="entre dos líneas"):
+        mung_to_score(page.nodes)
+
+    page = _Page()
+    upper = _Staff(page, top=200)
+    lower = _Staff(page, top=500)
+    upper.clef("cClef", 10, line=4)  # tenor, claro
+    upper.note(0, 100)
+    upper.separator(160)
+    lower.symbol("cClef", 10, top=lower.y(1) - 1.5 * GAP, height=3 * GAP)
+    lower.note(0, 100)
+    lower.separator(160)
+    score = mung_to_score(page.nodes)
+    assert score.parts[0].staves[0].measures[0].clef == Clef(sign="C", line=4)
+    assert [p for _, p, _ in _events(score, 1)] == ["A3"]
+
+
+def test_a_repeat_barline_ends_the_measure() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    staff.note(0, 100)
+    barline = page.add("barline", 200, 150, 3, 4 * GAP)
+    dots = page.add("repeatDot", staff.y(1), 140, 4, 4)
+    page.add("repeat", 200, 138, 16, 4 * GAP, (barline, dots))  # sin enlace al pentagrama
+    staff.note(1, 200)
+    staff.separator(260)
+
+    score = mung_to_score(page.nodes)
+    assert _measures(score) == 2
+    assert [p for _, p, _ in _events(score, 1)] == ["C5"]
+
+
+def test_a_tie_across_the_line_break_has_one_head_on_each_side() -> None:
+    page = _Page()
+    upper = _Staff(page, top=200)
+    lower = _Staff(page, top=500)
+    for staff in (upper, lower):
+        staff.clef("gClef", 10)
+    upper.note(0, 100)
+    out_tie = page.add("tie", upper.y(0) + 8, 130, 60, 8)  # sale hacia la derecha
+    upper.note(-1, 140, ties=(out_tie,))
+    in_tie = page.add("tie", lower.y(-1) + 8, 50, 60, 8)  # llega desde la izquierda
+    lower.note(-1, 120, ties=(in_tie,))
+    lower.separator(200)
+
+    events = mung_to_score(page.nodes).parts[0].staves[0].measures[0].events
+    assert [e.tie for e in events] == [None, Tie.START, Tie.STOP]
+
+
+def test_a_key_change_with_naturals_counts_only_the_new_accidentals() -> None:
+    page = _Page()
+    upper = _Staff(page, top=200)
+    lower = _Staff(page, top=500)
+    upper.clef("gClef", 10)
+    upper.key(50, flats=2)
+    upper.note(0, 120)
+    upper.separator(160)
+    lower.clef("gClef", 10)
+    naturals = [page.add("accidentalNatural", 500, 40 + 8 * i, 8, 30) for i in range(2)]
+    sharp = page.add("accidentalSharp", 500, 60, 8, 30)
+    lower.symbol("keySignature", 40, *naturals, sharp)
+    lower.note(-3, 120)  # F#
+    lower.note(0, 160)  # B natural
+    lower.separator(200)
+
+    score = mung_to_score(page.nodes)
+    assert score.parts[0].staves[0].measures[1].key_signature == KeySignature(fifths=1)
+    assert [p for _, p, _ in _events(score, 1)] == ["F#4", "B4"]
+
+
+def test_a_tuplet_numeral_annotated_twice_counts_once_and_odd_numbers_fail() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    first = page.add("numeral3", staff.y(8), 140, 10, 16)
+    again = page.add("numeral3", staff.y(8) + 1, 141, 10, 16)
+    tuplet = page.add("tuple", staff.y(8), 120, 60, 16, (first, again))
+    beam = page.add("beam", staff.y(4), 100, 90, 6)
+    for i, delta in enumerate((-2, -1, 0)):
+        staff.note(delta, 100 + 30 * i, beams=(beam,), tuple_node=tuplet)
+    staff.separator(220)
+    assert [d for _, _, d in _events(mung_to_score(page.nodes), 0)] == [Fraction(1, 3)] * 3
+
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    four = page.add("numeral4", staff.y(8), 140, 10, 16)
+    tuplet = page.add("tuple", staff.y(8), 120, 60, 16, (four,))
+    staff.note(0, 100, flag="flag8thUp", tuple_node=tuplet)
+    staff.separator(160)
+    with pytest.raises(MungConversionError, match="grupo irregular"):
+        mung_to_score(page.nodes)
+
+
+def test_a_head_between_the_staff_and_its_first_ledger_line() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    # G5, en el espacio sobre el pentagrama, enlazada por error a la primera línea adicional.
+    ledger = page.add("legerLine", staff.y(6) - 1, 94, 36, 3)
+    head = page.add("noteheadFull", staff.y(5) - GAP / 2, 100, 24, GAP)
+    stem = page.add("stem", staff.y(5), 122, 2, 3 * GAP)
+    page.link(head, ledger, stem, staff.id)
+    staff.separator(160)
+    assert _events(mung_to_score(page.nodes), 0)[0][1] == "G5"
+
+
+def test_a_tie_between_different_positions_does_not_carry_the_accidental() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    tie = page.add("tie", staff.y(-3) + 8, 120, 70, 8)
+    staff.note(-3, 100, accidental="accidentalSharp", ties=(tie,))  # F#4
+    staff.separator(160)
+    staff.note(-2, 200, ties=(tie,))  # G4: la ligadura está mal anotada
+    staff.separator(260)
+    assert _events(mung_to_score(page.nodes), 1)[0][1] == "G4"
+
+
+def test_a_whole_rest_without_time_signature_lasts_the_usual_measure() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    for m in range(2):
+        for i in range(3):
+            staff.note(0, 100 + 200 * m + 40 * i)
+        staff.separator(220 + 200 * m)
+    staff.rest("restWhole", 500)
+    staff.separator(560)
+    assert _events(mung_to_score(page.nodes), 2) == [("rest", None, Fraction(3))]

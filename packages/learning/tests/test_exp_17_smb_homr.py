@@ -116,7 +116,7 @@ def test_build_measures_regions_by_texture_and_writes_the_smb_corpus(tmp_path: P
     assert piano["derived"] == 2
     assert piano["verification"]["cases"] == 2
     assert piano["omr_ned"]["count"] == 2 and piano["ser"]["count"] == 2
-    assert summary["edit_distribution"]["all_derived"]["counts"]["SetPitch"] == 1
+    assert summary["edit_distribution"]["same_measure_count"]["counts"]["SetPitch"] == 1
 
     results = common.RESULTS_DIR
     with (results / "smb_homr_regions.csv").open(encoding="utf-8") as handle:
@@ -134,3 +134,10 @@ def test_build_measures_regions_by_texture_and_writes_the_smb_corpus(tmp_path: P
     assert {r["work_id"] for r in records} == {"smb:beethoven/sonata01-1.krn"}
     assert len({r["split"] for r in records}) == 1  # una obra, un lado de la partición
     assert json.loads((results / "exp_17_run_info.json").read_text("utf-8"))["omr_ned"] is True
+
+
+def test_prepare_rejects_boxes_that_are_not_percentages(tmp_path: Path) -> None:
+    pages = _pages()
+    pages[0]["regions"][0]["bbox"] = {"x": 20, "y": 20, "width": 900, "height": 40}
+    with pytest.raises(ValueError, match="porcentajes"):
+        exp_17.prepare_pages(pages, tmp_path / "data", source={})

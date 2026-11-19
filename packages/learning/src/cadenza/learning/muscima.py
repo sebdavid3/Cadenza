@@ -13,7 +13,8 @@ voces. Lo demás se rechaza con `MungConversionError`, con el motivo:
 - sistemas de varios pentagramas (llave, corchete o una barra de compás que cruza pentagramas);
 - polifonía (una cabeza con dos plicas, o dos plicas distintas a la misma altura horizontal);
 - abreviaturas de compás (`multiMeasureRest`, `repeat1Bar`), cuyo contenido no está escrito;
-- una cabeza sin posición en el pentagrama o una indicación que no se puede leer.
+- una cabeza sin posición en el pentagrama, una clave de do entre dos líneas sin otra antes en
+  la página, o una indicación que no se puede leer.
 
 Las notas de adorno (cabezas pequeñas) no entran en la partitura y se cuentan aparte: el
 dominio no tiene notas de adorno.
@@ -22,6 +23,7 @@ dominio no tiene notas de adorno.
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from fractions import Fraction
@@ -75,6 +77,8 @@ CLEFS: Final[frozenset[str]] = frozenset({"gClef", "fClef", "cClef"})
 GROUPINGS: Final[frozenset[str]] = frozenset({"staffGrouping", "brace", "bracket"})
 SHORTHANDS: Final[tuple[str, ...]] = ("multiMeasureRest", "repeat1Bar")
 STAFF_POSITIONS: Final[frozenset[str]] = frozenset({"staffLine", "staffSpace"})
+# Lo que cierra un compás: la barra anotada como tal y la barra de repetición.
+_SEPARATORS: Final[frozenset[str]] = frozenset({"measureSeparator", "repeat"})
 
 _STEPS: Final[str] = "CDEFGAB"
 _SHARP_ORDER: Final[str] = "FCGDAEB"
@@ -82,9 +86,11 @@ _FLAT_ORDER: Final[str] = "BEADGCF"
 # Un carácter de la armadura o una alteración: la alteración que suena.
 _ALTER: Final[dict[str, int]] = {"": 0, "#": 1, "##": 2, "b": -1, "bb": -2}
 _ALTER_NAME: Final[dict[int, str]] = {value: name for name, value in _ALTER.items()}
-# Dos cabezas de plicas distintas son simultáneas si se solapan en más de esta fracción de la
-# más estrecha: en una voz, una cabeza empieza donde termina la anterior.
-_OVERLAP: Final[float] = 0.5
+# Una clave de do cuyo centro queda a más de esta fracción de espacio de su línea más cercana
+# está entre dos líneas: el centro de la caja no dice cuál marca.
+_CLEF_TOLERANCE: Final[float] = 0.3
+# Los números de grupo irregular que se leen (n en el tiempo de la potencia de dos por debajo).
+_TUPLETS: Final[frozenset[int]] = frozenset({3, 5, 6, 7, 9})
 
 
 class MungConversionError(ValueError):
@@ -236,6 +242,7 @@ class _Builder:
     clef: Clef | None = None
     key: KeySignature | None = None
     time: TimeSignature | None = None
+    c_line: int | None = None  # la línea de la última clave de do de la página
 
     def set_clef(self, clef: Clef) -> None:
         if clef != self.clef:
@@ -291,10 +298,13 @@ def mung_to_score(nodes: Mapping[int, MungNode], *, score_id: str = "muscima") -
     staves = sorted(
         (node for node in nodes.values() if node.class_name == "staff"), key=lambda n: n.top
     )
+    repeats = [node for node in nodes.values() if node.class_name == "repeat"]
     builder = _Builder()
-    pitches: dict[int, str] = {}
+    pitches: dict[int, tuple[str, int]] = {}
     for staff in staves:
-        _read_staff(nodes, staff, children.get(staff.id, []), builder, pitches)
+        # Las barras de repetición no enlazan con su pentagrama: se sitúan por su altura.
+        own = [r for r in repeats if staff.top <= r.center_y <= staff.bottom]
+        _read_staff(nodes, staff, [*children.get(staff.id, []), *own], builder, pitches)
     builder.close()
     if not builder.measures:
         raise MungConversionError("la página no tiene notas ni silencios")
@@ -326,7 +336,7 @@ def _read_staff(
     staff: MungNode,
     members: list[MungNode],
     builder: _Builder,
-    pitches: dict[int, str],
+    pitches: dict[int, tuple[str, int]],
 ) -> None:
     lines, deltas = _staff_geometry(nodes, staff)
     context = _Context(
@@ -336,7 +346,7 @@ def _read_staff(
     groups = _event_groups(nodes, members)
     items: list[tuple[int, int, MungNode | tuple[MungNode, ...]]] = []
     for node in members:
-        if node.class_name in CLEFS | {"keySignature", "timeSignature", "measureSeparator"}:
+        if node.class_name in CLEFS | {"keySignature", "timeSignature"} | _SEPARATORS:
             items.append((node.left, 0, node))
     for group in groups:
         items.append((min(n.left for n in group), 1, group))
@@ -345,7 +355,7 @@ def _read_staff(
     for _, _, item in items:
         if isinstance(item, MungNode):
             if item.class_name in CLEFS:
-                clef = _clef(item, lines)
+                clef = _clef(item, lines, builder)
                 context.clef = clef
                 builder.set_clef(clef)
             elif item.class_name == "keySignature":
@@ -376,14 +386,23 @@ def _staff_geometry(
     return centers, deltas
 
 
-def _clef(node: MungNode, lines: list[float]) -> Clef:
+def _clef(node: MungNode, lines: list[float], builder: _Builder) -> Clef:
     if node.class_name == "gClef":
         return Clef.treble()
     if node.class_name == "fClef":
         return Clef.bass()
-    # La clave de do se centra en la línea que marca.
+    # La clave de do se centra en la línea que marca. Si su centro queda entre dos líneas, se
+    # toma la línea de la clave de do anterior de la página; sin ella, no se adivina.
+    space = (lines[-1] - lines[0]) / 4
     nearest = min(range(5), key=lambda i: abs(lines[i] - node.center_y))
-    return Clef(sign="C", line=5 - nearest)
+    if abs(lines[nearest] - node.center_y) > _CLEF_TOLERANCE * space:
+        if builder.c_line is None:
+            raise MungConversionError(f"la clave de do {node.id} está entre dos líneas")
+        line = builder.c_line
+    else:
+        line = 5 - nearest
+    builder.c_line = line
+    return Clef(sign="C", line=line)
 
 
 def _key(nodes: Mapping[int, MungNode], node: MungNode) -> KeySignature:
@@ -397,7 +416,16 @@ def _key(nodes: Mapping[int, MungNode], node: MungNode) -> KeySignature:
 
 
 def _digits(nodes: Iterable[MungNode]) -> int | None:
-    ordered = sorted(nodes, key=lambda n: n.left)
+    """El número que escriben unas cifras de izquierda a derecha; una cifra anotada dos veces
+    (la misma clase en casi la misma caja) cuenta una vez."""
+    ordered: list[MungNode] = []
+    for node in sorted(nodes, key=lambda n: n.left):
+        if any(
+            kept.class_name == node.class_name and _overlap_fraction([kept], [node]) > 0.5
+            for kept in ordered
+        ):
+            continue
+        ordered.append(node)
     text = "".join(n.class_name.removeprefix("numeral") for n in ordered)
     return int(text) if text.isdigit() else None
 
@@ -442,7 +470,9 @@ def _event_groups(
                 loose.append([node])
         elif node.class_name in RESTS:
             loose.append([node])
-    # Las redondas de un acorde no tienen plica: se juntan si se solapan.
+    # Las redondas de un acorde no tienen plica: se juntan si se solapan. En una voz, una cabeza
+    # empieza a la derecha de la anterior: dos grupos que se solapan en horizontal, aunque sea
+    # poco, son simultáneos.
     merged: list[list[MungNode]] = []
     for group in sorted(loose, key=lambda g: g[0].left):
         head = group[0]
@@ -467,12 +497,18 @@ def _event_groups(
     return groups
 
 
-def _overlaps(a: Iterable[MungNode], b: Iterable[MungNode]) -> bool:
-    a_left, a_right = min(n.left for n in a), max(n.right for n in a)
-    b_left, b_right = min(n.left for n in b), max(n.right for n in b)
+def _overlap_fraction(a: Iterable[MungNode], b: Iterable[MungNode]) -> float:
+    """Lo que comparten en horizontal dos grupos, como fracción del más estrecho."""
+    first, second = list(a), list(b)
+    a_left, a_right = min(n.left for n in first), max(n.right for n in first)
+    b_left, b_right = min(n.left for n in second), max(n.right for n in second)
     shared = min(a_right, b_right) - max(a_left, b_left)
     narrower = min(a_right - a_left, b_right - b_left)
-    return narrower > 0 and shared > _OVERLAP * narrower
+    return shared / narrower if narrower > 0 else 0.0
+
+
+def _overlaps(a: Iterable[MungNode], b: Iterable[MungNode]) -> bool:
+    return _overlap_fraction(a, b) > 0
 
 
 def _group_events(
@@ -482,7 +518,7 @@ def _group_events(
     deltas: Mapping[int, int],
     lines: list[float],
     context: _Context,
-    pitches: dict[int, str],
+    pitches: dict[int, tuple[str, int]],
 ) -> list[Event]:
     first = group[0]
     if first.class_name in RESTS:
@@ -525,12 +561,19 @@ def _delta(
     if not ledgers:
         raise MungConversionError(f"la cabeza {head.id} no tiene posición en el pentagrama")
     above = head.center_y < lines[0]
+    sign = 1 if above else -1
     closest = min(ledgers, key=lambda ll: abs(ll.center_y - head.center_y))
-    # En la línea si la línea adicional pasa por la mitad central de la cabeza.
+    # La línea adicional más cercana es la k-ésima desde el pentagrama, con k las enlazadas que
+    # quedan entre el pentagrama y ella.
+    order = sorted(ledgers, key=lambda ll: -ll.center_y if above else ll.center_y)
+    position = 4 + 2 * (order.index(closest) + 1)
+    # En la línea si la línea adicional pasa por la mitad central de la cabeza; si no, en el
+    # espacio de fuera (más lejos del pentagrama) o en el de dentro.
     margin = head.height / 4
-    on_line = head.top + margin <= closest.center_y <= head.bottom - margin
-    delta = (2 * len(ledgers) - 1) + 5 + (0 if on_line else 1)
-    return delta if above else -delta
+    if head.top + margin <= closest.center_y <= head.bottom - margin:
+        return sign * position
+    beyond = head.center_y < closest.center_y if above else head.center_y > closest.center_y
+    return sign * (position + (1 if beyond else -1))
 
 
 def _pitch_and_tie(
@@ -538,7 +581,7 @@ def _pitch_and_tie(
     head: MungNode,
     delta: int,
     context: _Context,
-    pitches: dict[int, str],
+    pitches: dict[int, tuple[str, int]],
 ) -> tuple[str, Tie | None]:
     starts = stops = 0
     inherited: str | None = None
@@ -554,7 +597,12 @@ def _pitch_and_tie(
             continue
         if all(other.left < head.left for other in others):
             stops += 1
-            inherited = pitches.get(min(others, key=lambda n: n.left).id) or inherited
+            # La nota de la izquierda da la alteración solo si está en la misma posición.
+            for other in sorted(others, key=lambda n: -n.left):
+                known = pitches.get(other.id)
+                if known is not None and known[1] == delta:
+                    inherited = known[0]
+                    break
         else:
             starts += 1
     accidentals = _linked(nodes, head, ACCIDENTALS)
@@ -564,7 +612,7 @@ def _pitch_and_tie(
         )
         context.inline[delta] = ACCIDENTALS[chosen.class_name]
     pitch = inherited if inherited is not None and not accidentals else context.pitch(delta)
-    pitches[head.id] = pitch
+    pitches[head.id] = (pitch, delta)
     tie_state = (
         Tie.CONTINUE if starts and stops else Tie.START if starts else Tie.STOP if stops else None
     )
@@ -591,22 +639,37 @@ def _modified(
     beats = beats * (2 - Fraction(1, 2**dots))
     for tuplet in _linked(nodes, node, ("tuple",)):
         number = _digits(_linked_prefix(nodes, tuplet, "numeral"))
-        if number is None or number < 2:
-            raise MungConversionError(f"grupo irregular {tuplet.id} sin número")
+        if number is None or number not in _TUPLETS:
+            raise MungConversionError(f"grupo irregular {tuplet.id} de {number}")
         normal = 1 << (number.bit_length() - 1)
-        if normal == number:
-            normal //= 2
         beats = beats * Fraction(normal, number)
     return beats
 
 
+def measure_length(measure: Measure) -> Fraction:
+    """Lo que suma un compás: la duración de sus eventos, sin repetir las notas de un acorde."""
+    return sum(
+        (e.duration_beats or Fraction(0) for e in measure.events if not e.is_chord), Fraction(0)
+    )
+
+
+def usual_length(measures: Iterable[Measure]) -> Fraction | None:
+    """Lo que suman más a menudo los compases sin redonda de silencio (None si no hay ninguno)."""
+    lengths = Counter(
+        measure_length(m) for m in measures if all(e.duration_beats is not None for e in m.events)
+    )
+    return lengths.most_common(1)[0][0] if lengths else None
+
+
 def _fill_whole_rests(measures: list[Measure]) -> list[Measure]:
-    """La redonda de silencio dura lo que el compás vigente (4/4 si no hay compás)."""
+    """La redonda de silencio dura lo que el compás vigente; sin compás anotado, lo que suman
+    más a menudo los compases de la página (4 negras si no hay otro)."""
+    usual = usual_length(measures) or Fraction(4)
     time: TimeSignature | None = None
     out: list[Measure] = []
     for measure in measures:
         time = measure.time_signature or time
-        capacity = time.quarter_length if time is not None else Fraction(4)
+        capacity = time.quarter_length if time is not None else usual
         events = tuple(
             replace(e, duration_beats=capacity) if e.duration_beats is None else e
             for e in measure.events
