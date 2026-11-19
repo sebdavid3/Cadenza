@@ -14,8 +14,11 @@
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> `
   --db-url <url de la copia> --split-seed <semilla de correction_corpus_split.json>
 
-# El corpus de PrIMuS de exp_12 (o el de `ml suggestions build-dataset`), con las mismas columnas.
+# El corpus de PrIMuS de exp_12, el de Camera-PrIMuS de exp_18 (#421) o el de
+# `ml suggestions build-dataset`, con las mismas columnas. --corpus se repite para juntar varios.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl>
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> `
+  --corpus results/correction_corpus.jsonl --corpus results/camera_primus_correction_corpus.jsonl
 
 # Las dos fuentes juntas, en las mismas tablas: la columna `source` las distingue. Con la base,
 # los registros `source: cadenza` del corpus (los que añade build-dataset) se descartan y sus
@@ -24,18 +27,18 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
   --db-url <url> --split-seed <semilla>
 
 # Con los recortes de las fotos (#414, ADR-0068): en la misma carpeta, lo de `ml export-staves`
-# para las mismas sesiones, y cada compás de las tablas con su tira; con --primus-dir, también
-# la imagen de cada incipit de PrIMuS.
+# para las mismas sesiones, y cada compás de las tablas con su tira; con --primus-dir y
+# --camera-primus-dir, también la imagen de cada incipit de PrIMuS y de Camera-PrIMuS.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl> `
   --db-url <url> --split-seed <semilla> --recortes --artifacts-dir <artefactos de la copia> `
-  --primus-dir data/primus
+  --primus-dir data/primus --camera-primus-dir data/camera_primus/Corpus
 ```
 
 | Opción | Significado |
 |---|---|
 | `--output-dir` | Obligatoria. Carpeta de los CSV y de `run_info.json`. No hay salida por defecto. Ha de estar vacía (o no existir) y no puede caer en `results/` ni en `data/` del repositorio (ADR-0068). |
 | `--db-url` | URL de la base. Si no se da `--corpus`, por defecto `CADENZA_DATABASE_URL`; con `--corpus`, la base solo se lee si se da `--db-url`. |
-| `--corpus` | Corpus JSONL de correcciones (formato de `build_correction_records`, versión 1). |
+| `--corpus` | Corpus JSONL de correcciones (formato de `build_correction_records`, versión 1). Se repite para juntar varios en las mismas tablas (#421); un mismo incipit de la misma fuente en dos corpus es un error, porque saldría dos veces. |
 | `--split-seed` | Obligatoria con la base: la semilla de la partición de #255. |
 | `--test-fraction` | Fracción de prueba de la partición (0,2, como #255). |
 | `--include-self-registered` | Incluye las sesiones de cuentas del registro público **con el permiso de uso de los datos de la versión vigente del texto** (ADR-0065; la misma regla que `ml export-staves`, ADR-0067). Las demás cuentas del registro quedan fuera también con la opción. Sin ella, todas fuera. |
@@ -45,6 +48,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `--laminas` | Con `--recortes`: una lámina por sesión (la foto con las cajas y cada tira). |
 | `--informe` | Escribe además `informe.html`: las cifras de los errores de HOMR de estas tablas y, de cada una, hasta 12 ejemplos con la foto de su compás (con `--recortes`). Sin red: se abre en local (#415, ADR-0069). |
 | `--primus-dir` | Con `--recortes`: la carpeta de PrIMuS (`data/primus`, que solo se lee). Copia la imagen de cada incipit de las tablas a `recortes/primus/<id>.png`. |
+| `--camera-primus-dir` | Con `--recortes`: la carpeta `Corpus` de Camera-PrIMuS (`data/camera_primus/Corpus`, que solo se lee). Copia la imagen distorsionada de cada incipit de las tablas a `recortes/camera-primus/<id>.jpg` (#421). |
 
 ## Formato
 
@@ -73,11 +77,11 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <cor
 | `commit` | Commit del código que exportó (`git rev-parse HEAD`), o `null` fuera de un repositorio. |
 | `generated_at` | Fecha y hora de la exportación (UTC, ISO 8601). |
 | `origins.database` | `url`: solo el dialecto y el nombre de la base (`postgresql:cadenza`), sin usuario, host ni contraseña; y el número de sesiones exportadas. |
-| `origins.corpus` | Nombre del archivo (sin la ruta), sha256 y número de registros del corpus; con la base, `cadenza_records_dropped`: los registros de sesiones de Cadenza que se descartaron porque salen de la base. |
+| `origins.corpus` | Nombre del archivo (sin la ruta), sha256, número de registros y registros por `source` (`sources`) del corpus; con la base, `cadenza_records_dropped`: los registros de sesiones de Cadenza que se descartaron porque salen de la base. Con varios `--corpus`, una lista con uno por corpus, en el orden dado. |
 | `filters` | `include_self_registered`, `include_unfinished`, `split_seed`, `test_fraction`. |
 | `left_out` | Las sesiones que quedan fuera, con su motivo: `cuenta del registro público`, `cuenta del registro sin el permiso de uso de los datos vigente`, `sin terminar (status …)` o `sin página de origen (test_score_id ni imagen)`. |
 | `tables` | Por tabla: filas, filas por `source` y sha256 del CSV. |
-| `recortes` | Solo con `--recortes`: `sessions` (las sesiones con recortes), `left_out` (las sesiones de las tablas sin recortes, con su motivo: sin captura, sin imagen, cajas que no casan…), `strips` y `strips_corrected`, `pentagramas_sha256` (o `null` sin la base), `laminas`, `artifacts_dir` (solo el nombre), `primus_images` (imágenes copiadas) y `primus_missing` (incipits sin imagen). |
+| `recortes` | Solo con `--recortes`: `sessions` (las sesiones con recortes), `left_out` (las sesiones de las tablas sin recortes, con su motivo: sin captura, sin imagen, cajas que no casan…), `strips` y `strips_corrected`, `pentagramas_sha256` (o `null` sin la base), `laminas`, `artifacts_dir` (solo el nombre), `primus_images` (imágenes copiadas) y `primus_missing` (incipits sin imagen), y lo mismo de Camera-PrIMuS en `camera_primus_images` y `camera_primus_missing`. |
 
 ## Claves comunes
 
@@ -85,10 +89,10 @@ Todas las tablas empiezan por estas columnas:
 
 | Columna | Significado | Valores |
 |---|---|---|
-| `source` | De dónde sale la fila. | `cadenza` (una sesión de la plataforma) o `primus` (un incipit del corpus de `exp_12`). Un registro del corpus sin `source` es de PrIMuS. |
-| `incipit_id` | Identificador de la partitura en el corpus. Une todas las tablas. | `cadenza:<session_id>` o el identificador de PrIMuS. |
-| `session_id` | Sesión de Cadenza. | Vacío en PrIMuS. |
-| `work_id` | Obra de origen, la unidad de la partición. En Cadenza, las sesiones que comparten partitura de prueba o foto, también encadenadas, son la misma obra (`shared_works`, #437): una página del banco subida sin su partitura de prueba va con ella. | `test_score:<id>` (la partitura de prueba menor del grupo) o, sin ninguna, `image:<sha256>` (la foto menor) en Cadenza; el registro RISM en PrIMuS. |
+| `source` | De dónde sale la fila. | `cadenza` (una sesión de la plataforma), `primus` (un incipit del corpus de `exp_12`) o `camera-primus` (un incipit del corpus de `exp_18`, con la imagen distorsionada, #421). Un registro del corpus sin `source` es de PrIMuS. |
+| `incipit_id` | Identificador de la partitura en el corpus. Une todas las tablas. | `cadenza:<session_id>`, el identificador de PrIMuS o `camera-primus:<identificador de PrIMuS>`: el mismo incipit en los dos corpus son dos partituras. |
+| `session_id` | Sesión de Cadenza. | Vacío en PrIMuS y Camera-PrIMuS. |
+| `work_id` | Obra de origen, la unidad de la partición. En Cadenza, las sesiones que comparten partitura de prueba o foto, también encadenadas, son la misma obra (`shared_works`, #437): una página del banco subida sin su partitura de prueba va con ella. | `test_score:<id>` (la partitura de prueba menor del grupo) o, sin ninguna, `image:<sha256>` (la foto menor) en Cadenza; el registro RISM en PrIMuS y en Camera-PrIMuS. |
 | `split` | Partición fija de #255 (ADR-0036 §10 y su enmienda de #437): todas las sesiones de una obra caen del mismo lado, y ninguna foto está en las dos particiones. | `train` o `test`. |
 
 El **ancla** (`part`, `staff`, `measure`, `voice`, `event_index`) es la de ADR-0002: índices de
@@ -103,12 +107,12 @@ se llenan con `--recortes`; si no, o si la sesión no tiene recortes, quedan vac
 
 | Columna | Significado | Valores |
 |---|---|---|
-| `sistema` | Sistema de la foto en que está el compás, desde 1. | En PrIMuS, 1. |
-| `recorte` | Ruta del PNG de la tira, relativa a la carpeta de la salida. | `recortes/<session_id>/s<sistema>_<parte>-<pentagrama>.png` (`_1-0+1-1` en un gran pentagrama de piano) o `recortes/primus/<id>.png`. |
+| `sistema` | Sistema de la foto en que está el compás, desde 1. | En PrIMuS y Camera-PrIMuS, 1. |
+| `recorte` | Ruta del PNG de la tira, relativa a la carpeta de la salida. | `recortes/<session_id>/s<sistema>_<parte>-<pentagrama>.png` (`_1-0+1-1` en un gran pentagrama de piano) o `recortes/primus/<id>.png` (`recortes/camera-primus/<id>.jpg` en Camera-PrIMuS). |
 
 En Cadenza se une por sesión, parte, pentagrama y número de compás con las filas de
 `pentagramas.csv` (ADR-0067), que tiene además lo que leyó HOMR y lo corregido de toda la tira.
-En PrIMuS, `recorte` es la imagen del incipit entero.
+En PrIMuS y Camera-PrIMuS, `recorte` es la imagen del incipit entero.
 
 ## Tablas
 

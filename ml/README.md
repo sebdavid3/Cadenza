@@ -213,6 +213,30 @@ del mismo lado. Lo que no se puede leer (un MEI o una predicción que el dominio
 o un `.semantic` que no describe las mismas notas) se registra por incipit y no entra en
 el corpus.
 
+### `exp_18_camera_primus.py` — corpus de correcciones con Camera-PrIMuS (#421, ADR-0074)
+
+Los mismos incipits de PrIMuS con la imagen distorsionada para que parezca una foto
+(`data/camera_primus/Corpus/<id>/<id>_distorted.jpg`, de `CameraPrIMuS.tgz`). Elige 10 000 al
+azar con la semilla de `exp_12`, sin los 100 de `exp_03`: son los primeros de una ordenación al
+azar, así que una muestra mayor con la misma semilla empieza por esta y no repite lo leído.
+Los lee HOMR en la GPU (ADR-0066), sin preprocesado, con la transcripción reanudable de
+`external_corpus` (ADR-0072), y mide como `exp_12`: la altura que suena del `.semantic`, el
+corrector ideal verificado, la armadura, el compás y la clave, más la SER y el OMR-NED.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py prepare            # data/camera_primus/exp_18/manifest.json
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py transcribe --gpu   # se reanuda; --retry-failures repite los fallos
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py build              # corpus, partición y análisis en results/
+```
+
+En el corpus (`results/camera_primus_correction_corpus.jsonl`), cada incipit es
+`camera-primus:<id de PrIMuS>`, con `source: camera-primus` y la obra RISM en `work_id`: no se
+confunde con el mismo incipit de `exp_12` en `ml export-tables`. La partición es la de #255:
+`build` lee `results/correction_corpus_split.json` y falla si la semilla, la fracción o el lado
+de alguna obra compartida no coinciden. Escribe también `camera_primus_correction_corpus_incipits.csv`,
+`_split.json`, `_summary.json` (con `"simulated": false`) y `exp_18_run_info.json`; los de
+`exp_12` no se tocan.
+
 ### `exp_14_suggestion_layer.py` — medición de la capa de sugerencias (#257)
 
 La primera medición de la capa de sugerencias (#256, ADR-0036), con la que el responsable
@@ -512,20 +536,25 @@ por qué, los recuentos y el sha256 de cada CSV. No escribe nada por defecto en 
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
   --split-seed <semilla de la partición> [--include-unfinished] [--include-self-registered]
 
-# Corpus JSONL (el de PrIMuS de exp_12 o el de `suggestions build-dataset`), mismas columnas.
+# Corpus JSONL (el de PrIMuS de exp_12, el de Camera-PrIMuS de exp_18 o el de
+# `suggestions build-dataset`), mismas columnas. --corpus se repite para juntar varios.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl>
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> `
+  --corpus results/correction_corpus.jsonl --corpus results/camera_primus_correction_corpus.jsonl
 
 # Con las fotos (#414, ADR-0068): lo de export-staves para las mismas sesiones, y `sistema` y
-# `recorte` en notas, faltantes y compases; con --primus-dir, la imagen de cada incipit.
+# `recorte` en notas, faltantes y compases; con --primus-dir y --camera-primus-dir, la imagen
+# de cada incipit.
 uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
   --split-seed <semilla> --corpus <corpus.jsonl> --recortes --artifacts-dir <artefactos> `
-  --primus-dir data/primus
+  --primus-dir data/primus --camera-primus-dir data/camera_primus/Corpus
 ```
 
 La salida ha de estar vacía y fuera de `results/` y `data/`, como la de `export-staves`.
 
 Con `--informe` (#415, #418, ADR-0069), además `informe.html`: una página sin red, con el
-sistema visual de Cadenza, que explica qué son HOMR y PrIMuS. Trae las cifras de los errores
+sistema visual de Cadenza, que explica qué son HOMR, PrIMuS y Camera-PrIMuS y, si la
+exportación junta varias fuentes, las separa en su filtro (ADR-0074). Trae las cifras de los errores
 de HOMR de estas tablas: qué se corrige, cuánto se mueve la altura, la figura leída frente a
 la correcta (con su nombre y su símbolo) y dónde se equivoca más. Incluye un historial de las
 transcripciones con buscador y paginación y, de cada barra, celda o fila, hasta 12 ejemplos
