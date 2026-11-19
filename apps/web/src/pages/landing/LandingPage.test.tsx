@@ -92,12 +92,12 @@ describe("landing", () => {
     expect(router.state.location.pathname).toBe("/entrar");
   });
 
-  it("sin registro abierto en el build, explica quién crea las cuentas y no lo enlaza", () => {
+  it("sin registro abierto en el build, dice que no se pueden crear cuentas y no lo enlaza", () => {
     vi.stubEnv("VITE_REGISTRATION_ENABLED", "");
     renderLanding();
 
     expect(screen.queryByRole("link", { name: /créala|crear una cuenta/i })).toBeNull();
-    expect(screen.getAllByText(/las cuentas las crea/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/no se pueden crear cuentas/i).length).toBeGreaterThan(0);
   });
 
   it("con registro abierto, lo enlaza, dice que se entra en el momento y no ofrece recuperación", () => {

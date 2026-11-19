@@ -13,7 +13,7 @@ import httpx
 import pytest
 from cadenza.api import Settings, create_app
 from cadenza.api.transcription_slots import TranscriptionSlots, run_in_transcription_slot
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import OMREngine
 from cadenza.omr.testing import FakeOMREngine
@@ -58,16 +58,13 @@ def _app(db_path: Path, engine: OMREngine, max_concurrency: int) -> tuple[FastAP
                 id="usr-tr",
                 username="tr",
                 password_hash="-",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
         session.commit()
     settings = Settings(auth_secret_key=SECRET, transcribe_max_concurrency=max_concurrency)
     app = create_app(session_factory, omr_engine=engine, settings=settings)
-    token: str = app.state.token_service.create_access_token(
-        user_id="usr-tr", role=Role.TRANSCRIPTOR
-    )
+    token: str = app.state.token_service.create_access_token(user_id="usr-tr")
     return app, token
 
 

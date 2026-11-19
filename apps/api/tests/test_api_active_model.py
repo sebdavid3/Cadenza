@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import EvaluationMetrics, ModelVersionData, Role, User
+from cadenza.application import EvaluationMetrics, ModelVersionData, User
 from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from cadenza.omr import HOMREngine
 from cadenza.omr.testing import _sample_ir
@@ -32,9 +32,7 @@ def test_transcribe_with_active_model_respects_use_gpu_setting(
     artifacts_dir = tmp_path / "artifacts"
 
     with session_factory() as db:
-        SqlAlchemyUserRepository(db).add(
-            User(id="u1", username="investigador", password_hash="h", role=Role.INVESTIGADOR)
-        )
+        SqlAlchemyUserRepository(db).add(User(id="u1", username="ana", password_hash="h"))
         store = FilesystemArtifactStore(artifacts_dir, session=db)
         weights = store.put(b"onnx-weights", kind="model", media_type="application/octet-stream")
         registry = SqlAlchemyModelRegistry(db)
@@ -71,7 +69,7 @@ def test_transcribe_with_active_model_respects_use_gpu_setting(
         omr_use_gpu=use_gpu,
     )
     app = create_app(session_factory, settings=settings)
-    token = app.state.token_service.create_access_token(user_id="u1", role=Role.INVESTIGADOR)
+    token = app.state.token_service.create_access_token(user_id="u1")
     client = TestClient(app, headers={"Authorization": f"Bearer {token}"})
 
     upload = {"file": ("score.png", b"\x89PNG\r\n\x1a\n", "image/png")}

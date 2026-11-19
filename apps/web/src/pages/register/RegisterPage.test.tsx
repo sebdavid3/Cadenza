@@ -39,7 +39,6 @@ const CONSENT_LABEL = "Doy mi permiso para que se usen mis datos así.";
 const CREATED: UserRead = {
   id: "u-1",
   username: "ana",
-  role: "transcriptor",
   active: true,
   self_registered: true,
   created_at: "2026-10-23T10:00:00",
@@ -386,7 +385,7 @@ describe("registro cerrado en el build (#248)", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: /registro cerrado/i }),
     ).toBeVisible();
-    expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
+    expect(screen.getByText(/ahora no se pueden crear cuentas/i)).toBeVisible();
     expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
     expect(screen.queryByLabelText("Usuario")).toBeNull();
     expect(screen.queryByRole("button", { name: /crear cuenta/i })).toBeNull();

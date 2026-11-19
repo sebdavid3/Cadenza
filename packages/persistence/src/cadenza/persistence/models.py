@@ -44,14 +44,13 @@ class Base(DeclarativeBase):
 
 
 class UserRecord(Base):
-    """Cuenta de usuario y rol para control de acceso y autoría (ADR-0012)."""
+    """Cuenta de usuario para control de acceso y autoría (ADR-0012, ADR-0070)."""
 
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
     # Cuenta del registro público (ADR-0022, migración 0012): fuera de los datos del estudio.
     self_registered: Mapped[bool] = mapped_column(

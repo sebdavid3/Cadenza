@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from ..exceptions import WeakPassword
 from ..ports.security import PasswordHasher
 from ..ports.user_repository import UserRepository
-from ..user import Role, User
+from ..user import User
 from .set_data_consent import check_data_consent_version
 
 
@@ -22,10 +22,9 @@ def register_user(
     data_consent_version: str | None = None,
     now: datetime | None = None,
 ) -> User:
-    """Crea una cuenta de transcriptor activa y marcada como autorregistrada (ADR-0025).
+    """Crea una cuenta activa y marcada como autorregistrada (ADR-0025).
 
-    Puede entrar en el momento. La marca `self_registered` la excluye de los datos del estudio,
-    y un investigador puede desactivarla (`update_user`). Lanza `DuplicateUsername` si el
+    Puede entrar en el momento. Lanza `DuplicateUsername` si el
     nombre ya existe.
 
     Con `data_consent_version`, la versión del texto del permiso de uso de los datos que la
@@ -43,7 +42,6 @@ def register_user(
         id=user_id or str(uuid.uuid4()),
         username=username,
         password_hash=password_hasher.hash(password),
-        role=Role.TRANSCRIPTOR,
         active=True,
         self_registered=True,
         data_consent_at=None if consent_version is None else (now or datetime.now(UTC)),

@@ -17,7 +17,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InMemoryUserRepository,
-    Role,
     SessionData,
     User,
     append_edit,
@@ -433,10 +432,8 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     model = FrequencyBackoffModel(train(corpus_records(), config, dataset_hash="d"), version="v")
     edits = InMemoryEditEventRepository()
     sessions = InMemorySessionRepository(edit_repository=edits)
-    owner = User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
-    outsider = User(
-        id="u2", username="pub", password_hash="h", role=Role.TRANSCRIPTOR, self_registered=True
-    )
+    owner = User(id="u1", username="ana", password_hash="h")
+    outsider = User(id="u2", username="pub", password_hash="h", self_registered=True)
     users = InMemoryUserRepository([owner, outsider])
     image = tmp_path / "page.png"
     image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)

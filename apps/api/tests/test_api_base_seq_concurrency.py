@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -43,7 +43,6 @@ def _setup_client(tmp_path: Path) -> tuple[TestClient, str]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="test",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -59,7 +58,7 @@ def _setup_client(tmp_path: Path) -> tuple[TestClient, str]:
         settings=settings,
     )
 
-    token = app.state.token_service.create_access_token(user_id="user-t1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="user-t1")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {token}"
 

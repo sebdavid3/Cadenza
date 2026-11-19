@@ -8,15 +8,13 @@ import { SessionThumb } from "./SessionThumb";
 
 interface SessionPlateProps {
   session: SessionSummaryRead;
-  /** De quién es, para un investigador; null para quien solo ve las suyas. */
-  owner: string | null;
 }
 
 /**
  * Una sesión en el diario (#370): la imagen, el nombre que lleva a su vista, la hora, la
  * partitura y lo que le falta. Toda la lámina responde al clic; el enlace es el nombre.
  */
-export function SessionPlate({ session, owner }: SessionPlateProps) {
+export function SessionPlate({ session }: SessionPlateProps) {
   const findings = session.findings_count ?? 0;
   const edits = session.edits_count ?? 0;
   const time = formatTime(session.created_at);
@@ -42,7 +40,6 @@ export function SessionPlate({ session, owner }: SessionPlateProps) {
         </Link>
       </h3>
       <p className="plate__meta">
-        {owner !== null && <span className="plate__owner">{owner}</span>}
         {time && <time dateTime={isoUtc(session.created_at)}>{time}</time>}
         {composer && <span>{composer}</span>}
         {instruments && <span>{instruments}</span>}

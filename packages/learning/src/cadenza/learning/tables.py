@@ -67,7 +67,6 @@ TABLES: Final[dict[str, tuple[str, ...]]] = {
     "partituras": (
         *_KEY,
         "participante",
-        "rol",
         "origen",
         "condition",
         "test_score_id",
@@ -675,7 +674,6 @@ def database_tables(
             {
                 **key,
                 "participante": None if owner is None else owner.username,
-                "rol": None if owner is None else str(owner.role),
                 "origen": _origin(session, owner),
                 "condition": session.condition,
                 "test_score_id": session.test_score_id,

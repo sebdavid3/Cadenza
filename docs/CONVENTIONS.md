@@ -161,7 +161,7 @@ Decisión del responsable del 2026-11-10 ([#382](https://github.com/sebdavid3/Ca
 | Nivel | Qué toca | Qué pide | Tiempo |
 |---|---|---|---|
 | 1. Operar sin código | Desplegar `dev` (`deploy/desplegar.sh`), promover a `main`, cambiar una variable del `.env` de producción, hacer o restaurar una copia | El procedimiento de `docs/infra/operacion_backend.md` y comprobarlo en producción (salud y lo que cambió). Sin rama, PR ni puertas; la línea de la bitácora va en el siguiente PR, o en uno de nivel 2 si no hay otro | ~1 min |
-| 2. Solo documentación | Solo archivos `.md` fuera de `apps/web` | Rama, PR y *squash*, sin puertas ni revisión con subagente. Ninguna prueba lee esos archivos salvo `docs/experimentos/protocolo_medicion_esfuerzo.md`: con él, `pytest apps/api/tests/test_prepare_study_participant.py` | ~1 min |
+| 2. Solo documentación | Solo archivos `.md` fuera de `apps/web` | Rama, PR y *squash*, sin puertas ni revisión con subagente. Ninguna prueba lee esos archivos | ~1 min |
 | 3. Código | Cualquier otro archivo | TDD y las puertas de lo que se tocó (abajo). Revisión independiente con subagente solo si toca la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas, o pasa de unas 200 líneas sin contar las pruebas; si no, basta releer uno mismo el diff | 5–10 min con el despliegue |
 
 Las puertas de un cambio de código, con `uv run --no-sync python scripts/puertas.py`:

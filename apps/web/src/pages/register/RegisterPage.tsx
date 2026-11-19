@@ -57,8 +57,8 @@ function RegistrationClosed() {
         <AccessPanel title="Registro cerrado" />
         <div className="login__form">
           <p className="login__notice">
-            Ahora no se pueden crear cuentas: las cuentas las crea un investigador del proyecto. Si
-            el equipo te dio una, entra con tu usuario y tu contraseña.
+            Ahora no se pueden crear cuentas. Si ya tienes una, entra con tu usuario y tu
+            contraseña.
           </p>
           <Link className="button login__submit" to="/entrar" state={location.state as unknown}>
             Ir a entrar

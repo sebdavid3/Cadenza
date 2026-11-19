@@ -61,7 +61,6 @@ function PickImages({ onFiles, buttonRef }: PickImagesProps) {
 export function TranscriptionPage() {
   useDocumentTitle("Transcripción");
   const queryClient = useQueryClient();
-  const isResearcher = useAuthStore((state) => state.user?.role === "investigador");
   const prepare = useQueueStore((state) => state.prepare);
   const preparing = useQueueStore((state) => state.prepared.length > 0);
   const uploadRef = useRef<HTMLButtonElement>(null);
@@ -115,9 +114,7 @@ export function TranscriptionPage() {
           <h1 id="transcription-title" className="transcription__title" tabIndex={-1}>
             Transcripciones
           </h1>
-          <p className="label transcription__scope">
-            {isResearcher ? "Todas las sesiones" : "Tus sesiones"} · la más reciente primero
-          </p>
+          <p className="label transcription__scope">Tus sesiones · la más reciente primero</p>
         </div>
         <PickImages onFiles={prepare} buttonRef={uploadRef} />
       </div>

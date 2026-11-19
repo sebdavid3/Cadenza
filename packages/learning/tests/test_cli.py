@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from cadenza.application import (
-    Role,
     User,
     append_edit,
     finalize_session,
@@ -47,7 +46,6 @@ def populated_db_url(tmp_path: Path) -> str:
         id="user-trans",
         username="transcriptor1",
         password_hash="hash",
-        role=Role.TRANSCRIPTOR,
     )
 
     with session_scope(factory) as db:
@@ -766,7 +764,6 @@ def _add_self_registered_session(tmp_path: Path, db_url: str) -> None:
         id="user-registro",
         username="visita",
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=True,
     )
     img_path = tmp_path / "otra.png"

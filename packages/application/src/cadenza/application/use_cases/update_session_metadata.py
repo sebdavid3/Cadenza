@@ -13,10 +13,11 @@ from typing import Final
 
 from cadenza.domain import PartMetadata, ScoreMetadata
 
-from ..exceptions import Forbidden, InvalidSessionMetadata, SessionNotFound
+from ..access import require_owner
+from ..exceptions import InvalidSessionMetadata, SessionNotFound
 from ..ports.score_state_cache import ScoreStateCache
 from ..ports.session_repository import SessionData, SessionRepository
-from ..user import Role, User
+from ..user import User
 
 
 class Unchanged(Enum):
@@ -54,7 +55,7 @@ def update_session_metadata(
 ) -> SessionData:
     """Cambia lo que se da y deja lo demás; None (o una lista vacía) lo borra.
 
-    - Transcriptor ajeno: `SessionNotFound` (404); investigador ajeno: `Forbidden` (403).
+    - Sesión ajena: `SessionNotFound` (404).
     - `InvalidSessionMetadata` (422) si un texto es demasiado largo o hay instrumentos para más
       partes de las que tiene la partitura.
     - No cambia el estado de la sesión, el log ni los hallazgos.
@@ -63,10 +64,7 @@ def update_session_metadata(
     session_data = session_repository.get(session_id)
     if session_data is None:
         raise SessionNotFound(session_id)
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede cambiar los datos de sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
 
     current = session_data.metadata
     try:

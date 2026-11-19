@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -43,12 +43,8 @@ class Api:
         factory = create_session_factory(engine)
         with factory() as db:
             users = SqlAlchemyUserRepository(db)
-            for user_id, role in (
-                ("owner", Role.TRANSCRIPTOR),
-                ("other", Role.TRANSCRIPTOR),
-                ("inv", Role.INVESTIGADOR),
-            ):
-                users.add(User(id=user_id, username=user_id, password_hash="h", role=role))
+            for user_id in ("owner", "other"):
+                users.add(User(id=user_id, username=user_id, password_hash="h"))
             db.commit()
         app = create_app(
             factory,
@@ -60,12 +56,8 @@ class Api:
         )
         self.client = TestClient(app)
         self.tokens = {
-            user_id: app.state.token_service.create_access_token(user_id=user_id, role=role)
-            for user_id, role in (
-                ("owner", Role.TRANSCRIPTOR),
-                ("other", Role.TRANSCRIPTOR),
-                ("inv", Role.INVESTIGADOR),
-            )
+            user_id: app.state.token_service.create_access_token(user_id=user_id)
+            for user_id in ("owner", "other")
         }
         res = self.post("/transcribe", files={"file": ("score.png", PNG_BYTES, "image/png")})
         assert res.status_code == 201, res.text
@@ -184,7 +176,6 @@ def test_only_the_owner_measures(api: Api) -> None:
     )
     assert unauthenticated.status_code == 401
     assert api.segment("tab-a", 1, user="other").status_code == 404
-    assert api.segment("tab-a", 1, user="inv").status_code == 403
     assert api.records() == []
 
 

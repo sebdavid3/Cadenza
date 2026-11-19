@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cadenza.application import DATA_CONSENT_VERSION, NewSuggestion, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, NewSuggestion, SessionData, User
 from cadenza.domain import (
     Anchor,
     Clef,
@@ -150,12 +150,11 @@ def _suggestion(measure: int, pitch: str, *, level: str = "high") -> SuggestedEd
     )
 
 
-def _user(user_id: str, *, self_registered: bool = False, role: Role = Role.TRANSCRIPTOR) -> User:
+def _user(user_id: str, *, self_registered: bool = False) -> User:
     return User(
         id=user_id,
         username=f"P-{user_id}",
         password_hash=secrets.token_hex(8),
-        role=role,
         self_registered=self_registered,
     )
 
@@ -200,7 +199,7 @@ def db_url(tmp_path: Path) -> str:
     with session_scope(factory) as db:
         users = SqlAlchemyUserRepository(db)
         users.add(_user("ana"))
-        users.add(_user("luis", role=Role.INVESTIGADOR))
+        users.add(_user("luis"))
         # Del registro: con el permiso vigente, sin permiso y con el de un texto anterior.
         consent = datetime(2026, 11, 10, tzinfo=UTC)
         users.add(
@@ -346,13 +345,13 @@ def test_the_export_writes_one_csv_per_table_and_the_run_info(exported: Path) ->
 def test_partituras_has_one_row_per_session_without_the_file_name(exported: Path) -> None:
     header, rows = _csv(exported / "partituras.csv")
     assert "source_filename" not in header
+    assert "rol" not in header  # sin roles desde #419
     for written in exported.iterdir():
         assert "Apellido" not in written.read_text(encoding="utf-8"), written.name
     sessions = {r["session_id"]: r for r in rows}
     assert set(sessions) == {"s-estudio", "s-compas"}
     study = sessions["s-estudio"]
     assert study["participante"] == "P-ana"
-    assert study["rol"] == "transcriptor"
     assert study["origen"] == "estudio"
     assert study["source"] == "cadenza"
     assert study["omr_engine"] == "homr" and study["model_version"] == "homr-0.3"
@@ -364,7 +363,6 @@ def test_partituras_has_one_row_per_session_without_the_file_name(exported: Path
     assert study["verified"] == "true"
     assert study["versiones_capa"] == "sug-1"
     assert sessions["s-compas"]["origen"] == "equipo"
-    assert sessions["s-compas"]["rol"] == "investigador"
     assert sessions["s-compas"]["source_image_hash"] == "ab" * 32
     # verified no mira la indicación de compás: se ve en compases_con_indicacion_corregida.
     assert sessions["s-compas"]["verified"] == "true"

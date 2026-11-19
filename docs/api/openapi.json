@@ -121,7 +121,7 @@
           "Auth"
         ],
         "summary": "Registro de una cuenta por la propia persona",
-        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
+        "description": "Crea una cuenta activa y marcada como autorregistrada: puede iniciar sesión en el momento (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -193,7 +193,7 @@
           "Auth"
         ],
         "summary": "Perfil del usuario autenticado",
-        "description": "Devuelve el perfil y rol del usuario correspondiente al token Bearer provisto.",
+        "description": "Devuelve el perfil del usuario correspondiente al token Bearer provisto.",
         "operationId": "get_me_auth_me_get",
         "responses": {
           "200": {
@@ -348,220 +348,6 @@
         ]
       }
     },
-    "/users": {
-      "get": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Listar cuentas registradas",
-        "description": "Lista las cuentas registradas en el sistema. Operación exclusiva para usuarios con rol investigador (ADR-0012).",
-        "operationId": "list_users_endpoint_users_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UserRead"
-                  },
-                  "type": "array",
-                  "title": "Response List Users Endpoint Users Get"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Dar de alta una nueva cuenta de usuario",
-        "description": "Crea una nueva cuenta de usuario con rol tipado. Exclusivo para investigadores (ADR-0012).",
-        "operationId": "create_user_endpoint_users_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRead"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Entidad no procesable o violación de validación de negocio",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ]
-      }
-    },
-    "/users/{user_id}": {
-      "patch": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Modificar rol, estado o restablecer contraseña",
-        "description": "Permite a un investigador modificar datos de acceso o rol de una cuenta existente.",
-        "operationId": "update_user_endpoint_users__user_id__patch",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "User Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRead"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Recurso no encontrado o no accesible para el usuario actual",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Entidad no procesable o violación de validación de negocio",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/transcribe": {
       "post": {
         "tags": [
@@ -701,7 +487,7 @@
           "Transcription"
         ],
         "summary": "Mis transcripciones en segundo plano",
-        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
+        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
         "operationId": "list_transcription_jobs_transcription_jobs_get",
         "responses": {
           "200": {
@@ -1335,16 +1121,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1414,16 +1190,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -1519,16 +1285,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1605,16 +1361,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1675,16 +1421,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -1801,16 +1537,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1897,16 +1623,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2002,16 +1718,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2099,16 +1805,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2187,16 +1883,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2257,16 +1943,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2353,16 +2029,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2433,16 +2099,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2546,16 +2202,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2644,16 +2290,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2724,16 +2360,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2763,7 +2389,7 @@
           "Effort"
         ],
         "summary": "Sumar un tramo al registro de esfuerzo de la sesión",
-        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
+        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a cualquier otra cuenta); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
         "operationId": "record_effort_segment_endpoint_sessions__session_id__effort_segments__segment_id__put",
         "security": [
           {
@@ -2818,16 +2444,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -4725,7 +4341,7 @@
           "password"
         ],
         "title": "RegisterRequest",
-        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es\nsiempre transcriptor y cualquier otro campo se rechaza."
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier\notro campo se rechaza."
       },
       "ReopenResponse": {
         "properties": {
@@ -5947,34 +5563,6 @@
         "title": "UndoResponse",
         "description": "Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."
       },
-      "UserCreate": {
-        "properties": {
-          "username": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Username"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 8,
-            "title": "Password"
-          },
-          "role": {
-            "type": "string",
-            "pattern": "^(transcriptor|investigador)$",
-            "title": "Role"
-          }
-        },
-        "type": "object",
-        "required": [
-          "username",
-          "password",
-          "role"
-        ],
-        "title": "UserCreate",
-        "description": "Payload para dar de alta una cuenta (ADR-0012, #46)."
-      },
       "UserRead": {
         "properties": {
           "id": {
@@ -5984,10 +5572,6 @@
           "username": {
             "type": "string",
             "title": "Username"
-          },
-          "role": {
-            "type": "string",
-            "title": "Role"
           },
           "active": {
             "type": "boolean",
@@ -6047,53 +5631,10 @@
         "required": [
           "id",
           "username",
-          "role",
           "active"
         ],
         "title": "UserRead",
         "description": "Perfil público de un usuario autenticado (ADR-0012)."
-      },
-      "UserUpdate": {
-        "properties": {
-          "role": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^(transcriptor|investigador)$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Role"
-          },
-          "active": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Active"
-          },
-          "password": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 8
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Password"
-          }
-        },
-        "type": "object",
-        "title": "UserUpdate",
-        "description": "Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."
       },
       "ValidationError": {
         "properties": {
@@ -6367,10 +5908,6 @@
     {
       "name": "Auth",
       "description": "Autenticación JWT e identidad del usuario"
-    },
-    {
-      "name": "Users",
-      "description": "Gestión de cuentas (exclusivo para investigadores)"
     },
     {
       "name": "Transcription",

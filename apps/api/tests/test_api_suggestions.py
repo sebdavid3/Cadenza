@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, SuggestionModelVersionData, User
+from cadenza.application import SuggestionModelVersionData, User
 from cadenza.domain import (
     Event,
     EventKind,
@@ -122,8 +122,8 @@ def _factory() -> sessionmaker[DbSession]:
     factory = create_session_factory(engine)
     with factory() as db:
         users = SqlAlchemyUserRepository(db)
-        users.add(User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR))
-        users.add(User(id="u2", username="inv", password_hash="h", role=Role.INVESTIGADOR))
+        users.add(User(id="u1", username="ana", password_hash="h"))
+        users.add(User(id="u2", username="beto", password_hash="h"))
         db.commit()
     return factory
 
@@ -182,14 +182,8 @@ def _app(
     )
     service = app.state.token_service
     headers = {
-        "owner": {
-            "Authorization": "Bearer "
-            + service.create_access_token(user_id="u1", role=Role.TRANSCRIPTOR)
-        },
-        "researcher": {
-            "Authorization": "Bearer "
-            + service.create_access_token(user_id="u2", role=Role.INVESTIGADOR)
-        },
+        "owner": {"Authorization": "Bearer " + service.create_access_token(user_id="u1")},
+        "other": {"Authorization": "Bearer " + service.create_access_token(user_id="u2")},
     }
     return TestClient(app), headers, app
 
@@ -391,7 +385,7 @@ def test_rejecting_a_suggestion(tmp_path: Path) -> None:
     (fix,) = _learned(client, owner, session_id)["suggestions"]
     url = f"/sessions/{session_id}/suggestions/{fix['id']}/reject"
 
-    assert client.post(url, headers=headers["researcher"]).status_code == 403
+    assert client.post(url, headers=headers["other"]).status_code == 404
     missing = client.post(f"/sessions/{session_id}/suggestions/999/reject", headers=owner)
     assert (missing.status_code, missing.json()) == (404, {"detail": "suggestion not found"})
     rejected = client.post(url, headers=owner)

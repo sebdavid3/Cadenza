@@ -6,12 +6,10 @@ from fractions import Fraction
 
 import pytest
 from cadenza.application import (
-    ExportedScore,
     ExportFormat,
     InMemoryEditEventRepository,
     InMemoryScoreExporter,
     InMemorySessionRepository,
-    Role,
     SessionData,
     SessionNotFound,
     UnsupportedExportFormat,
@@ -80,14 +78,12 @@ def _make_setup() -> tuple[
         id="user-owner",
         username="owner_user",
         password_hash="hash",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
     other = User(
         id="user-other",
         username="other_transcriptor",
         password_hash="hash",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
 
@@ -134,28 +130,6 @@ def test_export_score_transcriptor_access_denied_on_other_session() -> None:
             format="musicxml",
             current_user=other,
         )
-
-
-def test_export_score_investigator_can_export_any_session() -> None:
-    session_repo, edit_repo, exporter, _, _, sid = _make_setup()
-    investigator = User(
-        id="user-inv",
-        username="inv_user",
-        password_hash="hash",
-        role=Role.INVESTIGADOR,
-        active=True,
-    )
-    res = export_score(
-        session_repo,
-        edit_repo,
-        exporter,
-        session_id=sid,
-        format="musicxml",
-        current_user=investigator,
-    )
-    assert isinstance(res, ExportedScore)
-    assert res.media_type == "application/vnd.recordare.musicxml+xml"
-    assert res.filename == f"session-{sid}.musicxml"
 
 
 def test_export_score_unsupported_format_raises_exception() -> None:

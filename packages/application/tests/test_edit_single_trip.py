@@ -15,7 +15,6 @@ from cadenza.application import (
     InMemoryScoreStateCache,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     ScoreStateKey,
     SequenceConflict,
     SessionData,
@@ -102,7 +101,7 @@ def _setup() -> tuple[InMemorySessionRepository, _NoNextSeq, User]:
         ),
         findings=(),
     )
-    user = User(id="user-1", username="t1", password_hash="hash", role=Role.TRANSCRIPTOR)
+    user = User(id="user-1", username="t1", password_hash="hash")
     return sessions, edits, user
 
 

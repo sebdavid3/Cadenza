@@ -251,26 +251,6 @@ describe("vista de transcripción", () => {
     );
   });
 
-  it("un investigador ve el propietario de cada sesión", async () => {
-    const investigador: UserRead = { ...ANA, id: "inv-1", username: "irene", role: "investigador" };
-    mockApiWithInstantJobs({
-      "GET /sessions": () =>
-        jsonResponse([
-          session("aaaaaaaa-1", { owner_id: ANA.id }),
-          session("bbbbbbbb-2", { owner_id: "inv-1" }),
-        ]),
-      "GET /users": () => jsonResponse([ANA, investigador]),
-    });
-    renderPage(investigador);
-
-    const diary = await findDiary();
-    expect(screen.getByText(/^todas las sesiones/i)).toBeVisible();
-    const [deAna, propia] = plates(diary);
-    if (!deAna || !propia) throw new Error("faltan láminas");
-    expect(await within(deAna).findByText("ana")).toBeVisible();
-    expect(within(propia).getByText("Tú")).toBeVisible();
-  });
-
   it("muestra un error del listado con reintento", async () => {
     let fail = true;
     mockApiWithInstantJobs({

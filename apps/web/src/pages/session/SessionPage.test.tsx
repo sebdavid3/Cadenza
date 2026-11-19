@@ -286,12 +286,6 @@ vi.mock("./pdf", async (importOriginal) => {
 });
 
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
-const INVESTIGADORA: UserRead = {
-  ...ANA,
-  id: "0b7f6c1e-2222-4bbb-8ccc-000000000003",
-  username: "inv",
-  role: "investigador",
-};
 const ID = "3e951fef-8a58-489e-abc9-68cfc3cd405b";
 
 function measure(number: number, pitch = "C4") {
@@ -424,7 +418,6 @@ function api(
         : new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml" } }),
     [`GET /sessions/${ID}/image`]: png,
     [`GET /sessions/${ID}/timing`]: options.timing ?? (() => jsonResponse(timingMap())),
-    "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
   });
 }
 
@@ -884,14 +877,6 @@ describe("vista de una sesión", () => {
       "href",
       "/transcripcion",
     );
-  });
-
-  it("muestra al investigador de quién es una sesión ajena", async () => {
-    api({ detail: detail({ owner_id: LUIS.id }) });
-    renderPage(INVESTIGADORA);
-
-    const owner = await screen.findByText("luis");
-    expect(owner.closest("div")).toHaveTextContent("Propietario");
   });
 
   it("descarga el MusicXML que ya tiene, con un nombre determinista y sin pedirlo otra vez", async () => {
@@ -2761,7 +2746,6 @@ describe("corregir la nota elegida", () => {
               }),
       [`GET /sessions/${ID}/image`]: png,
       [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
-      "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
       [`POST /sessions/${ID}/edits`]: (init) => {
         const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as EditEventCreate;
         bodies.push(body);
@@ -3661,7 +3645,7 @@ describe("corregir la nota elegida", () => {
     const server = editableApi();
     renderPage();
     await chooseMeasure(2);
-    server.respond(() => jsonResponse({ detail: "Un investigador solo puede editar…" }, 403));
+    server.respond(() => jsonResponse({ detail: "Prohibido" }, 403));
 
     fireEvent.click(button("Subir un paso"));
 
@@ -3724,28 +3708,16 @@ describe("corregir la nota elegida", () => {
     expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
   });
 
-  it("un investigador ve en solo lectura una sesión ajena", async () => {
-    const server = editableApi(detail({ owner_id: LUIS.id }));
-    renderPage(INVESTIGADORA);
+  it("una sesión que no es de quien la ve es de solo lectura", async () => {
+    const server = editableApi(detail());
+    renderPage(LUIS);
     const region = await chooseMeasure(2);
 
     expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
-    expect(document.querySelector(".session__summary")).toHaveTextContent(
-      /solo lectura · de luis$/,
-    );
-    expect(screen.getByText(/es una sesión de otra persona/i)).toBeInTheDocument();
+    expect(document.querySelector(".session__summary")).toHaveTextContent(/solo lectura$/);
     fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
     fireEvent.keyDown(region, { key: "4" });
     expect(server.bodies).toHaveLength(0);
-  });
-
-  it("un investigador corrige sus propias sesiones", async () => {
-    editableApi(detail({ owner_id: INVESTIGADORA.id }));
-    renderPage(INVESTIGADORA);
-    await chooseMeasure(2);
-
-    expect(editor()).toBeVisible();
-    expect(screen.queryByText(/solo lectura/i)).toBeNull();
   });
 
   it("una sesión finalizada es de solo lectura", async () => {
@@ -4935,8 +4907,8 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura no se inserta ni se borra, tampoco con el teclado", async () => {
-      const server = editableApi(detail({ owner_id: LUIS.id }));
-      renderPage(INVESTIGADORA);
+      const server = editableApi(detail());
+      renderPage(LUIS);
       const region = await chooseMeasure(2);
 
       expect(screen.queryByRole("button", { name: "Borrar" })).toBeNull();
@@ -5535,7 +5507,7 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura se consulta la historia, pero no se deshace ni se rehace", async () => {
-      const done = apply(detail({ owner_id: LUIS.id }), {
+      const done = apply(detail(), {
         base_seq: 0,
         op: "SetPitch",
         anchor: anchorOf(2),
@@ -5543,7 +5515,7 @@ describe("corregir la nota elegida", () => {
         after: { pitch: "D4" },
       });
       const server = editableApi(done.next);
-      renderPage(INVESTIGADORA);
+      renderPage(LUIS);
       const region = await chooseMeasure(2);
 
       expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
@@ -6425,10 +6397,10 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura se ven los posibles errores, pero no se descartan, restauran ni revalidan", async () => {
-      editableApi(editedDetail({ owner_id: LUIS.id }), {
+      editableApi(editedDetail(), {
         findings: [finding(1, 2), dismissedFinding(2, 3, "Así está")],
       });
-      renderPage(INVESTIGADORA);
+      renderPage(LUIS);
       expect(
         await within(await screen.findByRole("region", { name: "Posibles errores" })).findByText(
           /después se editó y todavía no se ha vuelto a validar/i,
@@ -6868,8 +6840,8 @@ describe("corregir la nota elegida", () => {
 
     it("solo la persona que la transcribió puede finalizarla o reabrirla", async () => {
       lifecycleApi(detail({ status: "finalized" }));
-      renderPage(INVESTIGADORA);
-      await screen.findByText(/sesión de otra persona/i);
+      renderPage(LUIS);
+      await screen.findByText(/sesión finalizada: solo lectura\./i);
       expect(screen.queryByRole("button", { name: "Reabrir la sesión" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Finalizar la corrección" })).toBeNull();
     });
@@ -7278,7 +7250,7 @@ describe("corregir la nota elegida", () => {
 
     it("en solo lectura se ven las sugerencias, sin aplicar ni rechazar", async () => {
       suggestionApi(detail(), [learned(2, 2)]);
-      renderPage(INVESTIGADORA);
+      renderPage(LUIS);
       await waitFor(() => {
         expect(markCount()).toBe(1);
       });
@@ -7589,7 +7561,7 @@ describe("corregir la nota elegida", () => {
 
     it("no mide la sesión de otra persona", async () => {
       const server = effortApi();
-      renderPage(INVESTIGADORA);
+      renderPage(LUIS);
       expect(await screen.findByRole("heading", { level: 1 })).toBeVisible();
       await screen.findByRole("application", { name: /partitura transcrita/i });
       window.dispatchEvent(new Event("pagehide"));

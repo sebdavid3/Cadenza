@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import (
     Articulation,
     Event,
@@ -85,7 +85,6 @@ def _client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -98,7 +97,7 @@ def _client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
             artifacts_dir=tmp_path / "artifacts",
         ),
     )
-    token = app.state.token_service.create_access_token(user_id="user-t1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="user-t1")
     return TestClient(app), {"Authorization": f"Bearer {token}"}
 
 
