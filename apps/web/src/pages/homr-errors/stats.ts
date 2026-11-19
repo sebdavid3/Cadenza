@@ -12,9 +12,6 @@ import type {
   HomrErrorStatsValuesRead,
 } from "../../types";
 
-/** Cada cuánto se vuelven a pedir: el servicio las recalcula cada 5 minutos. */
-export const REFRESH_MS = 5 * 60 * 1000;
-
 /** Notas que necesita un grupo de contexto para salir en «Lo que dicen los datos». */
 export const MIN_HEADLINE = 200;
 
