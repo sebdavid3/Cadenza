@@ -852,6 +852,61 @@ def _page_of(session: Any) -> str | None:
     return None if not image else f"image:{image}"
 
 
+def shared_works(sessions: Iterable[Any]) -> dict[str, str]:
+    """La obra de cada sesión para partir sin fugas (`ml export-pairs`, #420): las sesiones que
+    comparten partitura de prueba o foto son la misma obra, también encadenadas (una página del
+    banco subida sin `test_score_id` va con su partitura de prueba, porque su foto es la misma).
+
+    La obra de un grupo es su partitura de prueba (la menor, si une varias) o, sin ninguna, su
+    foto (la menor): la de `_page_of` cuando la sesión no comparte nada. Las sesiones sin
+    partitura de prueba ni foto no salen.
+    """
+
+    parent: dict[str, str] = {}
+
+    def find(key: str) -> str:
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    keys_of: dict[str, list[str]] = {}
+    for session in sessions:
+        keys = []
+        if session.test_score_id:
+            keys.append(f"test_score:{session.test_score_id}")
+        image = session.image_artifact or (session.document.get("provenance") or {}).get(
+            "source_image_hash"
+        )
+        if image:
+            keys.append(f"image:{image}")
+        if not keys:
+            continue
+        keys_of[session.id] = keys
+        for key in keys:
+            parent.setdefault(key, key)
+        for key in keys[1:]:
+            parent[find(key)] = find(keys[0])
+    members: dict[str, list[str]] = {}
+    for key in parent:
+        members.setdefault(find(key), []).append(key)
+    names = {
+        root: min(keys, key=lambda k: (not k.startswith("test_score:"), k))
+        for root, keys in members.items()
+    }
+    return {session_id: names[find(keys[0])] for session_id, keys in keys_of.items()}
+
+
+def correction_verified(raw: ScoreIR, final: ScoreIR, *, document_id: str) -> bool:
+    """Si las ediciones derivadas de la lectura al estado final lo reproducen: la comprobación
+    de PrIMuS (#255), que deja fuera del entrenamiento lo que la alineación no explica."""
+    try:
+        derived = derive_edit_events(raw, final, document_id=document_id)
+        return is_structurally_equal(materialize(raw, derived), final)
+    except (ValueError, IndexError):
+        return False
+
+
 def session_records(
     *,
     session_repository: Any,
@@ -898,11 +953,7 @@ def session_records(
         raw = ScoreIR.from_primitive(session.document["score"])
         edits = edit_repository.list_events(session.id)
         final = materialize(raw, edits) if edits else raw
-        try:
-            derived = derive_edit_events(raw, final, document_id=session.document_id)
-            verified = is_structurally_equal(materialize(raw, derived), final)
-        except (ValueError, IndexError):
-            verified = False
+        verified = correction_verified(raw, final, document_id=session.document_id)
         incipit_id = f"cadenza:{session.id}"
         for record in build_correction_records(
             raw, final, incipit_id=incipit_id, split=split, verified=verified
