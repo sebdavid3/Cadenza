@@ -18,7 +18,7 @@ import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import type { FindingRead } from "../../types";
 import { instrumentsSummary, nonBlank, sessionName } from "../transcription/scoreData";
-import { listUsers, statusLabel } from "../transcription/sessions";
+import { statusLabel } from "../transcription/sessions";
 import { DownloadButton, MidiDownloadButton, PdfDownloadButton } from "./DownloadButton";
 import { DeskDivider } from "./DeskDivider";
 import { clampShare, SHARE_DEFAULT } from "./deskShare";
@@ -85,8 +85,7 @@ function SessionNotFound() {
       <main className="session__missing">
         <h1 className="session__title">Sesión no encontrada</h1>
         <p className="session__lead">
-          No existe o no tienes acceso a ella. Las sesiones de cada persona solo las ven ella y los
-          investigadores.
+          No existe o no tienes acceso a ella. Las sesiones de cada persona solo las ve ella.
         </p>
       </main>
     </div>
@@ -108,7 +107,6 @@ export function SessionPage() {
 function SessionView({ sessionId }: { sessionId: string }) {
   const shortId = sessionId.slice(0, 8);
   const user = useAuthStore((state) => state.user);
-  const isResearcher = user?.role === "investigador";
   const queryClient = useQueryClient();
 
   const detail = useQuery(sessionDetailQuery(api, sessionId));
@@ -144,18 +142,10 @@ function SessionView({ sessionId }: { sessionId: string }) {
   const knownValidated = useQuery(validatedSeqQuery(sessionId)).data ?? null;
 
   const ownerId = detail.data?.owner_id ?? null;
-  const foreign = isResearcher && ownerId !== null && ownerId !== user.id;
   const finalized = detail.data?.status === "finalized";
-  // Solo edita, finaliza y reabre quien la transcribió; a un investigador, una sesión ajena le
-  // responde 403 (ADR-0012).
+  // Solo edita, finaliza y reabre quien la transcribió (ADR-0012, ADR-0070).
   const owned = user !== null && ownerId === user.id;
   const editable = owned && !finalized;
-  const users = useQuery({
-    queryKey: ["users"],
-    queryFn: ({ signal }) => listUsers(api, signal),
-    enabled: foreign,
-    staleTime: 5 * 60_000,
-  });
 
   const score = detail.data?.current_score ?? null;
   const { active, dismissed } = useMemo(() => splitFindings(findings.data ?? []), [findings.data]);
@@ -464,8 +454,6 @@ function SessionView({ sessionId }: { sessionId: string }) {
     );
   }
 
-  const ownerName =
-    users.data?.find((candidate) => candidate.id === ownerId)?.username ?? ownerId?.slice(0, 8);
   const edits = detail.data?.edits.length ?? 0;
 
   // Solo de lectura, la cabecera dice por qué; corrigiendo, lo dicen la selección y la barra.
@@ -474,26 +462,23 @@ function SessionView({ sessionId }: { sessionId: string }) {
         assisted ? " Los compases en violeta son posibles errores que conviene revisar." : ""
       }`
     : `${
-        foreign
-          ? "Solo lectura: es una sesión de otra persona y solo ella puede corregirla."
-          : finalized
-            ? owned
-              ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
-              : "Sesión finalizada: solo lectura."
-            : "Solo lectura."
+        finalized
+          ? owned
+            ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
+            : "Sesión finalizada: solo lectura."
+          : "Solo lectura."
       } Compara la imagen original con la transcripción de HOMR${
         assisted
           ? "; los compases tramados en violeta son posibles errores que conviene revisar."
           : "."
       }`;
   // El resumen bajo el título (#363): el estado, las ediciones y, si no se puede corregir, que es
-  // de solo lectura y, para un investigador, de quién es. Lo demás, tras «?».
+  // de solo lectura. Lo demás, tras «?».
   const summary = detail.data
     ? [
         statusLabel(detail.data.status ?? ""),
         `${String(edits)} ${edits === 1 ? "edición" : "ediciones"}`,
         ...(editable ? [] : ["solo lectura"]),
-        ...(foreign && ownerName ? [`de ${ownerName}`] : []),
       ].join(" · ")
     : null;
   // El panel lateral plegado se queda en un raíl con su nombre; en la condición no asistida no
@@ -628,12 +613,6 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 <div>
                   <dt className="label">Archivo</dt>
                   <dd>{metadata.source_filename}</dd>
-                </div>
-              )}
-              {foreign && (
-                <div>
-                  <dt className="label">Propietario</dt>
-                  <dd>{ownerName}</dd>
                 </div>
               )}
             </dl>

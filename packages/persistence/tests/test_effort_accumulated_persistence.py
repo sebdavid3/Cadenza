@@ -55,7 +55,7 @@ def db() -> Iterator[DbSession]:
     create_schema(engine)
     factory = create_session_factory(engine)
     with factory() as session:
-        session.add(UserRecord(id="u1", username="u1", password_hash="h", role="transcriptor"))
+        session.add(UserRecord(id="u1", username="u1", password_hash="h"))
         session.add(
             Session(id="s1", owner_id="u1", document_id="d1", omr_engine="fake", document={})
         )

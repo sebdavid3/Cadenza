@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -31,10 +31,9 @@ def api_setup(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
         user_repo = SqlAlchemyUserRepository(db)
         user_repo.add(
             User(
-                id="usr-inv",
-                username="investigador",
-                password_hash="hash_inv",
-                role=Role.INVESTIGADOR,
+                id="usr-t1",
+                username="transcriptor",
+                password_hash="hash_t1",
                 active=True,
             )
         )
@@ -52,8 +51,7 @@ def api_setup(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
 
     client = TestClient(app)
     token = app.state.token_service.create_access_token(
-        user_id="usr-inv",
-        role=Role.INVESTIGADOR,
+        user_id="usr-t1",
     )
     return client, {"Authorization": f"Bearer {token}"}
 
@@ -109,7 +107,6 @@ def test_get_session_timing_forbidden_for_other_transcriptor(tmp_path: Path) -> 
                 id="usr-tra-a",
                 username="transcriptor_a",
                 password_hash="hash_a",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -118,7 +115,6 @@ def test_get_session_timing_forbidden_for_other_transcriptor(tmp_path: Path) -> 
                 id="usr-tra-b",
                 username="transcriptor_b",
                 password_hash="hash_b",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -135,12 +131,8 @@ def test_get_session_timing_forbidden_for_other_transcriptor(tmp_path: Path) -> 
     )
     client = TestClient(app)
 
-    token_a = app.state.token_service.create_access_token(
-        user_id="usr-tra-a", role=Role.TRANSCRIPTOR
-    )
-    token_b = app.state.token_service.create_access_token(
-        user_id="usr-tra-b", role=Role.TRANSCRIPTOR
-    )
+    token_a = app.state.token_service.create_access_token(user_id="usr-tra-a")
+    token_b = app.state.token_service.create_access_token(user_id="usr-tra-b")
     headers_a = {"Authorization": f"Bearer {token_a}"}
     headers_b = {"Authorization": f"Bearer {token_b}"}
 

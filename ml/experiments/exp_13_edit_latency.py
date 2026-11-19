@@ -55,7 +55,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.application import append_edit as append_edit_use_case
 from cadenza.domain import (
     Anchor,
@@ -257,7 +257,6 @@ class EditLatencyBench:
             id=f"exp13-{secrets.token_hex(4)}",
             username=f"exp13-{secrets.token_hex(4)}",
             password_hash="no-se-usa",
-            role=Role.TRANSCRIPTOR,
             active=True,
         )
         with self._factory() as db:
@@ -272,9 +271,7 @@ class EditLatencyBench:
                 artifacts_dir=work_dir / "artifacts",
             ),
         )
-        token = app.state.token_service.create_access_token(
-            user_id=self._user.id, role=Role.TRANSCRIPTOR
-        )
+        token = app.state.token_service.create_access_token(user_id=self._user.id)
         self.client = TestClient(app)
         self.headers = {"Authorization": f"Bearer {token}"}
 

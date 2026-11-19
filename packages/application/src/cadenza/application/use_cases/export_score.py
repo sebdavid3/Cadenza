@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..access import require_owner
 from ..exceptions import SessionNotFound, UnsupportedExportFormat
 from ..export import ExportedScore, ExportFormat
 from ..ports.edit_event_repository import EditEventRepository
@@ -10,7 +11,7 @@ from ..ports.score_state_cache import ScoreStateCache
 from ..ports.session_repository import SessionRepository
 from ..score_state import load_state, musicxml_of
 from ..stage_timing import timed_stage
-from ..user import Role, User
+from ..user import User
 
 
 def export_score(
@@ -25,8 +26,8 @@ def export_score(
 ) -> ExportedScore:
     """Exporta el ScoreIR materializado de una sesión en el formato solicitado.
 
-    - Control de acceso ADR-0012: transcriptor ajeno recibe SessionNotFound;
-      investigador o dueño pueden exportar.
+    - Control de acceso (ADR-0012, ADR-0070): solo exporta el dueño; una sesión ajena
+      lanza SessionNotFound.
     - Se materializa el estado actual: ``materialize(raw_score, edits)``.
     - Formatos admitidos: 'musicxml' y 'midi'. Cualquier otro lanza UnsupportedExportFormat.
     - Con `score_cache`, el estado y su MusicXML salen de la caché si están: cada estado se
@@ -45,8 +46,7 @@ def export_score(
         raise SessionNotFound(session_id)
 
     # Control de acceso ADR-0012: transcriptor solo puede ver su propia sesión
-    if current_user.role == Role.TRANSCRIPTOR and session.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session.owner_id, current_user, session_id)
 
     with timed_stage("db"):
         edits = edit_repo.list_events(session_id)

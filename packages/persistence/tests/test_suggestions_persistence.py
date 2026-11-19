@@ -71,7 +71,7 @@ def _suggestion(index: int, duration: str = "2") -> NewSuggestion:
 
 
 def _session(db: DbSession) -> SqlAlchemySessionRepository:
-    db.add(UserRecord(id="u1", username="ana", password_hash="h", role="transcriptor"))
+    db.add(UserRecord(id="u1", username="ana", password_hash="h"))
     db.flush()
     repo = SqlAlchemySessionRepository(db)
     repo.add(
@@ -309,7 +309,7 @@ def test_an_edit_is_not_kept_when_its_suggestion_was_answered_meanwhile(
     deshace (ADR-0036 §5)."""
     from dataclasses import replace
 
-    from cadenza.application import Role, StaleSuggestion, User, append_edit
+    from cadenza.application import StaleSuggestion, User, append_edit
     from cadenza.domain import Event as ScoreEvent
     from cadenza.domain import EventKind as Kind
     from cadenza.domain import (
@@ -338,7 +338,7 @@ def test_an_edit_is_not_kept_when_its_suggestion_was_answered_meanwhile(
         id="d", score=score, anchors=build_anchor_index(score), provenance=Provenance("fake")
     )
     with session_scope(factory) as db:
-        db.add(UserRecord(id="u1", username="ana", password_hash="h", role="transcriptor"))
+        db.add(UserRecord(id="u1", username="ana", password_hash="h"))
         db.flush()
         SqlAlchemySessionRepository(db).add(
             SessionData(
@@ -357,7 +357,7 @@ def test_an_edit_is_not_kept_when_its_suggestion_was_answered_meanwhile(
         SqlAlchemySessionRepository(db).respond_suggestion(
             "s1", suggestion_id, response="rejected", user="otra"
         )
-    owner = User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
+    owner = User(id="u1", username="ana", password_hash="h")
     with pytest.raises(StaleSuggestion), session_scope(factory) as db:
         append_edit(
             "s1",

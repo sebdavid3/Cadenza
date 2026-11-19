@@ -8,7 +8,7 @@ import threading
 import pytest
 from cadenza.api import Argon2PasswordHasher, Settings, create_app
 from cadenza.api.security import LoginRateLimiter
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,
@@ -32,7 +32,6 @@ def _app(max_attempts: int = 2, *, password: str | None = None) -> FastAPI:
                     id="usr-alice",
                     username="alice",
                     password_hash=Argon2PasswordHasher().hash(password),
-                    role=Role.TRANSCRIPTOR,
                     active=True,
                 )
             )

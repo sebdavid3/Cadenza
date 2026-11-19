@@ -23,7 +23,6 @@ def test_effort_repository_add_and_query() -> None:
             id="u1",
             username="user1",
             password_hash="hash",
-            role="transcriptor",
         )
         db.add(user)
         session = Session(

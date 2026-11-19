@@ -6,11 +6,9 @@ from fractions import Fraction
 
 import pytest
 from cadenza.application import (
-    Forbidden,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     NoEditsToUndo,
-    Role,
     SequenceConflict,
     SessionClosed,
     SessionData,
@@ -77,9 +75,8 @@ def _setup_session(
 def _user(
     id: str = "user-1",
     username: str = "transcriptor1",
-    role: Role = Role.TRANSCRIPTOR,
 ) -> User:
-    return User(id=id, username=username, password_hash="hash", role=role)
+    return User(id=id, username=username, password_hash="hash")
 
 
 def test_undo_success_restores_score_and_records_compensatory_event() -> None:
@@ -255,7 +252,7 @@ def test_undo_with_base_seq_validation() -> None:
 def test_undo_authorization_rules_adr0012() -> None:
     session_repo, edit_repo, _ = _setup_session(owner_id="owner-user")
     anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="staff-1")
-    owner = _user(id="owner-user", username="owner", role=Role.TRANSCRIPTOR)
+    owner = _user(id="owner-user", username="owner")
 
     append_edit(
         "sess-1",
@@ -269,22 +266,13 @@ def test_undo_authorization_rules_adr0012() -> None:
         current_user=owner,
     )
 
-    other_transcriptor = _user(id="other-user", username="other", role=Role.TRANSCRIPTOR)
+    other_transcriptor = _user(id="other-user", username="other")
     with pytest.raises(SessionNotFound):
         undo_edit(
             "sess-1",
             session_repository=session_repo,
             edit_repository=edit_repo,
             current_user=other_transcriptor,
-        )
-
-    other_investigator = _user(id="investigator-user", username="inv", role=Role.INVESTIGADOR)
-    with pytest.raises(Forbidden):
-        undo_edit(
-            "sess-1",
-            session_repository=session_repo,
-            edit_repository=edit_repo,
-            current_user=other_investigator,
         )
 
     # Sesión inexistente

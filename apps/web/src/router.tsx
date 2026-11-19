@@ -3,7 +3,6 @@ import { AppRoot } from "./AppRoot";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/AppLayout";
 import { AccountPage } from "./pages/account/AccountPage";
-import { AccountsPage } from "./pages/accounts/AccountsPage";
 import { DataUsePage } from "./pages/consent/DataUsePage";
 import { LandingPage } from "./pages/landing/LandingPage";
 import { LoginPage } from "./pages/login/LoginPage";
@@ -30,7 +29,6 @@ export const routes: RouteObject[] = [
         children: [
           { path: "/transcripcion", element: <TranscriptionPage /> },
           { path: "/sesiones/:sessionId", element: <SessionPage /> },
-          { path: "/cuentas", element: <AccountsPage /> },
           { path: "/cuenta", element: <AccountPage /> },
         ],
       },

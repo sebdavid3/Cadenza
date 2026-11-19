@@ -4,10 +4,8 @@ from datetime import UTC, datetime
 
 import pytest
 from cadenza.application import (
-    Forbidden,
     InMemoryEffortRepository,
     InMemorySessionRepository,
-    Role,
     SessionData,
     SessionNotFound,
     User,
@@ -47,7 +45,6 @@ def owner_user() -> User:
         id="user1",
         username="transcriptor1",
         password_hash="hash1",
-        role=Role.TRANSCRIPTOR,
     )
 
 
@@ -57,17 +54,6 @@ def other_transcriptor() -> User:
         id="user2",
         username="transcriptor2",
         password_hash="hash2",
-        role=Role.TRANSCRIPTOR,
-    )
-
-
-@pytest.fixture
-def investigator() -> User:
-    return User(
-        id="inv1",
-        username="investigador1",
-        password_hash="hash3",
-        role=Role.INVESTIGADOR,
     )
 
 
@@ -127,48 +113,6 @@ def test_record_effort_transcriptor_other_session_returns_not_found(
             duration_ms=1000,
             current_user=other_transcriptor,
         )
-
-
-def test_record_effort_investigator_other_session_returns_forbidden(
-    session_repo: InMemorySessionRepository,
-    effort_repo: InMemoryEffortRepository,
-    investigator: User,
-) -> None:
-    with pytest.raises(Forbidden) as exc_info:
-        record_effort(
-            session_repo,
-            effort_repo,
-            session_id="session-user1",
-            duration_ms=1000,
-            current_user=investigator,
-        )
-    assert "investigador" in str(exc_info.value).lower()
-
-
-def test_record_effort_investigator_own_session_allowed(
-    session_repo: InMemorySessionRepository,
-    effort_repo: InMemoryEffortRepository,
-    investigator: User,
-) -> None:
-    session_repo.add(
-        SessionData(
-            id="session-inv",
-            document_id="doc-2",
-            omr_engine="fake",
-            document={"score": {"parts": []}},
-            owner_id="inv1",
-        ),
-        findings=(),
-    )
-    result = record_effort(
-        session_repo,
-        effort_repo,
-        session_id="session-inv",
-        duration_ms=15000,
-        current_user=investigator,
-    )
-    assert result.session_id == "session-inv"
-    assert result.duration_ms == 15000
 
 
 def test_record_effort_negative_duration_raises_value_error(
@@ -268,12 +212,11 @@ def test_compute_interventions_and_contrast() -> None:
     assert diff_map["3"].difference == 1
 
 
-def test_get_effort_owner_and_investigator(
+def test_get_effort_only_owner(
     session_repo: InMemorySessionRepository,
     effort_repo: InMemoryEffortRepository,
     owner_user: User,
     other_transcriptor: User,
-    investigator: User,
 ) -> None:
     # 1. Registrar una medición
     record_effort(
@@ -294,17 +237,7 @@ def test_get_effort_owner_and_investigator(
     assert len(res_owner) == 1
     assert res_owner[0].duration_ms == 30000
 
-    # 3. Investigador consulta sesión ajena -> permitido (ADR-0012)
-    res_inv = get_effort(
-        session_repo,
-        effort_repo,
-        session_id="session-user1",
-        current_user=investigator,
-    )
-    assert len(res_inv) == 1
-    assert res_inv[0].duration_ms == 30000
-
-    # 4. Transcriptor ajeno consulta -> SessionNotFound (ADR-0012)
+    # 3. Cuenta ajena consulta -> SessionNotFound (ADR-0012)
     with pytest.raises(SessionNotFound):
         get_effort(
             session_repo,

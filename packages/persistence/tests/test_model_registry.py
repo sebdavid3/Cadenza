@@ -10,7 +10,6 @@ from cadenza.application import (
     ModelVersionData,
     PromotionRejected,
     PromotionThreshold,
-    Role,
     User,
     transcribe_score,
 )
@@ -220,7 +219,6 @@ def test_transcribe_score_uses_active_model_version(
         id="user-1",
         username="transcriptor",
         password_hash="fake-hash",
-        role=Role.TRANSCRIPTOR,
     )
     validator = ValidationEngine([])
 

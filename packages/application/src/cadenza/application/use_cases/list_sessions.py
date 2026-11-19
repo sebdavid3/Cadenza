@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..ports.session_repository import SessionRepository, SessionSummary
-from ..user import Role, User
+from ..user import User
 
 
 def list_sessions(
@@ -18,8 +18,7 @@ def list_sessions(
 ) -> tuple[SessionSummary, ...]:
     """Lista las sesiones accesibles para el usuario con paginación y filtros.
 
-    - Un transcriptor solo ve sus propias sesiones (`owner_id = current_user.id`).
-    - Un investigador ve las sesiones de todos los transcriptores (`owner_id = None`).
+    - Cada cuenta ve solo sus propias sesiones (`owner_id = current_user.id`).
     - Orden descendente por fecha de creación, sin cargar los documentos completos.
     """
 
@@ -28,12 +27,8 @@ def list_sessions(
     if offset < 0:
         offset = 0
 
-    owner_id: str | None = None
-    if current_user.role == Role.TRANSCRIPTOR:
-        owner_id = current_user.id
-
     return session_repository.list_summaries(
-        owner_id=owner_id,
+        owner_id=current_user.id,
         status=status,
         condition=condition,
         test_score_id=test_score_id,

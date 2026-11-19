@@ -18,7 +18,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InMemoryUserRepository,
-    Role,
     SessionData,
     User,
 )
@@ -39,12 +38,11 @@ CONSENT_AT = datetime(2026, 11, 9, 18, 30, tzinfo=UTC)
 
 def _users(*, consent: bool) -> list[User]:
     users = [
-        User(id="ana", username="ana", password_hash=secrets.token_hex(8), role=Role.TRANSCRIPTOR),
+        User(id="ana", username="ana", password_hash=secrets.token_hex(8)),
         User(
             id="visita",
             username="visita",
             password_hash=secrets.token_hex(8),
-            role=Role.TRANSCRIPTOR,
             self_registered=True,
         ),
     ]

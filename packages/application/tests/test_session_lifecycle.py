@@ -8,11 +8,9 @@ from pathlib import Path
 
 import pytest
 from cadenza.application import (
-    Forbidden,
     InMemoryArtifactStore,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
-    Role,
     SessionClosed,
     SessionNotFound,
     SessionStatus,
@@ -75,29 +73,20 @@ class DummyOMREngine(OMREngine):
 
 
 @pytest.fixture
-def users() -> tuple[User, User, User]:
+def users() -> tuple[User, User]:
     owner = User(
         id="user-owner",
         username="owner",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
     other = User(
         id="user-other",
         username="other",
         password_hash="h",
-        role=Role.TRANSCRIPTOR,
         active=True,
     )
-    researcher = User(
-        id="user-researcher",
-        username="investigador",
-        password_hash="h",
-        role=Role.INVESTIGADOR,
-        active=True,
-    )
-    return owner, other, researcher
+    return owner, other
 
 
 @pytest.fixture
@@ -130,9 +119,9 @@ def _create_session(
 
 
 def test_initial_session_status_is_transcribed(
-    users: tuple[User, User, User], validator: ValidationEngine
+    users: tuple[User, User], validator: ValidationEngine
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     store = InMemoryArtifactStore()
 
@@ -143,10 +132,10 @@ def test_initial_session_status_is_transcribed(
 
 
 def test_first_edit_transitions_status_to_correcting(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -178,10 +167,10 @@ def test_first_edit_transitions_status_to_correcting(
 
 
 def test_finalize_revalidates_and_marks_session_finalized(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -225,10 +214,10 @@ def test_finalize_revalidates_and_marks_session_finalized(
 
 
 def test_append_edit_on_finalized_session_raises_session_closed(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -262,10 +251,10 @@ def test_append_edit_on_finalized_session_raises_session_closed(
 
 
 def test_reopen_session_allows_further_edits(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -318,10 +307,10 @@ def test_reopen_session_allows_further_edits(
 
 
 def test_permissions_on_finalize_and_reopen(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, other, researcher = users
+    owner, other = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -345,23 +334,6 @@ def test_permissions_on_finalize_and_reopen(
             current_user=other,
         )
 
-    # Investigador sobre sesión ajena -> Forbidden (403)
-    with pytest.raises(Forbidden):
-        finalize_session(
-            session_id,
-            validator=validator,
-            session_repository=session_repo,
-            edit_repository=edit_repo,
-            current_user=researcher,
-        )
-    with pytest.raises(Forbidden):
-        reopen_session(
-            session_id,
-            session_repository=session_repo,
-            edit_repository=edit_repo,
-            current_user=researcher,
-        )
-
     # Sesión inexistente -> SessionNotFound
     with pytest.raises(SessionNotFound):
         finalize_session(
@@ -381,10 +353,10 @@ def test_permissions_on_finalize_and_reopen(
 
 
 def test_session_repository_filter_by_status(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     store = InMemoryArtifactStore()
     edit_repo = InMemoryEditEventRepository()

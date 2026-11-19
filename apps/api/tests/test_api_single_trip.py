@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import InMemoryScoreStateCache, Role, User
+from cadenza.application import InMemoryScoreStateCache, User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -60,7 +60,6 @@ class Api:
                     id="user-t1",
                     username="t1",
                     password_hash="hash",
-                    role=Role.TRANSCRIPTOR,
                     active=True,
                 )
             )
@@ -74,9 +73,7 @@ class Api:
             ),
             score_cache=cache,
         )
-        token = app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        )
+        token = app.state.token_service.create_access_token(user_id="user-t1")
         self.app = app
         self.client = TestClient(app)
         self.headers = {"Authorization": f"Bearer {token}"}

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import InMemoryScoreStateCache, Role, User
+from cadenza.application import InMemoryScoreStateCache, User
 from cadenza.domain import ScoreDocument, ScoreIR, build_anchor_index
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
@@ -60,17 +60,11 @@ class Api:
         engine = create_memory_engine()
         create_schema(engine)
         factory = create_session_factory(engine)
-        users = {
-            "owner": Role.TRANSCRIPTOR,
-            "other": Role.TRANSCRIPTOR,
-            "researcher": Role.INVESTIGADOR,
-        }
+        users = ("owner", "other")
         with factory() as db:
             repo = SqlAlchemyUserRepository(db)
-            for user_id, role in users.items():
-                repo.add(
-                    User(id=user_id, username=user_id, password_hash="h", role=role, active=True)
-                )
+            for user_id in users:
+                repo.add(User(id=user_id, username=user_id, password_hash="h", active=True))
             db.commit()
         self.cache = InMemoryScoreStateCache()
         app = create_app(
@@ -86,9 +80,9 @@ class Api:
         self.headers = {
             user_id: {
                 "Authorization": "Bearer "
-                + app.state.token_service.create_access_token(user_id=user_id, role=role)
+                + app.state.token_service.create_access_token(user_id=user_id)
             }
-            for user_id, role in users.items()
+            for user_id in users
         }
 
     def transcribe(self, data: dict[str, Any] | None = None, filename: str = "score.png") -> Any:
@@ -306,11 +300,10 @@ def test_finalized_session_can_be_renamed(api: Api) -> None:
     assert api.get(f"/sessions/{session_id}").json()["status"] == "finalized"
 
 
-@pytest.mark.parametrize(("user", "status"), [("other", 404), ("researcher", 403)])
-def test_only_the_owner_can_change_it(api: Api, user: str, status: int) -> None:
+def test_only_the_owner_can_change_it(api: Api) -> None:
     session_id = api.session(MONDNACHT)
 
-    assert api.patch(session_id, {"title": "Otro"}, user=user).status_code == status
+    assert api.patch(session_id, {"title": "Otro"}, user="other").status_code == 404
     assert api.get(f"/sessions/{session_id}").json()["title"] == "Mondnacht"
 
 

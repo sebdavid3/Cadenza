@@ -11,7 +11,6 @@ from cadenza.application import (
     InMemoryArtifactStore,
     InMemoryEditEventRepository,
     InMemorySessionRepository,
-    Role,
     SessionNotFound,
     User,
     append_edit,
@@ -73,17 +72,10 @@ class UnbalancedOMREngine(OMREngine):
 
 
 @pytest.fixture
-def users() -> tuple[User, User, User]:
-    owner = User(
-        id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR, active=True
-    )
-    other = User(
-        id="u2", username="transcriptor2", password_hash="h", role=Role.TRANSCRIPTOR, active=True
-    )
-    researcher = User(
-        id="u3", username="investigador1", password_hash="h", role=Role.INVESTIGADOR, active=True
-    )
-    return owner, other, researcher
+def users() -> tuple[User, User]:
+    owner = User(id="u1", username="transcriptor1", password_hash="h", active=True)
+    other = User(id="u2", username="transcriptor2", password_hash="h", active=True)
+    return owner, other
 
 
 @pytest.fixture
@@ -117,10 +109,10 @@ def _transcribe_initial(
 
 
 def test_revalidate_resolves_error_and_preserves_history(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -200,10 +192,10 @@ def test_revalidate_resolves_error_and_preserves_history(
 
 
 def test_revalidate_detects_new_error_introduced_by_edit(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -259,10 +251,10 @@ def test_revalidate_detects_new_error_introduced_by_edit(
 
 
 def test_revalidate_permissions(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, other, researcher = users
+    owner, other = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()
@@ -275,7 +267,7 @@ def test_revalidate_permissions(
         store,
     )
 
-    # Otro transcriptor no puede revalidar (SessionNotFound según ADR-0012)
+    # Otra cuenta no puede revalidar (SessionNotFound según ADR-0012, ADR-0070)
     with pytest.raises(SessionNotFound):
         revalidate(
             session_id,
@@ -285,13 +277,13 @@ def test_revalidate_permissions(
             current_user=other,
         )
 
-    # Un investigador sí puede revalidar
+    # El dueño sí puede revalidar
     res = revalidate(
         session_id,
         validator=validator,
         session_repository=session_repo,
         edit_repository=edit_repo,
-        current_user=researcher,
+        current_user=owner,
     )
     assert res.session_id == session_id
 
@@ -307,10 +299,10 @@ def test_revalidate_permissions(
 
 
 def test_revalidate_is_idempotent_on_same_seq(
-    users: tuple[User, User, User],
+    users: tuple[User, User],
     validator: ValidationEngine,
 ) -> None:
-    owner, _, _ = users
+    owner, _ = users
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditEventRepository()
     store = InMemoryArtifactStore()

@@ -10,7 +10,6 @@ from cadenza.application import (
     InMemoryArtifactStore,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     SequenceConflict,
     User,
     append_edit,
@@ -56,9 +55,7 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
 
 @pytest.fixture
 def test_setup() -> tuple[str, User, InMemorySessionRepository, InMemoryEditRepo]:
-    owner = User(
-        id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR, active=True
-    )
+    owner = User(id="u1", username="transcriptor1", password_hash="h", active=True)
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditRepo()
     store = InMemoryArtifactStore()

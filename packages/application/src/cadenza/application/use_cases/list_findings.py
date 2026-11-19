@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from ..access import require_owner
 from ..exceptions import SessionNotFound
 from ..ports.session_repository import PersistedFinding, SessionRepository
-from ..user import Role, User
+from ..user import User
 
 
 def list_findings(
@@ -22,8 +23,7 @@ def list_findings(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session_data.owner_id, current_user, session_id)
 
     return session_repository.list_findings(
         session_id,

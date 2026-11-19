@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import OMRTranscriptionError
 from cadenza.omr.testing import FakeOMREngine
@@ -55,9 +55,7 @@ def _client(tmp_path: Path, engine: FakeOMREngine) -> TestClient:
     create_schema(db_engine)
     session_factory = create_session_factory(db_engine)
     with session_factory() as db:
-        SqlAlchemyUserRepository(db).add(
-            User(id="u1", username="transcriptor1", password_hash="x", role=Role.TRANSCRIPTOR)
-        )
+        SqlAlchemyUserRepository(db).add(User(id="u1", username="transcriptor1", password_hash="x"))
         db.commit()
     app = create_app(
         session_factory,
@@ -67,7 +65,7 @@ def _client(tmp_path: Path, engine: FakeOMREngine) -> TestClient:
             artifacts_dir=tmp_path / "artifacts",
         ),
     )
-    token = app.state.token_service.create_access_token(user_id="u1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="u1")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {token}"
     return client

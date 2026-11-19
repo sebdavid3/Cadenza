@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from fractions import Fraction
 
 import pytest
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.application.ports import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
@@ -307,7 +307,6 @@ def _user(user_id: str, *, self_registered: bool) -> User:
         id=user_id,
         username=user_id,
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=self_registered,
     )
 

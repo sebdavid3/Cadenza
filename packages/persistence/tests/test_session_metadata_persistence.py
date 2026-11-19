@@ -53,7 +53,7 @@ def _repo(
     metadata: ScoreMetadata | None = None,
     source_filename: str | None = None,
 ) -> SqlAlchemySessionRepository:
-    db.add(UserRecord(id="u1", username="ana", password_hash="h", role="transcriptor"))
+    db.add(UserRecord(id="u1", username="ana", password_hash="h"))
     db.flush()
     repo = SqlAlchemySessionRepository(db)
     repo.add(

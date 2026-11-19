@@ -11,7 +11,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument, build_anchor_index
 from cadenza.omr import OMREngine
 from cadenza.omr.testing import FakeOMREngine
@@ -72,7 +72,6 @@ def _setup_api(
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -81,16 +80,6 @@ def _setup_api(
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -107,15 +96,8 @@ def _setup_api(
     )
 
     tokens = {
-        "t1": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "t2": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "inv": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "t1": app.state.token_service.create_access_token(user_id="user-t1"),
+        "t2": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     return TestClient(app), tokens, session_factory
@@ -134,11 +116,10 @@ def test_list_sessions_unauthenticated_returns_401(tmp_path: Path) -> None:
     assert res.status_code == 401
 
 
-def test_list_sessions_role_visibility_and_fields(tmp_path: Path) -> None:
+def test_list_sessions_only_own_sessions_and_fields(tmp_path: Path) -> None:
     client, tokens, _ = _setup_api(tmp_path)
     h_t1 = {"Authorization": f"Bearer {tokens['t1']}"}
     h_t2 = {"Authorization": f"Bearer {tokens['t2']}"}
-    h_inv = {"Authorization": f"Bearer {tokens['inv']}"}
 
     # Transcriptor 1 crea 2 sesiones
     files = {"file": ("score1.png", PNG_BYTES, "image/png")}
@@ -180,13 +161,6 @@ def test_list_sessions_role_visibility_and_fields(tmp_path: Path) -> None:
     items_t2 = res_list_t2.json()
     assert len(items_t2) == 1
     assert items_t2[0]["session_id"] == s3_id
-
-    # Investigador ve las 3 sesiones
-    res_list_inv = client.get("/sessions", headers=h_inv)
-    assert res_list_inv.status_code == 200
-    items_inv = res_list_inv.json()
-    assert len(items_inv) == 3
-    assert {item["session_id"] for item in items_inv} == {s1_id, s2_id, s3_id}
 
 
 def test_list_sessions_pagination_and_ordering(tmp_path: Path) -> None:

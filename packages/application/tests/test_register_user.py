@@ -9,7 +9,6 @@ from cadenza.application import (
     DuplicateUsername,
     InMemoryPasswordHasher,
     InMemoryUserRepository,
-    Role,
     WeakPassword,
     authenticate,
     register_user,
@@ -29,7 +28,6 @@ def test_register_user_creates_an_active_self_registered_transcriptor() -> None:
     )
 
     assert user.id == "u-1"
-    assert user.role is Role.TRANSCRIPTOR
     assert user.active is True
     assert user.self_registered is True
     assert user.password_hash != PASSWORD
