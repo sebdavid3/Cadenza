@@ -61,3 +61,17 @@
 **El problema.** `ml export-tables` ([#400](https://github.com/sebdavid3/Cadenza/issues/400)) y `ml suggestions build-dataset` comparten `session_records`, que con `--include-self-registered` metía todas las cuentas del registro, tuvieran o no el permiso. `ml export-staves` (ADR-0067) ya exigía el permiso vigente por decisión del responsable del 2026-11-11, así que las dos exportaciones no daban las mismas sesiones.
 
 **Decisión.** §7 deja de valer para esos dos comandos. Por defecto las cuentas del registro siguen fuera; con `--include-self-registered` entran solo las que tienen el permiso de la versión vigente del texto (`has_current_data_consent`), y las demás quedan fuera con el motivo «cuenta del registro sin el permiso de uso de los datos vigente». La columna `permiso_datos` de `partituras.csv` dice si el permiso es vigente, no solo si se dio alguna vez. `ml build-dataset` (D55) y `exp_10` no cambian.
+
+## Enmienda de #430 (2026-11-19): el permiso se pide al entrar
+
+**El problema.** #427 cambió el texto y subió la versión a 2026-11-19, así que los permisos dados para la 2026-11-09 dejaron de estar vigentes (§2). Solo «Tu cuenta» lo decía, y casi nadie la abre: sin volver a darlo, los datos de esas cuentas quedan fuera de las exportaciones, del entrenamiento y de las cifras de la Fase 12 (#422, #423).
+
+**Decisión** (del responsable, 2026-11-19). §5 se amplía. A una cuenta del registro que dio el permiso para un texto anterior, la zona privada le pide volver a darlo nada más entrar, en una banda bajo la cabecera (`ConsentPrompt`). La banda dice que el texto cambió, enseña el mismo aviso breve que el registro y «Tu cuenta», y enlaza al texto completo. Ofrece «Doy mi permiso», que envía `PUT /auth/data-consent` con la versión vigente como el interruptor, y «Ahora no».
+
+- «Ahora no» vale para esa entrada, también al recargar, porque se guarda en `sessionStorage` con la cuenta, la versión y el vencimiento de la sesión. En la siguiente entrada se vuelve a pedir.
+- Nada obliga a darlo: sin él, Cadenza se usa igual, como promete el texto.
+- No sale en la vista de una sesión, que necesita todo su alto (#363), ni en «Tu cuenta», que tiene su interruptor. Tampoco sale a quien lo tiene vigente ni a las cuentas que no son del registro.
+- A quien lo retiró no se le insiste. Retirarlo borra la versión (§5), así que no queda un permiso anterior que renovar, y puede volver a darlo en «Tu cuenta». Lo señaló la revisión independiente: desde #378 la casilla del registro es obligatoria, así que una cuenta del registro sin versión es casi siempre una que lo retiró.
+- Accesibilidad: el agradecimiento va en una región viva que existe desde el principio, y el foco pasa a «Cerrar». Al cerrar o con «Ahora no», el foco vuelve al `h1` de la página. El rótulo de la banda no es un encabezado, porque va antes del `h1`.
+
+No cambian el texto, la versión, la API ni el contrato.
