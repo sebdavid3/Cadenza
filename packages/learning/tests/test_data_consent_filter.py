@@ -112,6 +112,21 @@ def test_the_option_leaves_out_every_registered_account() -> None:
     assert (tally.without_current_consent, tally.excluded_by_option) == (2, 1)
 
 
+def test_a_deactivated_account_with_the_current_consent_still_enters() -> None:
+    # Desactivar corta el acceso, no retira el permiso (decisión del responsable del 2026-11-19).
+    deactivated = replace(_user("desactivada", consent=DATA_CONSENT_VERSION), active=False)
+    tally = ConsentTally()
+    entering, left_out = filter_by_consent(
+        [_session("s-desactivada", "desactivada", None)],
+        InMemoryUserRepository([deactivated]),
+        exclude_self_registered=False,
+        tally=tally,
+    )
+    assert [s.id for s in entering] == ["s-desactivada"]
+    assert left_out == {}
+    assert (tally.without_current_consent, tally.excluded_by_option) == (0, 0)
+
+
 def test_the_tally_is_optional_and_adds_up() -> None:
     users = InMemoryUserRepository(USERS)
     entering, _ = filter_by_consent(_sessions(), users, exclude_self_registered=False)
