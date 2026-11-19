@@ -85,10 +85,10 @@ Todas las tablas empiezan por estas columnas:
 
 | Columna | Significado | Valores |
 |---|---|---|
-| `source` | De dónde sale la fila. | `cadenza` (una sesión de la plataforma) o `primus` (un incipit del corpus de `exp_12`). Un registro del corpus sin `source` es de PrIMuS. |
+| `source` | De dónde sale la fila. | `cadenza` (una sesión de la plataforma), `primus` (un incipit del corpus de `exp_12`), `muscima` (una página manuscrita de MUSCIMA++, `exp_16`) o `smb` (una región de SMB, `exp_17`). Un registro del corpus sin `source` es de PrIMuS. |
 | `incipit_id` | Identificador de la partitura en el corpus. Une todas las tablas. | `cadenza:<session_id>` o el identificador de PrIMuS. |
 | `session_id` | Sesión de Cadenza. | Vacío en PrIMuS. |
-| `work_id` | Obra de origen, la unidad de la partición. En Cadenza, las sesiones que comparten partitura de prueba o foto, también encadenadas, son la misma obra (`shared_works`, #437): una página del banco subida sin su partitura de prueba va con ella. | `test_score:<id>` (la partitura de prueba menor del grupo) o, sin ninguna, `image:<sha256>` (la foto menor) en Cadenza; el registro RISM en PrIMuS. |
+| `work_id` | Obra de origen, la unidad de la partición. En Cadenza, las sesiones que comparten partitura de prueba o foto, también encadenadas, son la misma obra (`shared_works`, #437): una página del banco subida sin su partitura de prueba va con ella. | `test_score:<id>` (la partitura de prueba menor del grupo) o, sin ninguna, `image:<sha256>` (la foto menor) en Cadenza; el registro RISM en PrIMuS; `muscima-N-<página>` en MUSCIMA++ (las 7 copias de una página); `smb:<obra>` en SMB. |
 | `split` | Partición fija de #255 (ADR-0036 §10 y su enmienda de #437): todas las sesiones de una obra caen del mismo lado, y ninguna foto está en las dos particiones. | `train` o `test`. |
 
 El **ancla** (`part`, `staff`, `measure`, `voice`, `event_index`) es la de ADR-0002: índices de

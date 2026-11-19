@@ -348,6 +348,40 @@ cuántos empeoran. El resumen dice los rasgos y la versión de la etapa (`meter_
 uv run --no-sync python ml/experiments/exp_15_reference_set.py run --reuse-predictions --meter-features all --output-dir <carpeta>
 ```
 
+### `exp_16_muscima_homr.py` — HOMR con música manuscrita, MUSCIMA++ (#102, ADR-0072)
+
+Cuánto falla HOMR con las 140 páginas manuscritas que anota MUSCIMA++ v2.0 (20 páginas de
+música copiadas por 7 copistas cada una). Mide en todas la tasa de fallos y cuántas notas lee
+frente a las cabezas anotadas. Las páginas de un pentagrama por sistema y una voz se convierten
+a `ScoreIR` desde su grafo MuNG (`cadenza.learning.muscima`) y en ellas mide además la SER, el
+OMR-NED, las correcciones del corrector ideal y el corpus de correcciones
+(`results/muscima_correction_corpus.jsonl`, `source = muscima`, que lee `ml export-tables
+--corpus`). Necesita las anotaciones en `data/muscima/muscima-pp/v2.0/data/annotations` y las
+imágenes en `data/muscima/images/fulls` (de dónde salen, en
+[INV-0003](../docs/investigaciones/INV-0003-smb-y-muscima.md)).
+
+```powershell
+uv run --no-sync python ml/experiments/exp_16_muscima_homr.py prepare     # invierte las imágenes; data/muscima/exp_16/manifest.json
+uv run --no-sync python ml/experiments/exp_16_muscima_homr.py transcribe  # HOMR en GPU (--cpu para la CPU); se reanuda
+uv run --no-sync python ml/experiments/exp_16_muscima_homr.py build       # results/muscima_homr_*.{csv,json} y el corpus
+```
+
+### `exp_17_smb_homr.py` — HOMR con páginas reales escaneadas, SMB (#102, ADR-0072)
+
+**Sin ejecutar:** el acceso a `PRAIG/SMB` es restringido y lo tiene que pedir el responsable.
+Recorta las regiones con **kern de cada página del parquet de SMB
+(`data/smb/test-00000-of-00001.parquet`), las pasa por HOMR y mide la tasa de fallos, la SER y
+el OMR-NED por textura, con el corpus `results/smb_correction_corpus.jsonl` (`source = smb`).
+Leer el parquet necesita `pyarrow` (`uv add --group dev pyarrow --no-sync` y después
+`uv sync --inexact`). Conviene empezar por un piloto (`transcribe --limit 30`) y revisar los
+recortes antes de la ejecución completa.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_17_smb_homr.py prepare     # --margin añade margen al recorte
+uv run --no-sync python ml/experiments/exp_17_smb_homr.py transcribe
+uv run --no-sync python ml/experiments/exp_17_smb_homr.py build
+```
+
 ## CLI de Jobs Offline (Fase 7, #22)
 
 Orquesta el ciclo por lotes de aprendizaje activo de forma explícita y reproducible
