@@ -23,10 +23,14 @@
   gap: var(--space-3);
 }
 
-.consent-check input {
+/* Más específica que `.field input` (los campos de texto, de 52 px de alto): sin ella, la casilla
+   quedaba centrada en esos 52 px, más abajo que la primera línea de su texto. */
+.consent-check input[type="checkbox"] {
   width: 20px;
   height: 20px;
+  min-height: 0;
   margin: 2px 0 0;
+  padding: 0;
   accent-color: var(--color-accent);
 }
 

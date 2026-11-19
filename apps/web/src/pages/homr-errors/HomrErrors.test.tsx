@@ -35,7 +35,7 @@ function loader(...answers: (HomrErrorStatsRead | Error)[]) {
 }
 
 function section() {
-  return screen.getByRole("main", { name: "Errores de HOMR, en vivo" });
+  return screen.getByRole("main", { name: "Errores de HOMR" });
 }
 
 describe("la página de los errores de HOMR", () => {
@@ -116,36 +116,34 @@ describe("la página de los errores de HOMR", () => {
     expect(screen.getByText(/66 notas de acordes/)).toBeInTheDocument();
   });
 
-  it("se actualiza sola y, si una petición falla, se queda con las últimas cifras", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const load = loader(
-      payload([group("primus")], "2026-11-19T12:00:00Z"),
-      new Error("caída"),
-      payload([group("primus")], "2026-11-19T12:10:00Z"),
-    );
-    render(<HomrErrors load={load} refreshMs={1000} />);
-    expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
-    const when = () => screen.getByText(/calculadas el/).textContent;
-    const first = when();
-
+  it("pide las cifras una sola vez, sin presentarse como algo en vivo (#453)", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "Date"] });
+    const load = loader(payload([group("primus")]));
+    render(<HomrErrors load={load} />);
     await act(async () => {
-      vi.advanceTimersByTime(1000);
       await Promise.resolve();
     });
-    expect(when()).toBe(first);
 
     await act(async () => {
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(60 * 60 * 1000);
+      document.dispatchEvent(new Event("visibilitychange"));
       await Promise.resolve();
     });
-    expect(load).toHaveBeenCalledTimes(3);
-    expect(when()).not.toBe(first);
+
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/^Errores de HOMR$/);
+    expect(document.body.textContent).not.toMatch(/en vivo|se actualizan solas|cada 5 minutos/i);
   });
 
-  it("avisa si no puede cargar las cifras", async () => {
-    render(<HomrErrors load={loader(new Error("caída"))} />);
+  it("si no puede cargar las cifras, lo dice y deja volver a intentarlo", async () => {
+    const load = loader(new Error("caída"), payload([group("primus")]));
+    render(<HomrErrors load={load} />);
 
     expect(await screen.findByText(/Ahora no se pueden cargar las cifras/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Volver a intentarlo" }));
+
+    expect(await screen.findByText(/Calculadas una vez/)).toBeInTheDocument();
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it("no enseña ninguna imagen, fracción ni «ver más», y pagina las listas largas", async () => {
@@ -219,30 +217,6 @@ describe("la página de los errores de HOMR", () => {
     expect(container.querySelector(".homr__tip")).toBeNull();
   });
 
-  it("no pide nada con la pestaña oculta y, al volver tras el plazo, pide en el momento", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
-    let visibility: DocumentVisibilityState = "visible";
-    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
-    const load = loader(payload([group("primus")]));
-    render(<HomrErrors load={load} refreshMs={1000} />);
-    await screen.findByText(/Calculadas una vez/);
-    expect(load).toHaveBeenCalledTimes(1);
-
-    visibility = "hidden";
-    await act(async () => {
-      vi.advanceTimersByTime(3000);
-      await Promise.resolve();
-    });
-    expect(load).toHaveBeenCalledTimes(1);
-
-    visibility = "visible";
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-      await Promise.resolve();
-    });
-    expect(load).toHaveBeenCalledTimes(2);
-  });
-
   it("no hace caso de una respuesta que llega después de cerrar la página", async () => {
     let resolve: (data: HomrErrorStatsRead) => void = () => undefined;
     const load = vi.fn<StatsLoader>(
@@ -295,9 +269,7 @@ describe("la vista de los errores de HOMR", () => {
     );
 
     expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Errores de HOMR, en vivo" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Errores de HOMR" })).toBeInTheDocument();
     expect(document.title).toBe("Errores de HOMR · Cadenza");
     expect(statsCalls()).toHaveLength(1);
     expect(new Headers(statsCalls()[0]?.[1]?.headers).has("Authorization")).toBe(false);
@@ -311,7 +283,7 @@ describe("la vista de los errores de HOMR", () => {
       await Promise.resolve();
     });
 
-    expect(screen.queryByRole("main", { name: "Errores de HOMR, en vivo" })).toBeNull();
+    expect(screen.queryByRole("main", { name: "Errores de HOMR" })).toBeNull();
     expect(statsCalls()).toHaveLength(0);
     const link = screen.getByRole("link", { name: "Errores de HOMR" });
     expect(link).toHaveAttribute("href", "/errores-de-homr");
