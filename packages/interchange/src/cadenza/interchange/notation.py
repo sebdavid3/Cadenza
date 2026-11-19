@@ -823,12 +823,17 @@ def musicxml_excerpt(path: Path, first: int | None = None, last: int | None = No
     for title in root.findall("movement-title"):
         if title.text == path.name:
             root.remove(title)
-    for encoding in root.findall("identification/encoding"):
-        for date in encoding.findall("encoding-date"):
-            encoding.remove(date)
+    _drop_encoding_date(root)
     _number_part_ids(root)
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
+
+
+def _drop_encoding_date(root: Any) -> None:
+    """Sin la fecha de codificación, que music21 escribe con la de hoy."""
+    for encoding in root.findall("identification/encoding"):
+        for date in encoding.findall("encoding-date"):
+            encoding.remove(date)
 
 
 def _number_part_ids(root: Any) -> None:
@@ -1361,7 +1366,9 @@ def _beam_overfull_voices(out: stream.Score) -> None:
         stream.makeNotation.setStemDirectionForBeamGroups(part)
 
 
-def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) -> str:
+def score_ir_to_musicxml(
+    score: ScoreIR, metadata: ScoreMetadata | None = None, *, stable: bool = False
+) -> str:
     """Serializa un `ScoreIR` a MusicXML 4.0 tal como está (base para la exportación, D11).
 
     No pasa por `GeneralObjectExporter`, que rellena los compases incompletos con silencios
@@ -1380,6 +1387,10 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
 
     Con ``metadata``, el título, el compositor y el nombre y el instrumento de cada parte
     (ADR-0041); sin ellos, o vacíos, la exportación no cambia.
+
+    Con ``stable``, sin la fecha de codificación y con las partes numeradas en orden (P1,
+    P2…) en vez de los identificadores al azar de music21: la misma partitura da los mismos
+    bytes cualquier día (los pares imagen-partitura de `ml export-pairs`, ADR-0070).
     """
 
     if not score.parts:
@@ -1393,6 +1404,9 @@ def score_ir_to_musicxml(score: ScoreIR, metadata: ScoreMetadata | None = None) 
     if metadata is not None and not metadata.is_empty:
         _write_metadata(root, metadata)
     _number_voices_by_staff(root, score)
+    if stable:
+        _drop_encoding_date(root)
+        _number_part_ids(root)
     exported: bytes = exporter.asBytes()
     return exported.decode("utf-8")
 

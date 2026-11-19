@@ -27,7 +27,7 @@ final y la tira vale para los dos estados.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
 from typing import Any
 
@@ -247,3 +247,50 @@ def strip_sequence(score: ScoreIR, strip: Strip) -> str:
             bars.append(f"c{number}: {content}")
         staves_text.append(" | ".join(bars))
     return " || ".join(staves_text)
+
+
+# --- La partitura de una tira (#420, ADR-0070) -------------------------------------------------
+
+
+def strip_score(score: ScoreIR, strip: Strip) -> ScoreIR:
+    """La partitura de la tira: su parte con solo sus pentagramas (uno, o los dos de un gran
+    pentagrama) y sus compases, con sus números de la página.
+
+    Su primer compás lleva la clave, la armadura y el compás que rigen allí aunque la página no
+    los repita (los que trae ese compás mandan). Es el lado de la partitura de un par para
+    entrenar un lector (`ml export-pairs`), que se escribe en MusicXML.
+
+    Falla con `StripError` si la tira tiene pentagramas de partes distintas o un compás que no
+    está en la partitura.
+    """
+
+    if len({part for part, _ in strip.staves}) != 1:
+        raise StripError(f"la tira tiene pentagramas de más de una parte: {strip.staves}")
+    part_index = strip.staves[0][0]
+    part = score.parts[part_index]
+    staves = []
+    for _, staff_index in strip.staves:
+        staff = part.staves[staff_index]
+        by_number = {measure.number: measure for measure in staff.measures}
+        for number in strip.measures:
+            if number not in by_number:
+                raise StripError(
+                    f"el pentagrama {part_index}-{staff_index} no tiene el compás {number}"
+                )
+        clef = key = time = None
+        for measure in staff.measures:
+            if measure.number == strip.measures[0]:
+                break
+            clef = measure.clef or clef
+            key = measure.key_signature or key
+            time = measure.time_signature or time
+        measures = [by_number[number] for number in strip.measures]
+        first = measures[0]
+        measures[0] = replace(
+            first,
+            clef=first.clef or clef,
+            key_signature=first.key_signature or key,
+            time_signature=first.time_signature or time,
+        )
+        staves.append(replace(staff, measures=tuple(measures)))
+    return ScoreIR(parts=(replace(part, staves=tuple(staves)),))

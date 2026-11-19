@@ -401,6 +401,29 @@ motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por def
 sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
 con el permiso de uso de los datos vigente.
 
+### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0070)
+
+Deja listos, para un reentrenamiento futuro (#103), los pares de cada tira de pentagrama: el PNG
+de la tira (el mismo recorte de `export-staves`), el MusicXML de lo que leyó HOMR y el MusicXML
+corregido, la etiqueta. Solo sesiones finalizadas cuya corrección se verifica; de las cuentas del
+registro, por defecto las del permiso vigente (#422), ninguna con `--exclude-self-registered` y
+nunca las que no lo tienen. La partición es la fija
+por obra de #255, así que la semilla es obligatoria. Sobre una copia, con la salida vacía y fuera
+de `results/` y `data/`:
+
+```powershell
+uv run --no-sync python -m ml export-pairs --output-dir <carpeta> --db-url <url de la copia> `
+  --artifacts-dir <artefactos de la copia> --split-seed <semilla> [--test-fraction 0.2] `
+  [--exclude-self-registered]
+```
+
+Escribe `train/` y `test/` con los tres archivos de cada par, `pares.csv` (una fila por par, con
+su obra, sus compases y el sha256 de sus archivos), `run_info.json` (filtros, sesiones fuera con
+su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
+`"simulated": false`) y `README.md`, la ficha del dataset
+(origen, licencias, permiso, partición y limitaciones). Columnas y uso en
+[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md).
+
 ### Encadenamiento y trazabilidad de artefactos
 
 | Comando | Entrada | Salida | Metadatos persistidos |

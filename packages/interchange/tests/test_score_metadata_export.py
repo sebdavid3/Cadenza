@@ -181,3 +181,23 @@ def test_exporter_port_passes_the_metadata() -> None:
     assert root.findtext("work/work-title") == "Mondnacht"
     assert _programs(exporter.to_midi(score, METADATA))[1:] == [[52], [0], [0]]
     assert _stable(exporter.to_musicxml(score)) == _stable(score_ir_to_musicxml(score))
+
+
+def test_a_stable_export_gives_the_same_bytes_any_day() -> None:
+    """Sin la fecha ni los id al azar de music21 (ADR-0070): los pares de `ml export-pairs`."""
+    score = _voice_and_piano()
+
+    first = score_ir_to_musicxml(score, METADATA, stable=True)
+    assert first == score_ir_to_musicxml(score, METADATA, stable=True)
+    root = _root(first)
+    assert root.find("identification/encoding/encoding-date") is None
+    assert [p.get("id") for p in root.findall("part-list/score-part")] == ["P1", "P2"]
+    assert [p.get("id") for p in root.findall("part")] == ["P1", "P2"]
+    instruments = [e.get("id") for e in root.iter() if e.tag.endswith("instrument")]
+    assert instruments and all(
+        i is not None and i.startswith(("P1-I", "P2-I")) for i in instruments
+    )
+    # Lo demás, igual que sin `stable`.
+    assert musicxml_to_score_ir(first) == musicxml_to_score_ir(
+        score_ir_to_musicxml(score, METADATA)
+    )

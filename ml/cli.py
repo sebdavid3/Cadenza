@@ -16,6 +16,9 @@ Comandos implementados:
                     de la plataforma (`ml/export_tables_cli.py`).
   - export-staves : recorta cada pentagrama de las fotos y lo empareja con lo que leyó HOMR y
                     con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
+  - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
+                    con la partición por obra y la ficha del dataset, para entrenar un lector
+                    (`ml/export_pairs_cli.py`, #420, ADR-0070).
 """
 
 from __future__ import annotations
@@ -941,6 +944,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_staves_cli.add_parser(subparsers)
 
+    # Pares imagen-partitura para entrenar un lector (#420, ADR-0070)
+    from ml import export_pairs_cli
+
+    export_pairs_cli.add_parser(subparsers)
+
     return parser
 
 
@@ -999,6 +1007,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import export_staves_cli
 
         return export_staves_cli.export_staves_command(args)
+    if args.subcommand == "export-pairs":
+        from ml import export_pairs_cli
+
+        return export_pairs_cli.export_pairs_command(args)
 
     parser.print_help()
     return 1
