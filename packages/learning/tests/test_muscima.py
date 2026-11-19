@@ -509,3 +509,16 @@ def test_a_whole_rest_without_time_signature_lasts_the_usual_measure() -> None:
     staff.rest("restWhole", 500)
     staff.separator(560)
     assert _events(mung_to_score(page.nodes), 2) == [("rest", None, Fraction(3))]
+
+
+def test_a_rest_that_touches_the_next_head_is_not_polyphony() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    staff.rest("rest16th", 100)  # 14 de ancho: comparte 4 píxeles con la cabeza siguiente
+    staff.note(0, 110, flag="flag16thUp")
+    staff.separator(200)
+    assert _events(mung_to_score(page.nodes), 0) == [
+        ("rest", None, Fraction(1, 4)),
+        ("note", "B4", Fraction(1, 4)),
+    ]

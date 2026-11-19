@@ -89,6 +89,8 @@ _ALTER_NAME: Final[dict[int, str]] = {value: name for name, value in _ALTER.item
 # Una clave de do cuyo centro queda a más de esta fracción de espacio de su línea más cercana
 # está entre dos líneas: el centro de la caja no dice cuál marca.
 _CLEF_TOLERANCE: Final[float] = 0.3
+# Lo que tiene que compartir en horizontal un silencio con una cabeza para sonar a la vez.
+_REST_OVERLAP: Final[float] = 0.5
 # Los números de grupo irregular que se leen (n en el tiempo de la potencia de dos por debajo).
 _TUPLETS: Final[frozenset[int]] = frozenset({3, 5, 6, 7, 9})
 
@@ -471,8 +473,9 @@ def _event_groups(
         elif node.class_name in RESTS:
             loose.append([node])
     # Las redondas de un acorde no tienen plica: se juntan si se solapan. En una voz, una cabeza
-    # empieza a la derecha de la anterior: dos grupos que se solapan en horizontal, aunque sea
-    # poco, son simultáneos.
+    # empieza a la derecha de la anterior: dos grupos de cabezas que se solapan en horizontal,
+    # aunque sea poco, son simultáneos. Un silencio escrito a mano invade a menudo la cabeza
+    # vecina sin sonar con ella: con un silencio, hace falta que compartan más de la mitad.
     merged: list[list[MungNode]] = []
     for group in sorted(loose, key=lambda g: g[0].left):
         head = group[0]
@@ -489,7 +492,8 @@ def _event_groups(
     groups = [tuple(g) for g in [*by_stem.values(), *merged]]
     groups.sort(key=lambda g: min(n.left for n in g))
     for before, after in pairwise(groups):
-        if _overlaps(before, after):
+        with_rest = before[0].class_name in RESTS or after[0].class_name in RESTS
+        if _overlap_fraction(before, after) > (_REST_OVERLAP if with_rest else 0):
             raise MungConversionError(
                 f"polifonía: {before[0].class_name} {before[0].id} y "
                 f"{after[0].class_name} {after[0].id} suenan a la vez"
