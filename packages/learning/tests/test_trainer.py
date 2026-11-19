@@ -53,7 +53,7 @@ def test_loads_versioned_config() -> None:
     config = load_job_config(path)
     assert config.raw_data == json.loads(path.read_text(encoding="utf-8"))
     assert (config.seed, config.epochs, config.learning_rate) == (42, 10, 0.0001)
-    assert config.strategy == config.raw_data["strategy"]
+    assert config.strategy == "hybrid"
 
 
 def test_fake_trainer_has_no_reserve_metrics() -> None:
