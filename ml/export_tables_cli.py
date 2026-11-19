@@ -9,12 +9,16 @@ diccionario de columnas está en `docs/experimentos/diccionario_tablas.md`.
 Dos orígenes, que pueden ir juntos en las mismas tablas (la columna `source` los distingue):
 
 - una base de datos de Cadenza (`--db-url`, o `CADENZA_DATABASE_URL` si no se da `--corpus`);
-- un corpus JSONL (`--corpus`): el de PrIMuS de `exp_12` o el de `ml suggestions build-dataset`.
+- uno o varios corpus JSONL (`--corpus`, repetible): el de PrIMuS de `exp_12`, el de
+  Camera-PrIMuS de `exp_18` (#421) o el de `ml suggestions build-dataset`. Un mismo incipit de la
+  misma fuente en dos corpus es un error: saldría dos veces.
 
 Con `--recortes` (#414, ADR-0068), en la misma carpeta y para las mismas sesiones, lo que escribe
 `ml export-staves` (cada pentagrama de la foto con lo que leyó HOMR y lo corregido); `notas`,
 `faltantes` y `compases` dicen en `sistema` y `recorte` la tira de la foto de su compás. Con
-`--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`.
+`--primus-dir`, la imagen de cada incipit de PrIMuS va a `recortes/primus/`; con
+`--camera-primus-dir`, la imagen distorsionada de cada incipit de Camera-PrIMuS, a
+`recortes/camera-primus/`.
 
 Con `--informe` (#415, ADR-0069), además `informe.html`: las cifras de los CSV y, de cada una,
 ejemplos con la foto de su compás (`ml/tables_report.py`).
@@ -177,6 +181,46 @@ def _primus_images(
     return images, [incipit_id for incipit_id in wanted if incipit_id not in found]
 
 
+CAMERA_PRIMUS = "camera-primus"
+"""La fuente del corpus de Camera-PrIMuS (`exp_18`, #421): sus incipits son
+`camera-primus:<id de PrIMuS>`."""
+
+
+def _camera_primus_images(
+    tables: dict[str, list[Row]], camera_dir: Path, output: Path
+) -> tuple[dict[str, tuple[int, str]], list[str]]:
+    """Copia la imagen distorsionada de cada incipit de Camera-PrIMuS de las tablas
+    (`<camera_dir>/<id>/<id>_distorted.jpg`, con `camera_dir` la carpeta `Corpus` de la
+    descarga) a `recortes/camera-primus/`. Devuelve el sistema (1) y el recorte de cada incipit
+    encontrado, y los que faltan."""
+
+    wanted = sorted(
+        {str(r["incipit_id"]) for r in tables["partituras"] if r.get("source") == CAMERA_PRIMUS}
+    )
+    images: dict[str, tuple[int, str]] = {}
+    missing: list[str] = []
+    target = output / "recortes" / CAMERA_PRIMUS
+    for incipit_id in wanted:
+        raw = incipit_id.removeprefix(f"{CAMERA_PRIMUS}:")
+        image = camera_dir / raw / f"{raw}_distorted.jpg"
+        if not image.is_file():
+            missing.append(incipit_id)
+            continue
+        target.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(image, target / f"{raw}.jpg")
+        images[incipit_id] = (1, f"recortes/{CAMERA_PRIMUS}/{raw}.jpg")
+    return images, missing
+
+
+def _repeated(records: list[dict[str, Any]], seen: set[tuple[str, str]]) -> list[str]:
+    """Los incipits de un corpus que ya trajo otro (misma fuente y mismo identificador); añade
+    los suyos a `seen`."""
+    own = {(str(r.get("source") or "primus"), str(r["incipit_id"])) for r in records}
+    repeated = sorted(f"{source} {incipit}" for source, incipit in own & seen)
+    seen |= own
+    return repeated
+
+
 def _number(value: Any) -> int | None:
     try:
         return int(value)
@@ -187,9 +231,10 @@ def _number(value: Any) -> int | None:
 def _attach_strips(
     tables: dict[str, list[Row]],
     strips: dict[StripKey, tuple[int, str]],
-    primus: dict[str, tuple[int, str]],
+    corpus_images: dict[str, tuple[int, str]],
 ) -> None:
-    """Pone en `sistema` y `recorte` de cada fila de notas, faltantes y compases su tira."""
+    """Pone en `sistema` y `recorte` de cada fila de notas, faltantes y compases su tira, o la
+    imagen de su incipit si sale de un corpus (PrIMuS, Camera-PrIMuS)."""
     for name in ("notas", "faltantes", "compases"):
         for row in tables[name]:
             if row.get("source") == "cadenza":
@@ -200,15 +245,15 @@ def _attach_strips(
                     continue
                 hit = strips.get((str(row.get("session_id")), part, staff, measure))
             else:
-                hit = primus.get(str(row.get("incipit_id")))
+                hit = corpus_images.get(str(row.get("incipit_id")))
             if hit is not None:
                 row["sistema"], row["recorte"] = hit
 
 
 def export_tables_command(args: argparse.Namespace) -> int:
-    corpus_path = Path(args.corpus) if args.corpus else None
-    db_url = args.db_url or (None if corpus_path else os.environ.get("CADENZA_DATABASE_URL"))
-    if corpus_path is None and db_url is None:
+    corpus_paths = [Path(path) for path in args.corpus or ()]
+    db_url = args.db_url or (None if corpus_paths else os.environ.get("CADENZA_DATABASE_URL"))
+    if not corpus_paths and db_url is None:
         return _fail("falta el origen: da --db-url (o CADENZA_DATABASE_URL) o --corpus")
     if db_url is not None and args.split_seed is None:
         return _fail(
@@ -221,8 +266,8 @@ def export_tables_command(args: argparse.Namespace) -> int:
     if problem is not None:
         return _fail(problem)
     artifacts = args.artifacts_dir or os.environ.get("CADENZA_ARTIFACTS_DIR")
-    if (args.primus_dir or args.laminas) and not args.recortes:
-        return _fail("--primus-dir y --laminas van con --recortes")
+    if (args.primus_dir or args.camera_primus_dir or args.laminas) and not args.recortes:
+        return _fail("--primus-dir, --camera-primus-dir y --laminas van con --recortes")
     if args.recortes and db_url is not None and not artifacts:
         return _fail("los recortes necesitan las fotos: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
     if args.recortes and db_url is not None and not Path(str(artifacts)).is_dir():
@@ -230,27 +275,45 @@ def export_tables_command(args: argparse.Namespace) -> int:
     primus_dir = Path(args.primus_dir) if args.primus_dir else None
     if primus_dir is not None and not primus_dir.is_dir():
         return _fail(f"no existe la carpeta de PrIMuS: {primus_dir}")
+    camera_dir = Path(args.camera_primus_dir) if args.camera_primus_dir else None
+    if camera_dir is not None and not camera_dir.is_dir():
+        return _fail(f"no existe la carpeta de Camera-PrIMuS: {camera_dir}")
 
     parts: list[dict[str, list[dict[str, Any]]]] = []
     origins: dict[str, Any] = {}
+    corpora: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
     left_out: dict[str, str] = {}
-    if corpus_path is not None:
+    for corpus_path in corpus_paths:
         try:
             records = read_corpus(corpus_path)
         except (SuggestionTrainingError, OSError, json.JSONDecodeError) as exc:
             return _fail(str(exc))
-        origins["corpus"] = {
+        origin: dict[str, Any] = {
             "file": corpus_path.name,
             "sha256": file_sha256(corpus_path),
             "records": len(records),
+            "sources": dict(
+                sorted(Counter(str(r.get("source") or "primus") for r in records).items())
+            ),
         }
         if db_url is not None:
             # El corpus de build-dataset ya trae las sesiones de Cadenza: con la base, salen de
             # la base, que tiene más columnas; si no, cada sesión saldría dos veces.
             kept = [r for r in records if r.get("source", "primus") != "cadenza"]
-            origins["corpus"]["cadenza_records_dropped"] = len(records) - len(kept)
+            origin["cadenza_records_dropped"] = len(records) - len(kept)
             records = kept
+        repeated = _repeated(records, seen)
+        if repeated:
+            return _fail(
+                f"{corpus_path.name} repite {len(repeated)} incipits de otro --corpus (p. ej."
+                f" {repeated[:3]}): saldrían dos veces en las tablas"
+            )
+        corpora.append(origin)
         parts.append(corpus_tables(records))
+    if corpora:
+        # Con un solo corpus, su origen como hasta ahora; con varios, uno por corpus en orden.
+        origins["corpus"] = corpora[0] if len(corpora) == 1 else corpora
     strip_rows: list[Row] = []
     strip_sessions: list[str] = []
     strips_left_out: dict[str, str] = {}
@@ -287,7 +350,11 @@ def export_tables_command(args: argparse.Namespace) -> int:
         primus_missing: list[str] = []
         if primus_dir is not None:
             primus_images, primus_missing = _primus_images(merged, primus_dir, output)
-        _attach_strips(merged, _strip_index(strip_rows), primus_images)
+        camera_images: dict[str, tuple[int, str]] = {}
+        camera_missing: list[str] = []
+        if camera_dir is not None:
+            camera_images, camera_missing = _camera_primus_images(merged, camera_dir, output)
+        _attach_strips(merged, _strip_index(strip_rows), {**primus_images, **camera_images})
         recortes = {
             "sessions": strip_sessions,
             "left_out": strips_left_out,
@@ -298,6 +365,8 @@ def export_tables_command(args: argparse.Namespace) -> int:
             "artifacts_dir": Path(artifacts).name if artifacts and db_url else None,
             "primus_images": len(primus_images),
             "primus_missing": primus_missing,
+            "camera_primus_images": len(camera_images),
+            "camera_primus_missing": camera_missing,
         }
         if db_url is not None:
             content = strips_csv(strip_rows)
@@ -349,7 +418,7 @@ def export_tables_command(args: argparse.Namespace) -> int:
         print(
             f"  recortes       : {recortes['strips']} tiras de {len(strip_sessions)} sesiones"
             f" ({len(strips_left_out)} sin recortes), {recortes['primus_images']} imágenes"
-            " de PrIMuS"
+            f" de PrIMuS, {recortes['camera_primus_images']} de Camera-PrIMuS"
         )
     if report is not None:
         print(f"  informe        : {report.name}")
@@ -368,7 +437,12 @@ def add_parser(subparsers: Any) -> None:
         default=None,
         help="URL de la base (por defecto CADENZA_DATABASE_URL, si no se da --corpus).",
     )
-    parser.add_argument("--corpus", default=None, help="Corpus JSONL (exp_12 o build-dataset).")
+    parser.add_argument(
+        "--corpus",
+        action="append",
+        default=None,
+        help="Corpus JSONL (exp_12, exp_18 o build-dataset); se repite para varios.",
+    )
     parser.add_argument(
         "--split-seed",
         type=int,
@@ -406,6 +480,14 @@ def add_parser(subparsers: Any) -> None:
         "--primus-dir",
         default=None,
         help="Con --recortes, la carpeta de PrIMuS (data/primus): copia la imagen de cada incipit.",
+    )
+    parser.add_argument(
+        "--camera-primus-dir",
+        default=None,
+        help=(
+            "Con --recortes, la carpeta Corpus de Camera-PrIMuS (data/camera_primus/Corpus): copia"
+            " la imagen distorsionada de cada incipit."
+        ),
     )
     parser.add_argument(
         "--include-self-registered",
