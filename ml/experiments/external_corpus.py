@@ -20,11 +20,11 @@ sus salidas en su propio `RESULTS_DIR`.
 from __future__ import annotations
 
 import json
-import shutil
 import statistics
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
@@ -110,10 +110,15 @@ def transcribe(
     limit: int | None = None,
     engine: Transcriber | None = None,
 ) -> dict[str, int]:
-    """Transcribe la muestra con HOMR, sin preprocesado, y registra los fallos del motor."""
+    """Transcribe la muestra con HOMR, sin preprocesado, y registra los fallos del motor. Con
+    `force`, aparta las predicciones anteriores y lo repite todo."""
     manifest = load_manifest(manifest_path, label=label)
     entries = manifest["entries"][:limit]
     root = data_root(manifest_path)
+    if force:
+        # Se empieza en una carpeta limpia: si se corta (o con `limit`), la reanudación no
+        # reutiliza predicciones de antes con el motor o el dispositivo de ahora.
+        set_aside_predictions(manifest_path)
     out_dir = manifest_path.parent / "predictions"
     out_dir.mkdir(parents=True, exist_ok=True)
     failures_file = out_dir / "failures.json"
@@ -282,13 +287,17 @@ def measure_pair(
     )
 
 
-def clear_predictions(manifest_path: Path) -> bool:
-    """Borra las predicciones de una muestra que se va a sustituir: son de la anterior."""
+def set_aside_predictions(manifest_path: Path) -> Path | None:
+    """Aparta las predicciones de una muestra (las de otra muestra o las que se van a repetir
+    con `force`): las renombra a `predictions.previas-<fecha UTC>`, junto al manifiesto, sin
+    borrarlas, porque son horas de GPU. Devuelve la carpeta nueva, o `None` si no había."""
     predictions = manifest_path.parent / "predictions"
     if not predictions.is_dir():
-        return False
-    shutil.rmtree(predictions)
-    return True
+        return None
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    target = predictions.with_name(f"predictions.previas-{stamp}")
+    predictions.rename(target)
+    return target
 
 
 def stats(values: list[float]) -> dict[str, Any] | None:

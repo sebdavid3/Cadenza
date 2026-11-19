@@ -170,9 +170,12 @@ def select_sample(
     `exp_03`.
 
     No sustituye una muestra que ya existe salvo con `force`. Al sustituirla, las predicciones se
-    conservan si una muestra empieza por la otra (se amplió o se redujo con la misma semilla) y
-    se borran si no: serían de otra muestra.
+    conservan si una muestra empieza por la otra (se amplió o se redujo con la misma semilla) y,
+    si no, se apartan sin borrarlas (`external_corpus.set_aside_predictions`). La semilla ha de
+    ser la de `exp_12` (la de por defecto) para que `build` acepte la partición.
     """
+    if size < 1:
+        raise ValueError(f"exp_18 necesita una muestra de al menos un incipit, no {size}")
     target = _manifest_path(data_dir)
     if target.is_file() and not force:
         raise FileExistsError(
@@ -237,7 +240,7 @@ def select_sample(
         "entries": entries,
     }
     if previous is not None and not _same_order(previous, manifest):
-        external_corpus.clear_predictions(target)
+        external_corpus.set_aside_predictions(target)
     external_corpus.write_json(target, manifest)
     return manifest
 
@@ -260,13 +263,14 @@ def _same_order(previous: dict[str, Any], current: dict[str, Any]) -> bool:
 def transcribe(
     manifest_path: Path,
     *,
-    use_gpu: bool = False,
+    use_gpu: bool = True,
     force: bool = False,
     retry_failures: bool = False,
     limit: int | None = None,
     engine: external_corpus.Transcriber | None = None,
 ) -> dict[str, int]:
-    """La fase `transcribe` de `exp_12`, sobre la muestra de Camera-PrIMuS."""
+    """La fase `transcribe` de `exp_12`, sobre la muestra de Camera-PrIMuS, en la GPU por
+    defecto, como en producción (ADR-0066)."""
     return external_corpus.transcribe(
         manifest_path,
         label=EXPERIMENT,
@@ -538,7 +542,17 @@ def build(
         "source": SOURCE,
         "simulated": False,
         "seed": seed,
-        "sample": {"size": sampled, "selection": manifest.get("selection")},
+        "sample": {
+            "size": sampled,
+            "manifest_count": len(manifest["entries"]),
+            "limit": limit,
+            "partial": sampled < len(manifest["entries"]),
+            "selection": manifest.get("selection"),
+        },
+        "ids": (
+            "Las listas de este resumen usan el identificador de PrIMuS; el corpus, la partición "
+            "y la columna `id` del CSV, `camera-primus:<id>` (`primus_id`, el de PrIMuS)."
+        ),
         "transcription": {
             **homr_info,
             "transcribed": sampled - len(failure_errors),
@@ -554,9 +568,13 @@ def build(
             "semantic_mismatch_ids": sorted(mismatches),
             "unreadable_count": len(unreadable),
             "unreadable": dict(sorted(unreadable.items())),
-            "notes_whose_mei_pitch_is_not_the_sounding_one": sum(
-                row["mei_pitch_not_sounding"] for row in derived
-            ),
+            "mei_without_key_accidentals": {
+                "incipits_affected": sum(1 for row in derived if row["mei_pitch_not_sounding"]),
+                "notes_whose_mei_pitch_is_not_the_sounding_one": sum(
+                    row["mei_pitch_not_sounding"] for row in derived
+                ),
+                "scope": "todos los incipits derivados, verificados o no",
+            },
         },
         "verification": {
             "derived_count": len(derived),
@@ -645,6 +663,9 @@ def build(
         "homr": homr_info,
         "test_fraction": test_fraction,
         "omr_ned": with_omr_ned,
+        "limit": limit,
+        "manifest_count": len(manifest["entries"]),
+        "partial": sampled < len(manifest["entries"]),
         "corpus_sha256": sha256_of_file(corpus_path),
         "split_sha256": sha256_of_file(split_file),
         "exp_12_split_sha256": compatibility["exp_12_split_sha256"],
@@ -668,10 +689,9 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
     prepare = sub.add_parser("prepare", help="Elige la muestra")
     prepare.add_argument("--size", type=int, default=SAMPLE_SIZE)
-    prepare.add_argument("--seed", type=int, default=DEFAULT_SEED)
     prepare.add_argument("--force", action="store_true", help="Sustituir o ampliar la muestra")
     transcribe_parser = sub.add_parser("transcribe", help="Transcribe la muestra con HOMR")
-    transcribe_parser.add_argument("--gpu", action="store_true", help="Usar la GPU")
+    transcribe_parser.add_argument("--cpu", action="store_true", help="En la CPU, no en la GPU")
     transcribe_parser.add_argument("--force", action="store_true")
     transcribe_parser.add_argument("--retry-failures", action="store_true")
     transcribe_parser.add_argument("--limit", type=int, default=None)
@@ -682,17 +702,24 @@ def main() -> None:
     build_parser.add_argument(
         "--results-dir", type=Path, default=None, help="Por defecto, results/ del repositorio"
     )
+    build_parser.add_argument(
+        "--exp-12-split",
+        type=Path,
+        default=None,
+        help="La partición de exp_12 (por defecto, correction_corpus_split.json de --results-dir)",
+    )
     args = parser.parse_args()
 
     _disable_power_throttling()
     manifest_path = _manifest_path(args.data)
     if args.command == "prepare":
-        manifest = select_sample(args.data, size=args.size, seed=args.seed, force=args.force)
+        # La semilla es siempre la de exp_12: con otra, build rechazaría la partición.
+        manifest = select_sample(args.data, size=args.size, force=args.force)
         print(f"[{EXPERIMENT}] muestra de {manifest['count']} incipits -> {manifest_path}")
     elif args.command == "transcribe":
         result = transcribe(
             manifest_path,
-            use_gpu=args.gpu,
+            use_gpu=not args.cpu,
             force=args.force,
             retry_failures=args.retry_failures,
             limit=args.limit,
@@ -705,6 +732,7 @@ def main() -> None:
             with_omr_ned=not args.no_omr_ned,
             limit=args.limit,
             results_dir=args.results_dir,
+            exp_12_split=args.exp_12_split,
         )
         verification = summary["verification"]
         print(

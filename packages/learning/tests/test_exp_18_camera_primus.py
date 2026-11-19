@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cadenza.learning import assign_split, primus_work_id
+from cadenza.learning import MetricsExtraMissing, assign_split, omr_ned_pair, primus_work_id
 
-from ml.experiments import common
+from ml.experiments import common, external_corpus
 from ml.experiments import exp_18_camera_primus as exp_18
 
 from .test_exp_12_correction_corpus import _GT_MEI_LIKE, _SEMANTIC, _Engine, _musicxml
@@ -94,7 +94,10 @@ def test_a_larger_sample_with_the_same_seed_starts_with_the_smaller_one(tmp_path
     assert fewer == small[:3] and (predictions / f"{small[0]}.musicxml").is_file()
     other = [e["id"] for e in exp_18.select_sample(data, size=10, seed=4, force=True)["entries"]]
     assert other != large
-    assert not predictions.exists()  # las de otra muestra no se mezclan
+    # Las de otra muestra no se mezclan, pero tampoco se borran: se apartan.
+    assert not predictions.exists()
+    (aside,) = predictions.parent.glob("predictions.previas-*")
+    assert (aside / f"{small[0]}.musicxml").is_file()
 
 
 def test_the_sample_fails_without_exp_03_or_enough_incipits(tmp_path: Path) -> None:
@@ -104,6 +107,8 @@ def test_the_sample_fails_without_exp_03_or_enough_incipits(tmp_path: Path) -> N
     _exp03(data, _ids(1))
     with pytest.raises(ValueError, match="2 incipits"):
         exp_18.select_sample(data, size=3, seed=1)
+    with pytest.raises(ValueError, match="al menos un incipit"):
+        exp_18.select_sample(data, size=-1, seed=1)
 
 
 # --- Transcripción -----------------------------------------------------------------------
@@ -123,6 +128,37 @@ def test_the_transcription_reads_the_distorted_images_and_resumes(tmp_path: Path
     assert sorted(p.stem for p in predictions.glob("*.musicxml")) == sorted(chosen[:1] + chosen[2:])
     again = _Engine()
     assert exp_18.transcribe(path, engine=again)["reused"] == 4 and again.calls == []
+
+
+def test_the_transcription_stops_on_an_environment_error_and_refuses_another_device(
+    tmp_path: Path,
+) -> None:
+    """Solo un error del motor es un fallo del incipit; y no se mezclan dispositivos."""
+    data = _camera(tmp_path, _ids(4))
+    _exp03(data, [])
+    chosen = [e["id"] for e in exp_18.select_sample(data, size=3, seed=2)["entries"]]
+    path = data / "camera_primus" / "exp_18" / "manifest.json"
+    predictions = path.parent / "predictions"
+
+    with pytest.raises(RuntimeError, match="memoria"):
+        exp_18.transcribe(path, engine=_Engine(crash_on=f"{chosen[1]}_distorted"))
+    assert json.loads((predictions / "failures.json").read_text("utf-8")) == []
+    assert (predictions / f"{chosen[0]}.musicxml").is_file()
+    assert not (predictions / f"{chosen[1]}.musicxml").exists()
+
+    gpu = _Engine()
+    gpu.device = "cuda"
+    with pytest.raises(ValueError, match="otro motor o dispositivo"):
+        exp_18.transcribe(path, engine=gpu)
+    assert gpu.calls == []
+
+    # Con `force` se repite todo en una carpeta limpia: lo de la CPU queda apartado, no mezclado.
+    assert exp_18.transcribe(path, engine=gpu, force=True, limit=1)["written"] == 1
+    assert sorted(p.stem for p in predictions.glob("*.musicxml")) == [chosen[0]]
+    info = json.loads((predictions / "run_info.json").read_text("utf-8"))
+    assert info["device"] == "cuda"
+    (aside,) = predictions.parent.glob("predictions.previas-*")
+    assert json.loads((aside / "run_info.json").read_text("utf-8"))["device"] == "cpu"
 
 
 # --- Corpus ------------------------------------------------------------------------------
@@ -259,6 +295,29 @@ def test_build_refuses_a_partition_that_does_not_match_exp_12(tmp_path: Path) ->
     _exp12_split(common.RESULTS_DIR, ["000000001-1_1_1"], fraction=0.3)
     with pytest.raises(ValueError, match="fracción"):
         exp_18.build(manifest)
+    # Una partición de exp_12 con la misma semilla y fracción, pero con la obra al otro lado
+    # (escrita a mano: con otra regla, o un exp_12 de otra versión).
+    work_sibling = "000000001-1_1_2"
+    side = assign_split(primus_work_id(work_sibling), seed=5, test_fraction=0.2)
+    other = "test" if side == "train" else "train"
+    swapped = {"seed": 5, "test_fraction": 0.2, "train": [], "test": []}
+    swapped[other] = [work_sibling]
+    (common.RESULTS_DIR / "correction_corpus_split.json").write_text(
+        json.dumps(swapped), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="otro lado"):
+        exp_18.build(manifest)
+    assert not (common.RESULTS_DIR / "camera_primus_correction_corpus.jsonl").exists()
+
+
+def test_build_reads_the_exp_12_partition_from_where_it_is_told(tmp_path: Path) -> None:
+    """Con `results_dir` aparte (una prueba de humo), la partición de exp_12 se da aparte."""
+    manifest = _sample(tmp_path, {"000000001-1_1_1": _GOOD})
+    elsewhere = _exp12_split(tmp_path / "exp_12", ["000000001-1_1_2"])
+    output = tmp_path / "salida"
+    summary = exp_18.build(manifest, with_omr_ned=False, results_dir=output, exp_12_split=elsewhere)
+    assert summary["exp_12_compatibility"]["shared_works"] == 1
+    assert (output / "camera_primus_correction_corpus.jsonl").is_file()
     assert not (common.RESULTS_DIR / "camera_primus_correction_corpus.jsonl").exists()
 
 
@@ -285,4 +344,50 @@ def test_build_fails_when_an_entry_was_never_transcribed(tmp_path: Path) -> None
     _exp12_split(common.RESULTS_DIR, [])
     with pytest.raises(ValueError, match="sin predicción ni fallo"):
         exp_18.build(manifest)
-    assert exp_18.build(manifest, limit=1, with_omr_ned=False)["sample"]["size"] == 1
+    # Una medición parcial lo dice en el resumen y en el run_info.
+    sample = exp_18.build(manifest, limit=1, with_omr_ned=False)["sample"]
+    assert sample["size"] == 1 and sample["manifest_count"] == 2 and sample["partial"] is True
+    run_info = json.loads((common.RESULTS_DIR / "exp_18_run_info.json").read_text("utf-8"))
+    assert run_info["limit"] == 1 and run_info["partial"] is True
+
+
+def test_an_omr_ned_that_musicdiff_cannot_compute_keeps_the_corrections(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ids = ["000000001-1_1_1", "000000002-1_1_1"]
+    manifest = _sample(tmp_path, dict.fromkeys(ids, _ONE_PITCH))
+    _exp12_split(common.RESULTS_DIR, [])
+    real = omr_ned_pair
+
+    def flaky(pred: Path, truth: Path) -> Any:
+        if pred.stem == ids[1]:
+            raise ZeroDivisionError("float division by zero")
+        return real(pred, truth)
+
+    monkeypatch.setattr(external_corpus, "omr_ned_pair", flaky)
+    summary = exp_18.build(manifest)
+
+    assert summary["verification"]["derived_count"] == 2
+    assert summary["omr_ned"]["count"] == 1 and summary["ser"]["count"] == 2
+    assert summary["omr_ned_errors"] == {ids[1]: "ZeroDivisionError: float division by zero"}
+    path = common.RESULTS_DIR / "camera_primus_correction_corpus_incipits.csv"
+    with path.open(encoding="utf-8") as handle:
+        rows = {row["primus_id"]: row for row in csv.DictReader(handle)}
+    assert rows[ids[1]]["omr_ned"] == "" and rows[ids[1]]["omr_ned_error"].startswith("Zero")
+    assert rows[ids[0]]["omr_ned"] != ""
+
+
+def test_without_musicdiff_the_build_stops_and_writes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sin el extra de métricas no hay OMR-NED que registrar: es un error (CLAUDE.md §8.1)."""
+    manifest = _sample(tmp_path, {"000000001-1_1_1": _GOOD})
+    _exp12_split(common.RESULTS_DIR, [])
+
+    def missing(pred: Path, truth: Path) -> Any:
+        raise MetricsExtraMissing("falta musicdiff")
+
+    monkeypatch.setattr(external_corpus, "omr_ned_pair", missing)
+    with pytest.raises(MetricsExtraMissing):
+        exp_18.build(manifest)
+    assert not (common.RESULTS_DIR / "camera_primus_correction_corpus.jsonl").exists()
