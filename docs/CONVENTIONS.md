@@ -170,5 +170,7 @@ Las puertas de un cambio de código, con `uv run --no-sync python scripts/puerta
 - **Solo `apps/web`**, sin tocar `types.ts`: `--solo lint,format:check,test,build` (~3 min).
 - **Las dos**, el contrato (`openapi.json` y `types.ts`, cuya sincronía comprueba `pytest`) o las dependencias de la web: todas, sin `--solo` (~6 min). Con `Dockerfile*`, el compose o `deploy/`, conviene además `--docker`.
 
+Un **cambio mínimo** (decisión del responsable del 2026-11-19, [#434](https://github.com/sebdavid3/Cadenza/issues/434)) no pasa `puertas.py`: hasta unas 30 líneas sin contar las pruebas, sin tocar la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas ni las dependencias. Basta con `uv run --no-sync ruff check <archivos>`, `uv run --no-sync black --check <archivos>` y `uv run --no-sync pytest <pruebas del paquete tocado>` en Python, o `npm run lint` y `npx vitest related --run <archivos>` en la web, y en el PR una línea con lo que se corrió. TDD solo en un fallo, que se reproduce antes con un test. La suite completa (`puertas.py` sin `--solo`) se pasa una vez sobre la punta de `dev` antes de desplegar.
+
 Si falla una puerta, se repite solo esa (`--solo`). No se comitea a mitad de una pasada: `puertas.py` lo detecta como «árbol sin cambios» en rojo.
 
