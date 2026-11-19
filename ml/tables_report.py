@@ -70,7 +70,10 @@ USUAL_CLEF_LINE = {"G": "2", "F": "4"}
 """La clave de sol en 2.ª y la de fa en 4.ª se nombran sin la línea, como se dice siempre."""
 REAL_TESTS = "pruebas"
 """El único grupo que se separa (#418): las sesiones de las pruebas reales de Cadenza, las de las
-cuentas del registro público (`partituras.origen = registro`)."""
+cuentas del registro público (`partituras.origen = registro`). Las fuentes (PrIMuS,
+Camera-PrIMuS, Cadenza) no se separan: cada partitura dice la suya en el historial (#421)."""
+SOURCE_NAMES = {"primus": "PrIMuS", "camera-primus": "Camera-PrIMuS", "cadenza": "Cadenza"}
+"""El nombre de cada fuente en el informe. Una que no está aquí se nombra por su `source`."""
 _TOKEN_BEATS = re.compile(r":([^:\s~]+)~?$")
 
 
@@ -168,10 +171,14 @@ def _is_real_test(row: Row) -> bool:
     return row["source"] == "cadenza" and row.get("origen") == "registro"
 
 
+def source_name(source: str) -> str:
+    return SOURCE_NAMES.get(source, source)
+
+
 def _origin_label(row: Row) -> str:
     """De dónde sale una partitura, para la tabla de las que más se corrigen."""
     if row["source"] != "cadenza":
-        return "PrIMuS"
+        return source_name(row["source"])
     return {"registro": "Prueba real", "estudio": "Banco del estudio"}.get(
         row.get("origen", ""), "Equipo"
     )
@@ -238,7 +245,8 @@ def _score_label(row: Row) -> str:
         if row["test_score_id"]:
             return f"{row['test_score_id']} · sesión {short}"
         return f"Sesión {short}"
-    return row["incipit_id"]
+    # El incipit sin la fuente (`camera-primus:<id>` → `<id>`): su origen ya la dice.
+    return row["incipit_id"].removeprefix(f"{row['source']}:")
 
 
 def _event(kind: str, pitch: str, beats: str, *, hidden: bool = False) -> str:
@@ -733,10 +741,13 @@ def report_data(folder: Path) -> dict[str, Any]:
         for skip in (False, True)
     }
     sessions = session_strips(folder, tables["partituras"])
-    sources = Counter(r["source"] for r in tables["partituras"])
+    by_source = Counter(r["source"] for r in tables["partituras"])
+    counts = {"primus": by_source["primus"], "cadenza": by_source["cadenza"], "real": len(real)}
+    # Las demás fuentes, solo si están: un informe de Cadenza o de PrIMuS no cambia.
+    counts.update({s: n for s, n in by_source.items() if s not in counts})
     return {
         "groups": [name for name in groups if name != "todas"],
-        "counts": {"primus": sources["primus"], "cadenza": sources["cadenza"], "real": len(real)},
+        "counts": counts,
         "variants": variants,
         "sessions": sessions,
         "figures": figures(tables, sessions),

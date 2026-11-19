@@ -9,6 +9,7 @@ manuscritos históricos) queda fuera.
 from __future__ import annotations
 
 import copy
+import functools
 import itertools
 import re
 import threading
@@ -138,8 +139,12 @@ _SCORE_PART_HEAD: Final[frozenset[str]] = frozenset(
 )
 
 
+@functools.cache
 def _register_converters() -> None:
-    """Registra los importadores de MEI/**kern de converter21 si está instalado."""
+    """Registra los importadores de MEI/**kern de converter21 si está instalado, una sola vez
+    por proceso: `converter21.register()` los vuelve a añadir en cada llamada, y music21 recorre
+    la lista entera en cada lectura, así que leer miles de partituras se frenaba sin límite
+    (#421)."""
 
     try:
         import converter21

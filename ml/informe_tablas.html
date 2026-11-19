@@ -265,8 +265,8 @@ table.measures td .tok { font-size: 0.875rem; padding: 0 4px; }
     <div class="head"><h2>Dónde y cómo falla</h2></div>
     <section class="panel">
       <h3>Qué pasó con cada nota leída</h3>
-      <p class="small">Cada nota o silencio que leyó HOMR, comparado con la partitura correcta: en PrIMuS, la de
-      referencia; en Cadenza, la que dejó quien corrigió. Las notas que HOMR no leyó no están aquí: salen en «Qué se corrige».</p>
+      <p class="small">Cada nota o silencio que leyó HOMR, comparado con la partitura correcta: en PrIMuS y
+      Camera-PrIMuS, la de referencia; en Cadenza, la que dejó quien corrigió. Las notas que HOMR no leyó no están aquí: salen en «Qué se corrige».</p>
       <div class="defs" id="outcome-legend"></div>
       <div id="outcome"></div>
     </section>
@@ -949,6 +949,15 @@ if (DATA.counts.primus) about.push(`<section><h2>PrIMuS</h2><p>«Printed Images 
   público de 87.678 comienzos (incipits) de obras reales del catálogo RISM, cada uno con su imagen impresa y su partitura correcta.
   Aquí hay ${plural(DATA.counts.primus, "incipit", "incipits")}: HOMR leyó cada imagen y lo que leyó se compara con su partitura correcta.
   <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a></p></section>`);
+if (DATA.counts["camera-primus"]) about.push(`<section><h2>Camera-PrIMuS</h2><p>Los mismos incipits de PrIMuS
+  (Calvo-Zaragoza y Rizo, 2018), con la imagen distorsionada a propósito para que parezca una foto hecha con una cámara:
+  ondulada, desenfocada, cortada o con otro contraste. Las distorsiones son de ordenador, no fotos reales, pero se parece
+  más a lo que se sube a Cadenza que la imagen limpia de PrIMuS.
+  Aquí hay ${plural(DATA.counts["camera-primus"], "incipit", "incipits")}, elegidos al azar: HOMR leyó la imagen distorsionada
+  y lo que leyó se compara con la misma partitura correcta que en PrIMuS. Un incipit puede salir en los dos corpus, cada uno
+  con su imagen. Las imágenes en que HOMR no encontró el pentagrama, o cuya lectura no se pudo comparar, no están aquí:
+  con la imagen distorsionada son muchas más que en PrIMuS, y su número está en el resumen del experimento
+  (<code>camera_primus_correction_corpus_summary.json</code>). <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a></p></section>`);
 if (DATA.counts.cadenza) about.push(`<section><h2>Cadenza</h2><p>${plural(DATA.counts.cadenza, "sesión", "sesiones")} de la plataforma${DATA.counts.real ? `, ${fmt(DATA.counts.real)} de las pruebas reales (cuentas del registro público)` : ""}:
   alguien subió la foto, HOMR la leyó y la persona la corrigió. Aquí, lo correcto es lo que dejó al corregir.</p></section>`);
 document.getElementById("about").innerHTML = about.join("");
