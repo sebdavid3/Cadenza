@@ -1167,7 +1167,9 @@ class HomrErrorExampleRead(BaseModel):
     staff: str = Field(..., description="`parte-pentagrama`, desde 0.")
     kind: Literal["change", "extra", "missing"] = Field(
         ...,
-        description="`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó).",
+        description=(
+            "`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó)."
+        ),
     )
     read: str = Field(..., description="Lo que leyó HOMR, en palabras; vacío en `missing`.")
     fix: str = Field(..., description="Lo correcto, en palabras; vacío en `extra`.")
@@ -1239,8 +1241,8 @@ class HomrErrorStatsValuesRead(BaseModel):
     example_keys: dict[str, list[int]] | None = Field(
         default=None,
         description=(
-            "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`,"
-            " `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
+            "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra:"
+            " `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
         ),
     )
     bars: dict[str, DrawnBarRead] | None = Field(
