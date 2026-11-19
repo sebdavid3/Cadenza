@@ -340,7 +340,7 @@ def export_tables_command(args: argparse.Namespace) -> int:
                 consent=consent,
             )
             if args.recortes:
-                store = FilesystemArtifactStore(artifacts, db)
+                store = FilesystemArtifactStore(Path(str(artifacts)), db)
                 strip_rows, strip_sessions, strips_left_out = _database_strips(
                     tables, sessions, edits, store, output, args.laminas
                 )
