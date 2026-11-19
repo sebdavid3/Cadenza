@@ -41,15 +41,16 @@ import {
   pct,
   perHundred,
   plural,
-  REFRESH_MS,
   shownGroups,
   STRONG_ALPHA,
   stepName,
   whenText,
 } from "./stats";
 
-// La página pública con los errores de HOMR, en vivo (#424, `/errores-de-homr`): las cifras de
-// conjunto que sirve `GET /stats/homr-errors` (#423, ADR-0073). Ni fotos ni nada de una partitura
+// La página pública con los errores de HOMR (#424, `/errores-de-homr`): las cifras de conjunto
+// que sirve `GET /stats/homr-errors` (#423, ADR-0073), pedidas una vez al entrar. No se presenta
+// como algo en vivo (#453): las pruebas con público se hacen una vez y los corpus se calculan una
+// vez. Ni fotos ni nada de una partitura
 // de usuario. Tiene su propia vista, enlazada desde la cabecera: no va en la portada. Se compone
 // como el informe local (#418, `ml/informe_tablas.html`): bandas con su cabecera invertida, una
 // barra fija con el grupo, paneles separados por filetes y un rótulo al pasar sobre cada cifra.
@@ -64,44 +65,31 @@ interface StatsState {
   failed: boolean;
 }
 
-/** Las cifras, pedidas al entrar, cada `refreshMs` mientras la pestaña se ve y al volver a una
- * pestaña que lleva oculta más de eso. Un fallo deja las últimas que llegaron. */
-function useHomrErrorStats(load: StatsLoader, refreshMs: number): StatsState {
+/** Las cifras, pedidas una vez al entrar. Si fallan, `retry` las vuelve a pedir. */
+function useHomrErrorStats(load: StatsLoader): StatsState & { retry: () => void } {
   const [state, setState] = useState<StatsState>({ data: null, failed: false });
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    let controller: AbortController | null = null;
-    let lastFetch = 0;
-    const fetchNow = () => {
-      lastFetch = Date.now();
-      controller?.abort();
-      const current = new AbortController();
-      controller = current;
-      load(current.signal).then(
-        (data) => {
-          if (!current.signal.aborted) setState({ data, failed: false });
-        },
-        () => {
-          if (!current.signal.aborted) setState((before) => ({ ...before, failed: true }));
-        },
-      );
-    };
-    fetchNow();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "hidden") fetchNow();
-    }, refreshMs);
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && Date.now() - lastFetch >= refreshMs) {
-        fetchNow();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
+    const controller = new AbortController();
+    load(controller.signal).then(
+      (data) => {
+        if (!controller.signal.aborted) setState({ data, failed: false });
+      },
+      () => {
+        if (!controller.signal.aborted) setState((before) => ({ ...before, failed: true }));
+      },
+    );
     return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-      controller?.abort();
+      controller.abort();
     };
-  }, [load, refreshMs]);
-  return state;
+  }, [load, attempt]);
+  return {
+    ...state,
+    retry: () => {
+      setState((before) => ({ ...before, failed: false }));
+      setAttempt((n) => n + 1);
+    },
+  };
 }
 
 // --- El rótulo al pasar -------------------------------------------------------------------------
@@ -159,17 +147,15 @@ function TipBox({ tip }: { tip: Tip | null }) {
 export function HomrErrorsPage({
   load = loadStats,
   loadScore = loadScoreDetail,
-  refreshMs = REFRESH_MS,
 }: {
   load?: StatsLoader;
   loadScore?: ScoreLoader;
-  refreshMs?: number;
 }) {
   useDocumentTitle("Errores de HOMR");
   return (
     <>
       <SiteHeader showSections={false} />
-      <HomrErrors load={load} loadScore={loadScore} refreshMs={refreshMs} />
+      <HomrErrors load={load} loadScore={loadScore} />
     </>
   );
 }
@@ -177,13 +163,11 @@ export function HomrErrorsPage({
 export function HomrErrors({
   load = loadStats,
   loadScore = loadScoreDetail,
-  refreshMs = REFRESH_MS,
 }: {
   load?: StatsLoader;
   loadScore?: ScoreLoader;
-  refreshMs?: number;
 }) {
-  const { data, failed } = useHomrErrorStats(load, refreshMs);
+  const { data, failed, retry } = useHomrErrorStats(load);
   const [chosen, setChosen] = useState<string | null>(null);
   const { tip, onPointerMove, onPointerLeave } = useTip();
   const groups = data ? shownGroups(data) : [];
@@ -202,9 +186,9 @@ export function HomrErrors({
     >
       <header className="homr__masthead">
         <div>
-          <p className="label homr__muted">Cifras de conjunto · se actualizan solas</p>
+          <p className="label homr__muted">Cifras de conjunto</p>
           <h1 id="homr-title" className="homr__page-title">
-            Errores de HOMR, en vivo
+            Errores de HOMR
           </h1>
           <p className="homr__lead">
             Qué notas lee mal HOMR y cómo se corrigen: con las correcciones de quienes usan Cadenza
@@ -218,19 +202,24 @@ export function HomrErrors({
               <>
                 Las de Cadenza, calculadas el{" "}
                 <span className="homr__num">{whenText(data.computed_at)}</span>.
-                <br />
-                Se actualizan solas cada 5 minutos.
               </>
             ) : (
-              "Las cifras de Cadenza aún no se han calculado. Se actualizan solas cada 5 minutos."
+              "Las cifras de Cadenza aún no se han calculado."
             )}
           </p>
         ) : (
-          <p className="homr__meta" role="status">
-            {failed
-              ? "Ahora no se pueden cargar las cifras. Se vuelve a intentar en unos minutos."
-              : "Cargando las cifras…"}
-          </p>
+          <div className="homr__meta" role="status">
+            {failed ? (
+              <>
+                <p>Ahora no se pueden cargar las cifras.</p>
+                <button type="button" className="homr__retry" onClick={retry}>
+                  Volver a intentarlo
+                </button>
+              </>
+            ) : (
+              <p>Cargando las cifras…</p>
+            )}
+          </div>
         )}
         <div className="homr__about">
           <section aria-labelledby="homr-about-homr">
