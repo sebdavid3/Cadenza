@@ -111,7 +111,9 @@ def measure_errors(records: Iterable[Mapping[str, Any]]) -> list[MeasureError]:
     """Las correcciones reales de cada compás: cada operación de cada registro.
 
     Cada edición que deriva `derive_edit_events` está en un registro del corpus y solo en
-    uno, así que son las mismas que usa `exp_06` (`evaluate_score_measures`).
+    uno, así que son las mismas que usa `exp_06` (`evaluate_score_measures`). Salvo en una voz
+    que se reescribe entera porque su alineación daba una edición que la API rechaza (#456):
+    sus borrados e inserciones no son los registros, que siguen la alineación.
     """
     errors: list[MeasureError] = []
     for record in records:

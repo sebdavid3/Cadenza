@@ -8,11 +8,14 @@ from .acquisition.hybrid import HybridAcquisition
 from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisition
 from .alignment import (
     EditDistribution,
+    InvalidDerivedEdit,
     align_voice_events,
+    check_edit,
     classify_pitch_change,
     count_edits_by_op,
     derive_edit_events,
     is_structurally_equal,
+    replay_edits,
     split_pitch,
 )
 from .config import JobConfig, compute_config_hash, load_job_config
@@ -94,6 +97,7 @@ __all__ = [
     "EvaluationMetrics",
     "FakeTrainer",
     "HybridAcquisition",
+    "InvalidDerivedEdit",
     "JobConfig",
     "MeasureEvaluationRecord",
     "MetricsExtraMissing",
@@ -117,6 +121,7 @@ __all__ = [
     "assign_split",
     "build_correction_records",
     "categorize_edit_op",
+    "check_edit",
     "classify_pitch_change",
     "compute_binary_metrics",
     "compute_config_hash",
@@ -139,6 +144,7 @@ __all__ = [
     "omr_ned_pair",
     "pitch_to_midi",
     "primus_work_id",
+    "replay_edits",
     "resolve_pitch_with_key_signature",
     "score_ser_pair",
     "score_to_symbol_sequence",

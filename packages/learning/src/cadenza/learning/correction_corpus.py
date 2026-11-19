@@ -237,10 +237,10 @@ def build_correction_records(
 ) -> list[dict[str, Any]]:
     """Registros del corpus de un incipit: uno por evento leído, inserción y compás.
 
-    `verified` dice si `materialize(predicted, derive_edit_events(...))` reproduce la
-    verdad: solo en ese caso las correcciones del incipit son etiquetas de confianza. Los
-    eventos de un compás leído de más no tienen verdad con que alinearse: van sin
-    corrección y con `aligned` falso.
+    `verified` dice si `replay_edits(predicted, derive_edit_events(...))` reproduce la
+    verdad (cada edición, válida para la API, #456): solo en ese caso las correcciones del
+    incipit son etiquetas de confianza. Los eventos de un compás leído de más no tienen
+    verdad con que alinearse: van sin corrección y con `aligned` falso.
     """
     records: list[dict[str, Any]] = []
 

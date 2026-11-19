@@ -3,7 +3,8 @@
 Construye el corpus con que aprende la capa de sugerencias (#256): HOMR transcribe unos
 2 000 incipits de PrIMuS elegidos al azar con semilla, sin solaparse con los 100 de
 `exp_03`, y de cada transcripción se derivan las correcciones del «corrector ideal»
-(`derive_edit_events`), verificadas con `materialize(predicho, ediciones) == verdad`.
+(`derive_edit_events`), verificadas con `replay_edits(predicho, ediciones) == verdad`, que
+valida cada una como la API (#456).
 
 La verdad es la altura que suena. El MEI de PrIMuS no codifica la alteración que impone la
 armadura (una nota en la línea de Si con tres bemoles es `pname="b"` sin `accid.ges`), así
@@ -49,7 +50,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
-from cadenza.domain import EventKind, KeySignature, ScoreIR, TimeSignature, materialize
+from cadenza.domain import EventKind, KeySignature, ScoreIR, TimeSignature
 from cadenza.interchange import read_score
 from cadenza.learning import (
     DEFAULT_TEST_FRACTION,
@@ -62,6 +63,7 @@ from cadenza.learning import (
     key_accidental,
     omr_ned_pair,
     primus_work_id,
+    replay_edits,
     semantic_note_pitches,
     split_pitch,
     with_sounding_pitches,
@@ -679,7 +681,7 @@ def build(
 
         try:
             edits = derive_edit_events(predicted, sounding, document_id=incipit)
-            verified = is_structurally_equal(materialize(predicted, edits), sounding)
+            verified = is_structurally_equal(replay_edits(predicted, edits), sounding)
         except (ValueError, IndexError) as exc:
             derive_errors[incipit] = f"{type(exc).__name__}: {exc}"
             row.update({"status": "derive_error", "error": derive_errors[incipit]})
