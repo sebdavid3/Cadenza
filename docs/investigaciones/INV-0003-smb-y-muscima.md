@@ -5,7 +5,7 @@
 - **Relacionado:** [ADR-0072](../adr/ADR-0072-smb-y-muscima-en-el-corpus-de-correcciones.md), [ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md), [ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md), [#255](https://github.com/sebdavid3/Cadenza/issues/255)
 - **Estado:** MUSCIMA++ medido (`exp_16`). SMB sin datos: el responsable decidió el 2026-11-19 no esperar su acceso restringido; `exp_17` queda listo y sin ejecutar.
 
-> Las cifras de la §4 son de la ejecución del 2026-11-19 con el commit a1b2b57 (`results/muscima_homr_summary.json`, sin versionar). Antes de citarlas hay que regenerarlas con la §6 (`CLAUDE.md` §8.4).
+> Las cifras de la §4 son de la ejecución del 2026-11-19 con el commit c73b608 (`results/muscima_homr_summary.json`, sin versionar). Antes de citarlas hay que regenerarlas con la §6 (`CLAUDE.md` §8.4).
 
 ---
 
@@ -77,7 +77,7 @@ Se convierten **24 de las 140 imágenes** (17,1 %), de 5 páginas de música: 01
 
 La verdad convertida es coherente:
 
-- de los 175 compases con indicación de compás anotada, **161 suman exactamente lo que pide (92,0 %)**; en los compases sin compás anotado, 647 de 701 (92,3 %) suman lo que suman más a menudo los de su página, una comprobación más débil que no ve un error repetido en todas las copias;
+- de los 175 compases con indicación de compás anotada, **161 suman exactamente lo que pide (92,0 %)**; en los compases sin compás anotado, 644 de 698 (92,3 %) que no son solo silencio suman lo que suman más a menudo los de su página, una comprobación más débil que no ve un error repetido en todas las copias;
 - entre las versiones de una misma página de copistas distintos (57 pares), la **SER media es 0,038** (mediana 0,039): por página, 0,044 en la 01, 0,041 en la 06, 0,032 en la 13 y 0,039 en la 15. Esa diferencia mezcla errores de copia, de anotación y de la conversión, y es más de diez veces menor que la de HOMR (§4.4).
 
 Un error que comparten todas las copias no lo ve ninguna de las dos comprobaciones: en la página 15, por ejemplo, los tresillos que solo marcan el primer grupo dejan sin anotar los siguientes (como en la partitura impresa, el resto se sobreentiende), y sus compases suman de más en todas las copias.
@@ -92,7 +92,7 @@ De las 24 imágenes convertidas, 23 se pueden comparar (la de W-44 en la página
 | OMR-NED | 0,707 | 0,726 | 0,719 |
 
 - **Compases:** HOMR lee el mismo número de compases que la verdad en **3 de 23 imágenes**; en 19 lee de más y en 1 de menos.
-- **Verificación:** ninguna de las 23 queda verificada (`materialize(predicho, correcciones) == verdad`). La derivación empareja los compases por su posición y no corrige cuántos hay, así que en las 20 imágenes con otro número de compases sus correcciones son, sobre todo, de alineación. El corpus (`results/muscima_correction_corpus.jsonl`, 5 031 registros) **no tiene etiquetas de confianza**: sirve para describir los errores, no para entrenar la capa de sugerencias.
+- **Verificación:** ninguna de las 23 queda verificada (`materialize(predicho, correcciones) == verdad`). La derivación empareja los compases por su posición y no corrige cuántos hay, así que en las 20 imágenes con otro número de compases sus correcciones son, sobre todo, de alineación: esas imágenes no entran en el corpus. El corpus (`results/muscima_correction_corpus.jsonl`) tiene los 567 registros de las 3 imágenes con los compases alineados, ninguna verificada: describe los errores, pero **no da etiquetas de confianza** para entrenar la capa de sugerencias.
 - **Correcciones del corrector ideal**, solo en las 3 imágenes con los compases alineados (W-31 de la página 01, W-36 y W-50 de la 15; 425 notas): 446 correcciones, **1,05 por nota**. Cambios de altura 57,2 %, de duración 21,7 %, inserciones 11,7 %, borrados 5,6 %, alteraciones 3,1 %, 2 claves y 1 armadura. Son tres imágenes de dos páginas: un indicio, no una distribución.
 - **Partición:** las 5 páginas convertidas caen en `train` con la semilla por defecto; el corpus no tiene `test`.
 
