@@ -424,7 +424,24 @@ su obra, sus compases y el sha256 de sus archivos), `run_info.json` (filtros, se
 su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
 `"simulated": false`) y `README.md`, la ficha del dataset
 (origen, licencias, permiso, partición y limitaciones). Columnas y uso en
-[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md).
+[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md); en producción,
+[`docs/infra/operacion_backend.md` §2.5](../docs/infra/operacion_backend.md).
+
+### Las cifras públicas de los errores de HOMR (`ml public-stats`, #423, ADR-0073)
+
+Calcula las cifras de conjunto de las correcciones con el código del informe (`aggregate`, sin
+ejemplos ni fotos) y las guarda en la tabla `public_stats`, de donde las sirve
+`GET /stats/homr-errors`. Lee la base en solo lectura y cuenta las sesiones finalizadas del equipo
+y de las cuentas del registro con el permiso vigente (#422); los grupos `cadenza` y `pruebas` solo
+se publican con 5 sesiones de 3 cuentas o más. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS
+de `exp_12` como `primus.jsonl`) se calcula una vez y solo se repite si cambia el archivo.
+
+```powershell
+uv run --no-sync python -m ml public-stats --db-url <url> [--corpus-dir <carpeta>] [--every 300]
+```
+
+Sin `--every`, calcula una vez. En producción lo ejecuta el servicio `stats` del compose
+(`python -m ml.public_stats`, imagen `Dockerfile.stats`, `docs/infra/operacion_backend.md` §2.4).
 
 ### Encadenamiento y trazabilidad de artefactos
 

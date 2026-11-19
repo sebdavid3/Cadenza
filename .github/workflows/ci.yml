@@ -139,6 +139,12 @@ jobs:
           docker run --rm --entrypoint pg_dump cadenza-backup:ci --version
           docker run --rm cadenza-backup:ci --help
 
+      # Las cifras públicas de los errores de HOMR, sin HOMR ni GPU (#423, ADR-0073)
+      - name: Construir la imagen de las cifras públicas
+        run: |
+          docker build -f Dockerfile.stats -t cadenza-stats:ci .
+          docker run --rm cadenza-stats:ci --help
+
       # Valores generados al vuelo: el compose exige los secretos, pero aquí no se usan.
       - name: Validar el compose de producción
         run: |

@@ -259,6 +259,15 @@ class Settings(BaseSettings):
             "memoria por (sesión, seq); 0 los desactiva (#275, ADR-0037)."
         ),
     )
+    stats_cache_seconds: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
+        description=(
+            "Cuánto guarda la API en memoria la respuesta de GET /stats/homr-errors antes de "
+            "volver a leer la base, en segundos; 0 la lee cada vez (#423, ADR-0073)."
+        ),
+    )
     omr_meter_features: str = Field(
         default="numerator,symbol,implicit_tuplets",
         description=(

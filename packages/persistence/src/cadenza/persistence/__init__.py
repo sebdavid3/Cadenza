@@ -22,12 +22,14 @@ from .models import (
     ImmutableEditEventError,
     ModelVersionRecord,
     PreviewRecord,
+    PublicStatsRecord,
     Session,
     SuggestionModelVersionRecord,
     SuggestionRecord,
     UserRecord,
 )
 from .preview_repository import SqlAlchemyPreviewRepository
+from .public_stats_repository import SqlAlchemyPublicStatsRepository
 from .repository import EditEventRepository, SqlAlchemyEditEventRepository
 from .session_repository import SqlAlchemySessionRepository
 from .suggestion_model_registry import SqlAlchemySuggestionModelRegistry
@@ -44,12 +46,14 @@ __all__ = [
     "ImmutableEditEventError",
     "ModelVersionRecord",
     "PreviewRecord",
+    "PublicStatsRecord",
     "Session",
     "SessionFactory",
     "SqlAlchemyEditEventRepository",
     "SqlAlchemyEffortRepository",
     "SqlAlchemyModelRegistry",
     "SqlAlchemyPreviewRepository",
+    "SqlAlchemyPublicStatsRepository",
     "SqlAlchemySessionRepository",
     "SqlAlchemySuggestionModelRegistry",
     "SqlAlchemyUserRepository",

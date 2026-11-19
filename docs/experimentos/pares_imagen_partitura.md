@@ -19,6 +19,8 @@ uv run --no-sync python -m ml export-pairs --output-dir <carpeta> `
   [--exclude-self-registered]
 ```
 
+- En producción, el procedimiento entero (la copia, la imagen con que se ejecuta, la orden y cómo
+  se saca la salida) está en [`operacion_backend.md` §2.5](../infra/operacion_backend.md#25-exportar-los-pares-para-entrenar-un-lector-420-adr-0071).
 - `--split-seed` es obligatoria: es la semilla de la partición de #255 (la de
   `correction_corpus_split.json`), la misma de `ml export-tables` y de la capa de sugerencias.
   Pero la obra no es la misma: aquí las sesiones que comparten partitura de prueba o foto son

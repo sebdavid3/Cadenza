@@ -627,6 +627,7 @@ Reglas de la capa:
 | `AcquisitionStrategy` | `select(candidates, budget) -> list[TrainingSample]` | Incertidumbre, diversidad, híbrida |
 | `Trainer` | `train(samples, config) -> TrainedArtifact` | `FakeTrainer`, que exige las métricas y marca el resultado como simulado (`PyTorchTrainer` retirado en [#271](https://github.com/sebdavid3/Cadenza/issues/271)) |
 | `ModelRegistry` | `register`, `promote`, `active`, `versions` | En memoria (pruebas), SQLAlchemy |
+| `PublicStatsRepository` | `list`, `replace(source, groups)` | En memoria (pruebas), SQLAlchemy: las cifras públicas de los errores de HOMR que escribe el plano offline y lee la API ([ADR-0073](adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)) |
 
 ### 6.3 Funciones puras del dominio
 
@@ -659,12 +660,13 @@ Reglas de la capa:
 | `GET` | `/sessions/{id}/export?format=musicxml\|midi` | `export_score` |
 | `GET` | `/sessions/{id}/timing` | `get_timing` |
 | `POST` | `/sessions/{id}/effort` | `record_effort` |
+| `GET` | `/stats/homr-errors` | cifras de conjunto públicas de los errores de HOMR, leídas de `public_stats` y con caché ([ADR-0073](adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)) |
 | `GET` | `/health` | comprobación de salud y dependencias (#40, D44, ADR-0015) |
 | `GET` | `/version` | versión de contrato de API y aplicación |
 
 
 Todos los endpoints exigen un token de acceso (`Authorization: Bearer`), salvo
-`/auth/login`, `/auth/register`, `/health` y `/version`. El contrato se publica como OpenAPI y de él se generan los tipos
+`/auth/login`, `/auth/register`, `/stats/homr-errors`, `/health` y `/version`. El contrato se publica como OpenAPI y de él se generan los tipos
 TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos.
 
 ### 6.5 Jobs del plano offline (CLI en `ml/`)
@@ -677,6 +679,7 @@ TypeScript del frontend. La inferencia OMR se ejecuta fuera del bucle de eventos
 | `evaluate` | Calcula SER y OMR-NED contra el corpus de evaluación. |
 | `promote` | Registra la versión y la activa solo si supera el umbral. |
 | `run` | Ejecuta el pipeline completo de punta a punta de forma encadenada. |
+| `public-stats` | Calcula las cifras públicas de los errores de HOMR con el código del informe local y las guarda en `public_stats`; en producción, el servicio `stats` cada 5 minutos ([ADR-0073](adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)). |
 
 ---
 
@@ -748,6 +751,7 @@ job `build-dataset` las deriva del log.
 | `effort_metrics` | `id`, `session_id`, `duration_ms`, `time_to_first_edit_ms`, `interventions` (JSONB), `accumulated`, `segments` (JSONB), `interventions_by_class` (JSONB), contadores de descartes, restauraciones y sugerencias, `created_at`, `updated_at` | Esfuerzo de corrección por sesión: un solo registro acumulado por sesión, por tramos de tiempo visible ([#188](https://github.com/sebdavid3/Cadenza/issues/188), ADR-0050). |
 | `artifacts` | `sha256` (PK), `kind`, `media_type`, `size_bytes`, `path`, `created_at` | Índice del `ArtifactStore`. |
 | `model_versions` | `version` (PK), `artifact_hash` → `artifacts`, `dataset_hash`, `config_hash`, `ser`, `omr_ned`, `promoted`, `created_at` | *Model Registry* persistente. |
+| `public_stats` | `id` (PK), `source`, `computed_at`, `format_version`, `min_sessions`, `sessions`, `source_sha256`, `stats` (JSONB) | Las cifras de conjunto públicas de los errores de HOMR, una fila por grupo (`cadenza`, `pruebas` o un corpus), que escribe el servicio `stats` y sirve `GET /stats/homr-errors` (migración 0019, [ADR-0073](adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)). Datos derivados: se rehacen en cada cálculo. |
 | `previews` | `id`, `token_hash`, `document` (JSONB), `image` (BYTEA), `image_media_type`, `title`, `composer`, `part_instruments` (JSONB), `source_filename`, `created_at`, `expires_at` | Transcripciones sin cuenta ([#278](https://github.com/sebdavid3/Cadenza/issues/278), [ADR-0054](adr/ADR-0054-transcribir-sin-cuenta-desde-la-portada.md)): sin dueño ni sesión, con el SHA-256 del token de un solo uso; caducan a la hora y, al reclamarlas, pasan a ser una sesión. Apagadas por defecto. |
 
 ```mermaid
@@ -845,6 +849,7 @@ bitácora están en [`PROJECT_STATE.md`](PROJECT_STATE.md).
 |---|---|---|---|
 | Aplicación | Casos de uso en `packages/application` | Implementado: `packages/application` con `transcribe_score`, `get_session`, `append_edit`, `list_findings`, puertos `SessionRepository` y `EditEventRepository` | [#7](https://github.com/sebdavid3/Cadenza/issues/7) |
 | Aprendizaje | Pares de imagen de pentagrama y secuencia corregida para reentrenar el reconocimiento (D14, #103) | Toma de datos implementada: cada transcripción guarda la captura de HOMR (cajas de los pentagramas, recorte del papel, sistemas y MusicXML de cada lectura) y `ml export-staves` recorta cada pentagrama de la foto y lo empareja con sus compases leídos y corregidos ([ADR-0067](adr/ADR-0067-captura-de-homr-y-recortes-de-los-pentagramas.md)); `ml export-tables --recortes` da esas tiras junto a las tablas de los errores de HOMR, unidas por compás ([ADR-0068](adr/ADR-0068-tablas-y-recortes-en-una-sola-exportacion.md)); `ml export-pairs` da los pares de cada tira en PNG y MusicXML (leído y corregido) con la partición fija por obra y la ficha del dataset ([ADR-0071](adr/ADR-0071-pares-imagen-partitura-para-entrenar-un-lector.md)). El reentrenamiento sigue pendiente | [#403](https://github.com/sebdavid3/Cadenza/issues/403), [#420](https://github.com/sebdavid3/Cadenza/issues/420), [#103](https://github.com/sebdavid3/Cadenza/issues/103) |
+| Aprendizaje | Las cifras de los errores de HOMR a la vista de cualquiera | Implementado: el servicio `stats` recalcula cada 5 minutos, con el código del informe local y leyendo la base en solo lectura, las cifras de conjunto de las correcciones (sin fotos, ejemplos, cuentas ni títulos) y las de PrIMuS, y `GET /stats/homr-errors` las sirve sin cuenta desde `public_stats` ([ADR-0073](adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)); la portada que las enseña es [#424](https://github.com/sebdavid3/Cadenza/issues/424) | [#423](https://github.com/sebdavid3/Cadenza/issues/423) |
 | Dominio | `ScoreIR` con clave, armadura y ligaduras | Implementado: `Clef`, `KeySignature` y `Tie` en `ScoreIR` (ADR-0010), round-trip en `packages/interchange` | [#2](https://github.com/sebdavid3/Cadenza/issues/2) |
 | Dominio | Marcas de notación en el `ScoreIR` (articulaciones, calderones, ligaduras de expresión, dinámicas y reguladores) | Implementado: atributos del evento y del compás, sin cambiar las anclas, leídos del MusicXML (los reguladores, del propio XML) y escritos al exportar; deshacer un borrado los devuelve; las métricas de los experimentos no cambian ([ADR-0031](adr/ADR-0031-marcas-de-notacion-en-el-score-ir.md)). Añadirlas y quitarlas desde la web, [#214](https://github.com/sebdavid3/Cadenza/issues/214); el volumen según las dinámicas, [#215](https://github.com/sebdavid3/Cadenza/issues/215) | [#213](https://github.com/sebdavid3/Cadenza/issues/213) |
 | Dominio | Las siete operaciones de edición son proyectables | Implementado: proyección determinista de las siete operaciones de `EditOp` (incluyendo `SetClef`, `SetKey` y semántica propia de `SetAccidental`) | [#3](https://github.com/sebdavid3/Cadenza/issues/3) |

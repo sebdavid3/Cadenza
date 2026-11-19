@@ -1,6 +1,6 @@
 # ADR-0069: El informe visual de los errores de HOMR
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Su alternativa «una vista en la web» la revisa [ADR-0073](ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md): las cifras de conjunto, sin fotos, se publican en vivo
 - **Fecha:** 2026-11-12
 - **Decisores:** Responsable del proyecto (pidió el 2026-11-12 una forma de ver los datos de la toma sin abrir pandas ni una hoja de cálculo) y Equipo de Desarrollo
 - **Relacionado:** [ADR-0068](ADR-0068-tablas-y-recortes-en-una-sola-exportacion.md), [#400](https://github.com/sebdavid3/Cadenza/issues/400), [#414](https://github.com/sebdavid3/Cadenza/issues/414), [#415](https://github.com/sebdavid3/Cadenza/issues/415)
