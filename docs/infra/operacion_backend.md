@@ -474,7 +474,7 @@ ssh r2d2 'mkdir -p /opt/docker/cadenza/data/stats-corpus'
 scp results/correction_corpus.jsonl r2d2:/opt/docker/cadenza/data/stats-corpus/primus.jsonl
 ```
 
-El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS, MUSCIMA++ y SMB, cuando tengan corpus, entran igual (`camera-primus.jsonl`…), y quitar un archivo quita su grupo. Se salta con un aviso (`public_stats_corpus_skipped`), sin parar las cifras en vivo: un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, un archivo que no se puede leer y un corpus con sesiones de Cadenza (el de `ml suggestions build-dataset`: sus sesiones saldrían sin el mínimo).
+El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS ([#421](https://github.com/sebdavid3/Cadenza/issues/421)), cuando tenga corpus, entra igual (`camera-primus.jsonl`), y quitar un archivo quita su grupo. Se salta con un aviso (`public_stats_corpus_skipped`), sin parar las cifras en vivo: un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, un archivo que no se puede leer y un corpus con sesiones de Cadenza (el de `ml suggestions build-dataset`: sus sesiones saldrían sin el mínimo).
 
 El servicio carga en memoria las tablas de todas las sesiones en cada cálculo. Si la base crece hasta pasar su tope de 1 GiB, el contenedor muere (`docker inspect` dice `OOMKilled`) y se reinicia sin afectar a la API: se sube `mem_limit` o se para el servicio.
 
