@@ -1,4 +1,4 @@
-// Las cifras de los errores de HOMR de la portada (#424): lo que se calcula sobre lo que publica
+// Las cifras de la página de los errores de HOMR (#424, `/errores-de-homr`): lo que se calcula sobre lo que publica
 // `GET /stats/homr-errors` (#423, ADR-0073). Son las del informe local (#418, ADR-0069), sin sus
 // ejemplos: ni fotos ni nada de una partitura de usuario.
 
@@ -15,6 +15,12 @@ export const REFRESH_MS = 5 * 60 * 1000;
 
 /** Notas que necesita un grupo de contexto para salir en «Lo que dicen los datos». */
 export const MIN_HEADLINE = 200;
+
+/** El mínimo de sesiones de un grupo de Cadenza si la API aún no lo ha dicho (ADR-0073 §5). */
+export const DEFAULT_MIN_SESSIONS = 5;
+
+/** Cuentas distintas que necesita un grupo de Cadenza (ADR-0073 §5); la API no lo publica. */
+export const MIN_ACCOUNTS = 3;
 
 /** Filas por página en las listas de «Dónde se equivoca más». */
 export const PAGE_SIZE = 8;
@@ -80,10 +86,13 @@ const NUMBER = new Intl.NumberFormat("es");
 
 export const fmt = (n: number): string => NUMBER.format(n);
 
+/** Un porcentaje, con espacio fino que no parte la línea antes de «%»; una parte no nula que se
+ * redondearía a cero sale como «< 0,1 %». */
 export function pct(part: number, total: number, digits = 1): string {
   if (!total) return "—";
   const value = (100 * part) / total;
-  return `${value.toLocaleString("es", { maximumFractionDigits: digits })} %`;
+  if (part > 0 && value < 0.1) return "< 0,1\u00a0%";
+  return `${value.toLocaleString("es", { maximumFractionDigits: digits })}\u00a0%`;
 }
 
 /** Cuántas por cada 100 notas leídas, sin que una corrección rara se lea «0». */
@@ -168,9 +177,10 @@ export const OUTCOMES: readonly Outcome[] = [
 export function stepName(step: number): string {
   if (step === 0) return "la misma línea o espacio (solo cambió la alteración)";
   const n = Math.abs(step);
+  const count = n === 8 ? "8 o más" : String(n);
   const unit = n === 1 ? "línea o espacio" : "líneas o espacios";
-  const extra = n === 7 ? " (una octava)" : n === 8 ? " o más" : "";
-  return `${String(n)} ${unit} ${step > 0 ? "más arriba" : "más abajo"}${extra}`;
+  const octave = n === 7 ? " (una octava)" : "";
+  return `${count} ${unit} ${step > 0 ? "más arriba" : "más abajo"}${octave}`;
 }
 
 // --- Lo que dicen los datos ------------------------------------------------------------------------
@@ -180,8 +190,9 @@ export interface Finding {
   big: string;
   /** La frase que la explica. */
   text: string;
-  /** La duración (en negras) de la figura de la que habla, para dibujar su símbolo. */
-  figure?: string;
+  /** La figura de la que habla: su duración en negras, para dibujar su símbolo junto a su
+   * nombre (`label`), que está en `text`. */
+  figure?: { beats: string; label: string };
   kicker: string;
 }
 
@@ -207,13 +218,13 @@ export function findings(stats: HomrErrorStatsValuesRead): Finding[] {
     out.push({
       big: pct(figure.wrong, figure.n, 0),
       text: `de las notas leídas como ${figure.label} tienen alguna corrección (${fmt(figure.wrong)} de ${fmt(figure.n)}): es la figura que peor lee.`,
-      figure: figure.key.slice("readdur:".length),
+      figure: { beats: figure.key.slice("readdur:".length), label: figure.label },
       kicker: "Figura leída",
     });
   }
   const against = stats.by_vs_key.find((r) => r.key === "vs:against_key");
   const inKey = stats.by_vs_key.find((r) => r.key === "vs:in_key");
-  if (against && inKey) {
+  if (against && inKey && against.n >= MIN_HEADLINE && inKey.n >= MIN_HEADLINE) {
     out.push({
       big: pct(against.wrong, against.n, 0),
       text: `de las notas con una alteración contra la armadura se corrigen (${fmt(against.wrong)} de ${fmt(against.n)}), frente al ${pct(inKey.wrong, inKey.n, 0)} de las que van según la armadura.`,
@@ -274,7 +285,14 @@ export function durationMatrix(durations: DurationChangeRead[]): DurationMatrix 
   };
 }
 
+/** Hasta esta opacidad, el número de la celda va en tinta; desde `STRONG_ALPHA`, en papel. Entre
+ * las dos, ninguno de los dos llega a 4,5:1 sobre el violeta: ninguna celda cae ahí. */
+const INK_TEXT_MAX = 0.78;
+export const STRONG_ALPHA = 0.9;
+
 /** La opacidad del violeta de una celda de la matriz: cuanto más violeta, más casos (#418). */
 export function cellAlpha(n: number, max: number): number {
-  return 0.12 + 0.88 * Math.sqrt(n / max);
+  const alpha = 0.12 + 0.88 * Math.sqrt(n / max);
+  if (alpha <= INK_TEXT_MAX || alpha >= STRONG_ALPHA) return alpha;
+  return alpha < (INK_TEXT_MAX + STRONG_ALPHA) / 2 ? INK_TEXT_MAX : STRONG_ALPHA;
 }

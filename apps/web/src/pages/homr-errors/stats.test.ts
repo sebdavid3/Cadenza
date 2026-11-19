@@ -22,12 +22,15 @@ describe("las cifras de los errores de HOMR", () => {
       "Alteración y armadura",
       "Clave",
     ]);
-    expect(facts[0]).toMatchObject({ big: "9 %" });
+    expect(facts[0]).toMatchObject({ big: "9\u00a0%" });
     expect(facts[0]?.text).toContain("tenían mal la figura");
     // La figura que peor lee se nombra y se dibuja: nunca la fracción.
-    expect(facts[1]).toMatchObject({ big: "40 %", figure: "1/4" });
+    expect(facts[1]).toMatchObject({
+      big: "40\u00a0%",
+      figure: { beats: "1/4", label: "semicorchea" },
+    });
     expect(facts[1]?.text).toContain("leídas como semicorchea");
-    expect(facts[2]?.text).toContain("frente al 15 %");
+    expect(facts[2]?.text).toContain("frente al 15\u00a0%");
     for (const fact of facts) expect(fact.text).not.toMatch(/\d+\/\d+/);
   });
 
@@ -36,12 +39,16 @@ describe("las cifras de los errores de HOMR", () => {
       values({
         by_duration: [rate("readdur:1/4", "semicorchea", 150, 120)],
         by_clef: [rate("clef:C3", "clave de do en 3.ª", 120, 60)],
-        by_vs_key: [],
+        // 35 notas contra la armadura: un porcentaje de tan pocas no sale como titular.
+        by_vs_key: [
+          rate("vs:against_key", "contra la armadura", 35, 20),
+          rate("vs:in_key", "según la armadura", 900, 90),
+        ],
       }),
     );
 
     expect(facts.map((f) => f.kicker)).toEqual(["Qué se corrige", "Sin errores"]);
-    expect(facts[1]?.big).toBe("25 %");
+    expect(facts[1]?.big).toBe("25\u00a0%");
   });
 
   it("enseña solo los grupos publicados y avisa si Cadenza aún no lo está", () => {
@@ -58,7 +65,9 @@ describe("las cifras de los errores de HOMR", () => {
     expect(stepName(0)).toContain("solo cambió la alteración");
     expect(stepName(-7)).toBe("7 líneas o espacios más abajo (una octava)");
     expect(stepName(1)).toBe("1 línea o espacio más arriba");
-    expect(pct(1, 3)).toBe("33,3 %");
+    expect(stepName(8)).toBe("8 o más líneas o espacios más arriba");
+    expect(pct(1, 3)).toBe("33,3\u00a0%");
+    expect(pct(1, 5000)).toBe("< 0,1\u00a0%");
     expect(pct(1, 0)).toBe("—");
   });
 
@@ -73,5 +82,10 @@ describe("las cifras de los errores de HOMR", () => {
     expect(beatsValue("3/4")).toBe(0.75);
     expect(cellAlpha(40, 40)).toBeCloseTo(1);
     expect(cellAlpha(1, 40)).toBeGreaterThan(0.12);
+    // Ninguna celda entre 0,78 y 0,9: ni la tinta ni el papel llegarían a 4,5:1.
+    for (let n = 1; n <= 400; n++) {
+      const alpha = cellAlpha(n, 400);
+      expect(alpha <= 0.78 || alpha >= 0.9).toBe(true);
+    }
   });
 });

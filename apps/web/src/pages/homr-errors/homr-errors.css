@@ -1,9 +1,11 @@
-/* Los errores de HOMR, en vivo (#424): su propia vista pública, con las cifras del informe (#418).
-   Las cifras van siempre en Hanken Grotesk (en el bitmap, «50 %» se leía «80 %»); los titulares y
-   rótulos, en bitmap. El violeta solo en la matriz de figuras: cuanto más, más casos. */
+/* Los errores de HOMR, en vivo (#424): su propia vista pública, compuesta como el informe local
+   (#418, ml/informe_tablas.html) con los tokens de la web. Bandas con su cabecera invertida, una
+   barra fija con el grupo, paneles separados por filetes y un rótulo de tinta al pasar. Las cifras
+   van siempre en Hanken Grotesk (en el bitmap, «50 %» se leía «80 %»); los titulares y rótulos,
+   en bitmap. El violeta, solo en la matriz de figuras: cuanto más, más casos. */
 
 .homr {
-  padding: var(--space-8) var(--gutter) var(--space-9);
+  border-bottom: var(--rule);
 }
 
 .homr ul,
@@ -13,54 +15,78 @@
   list-style: none;
 }
 
-.homr__intro {
+.homr__muted {
+  color: var(--color-ink-muted);
+}
+
+.homr__num,
+.homr__big,
+.homr__tile dd,
+.homr__bar-value,
+.homr__matrix td,
+.homr__steps-axis,
+.homr__stack-text,
+.homr__pager button:not(.homr__pager-step) {
+  font-family: var(--font-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.homr__nowrap {
+  white-space: nowrap;
+}
+
+/* --- Cabecera: el titular, cuándo se calcularon y qué es cada cosa ------------------------- */
+
+.homr__masthead {
   display: grid;
-  gap: var(--space-3);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-4) var(--space-7);
+  padding: var(--space-7) var(--gutter) var(--space-6);
+  border-bottom: var(--rule);
 }
 
 .homr__page-title {
-  margin-bottom: var(--space-3);
+  margin: var(--space-2) 0 0;
   font-family: var(--font-display);
-  font-size: clamp(2.5rem, 5vw, 4.25rem);
+  font-size: clamp(2.75rem, 7vw, 5.5rem);
   font-weight: 700;
-  line-height: 0.9;
+  letter-spacing: -0.01em;
+  line-height: 0.86;
   text-transform: uppercase;
 }
 
 .homr__lead {
   max-width: 60ch;
-  font-size: 1.25rem;
-  font-weight: 500;
-  line-height: 1.36;
+  margin-top: var(--space-4);
+  font-size: 1.125rem;
+  line-height: 1.45;
 }
 
-.homr__when,
-.homr__small {
-  max-width: 64ch;
+.homr__meta {
   color: var(--color-ink-muted);
   font-size: var(--text-small);
+  text-align: right;
 }
 
-/* Qué son HOMR, PrIMuS y Cadenza: celdas enmarcadas con su filete solapado. */
 .homr__about {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
-  margin-top: var(--space-6);
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  margin-top: var(--space-2);
   border: var(--rule);
 }
 
 .homr__about section {
-  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
-  padding: var(--space-4) var(--space-5) var(--space-5);
+  margin-right: calc(var(--rule-width) * -1);
+  padding: 14px 18px var(--space-4);
   border-right: var(--rule);
-  border-bottom: var(--rule);
 }
 
-.homr__about-title,
-.homr__notice-title {
-  margin-bottom: var(--space-2);
+.homr__about h2 {
+  margin-bottom: 6px;
   font-family: var(--font-display);
-  font-size: 1.125rem;
+  font-size: 1rem;
   font-weight: 700;
   line-height: 1.1;
   text-transform: uppercase;
@@ -76,89 +102,223 @@
   color: var(--color-ink);
   text-decoration-thickness: 2px;
   text-underline-offset: 3px;
+  transition: color var(--duration-quick) var(--ease-out);
+}
+
+.homr a:hover {
+  color: var(--color-accent);
 }
 
 /* El aviso de que aún no hay cifras de Cadenza: texto llano bajo su título, sin barra lateral. */
-.homr__notice {
-  margin-top: var(--space-7);
+.homr__notice,
+.homr__empty {
+  padding: var(--space-5) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.homr__notice-title {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 
 .homr__notice p,
 .homr__empty {
-  max-width: 60ch;
+  max-width: 64ch;
   font-size: 1.0625rem;
 }
 
-.homr__empty {
-  margin-top: var(--space-7);
-}
+/* --- La barra fija con el grupo que se ve ---------------------------------------------------- */
 
-/* Qué cifras se ven: conmutador segmentado con el filete solapado. */
-.homr__groups {
+.homr__filters {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   flex-wrap: wrap;
-  margin-top: var(--space-7);
+  align-items: center;
+  gap: var(--space-2) var(--space-5);
+  min-height: 56px;
+  padding: 6px var(--gutter);
+  border-bottom: var(--rule);
+  background: var(--color-paper);
 }
 
-.homr__groups button {
-  min-height: 44px;
+/* Los botones solapan su filete también al partir en dos filas. */
+.homr__toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  padding: 0 var(--rule-width) var(--rule-width) 0;
+}
+
+.homr__toggle button {
+  min-height: 40px;
   margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
-  padding: var(--space-2) var(--space-4);
+  padding: 0 14px;
   border: var(--rule);
   background: var(--color-paper);
   color: var(--color-ink);
   font-family: var(--font-label);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.05em;
+  line-height: 1;
   text-transform: uppercase;
   cursor: pointer;
-  transition:
-    background-color var(--duration-quick) var(--ease-out),
-    color var(--duration-quick) var(--ease-out);
+  transition: background-color var(--duration-quick) var(--ease-out);
 }
 
-.homr__groups button[aria-pressed="true"],
-.homr__groups button:hover {
+.homr__toggle button:hover:not([aria-pressed="true"]) {
+  background: var(--color-paper-raised);
+}
+
+.homr__toggle button[aria-pressed="true"] {
   background: var(--color-ink);
   color: var(--color-paper);
 }
 
 .homr__scope {
-  max-width: 72ch;
-  margin-top: var(--space-5);
+  padding: var(--space-4) var(--gutter);
+  border-bottom: var(--rule);
+  font-size: 0.9375rem;
 }
 
-.homr__scope .label {
-  margin-right: var(--space-2);
-  padding: 2px var(--space-2);
+.homr__scope-name {
+  font-weight: 500;
+}
+
+/* --- Bandas con su cabecera invertida ---------------------------------------------------------- */
+
+.homr__band + .homr__band {
+  border-top: var(--rule);
+}
+
+.homr__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px var(--gutter);
   background: var(--color-ink);
   color: var(--color-paper);
 }
 
-.homr__scope-count,
-.homr__number,
-.homr__big,
-.homr__tile dd,
-.homr__matrix td,
-.homr__steps-axis,
-.homr__pager-text {
-  font-family: var(--font-text);
-  font-variant-numeric: tabular-nums;
+.homr__head h2 {
+  font-family: var(--font-display);
+  font-size: clamp(1.25rem, 2.6vw, 1.75rem);
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-.homr__scope-count,
-.homr__number {
+.homr__count {
+  opacity: 0.85;
+  font-size: 0.9375rem;
+  line-height: 1.3;
+}
+
+/* Lo que dicen los datos: la cifra grande y su frase. */
+.homr__findings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
+.homr__finding {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: calc(var(--rule-width) * -1);
+  padding: var(--space-5) var(--gutter) 28px;
+  border-right: var(--rule);
+  border-bottom: var(--rule);
+  transition: background-color var(--duration-quick) var(--ease-out);
+}
+
+.homr__finding:last-child {
+  border-right: 0;
+}
+
+.homr__finding:hover {
+  background: var(--color-paper-raised);
+}
+
+.homr__big {
+  font-size: clamp(2.5rem, 5vw, 3.75rem);
   font-weight: 500;
-  white-space: nowrap;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
 }
 
-.homr__block {
-  margin-top: var(--space-8);
+.homr__finding-text {
+  max-width: 34ch;
+  font-size: 1.0625rem;
+  line-height: 1.4;
 }
 
-.homr__title {
-  margin-bottom: var(--space-2);
+/* Los acordes solo reordenados: un bloque de papel sobre la trama. */
+.homr__callout {
+  padding: var(--space-4) var(--gutter);
+  border-top: var(--rule);
+  background-image: radial-gradient(var(--color-ink-faint) 1px, transparent 1.2px);
+  background-size: 5px 5px;
+}
+
+.homr__callout p {
+  max-width: 80ch;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule);
+  background: var(--color-paper);
+}
+
+.homr__callout strong {
+  font-weight: 500;
+}
+
+/* Las cifras de cabecera. */
+.homr__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.homr__tile {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-bottom: calc(var(--rule-width) * -1);
+  padding: 18px var(--gutter) 20px;
+  border-right: var(--rule);
+  border-bottom: var(--rule);
+}
+
+.homr__tile dd {
+  font-size: clamp(1.75rem, 3.4vw, 2.5rem);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+.homr__tile dt {
+  color: var(--color-ink-muted);
+}
+
+/* --- Paneles --------------------------------------------------------------------------------- */
+
+.homr__panel {
+  padding: var(--space-5) var(--gutter) var(--space-6);
+  border-bottom: var(--rule);
+}
+
+.homr__band > .homr__panel:last-child {
+  border-bottom: 0;
+}
+
+.homr__panel h3 {
+  margin-bottom: 6px;
   font-family: var(--font-display);
   font-size: var(--text-title);
   font-weight: 700;
@@ -166,74 +326,74 @@
   text-transform: uppercase;
 }
 
-.homr__block > .homr__small + * {
-  margin-top: var(--space-4);
-}
-
-/* Lo que dicen los datos: la cifra grande y su frase. */
-.homr__findings {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  margin-top: var(--space-4);
-  border: var(--rule);
-}
-
-.homr__finding {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
-  padding: var(--space-4) var(--space-5) var(--space-5);
-  border-right: var(--rule);
-  border-bottom: var(--rule);
-}
-
-.homr__kicker,
-.homr__tile dt,
-.homr__rates-title {
+.homr__panel-note {
+  max-width: 64ch;
+  margin-bottom: 18px;
   color: var(--color-ink-muted);
+  font-size: var(--text-small);
 }
 
-.homr__big {
-  font-size: clamp(2.5rem, 5vw, 3.5rem);
-  font-weight: 500;
-  line-height: 1;
+.homr__band > .homr__panel-note {
+  margin: 0;
+  padding: var(--space-5) var(--gutter);
 }
 
-.homr__finding-text {
-  max-width: 40ch;
-}
-
-.homr__block > .homr__small:last-child {
-  margin-top: var(--space-4);
-}
-
-/* Las cifras de cabecera. */
-.homr__tiles {
+.homr__pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
-  margin-top: var(--space-7);
-  border: var(--rule);
-}
-
-.homr__tile {
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-  gap: var(--space-1);
-  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
-  padding: var(--space-3) var(--space-4) var(--space-4);
-  border-right: var(--rule);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
   border-bottom: var(--rule);
 }
 
-.homr__tile dd {
-  font-size: clamp(1.75rem, 3vw, 2.25rem);
-  font-weight: 500;
-  line-height: 1.05;
+.homr__pair > .homr__panel {
+  border-bottom: 0;
 }
 
-/* Qué pasó con cada nota: una barra al 100 %, por patrón, y lo que significa cada palabra. */
+.homr__pair > .homr__panel + .homr__panel {
+  border-left: var(--rule);
+}
+
+/* Qué pasó con cada nota: lo que significa cada palabra y la barra al 100 %, por patrón. */
+.homr__defs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr));
+  gap: 14px 28px;
+  margin-bottom: 20px;
+}
+
+.homr__def dt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.homr__def dd {
+  margin: var(--space-1) 0 0 32px;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  line-height: 1.4;
+}
+
+.homr__swatch {
+  flex: none;
+  width: 22px;
+  height: 14px;
+  border: 2px solid var(--color-ink);
+}
+
+.homr__stack-row {
+  display: grid;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.homr__stack-name {
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+  font-weight: 500;
+  text-align: right;
+}
+
 .homr__stack {
   display: flex;
   height: 32px;
@@ -241,123 +401,116 @@
 }
 
 .homr__stack-part {
+  display: flex;
+  align-items: center;
   flex-basis: 0;
   min-width: 2px;
+  overflow: hidden;
 }
 
-.homr__stack-part--corregida {
+.homr__stack-part:hover {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+}
+
+.homr__stack-text {
+  padding-left: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.homr__part--corregida {
   background: var(--color-ink);
+  color: var(--color-paper);
 }
 
-.homr__stack-part--borrada {
-  background: var(--halftone-ink);
-  background-color: var(--color-paper);
+.homr__part--borrada {
+  background: var(--color-paper) var(--halftone-ink);
 }
 
-.homr__stack-part--sin_alinear {
+.homr__part--sin_alinear {
   background: repeating-linear-gradient(45deg, var(--color-ink) 0 2px, var(--color-paper) 2px 6px);
 }
 
-.homr__stack-part--bien {
+.homr__part--bien {
   background: var(--color-paper-raised);
 }
 
-.homr__outcomes {
+/* Barras en HTML, como en el informe: el nombre a la derecha y la cifra tras la barra. */
+.homr__bars {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
-  gap: var(--space-4) var(--space-6);
-  margin-top: var(--space-4);
+  gap: 2px;
 }
 
-.homr__outcome dt {
-  display: flex;
-  flex-wrap: wrap;
+.homr__bar {
+  display: grid;
+  grid-template-columns: var(--bar-label, 9.5rem) minmax(0, 1fr) 3.75rem;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: 12px;
+  padding: 5px 0;
 }
 
-.homr__outcome dd {
-  max-width: 52ch;
-  margin-top: var(--space-1);
+.homr__bar-name {
   color: var(--color-ink-muted);
   font-size: var(--text-small);
+  line-height: 1.2;
+  text-align: right;
+  transition: color var(--duration-quick) var(--ease-out);
 }
 
-.homr__swatch {
-  display: inline-block;
-  width: 22px;
-  height: 14px;
-  border: 2px solid var(--color-ink);
+/* El símbolo va en la línea del nombre, también si el nombre parte en dos. */
+.homr__bar-label {
+  display: inline;
 }
 
-/* Dos bloques por fila; uno bajo 900 px. */
-.homr__pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 var(--space-8);
+.homr__bar-sub {
+  display: block;
+  margin-top: 1px;
+  color: var(--color-ink-faint);
+  font-size: 0.75rem;
+}
+
+.homr__bar-track {
+  position: relative;
+  height: 18px;
+  border: 1px solid var(--color-rule-soft);
+  background: var(--color-paper);
+}
+
+.homr__bar-fill {
+  position: absolute;
+  inset: -1px auto -1px -1px;
+  min-width: 3px;
+  background: var(--color-ink);
+}
+
+.homr__bar-value {
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+/* Al pasar, la barra pasa a trama con su contorno, como en el informe. */
+.homr__bar:hover .homr__bar-fill {
+  background: var(--color-paper) var(--halftone-ink);
+  outline: 2px solid var(--color-ink);
+}
+
+.homr__bar:hover .homr__bar-name {
+  color: var(--color-ink);
 }
 
 /* Dónde se equivoca más: sus tres listas, una al lado de otra mientras quepan. */
 .homr__where {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
   align-items: start;
   gap: var(--space-6) var(--space-8);
-}
-
-.homr__where .homr__rates + .homr__rates {
-  margin-top: 0;
-}
-
-/* Barras horizontales: nombre, barra y cifra. */
-.homr__bars {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.homr__bar {
-  display: grid;
-  grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr) 4.25rem;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.homr__bar-name {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: var(--space-2);
-  font-size: 0.9375rem;
-  line-height: 1.25;
-}
-
-.homr__bar-sub {
-  flex-basis: 100%;
-  color: var(--color-ink-muted);
-  font-size: 0.8125rem;
-}
-
-.homr__bar-track {
-  height: 16px;
-  background: var(--color-paper-raised);
-}
-
-.homr__bar-fill {
-  display: block;
-  height: 100%;
-  background: var(--color-ink);
-}
-
-.homr__bar .homr__number {
-  text-align: right;
-}
-
-.homr__rates + .homr__rates {
-  margin-top: var(--space-6);
+  --bar-label: 10rem;
 }
 
 .homr__rates-title {
-  margin-bottom: var(--space-3);
+  margin-bottom: 6px;
 }
 
 /* Paginación de una lista larga, en lugar de un «ver más». */
@@ -365,25 +518,47 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
+  gap: 6px;
   margin-top: var(--space-4);
 }
 
-.homr__pager-button {
+.homr__pager button {
+  min-width: 44px;
   min-height: 44px;
-  padding: var(--space-2) var(--space-4);
-  font-size: 0.875rem;
+  padding: 0 12px;
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--duration-quick) var(--ease-out);
 }
 
-.homr__pager-button:disabled {
-  border-style: dashed;
-  background: var(--color-paper);
-  color: var(--color-ink-muted);
+.homr__pager .homr__pager-step {
+  font-family: var(--font-label);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.homr__pager button:hover:not([aria-disabled="true"], [aria-current="page"]) {
+  background: var(--color-paper-raised);
+}
+
+.homr__pager button[aria-current="page"] {
+  background: var(--color-ink);
+  color: var(--color-paper);
   cursor: default;
 }
 
-.homr__pager-text {
-  font-size: var(--text-small);
+/* En un extremo, el paso no se desactiva del todo (aria-disabled): así no pierde el foco. */
+.homr__pager button[aria-disabled="true"] {
+  border-style: dashed;
+  color: var(--color-ink-muted);
+  cursor: default;
 }
 
 /* Cuánto se movió la altura: una columna por paso de pentagrama, de -8 a +8. */
@@ -395,36 +570,42 @@
   display: grid;
   grid-template-columns: repeat(17, minmax(0, 1fr));
   align-items: end;
-  gap: 2px;
-  height: 9rem;
+  gap: 3px;
+  height: 190px;
   border-bottom: var(--rule);
 }
 
 .homr__steps-col {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  justify-content: flex-end;
   height: 100%;
 }
 
 .homr__steps-fill {
   display: block;
-  width: 100%;
+  min-height: 0;
   background: var(--color-ink);
+}
+
+.homr__steps-col--data:hover .homr__steps-fill {
+  background: var(--color-paper) var(--halftone-ink);
+  outline: 2px solid var(--color-ink);
 }
 
 .homr__steps-axis {
   display: grid;
   grid-template-columns: repeat(17, minmax(0, 1fr));
-  gap: 2px;
-  margin-top: var(--space-1);
+  gap: 3px;
+  margin-top: 6px;
   color: var(--color-ink-muted);
   font-size: 0.75rem;
+  line-height: 1;
   text-align: center;
 }
 
 .homr__steps-zero {
   color: var(--color-ink);
-  font-weight: 500;
 }
 
 .homr__steps-caption {
@@ -446,27 +627,17 @@
 }
 
 .homr__matrix {
-  border-collapse: collapse;
-  border: var(--rule);
-}
-
-.homr__matrix th,
-.homr__matrix td {
-  border: 1px solid var(--color-ink);
+  border-collapse: separate;
+  border-spacing: 3px;
 }
 
 .homr__matrix th {
-  padding: var(--space-2);
+  padding: 2px 6px;
+  color: var(--color-ink-muted);
   font-size: 0.8125rem;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.2;
-  text-align: left;
-  vertical-align: bottom;
-}
-
-.homr__matrix thead th {
-  min-width: 4.5rem;
-  text-align: center;
+  white-space: nowrap;
 }
 
 /* Los nombres de las filas quedan a la vista al desplazar la matriz en horizontal. */
@@ -475,80 +646,137 @@
   left: 0;
   z-index: 1;
   background: var(--color-paper);
-  white-space: nowrap;
+  text-align: right;
 }
 
-.homr__matrix thead th .figure-symbol {
-  display: block;
-  margin: 0 auto var(--space-1);
-}
-
+/* Las columnas llevan el nombre de la figura en vertical: caben aunque sea largo. */
 .homr__matrix-name {
-  display: block;
+  padding: 6px 2px;
+  text-align: left;
+  vertical-align: bottom;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
 }
 
-.homr__matrix tbody th .homr__matrix-name {
-  display: inline;
+.homr__matrix-sym {
+  padding: 4px 0 2px;
+  color: var(--color-ink);
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.homr__matrix-sym .figure-symbol {
+  margin: 0;
 }
 
 .homr__corner {
-  vertical-align: middle;
-}
-
-.homr__corner .label {
   color: var(--color-ink-muted);
-  font-size: 0.6875rem;
+  font-family: var(--font-label);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  text-align: left;
+  text-transform: uppercase;
+  vertical-align: bottom;
 }
 
 .homr__matrix td {
-  min-width: 3.25rem;
-  height: 2.75rem;
-  padding: 0 var(--space-2);
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 2px;
+  border: 1px solid var(--color-rule-soft);
+  font-size: 0.8125rem;
   font-weight: 500;
   text-align: center;
+}
+
+.homr__cell {
+  border-color: transparent;
+}
+
+.homr__cell:hover {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
 }
 
 .homr__cell--strong {
   color: var(--color-on-accent);
 }
 
+/* El símbolo de cada figura, en vectores, junto a su nombre. */
 .figure-symbol {
   display: inline-block;
+  flex: none;
   width: auto;
-  height: 1.75em;
-  margin-right: var(--space-1);
-  vertical-align: middle;
+  height: 1.9em;
+  margin-right: 0.35em;
+  vertical-align: -0.5em;
   overflow: visible;
 }
 
 .figure-symbol__tuplet {
   fill: currentColor;
-  font: 600 9px var(--font-text);
+  font: 500 9px var(--font-text);
+}
+
+/* --- El rótulo al pasar ---------------------------------------------------------------------- */
+
+.homr__tip {
+  position: fixed;
+  z-index: 20;
+  max-width: 300px;
+  padding: 6px 10px;
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-size: var(--text-small);
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.homr__tip b {
+  font-weight: 500;
 }
 
 @media (max-width: 900px) {
-  .homr__pair {
+  .homr__masthead {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .homr__meta {
+    text-align: left;
   }
 }
 
-@media (max-width: 600px) {
-  .homr {
-    padding-block: var(--space-6) var(--space-8);
+@media (max-width: 860px) {
+  .homr__pair > .homr__panel + .homr__panel {
+    border-top: var(--rule);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .homr__bar,
+  .homr__where {
+    --bar-label: 7rem;
   }
 
-  .homr__bar {
-    grid-template-columns: minmax(0, 1fr) 4.25rem;
-    row-gap: var(--space-1);
+  .homr__stack-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
   }
 
-  .homr__bar-name {
-    grid-column: 1 / -1;
+  .homr__stack-name {
+    text-align: left;
+  }
+
+  .homr__finding {
+    border-right: 0;
   }
 }
 
 @media (forced-colors: active) {
-  .homr__stack-part--corregida,
+  .homr__part--corregida,
   .homr__bar-fill,
   .homr__steps-fill {
     background: CanvasText;

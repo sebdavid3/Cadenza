@@ -45,7 +45,7 @@ Hay tres límites:
 ## Consecuencias
 
 ### Positivas
-- La portada enseña los errores de HOMR con unos 7 minutos de retraso como mucho (los 5 del ciclo, lo que tarda el cálculo y las cachés de 60 s de la API y del navegador), con el mismo código que el informe local.
+- La web enseña los errores de HOMR con unos minutos de retraso (los 5 del ciclo, lo que tarda el cálculo, las cachés de 60 s de la API y del navegador y, con la página abierta, hasta 5 más hasta que la vuelve a pedir), con el mismo código que el informe local.
 - La API no importa `ml/` ni `cadenza.learning` y no calcula nada: lee una tabla pequeña.
 - Retirar el permiso tiene efecto en el siguiente cálculo, sin código aparte.
 
@@ -60,3 +60,7 @@ Hay tres límites:
 - **Un artefacto JSON en un volumen compartido.** Dejaría la base del todo en solo lectura, pero el volumen tendría que crearlo con el dueño correcto la primera imagen que lo monte, y la API tendría que leer un archivo fuera de su almacén. La tabla sigue el camino de ADR-0036 y entra en las copias.
 - **Calcular en la API al pedirlo, con caché.** Lleva el cálculo y `ml/` al plano online, y una visita puede disparar una pasada por toda la base.
 - **Un umbral por celda** (cada barra o casilla con 5 sesiones o más). Vaciaría la matriz de figuras con pocas sesiones, y una celda solo dice cuántas veces HOMR leyó una figura por otra. El mínimo va por grupo.
+
+## Enmienda de #424 (2026-11-19): las cifras, en su propia página
+
+El responsable decidió, mientras se hacía #424, que las cifras no vayan en la portada sino en una vista propia. Es pública y se enlaza desde la cabecera: `/errores-de-homr`. Donde este ADR dice «la portada», se lee esa página. Lo demás no cambia: qué se calcula, cada cuánto, qué se publica y el endpoint.

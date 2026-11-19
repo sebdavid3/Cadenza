@@ -1,7 +1,8 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
 import type { HomrErrorStatsRead } from "../../types";
 import { group, payload, rate, UNPUBLISHED, values } from "./fixtures";
@@ -26,11 +27,12 @@ function section() {
   return screen.getByRole("main", { name: "Errores de HOMR, en vivo" });
 }
 
-describe("los errores de HOMR en la portada", () => {
+describe("la página de los errores de HOMR", () => {
   it("enseña lo que dicen los datos de Cadenza y cuándo se calcularon", async () => {
     render(<HomrErrors load={loader(payload([group("cadenza"), group("primus")]))} />);
 
-    expect(await screen.findByText(/Calculadas el 19 de noviembre/)).toBeInTheDocument();
+    expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
+    expect(screen.getByText(/19 de noviembre/)).toBeInTheDocument();
     const region = section();
     expect(within(region).getByRole("button", { name: "Cadenza" })).toHaveAttribute(
       "aria-pressed",
@@ -49,7 +51,7 @@ describe("los errores de HOMR en la portada", () => {
 
   it("explica qué son HOMR, PrIMuS y Camera-PrIMuS, con sus enlaces", async () => {
     render(<HomrErrors load={loader(payload([group("primus")]))} />);
-    await screen.findByText(/Calculadas el/);
+    await screen.findByText(/calculadas el/);
 
     expect(screen.getByRole("link", { name: "github.com/liebharc/homr" })).toHaveAttribute(
       "href",
@@ -94,7 +96,7 @@ describe("los errores de HOMR en la portada", () => {
       }),
     ]);
     render(<HomrErrors load={loader(data)} />);
-    await screen.findByText(/Calculadas el/);
+    await screen.findByText(/calculadas el/);
 
     await userEvent.click(screen.getByRole("button", { name: "PrIMuS" }));
 
@@ -111,21 +113,22 @@ describe("los errores de HOMR en la portada", () => {
       payload([group("primus")], "2026-11-19T12:10:00Z"),
     );
     render(<HomrErrors load={load} refreshMs={1000} />);
-    expect(await screen.findByText(/Calculadas el 19 de noviembre/)).toBeInTheDocument();
-    const first = screen.getByText(/Calculadas el/).textContent;
+    expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
+    const when = () => screen.getByText(/calculadas el/).textContent;
+    const first = when();
 
     await act(async () => {
       vi.advanceTimersByTime(1000);
       await Promise.resolve();
     });
-    expect(screen.getByText(/Calculadas el/).textContent).toBe(first);
+    expect(when()).toBe(first);
 
     await act(async () => {
       vi.advanceTimersByTime(1000);
       await Promise.resolve();
     });
     expect(load).toHaveBeenCalledTimes(3);
-    expect(screen.getByText(/Calculadas el/).textContent).not.toBe(first);
+    expect(when()).not.toBe(first);
   });
 
   it("avisa si no puede cargar las cifras", async () => {
@@ -143,19 +146,110 @@ describe("los errores de HOMR en la portada", () => {
         load={loader(payload([group("primus", { stats: values({ by_clef: many }) })]))}
       />,
     );
-    await screen.findByText(/Calculadas el/);
+    await screen.findByText(/calculadas el/);
 
     expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).not.toMatch(/\b\d+\/\d+\b/);
     expect(container.textContent).not.toMatch(/ver más|pincha/i);
 
     const pager = screen.getByRole("navigation", { name: "Páginas de «Clave»" });
-    expect(within(pager).getByText("Página 1 de 2")).toBeInTheDocument();
+    const page = (n: number) =>
+      within(pager).getByRole("button", { name: `Página ${String(n)} de 2` });
+    expect(page(1)).toHaveAttribute("aria-current", "page");
     expect(screen.queryByText("clave 9")).not.toBeInTheDocument();
     await userEvent.click(within(pager).getByRole("button", { name: "Siguiente" }));
-    expect(within(pager).getByText("Página 2 de 2")).toBeInTheDocument();
+    expect(page(2)).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("clave 9")).toBeInTheDocument();
-    expect(within(pager).getByRole("button", { name: "Siguiente" })).toBeDisabled();
+    const next = within(pager).getByRole("button", { name: "Siguiente" });
+    expect(next).toHaveAttribute("aria-disabled", "true");
+    expect(next).toHaveFocus();
+    await userEvent.click(next);
+    expect(page(2)).toHaveAttribute("aria-current", "page");
+    await userEvent.click(page(1));
+    expect(page(1)).toHaveAttribute("aria-current", "page");
+  });
+
+  it("vuelve a la primera página de cada lista al cambiar de grupo", async () => {
+    const many = Array.from({ length: 10 }, (_, i) =>
+      rate(`clef:X${String(i)}`, `clave ${String(i)}`, 100 + i, 10),
+    );
+    const stats = values({ by_clef: many });
+    render(
+      <HomrErrors
+        load={loader(payload([group("primus", { stats }), group("camera-primus", { stats })]))}
+      />,
+    );
+    await screen.findByText(/Calculadas una vez/);
+    const pagerOf = () => screen.getByRole("navigation", { name: "Páginas de «Clave»" });
+
+    const current = () =>
+      within(pagerOf())
+        .getAllByRole("button")
+        .find((b) => b.getAttribute("aria-current"));
+    await userEvent.click(within(pagerOf()).getByRole("button", { name: "Siguiente" }));
+    expect(current()).toHaveAccessibleName("Página 2 de 2");
+    await userEvent.click(screen.getByRole("button", { name: "Camera-PrIMuS" }));
+
+    expect(current()).toHaveAccessibleName("Página 1 de 2");
+  });
+
+  it("al pasar sobre una cifra, un rótulo dice lo que es", async () => {
+    const { container } = render(<HomrErrors load={loader(payload([group("primus")]))} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    const bar = screen.getByText("Altura equivocada");
+    await userEvent.hover(bar);
+
+    expect(container.querySelector(".homr__tip")).toHaveTextContent(
+      "Altura equivocada · 60 correcciones, 6 por cada 100 notas",
+    );
+    await userEvent.unhover(bar);
+    await userEvent.hover(screen.getByRole("heading", { level: 1 }));
+    expect(container.querySelector(".homr__tip")).toBeNull();
+  });
+
+  it("no pide nada con la pestaña oculta y, al volver tras el plazo, pide en el momento", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    let visibility: DocumentVisibilityState = "visible";
+    vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
+    const load = loader(payload([group("primus")]));
+    render(<HomrErrors load={load} refreshMs={1000} />);
+    await screen.findByText(/Calculadas una vez/);
+    expect(load).toHaveBeenCalledTimes(1);
+
+    visibility = "hidden";
+    await act(async () => {
+      vi.advanceTimersByTime(3000);
+      await Promise.resolve();
+    });
+    expect(load).toHaveBeenCalledTimes(1);
+
+    visibility = "visible";
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      await Promise.resolve();
+    });
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("no hace caso de una respuesta que llega después de cerrar la página", async () => {
+    let resolve: (data: HomrErrorStatsRead) => void = () => undefined;
+    const load = vi.fn<StatsLoader>(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const { unmount } = render(<HomrErrors load={load} />);
+    const signal = load.mock.calls[0]?.[0];
+    unmount();
+
+    expect(signal?.aborted).toBe(true);
+    await act(async () => {
+      resolve(payload([group("primus")]));
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/calculadas/)).toBeNull();
   });
 });
 
@@ -176,15 +270,20 @@ describe("la vista de los errores de HOMR", () => {
     return statsCalls;
   }
 
-  it("es una página pública que pide las cifras sin cuenta", async () => {
+  it("es una página pública que pide las cifras sin token, también con la sesión abierta", async () => {
     const statsCalls = stubStats();
+    const before = useAuthStore.getState();
+    useAuthStore.setState({ status: "authenticated", token: "token-de-prueba" });
+    onTestFinished(() => {
+      useAuthStore.setState(before, true);
+    });
     render(
       <RouterProvider
         router={createMemoryRouter(routes, { initialEntries: ["/errores-de-homr"] })}
       />,
     );
 
-    expect(await screen.findByText(/Calculadas el/)).toBeInTheDocument();
+    expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { level: 1, name: "Errores de HOMR, en vivo" }),
     ).toBeInTheDocument();
@@ -197,6 +296,9 @@ describe("la vista de los errores de HOMR", () => {
     const statsCalls = stubStats();
     const router = createMemoryRouter(routes, { initialEntries: ["/"] });
     render(<RouterProvider router={router} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(screen.queryByRole("main", { name: "Errores de HOMR, en vivo" })).toBeNull();
     expect(statsCalls()).toHaveLength(0);
@@ -205,6 +307,6 @@ describe("la vista de los errores de HOMR", () => {
 
     await userEvent.click(link);
     expect(router.state.location.pathname).toBe("/errores-de-homr");
-    expect(await screen.findByText(/Calculadas el/)).toBeInTheDocument();
+    expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
   });
 });
