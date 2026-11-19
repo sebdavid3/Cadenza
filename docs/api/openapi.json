@@ -4499,7 +4499,7 @@
           "figures"
         ],
         "title": "HomrErrorStatsValuesRead",
-        "description": "Las cifras de conjunto de un grupo, las del informe local (ADR-0069) sin sus ejemplos.\n\nLos acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas\nnotas eran)."
+        "description": "Las cifras de conjunto de un grupo, las del informe local (ADR-0069). Solo los grupos de\ncorpus llevan además sus ejemplos con el compás dibujado (ADR-0073, enmienda de #424).\n\nLos acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas\nnotas eran)."
       },
       "Instrument": {
         "type": "string",

@@ -6,8 +6,9 @@ cada 5 minutos lee la base en solo lectura, calcula con el código del informe l
 `public_stats`, de donde las sirve `GET /stats/homr-errors`. La API no importa nada de aquí.
 
 Solo se guardan agregados musicales (`PUBLISHED` y el nombre y el símbolo de cada figura): nada
-de fotos, ejemplos, filas por sesión, cuentas ni títulos. Un grupo de Cadenza se publica con al
-menos `MIN_SESSIONS` sesiones. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS de
+de fotos, filas por sesión, cuentas ni títulos. Los grupos de corpus añaden los ejemplos de cada
+cifra con su compás dibujado (`EXAMPLES`, #424); los de Cadenza, nunca. Un grupo de Cadenza se
+publica con al menos `MIN_SESSIONS` sesiones. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS de
 `exp_12`, y los que vengan) se calcula una vez y solo se repite si cambia el archivo.
 
 Sin `--every`, calcula una vez y termina.
@@ -243,8 +244,15 @@ def cadenza_groups(
 
 def _corpus_group(path: Path, sha256: str, computed_at: datetime.datetime) -> PublicStatsGroup:
     records = read_corpus(path)
-    if any(r.get("source") == LIVE for r in records):
-        # Un corpus de `build-dataset` trae sesiones de Cadenza: saldrían sin el mínimo.
+    # Un corpus de `build-dataset` trae sesiones de Cadenza: saldrían sin el mínimo y con sus
+    # ejemplos. Se reconocen por su fuente, por su sesión o por su íncipit (`cadenza:<sesión>`),
+    # también si les falta la fuente (que entonces se tomaría por PrIMuS).
+    if any(
+        r.get("source") == LIVE
+        or r.get("session_id")
+        or str(r.get("incipit_id", "")).startswith(f"{LIVE}:")
+        for r in records
+    ):
         raise ValueError("trae sesiones de Cadenza: sus cifras salen en vivo, no de un corpus")
     tables = as_csv_rows(corpus_tables(records))
     stats = group_stats(tables, None, reordered_chords(tables["notas"]), with_examples=True)
@@ -318,6 +326,7 @@ def compute_once(
     computed_at = now()
     live = cadenza_groups(cadenza_tables(factory), computed_at)
     corpus: list[PublicStatsGroup] | None = None
+    stored: tuple[PublicStatsGroup, ...] = ()
     if corpus_dir is not None:
         with session_scope(factory) as db:
             stored = SqlAlchemyPublicStatsRepository(db).list()
@@ -329,7 +338,12 @@ def compute_once(
     with session_scope(factory) as db:
         repository = SqlAlchemyPublicStatsRepository(db)
         repository.replace(LIVE, live)
-        if corpus is not None:
+        # Los corpus que no cambiaron no se reescriben: son cientos de KiB cada 5 minutos.
+        reused = [g for g in stored if g.source == CORPUS] if corpus is not None else []
+        if corpus is not None and (
+            len(corpus) != len(reused)
+            or any(new is not old for new, old in zip(corpus, reused, strict=False))
+        ):
             repository.replace(CORPUS, corpus)
     groups = live + (corpus or [])
     logger.info(

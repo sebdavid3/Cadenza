@@ -224,6 +224,17 @@ def test_only_the_corpus_groups_carry_their_examples() -> None:
     assert primus["stats"]["bars"]["b0"]["fixed"][0]["beats"] == "1"
 
 
+def test_a_corpus_example_never_carries_an_image() -> None:
+    app, factory = _app()
+    leaked = {**EXAMPLES, "examples": [{**EXAMPLES["examples"][0], "img": "recortes/x.png"}]}
+    _store(factory, "corpus", [_group("primus", "corpus", stats={**STATS, **leaked})])
+
+    response = TestClient(app).get(PATH)
+
+    assert "img" not in response.json()["groups"][0]["stats"]["examples"][0]
+    assert "recortes" not in response.text
+
+
 def test_it_can_be_cached_and_answers_304_to_the_same_etag() -> None:
     app, factory = _app()
     _store(factory, "cadenza", [_group("cadenza")])

@@ -27,9 +27,9 @@ from .schemas import HomrErrorStatsGroupRead, HomrErrorStatsRead
 logger = logging.getLogger("cadenza.api.public_stats")
 
 CACHE_CONTROL = "public, max-age=60"
+"""Para el navegador y cualquier caché por el camino: las cifras cambian cada 5 minutos."""
 CORPUS_ONLY = frozenset({"examples", "example_keys", "bars"})
 """Lo que solo llevan los grupos de corpus: los ejemplos con su compás dibujado."""
-"""Para el navegador y cualquier caché por el camino: las cifras cambian cada 5 minutos."""
 
 
 def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:

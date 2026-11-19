@@ -1185,7 +1185,8 @@ class HomrErrorExampleRead(BaseModel):
 
 
 class HomrErrorStatsValuesRead(BaseModel):
-    """Las cifras de conjunto de un grupo, las del informe local (ADR-0069) sin sus ejemplos.
+    """Las cifras de conjunto de un grupo, las del informe local (ADR-0069). Solo los grupos de
+    corpus llevan además sus ejemplos con el compás dibujado (ADR-0073, enmienda de #424).
 
     Los acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas
     notas eran).

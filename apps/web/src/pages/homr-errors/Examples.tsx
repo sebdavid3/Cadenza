@@ -11,6 +11,24 @@ import { EXAMPLES_PAGE_SIZE, plural } from "./stats";
 /** El panel de los ejemplos: en una vista estrecha va debajo, y al elegir se lleva a la vista. */
 export const EXAMPLES_ID = "homr-ejemplos";
 
+/** Un texto con sus cifras en Hanken Grotesk: en el bitmap, un 5 se confunde con un 8 (#418). */
+export function WithNumbers({ text }: { text: string }) {
+  const parts = text.split(/(\d+(?:[.,]\d+)?)/);
+  return (
+    <>
+      {parts.map((part, index) =>
+        index % 2 === 1 ? (
+          <span key={index} className="homr__num">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
 export interface Selection {
   key: string;
   title: string;
@@ -152,21 +170,23 @@ export function ExamplesPanel({
   selected: Selection | null;
   corpus: string;
 }) {
-  const [page, setPage] = useState({ key: "", index: 0 });
+  const [page, setPage] = useState(0);
   const ids = selected ? (stats.example_keys?.[selected.key] ?? []) : [];
   const examples = ids.flatMap((i) => {
     const example = stats.examples?.[i];
     return example ? [example] : [];
   });
   const pages = Math.ceil(examples.length / EXAMPLES_PAGE_SIZE);
-  // Al elegir otra cifra, vuelve a la primera página.
-  const current = page.key === selected?.key ? Math.min(page.index, pages - 1) : 0;
+  // Cada cifra elegida monta el panel de nuevo (`key`): empieza en la primera página.
+  const current = Math.min(page, Math.max(0, pages - 1));
   const shown = examples.slice(current * EXAMPLES_PAGE_SIZE, (current + 1) * EXAMPLES_PAGE_SIZE);
   return (
-    <aside className="homr__examples" aria-labelledby="homr-ex-title" id={EXAMPLES_ID}>
-      <div className="homr__ex-head" aria-live="polite">
+    <section className="homr__examples" aria-labelledby="homr-ex-title" id={EXAMPLES_ID}>
+      <div className="homr__ex-head">
         <p className="label homr__muted">{selected?.kicker ?? "Ejemplos"}</p>
-        <h3 id="homr-ex-title">{selected?.title ?? "Ejemplos"}</h3>
+        <h3 id="homr-ex-title" aria-live="polite">
+          <WithNumbers text={selected?.title ?? "Ejemplos"} />
+        </h3>
         <p className="homr__panel-note">
           {!selected
             ? "Elige una cifra, una barra, una columna o una casilla para ver sus ejemplos."
@@ -204,15 +224,8 @@ export function ExamplesPanel({
         </ol>
       )}
       <div className="homr__ex-pager">
-        <Pager
-          label="Páginas de los ejemplos"
-          page={current}
-          pages={pages}
-          onPage={(index) => {
-            if (selected) setPage({ key: selected.key, index });
-          }}
-        />
+        <Pager label="Páginas de los ejemplos" page={current} pages={pages} onPage={setPage} />
       </div>
-    </aside>
+    </section>
   );
 }

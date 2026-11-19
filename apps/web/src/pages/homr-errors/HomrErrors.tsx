@@ -1,4 +1,10 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { api } from "../../api/instance";
 import { SiteHeader } from "../../components/SiteHeader";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -190,8 +196,8 @@ export function HomrErrors({
           </h1>
           <p className="homr__lead">
             Qué notas lee mal HOMR y cómo se corrigen: con las correcciones de quienes usan Cadenza
-            y con un corpus público. Son cifras de conjunto: ninguna foto ni ninguna partitura de
-            nadie.
+            y con un corpus público. De Cadenza salen solo cifras de conjunto, nunca una foto ni una
+            partitura de nadie; del corpus, también ejemplos dibujados desde sus datos.
           </p>
         </div>
         {data ? (
@@ -229,8 +235,8 @@ export function HomrErrors({
               «Printed Images of Music Staves» (Calvo-Zaragoza y Rizo, 2018): íncipits del catálogo
               RISM dibujados por ordenador, cada uno con su partitura correcta. Camera-PrIMuS son
               los mismos con las distorsiones de una foto. Su página no indica licencia: aquí se
-              cita y solo salen sus cifras.{" "}
-              <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a>
+              cita, y salen sus cifras y, de ejemplo, compases redibujados desde sus datos, nunca
+              sus imágenes. <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a>
             </p>
           </section>
           <section aria-labelledby="homr-about-cadenza">
@@ -266,7 +272,7 @@ export function HomrErrors({
         <>
           <nav className="homr__filters" aria-label="Qué cifras se ven">
             <span className="label homr__muted">Cifras</span>
-            <div className="homr__toggle" role="group" aria-label="Qué cifras se ven">
+            <div className="homr__toggle" role="group">
               {groups.map((g) => (
                 <button
                   key={g.id}
@@ -313,6 +319,7 @@ function Choice({
   onChoose,
   className,
   tip,
+  label,
   children,
 }: {
   selection: Selection | null;
@@ -320,6 +327,8 @@ function Choice({
   onChoose: ((selection: Selection) => void) | null;
   className: string;
   tip?: Record<string, string>;
+  /** El nombre del botón, si su texto no basta (una casilla de la matriz es solo un número). */
+  label?: string;
   children: ReactNode;
 }) {
   if (!onChoose || !selection) {
@@ -333,7 +342,8 @@ function Choice({
     <button
       type="button"
       className={`${className} homr__choice`}
-      aria-pressed={selected?.key === selection.key}
+      aria-current={selected?.key === selection.key ? "true" : undefined}
+      aria-label={label}
       onClick={() => {
         onChoose(selection);
       }}
@@ -349,7 +359,7 @@ interface Choosing {
   onChoose: ((selection: Selection) => void) | null;
 }
 
-function GroupStats({
+const GroupStats = memo(function GroupStats({
   name,
   about,
   sessions,
@@ -553,7 +563,12 @@ function GroupStats({
         {withExamples ? (
           <div className="homr__layout">
             <div className="homr__charts">{charts}</div>
-            <ExamplesPanel stats={stats} selected={selected} corpus={name} />
+            <ExamplesPanel
+              key={selected?.key ?? ""}
+              stats={stats}
+              selected={selected}
+              corpus={name}
+            />
           </div>
         ) : (
           <>
@@ -567,7 +582,7 @@ function GroupStats({
       </section>
     </>
   );
-}
+});
 
 /** La frase de un hallazgo; si habla de una figura, su símbolo va junto a su nombre. */
 function FindingText({ fact, figures }: { fact: Finding; figures: Record<string, FigureRead> }) {
@@ -774,7 +789,12 @@ function DurationTable({
   if (!durations.length) return <p className="homr__panel-note">Sin correcciones de figura.</p>;
   const matrix = durationMatrix(durations);
   return (
-    <div className="homr__scroll" role="region" aria-label="Figura leída y correcta" tabIndex={0}>
+    <div
+      className="homr__scroll"
+      role="region"
+      aria-label="Matriz de la figura leída y correcta"
+      tabIndex={0}
+    >
       <table className="homr__matrix">
         <thead>
           <tr>
@@ -828,6 +848,7 @@ function DurationTable({
                         kicker: "Figura leída y correcta",
                       }}
                       tip={tipProps(title, fmt(n))}
+                      label={`${title}: ${fmt(n)}`}
                       {...choosing}
                     >
                       {fmt(n)}

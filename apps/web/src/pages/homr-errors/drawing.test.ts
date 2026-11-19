@@ -20,6 +20,10 @@ describe("el compás dibujado de un ejemplo", () => {
     expect(staffPosition(parsePitch("G4") ?? { step: "", alter: 0, d: 0 }, clefOf("G2"))).toBe(2);
     expect(staffPosition(parsePitch("F3") ?? { step: "", alter: 0, d: 0 }, clefOf("F4"))).toBe(6);
     expect(clefOf("raro")).toEqual(clefOf("G2"));
+    // Las claves de do de PrIMuS: el do central en su línea (1.ª, 0; 4.ª, 6).
+    const c4 = parsePitch("C4") ?? { step: "", alter: 0, d: 0 };
+    expect(staffPosition(c4, clefOf("C1"))).toBe(0);
+    expect(staffPosition(c4, clefOf("C4"))).toBe(6);
   });
 
   it("escribe solo la alteración que cambia lo que rige en el compás", () => {

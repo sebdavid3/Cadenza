@@ -78,7 +78,7 @@ describe("la página de los errores de HOMR", () => {
     expect(
       screen.getByText(/Mientras, estas son las de PrIMuS y Camera-PrIMuS\./),
     ).toBeInTheDocument();
-    const groups = screen.getByRole("group", { name: "Qué cifras se ven" });
+    const groups = screen.getByRole("navigation", { name: "Qué cifras se ven" });
     expect(
       within(groups)
         .getAllByRole("button")
@@ -319,7 +319,7 @@ describe("los ejemplos de los corpus", () => {
     );
     await screen.findByText(/Calculadas una vez/);
 
-    const panel = screen.getByRole("complementary", { name: "Figura equivocada" });
+    const panel = screen.getByRole("region", { name: "Figura equivocada" });
     expect(within(panel).getByText(/Calvo-Zaragoza y Rizo, 2018/)).toBeInTheDocument();
     expect(within(panel).getByText(/no es una imagen del corpus/)).toBeInTheDocument();
     expect(
@@ -345,8 +345,8 @@ describe("los ejemplos de los corpus", () => {
 
     const bar = screen.getByRole("button", { name: /^Altura equivocada/ });
     await userEvent.click(bar);
-    expect(bar).toHaveAttribute("aria-pressed", "true");
-    const panel = screen.getByRole("complementary", { name: "Altura equivocada" });
+    expect(bar).toHaveAttribute("aria-current", "true");
+    const panel = screen.getByRole("region", { name: "Altura equivocada" });
     expect(
       within(panel).getByText("000100200-1_1_1 · compás 3 · pentagrama 0-0"),
     ).toBeInTheDocument();
@@ -360,8 +360,28 @@ describe("los ejemplos de los corpus", () => {
     render(<HomrErrors load={loader(payload([group("cadenza", { stats })]))} />);
     await screen.findByText(/calculadas el/);
 
-    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByRole("region", { name: /equivocada/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Altura equivocada/ })).toBeNull();
     expect(screen.getByText(/solo se enseñan de los corpus públicos/)).toBeInTheDocument();
+  });
+});
+
+describe("volver a una cifra", () => {
+  it("vuelve a la primera página de sus ejemplos", async () => {
+    const stats = withExamples(values());
+    render(<HomrErrors load={loader(payload([group("primus", { stats })]))} />);
+    await screen.findByText(/Calculadas una vez/);
+    const pager = () => screen.getByRole("navigation", { name: "Páginas de los ejemplos" });
+
+    await userEvent.click(within(pager()).getByRole("button", { name: "Página 2 de 2" }));
+    await userEvent.click(screen.getByRole("button", { name: /^Altura equivocada/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Figura equivocada/ }));
+
+    expect(within(pager()).getByRole("button", { name: "Página 1 de 2" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Cada casilla de la matriz dice qué es, no solo su número.
+    expect(screen.getByRole("button", { name: "Leída corchea, correcta negra: 40" })).toBeVisible();
   });
 });

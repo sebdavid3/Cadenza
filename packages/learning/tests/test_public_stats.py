@@ -21,8 +21,8 @@ import pytest
 from cadenza.api.schemas import HomrErrorStatsRead, HomrErrorStatsValuesRead
 from cadenza.application import DATA_CONSENT_VERSION, PublicStatsGroup
 from cadenza.learning import derive_edit_events
-from cadenza.learning.suggestions import file_sha256
-from cadenza.learning.tables import TABLES
+from cadenza.learning.suggestions import file_sha256, read_corpus
+from cadenza.learning.tables import TABLES, corpus_tables
 from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
@@ -250,6 +250,12 @@ def test_a_bad_corpus_does_not_stop_the_live_stats(
     (corpus_dir / "roto.jsonl").write_text("{no es json\n", encoding="utf-8")
     write_corpus(corpus_dir / "Mal Nombre.jsonl", works=2)
     write_corpus(corpus_dir / "cadenza.jsonl", works=2)  # no puede tapar al grupo en vivo
+    # Sesiones de Cadenza sin su fuente (se tomarían por PrIMuS): las delata su íncipit.
+    unsourced = [{k: v for k, v in r.items() if k != "source"} for r in corpus_records(1)]
+    unsourced[0]["incipit_id"] = "cadenza:s-1"
+    (corpus_dir / "sinfuente.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in unsourced), encoding="utf-8"
+    )
     (corpus_dir / "carpeta.jsonl").mkdir()  # no se puede leer
     # Un corpus de build-dataset con sesiones de Cadenza saldría sin el mínimo de sesiones.
     records = [*corpus_records(2), {**corpus_records(1)[0], "source": "cadenza"}]
@@ -266,6 +272,7 @@ def test_a_bad_corpus_does_not_stop_the_live_stats(
     for name in ("roto.jsonl", "Mal Nombre.jsonl", "cadenza.jsonl", "carpeta.jsonl"):
         assert name in caplog.text
     assert "dataset.jsonl" in caplog.text and "sesiones de Cadenza" in caplog.text
+    assert "sinfuente.jsonl" in caplog.text
 
 
 def test_without_a_corpus_folder_the_stored_corpus_groups_stay(db_url: str, tmp_path: Path) -> None:
@@ -429,6 +436,22 @@ def test_a_corpus_publishes_its_examples_with_the_drawn_bar_and_no_image(
     for example in examples:
         for beats in (example["read_beats"], example["fix_beats"]):
             assert not beats or beats in stats["figures"]
+
+    # Los ejemplos de cada cifra son los del informe (sin su recorte), en su orden.
+    tables = public_stats.as_csv_rows(corpus_tables(read_corpus(corpus_dir / "primus.jsonl")))
+    report = tables_report.aggregate(
+        tables,
+        None,
+        True,
+        tables_report.reordered_chords(tables["notas"]),
+        tables_report._Bars(tables),
+    )
+    for key, indices in keys.items():
+        expected = [
+            {f: report["examples"][i].get(f) for f in public_stats._EXAMPLE_FIELDS}
+            for i in report["example_keys"][key]
+        ]
+        assert [examples[i] for i in indices] == json.loads(json.dumps(expected)), key
 
 
 def test_the_cadenza_groups_never_carry_examples_history_or_scores(db_url: str) -> None:
