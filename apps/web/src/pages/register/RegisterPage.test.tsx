@@ -297,7 +297,7 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(toggle).toHaveAttribute("aria-controls", full.id);
     // Con desplazamiento propio: se enfoca para recorrerlo con el teclado.
     expect(full).toHaveAttribute("tabindex", "0");
-    expect(full).toHaveTextContent("Versión del 9 de noviembre de 2026");
+    expect(full).toHaveTextContent("Versión del 19 de noviembre de 2026");
     for (const section of [
       "Qué se guarda",
       "Para qué, con tu permiso",
@@ -356,7 +356,7 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(
       await screen.findByRole("heading", { name: "Uso de tus datos", level: 1 }),
     ).toBeVisible();
-    expect(screen.getByText("Versión del 9 de noviembre de 2026")).toBeVisible();
+    expect(screen.getByText("Versión del 19 de noviembre de 2026")).toBeVisible();
     for (const section of [
       "Qué se guarda",
       "Para qué, con tu permiso",
