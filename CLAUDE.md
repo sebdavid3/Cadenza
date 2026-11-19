@@ -16,7 +16,7 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 - **`docs/api/frontend-handoff.md` y `docs/api/openapi.json`:** Contrato de la API v1 (solo admite cambios compatibles) y guía de integración para el frontend. La vista de una sesión (elegir, corregir, insertar y borrar, deshacer, descartar y revalidar) la fijan ADR-0027 a ADR-0035 y ADR-0058; su historia, `docs/phases/phase_8_web_interface/README.md`.
 - **`docs/infra/operacion_backend.md`:** Despliegue, monitoreo (`/health`), logs estructurados, copias de seguridad, GPU y los interruptores de producción.
 - **`docs/CONVENTIONS.md`:** Convenciones de Git, calidad, niveles de cambio y Definition of Done.
-- **`docs/phases/plan_de_cierre/README.md`:** Plan de cierre del proyecto (seguimiento en #231): resultado final, límites, carriles y orden de los issues.
+- **`docs/phases/plan_de_cierre/README.md`:** Plan de cierre del proyecto, ya histórico: el estudio con participantes quedó fuera del alcance (ADR-0070) y su seguimiento (#231) se cerró.
 - **`docs/investigaciones/`:** Investigaciones técnicas (índice en su `README.md`).
 - **GitHub (`sebdavid3/Cadenza`):** Issues y milestones. Los PR van contra `dev`, que no es la rama por defecto: **«Closes #N» no cierra el issue; hay que cerrarlo a mano** tras fusionar.
 
@@ -26,8 +26,8 @@ No fiarse de la memoria conversacional; consultar siempre los documentos version
 
 El detalle y las fechas, en `docs/PROJECT_STATE.md`. Lo que no cambia de una sesión a otra:
 
-- **Fase:** **pruebas con público desde el 2026-11-11, con el sistema congelado** (decisión del responsable): producción se queda en e18d11a y no se despliega nada hasta que acaben, salvo un arreglo que las bloquee y con decisión del responsable. Se puede seguir fusionando en `dev`. El registro público sigue abierto. El estudio con participantes quedó fuera del alcance el 2026-11-19 (#419, ADR-0070): no hay investigadores y todas las cuentas son iguales. El estandarte del proyecto es la capa de sugerencias que aprende de las correcciones (Fase 11, etiqueta `estandarte`).
-- **Producción** sigue la rama `dev`: un clon en `/opt/docker/cadenza` del servidor `r2d2` (`ssh r2d2`, o `ssh r2d2-cf` si Tailscale no responde), publicado en `https://r2d2.tailcacb19.ts.net` y `https://cadenza.sebdavid.dev`. Se despliega con `deploy/desplegar.sh` (nivel 1, §4). HOMR corre en la GPU del servidor (ADR-0066); con `CADENZA_API_GPUS=0` en el `.env`, en la CPU.
+- **Fase:** **pruebas con público desde el 2026-11-11, con el sistema congelado** (decisión del responsable): producción está en cd74485 (desplegada el 2026-11-19 por decisión del responsable, con #426 y #428) y no se despliega nada más sin decisión del responsable. Se puede seguir fusionando en `dev`. El registro público sigue abierto. El estudio con participantes quedó fuera del alcance el 2026-11-19 (#419, ADR-0070): no hay investigadores y todas las cuentas son iguales. El estandarte del proyecto es la capa de sugerencias que aprende de las correcciones (Fase 11, etiqueta `estandarte`).
+- **Producción** sigue la rama `dev`: un clon en `/opt/docker/cadenza` del servidor `r2d2` (`ssh r2d2`, o `ssh r2d2-cf` si Tailscale no responde), publicado en `https://r2d2.tailcacb19.ts.net` y `https://cadenza.sebdavid.dev`. Se despliega con `deploy/desplegar.sh` (nivel 1, §4), tras pasar `puertas.py` completo sobre la punta de `dev` si desde el último despliegue entró algún cambio mínimo. HOMR corre en la GPU del servidor (ADR-0066); con `CADENZA_API_GPUS=0` en el `.env`, en la CPU.
 - **`main`** es la versión publicada: se promueve desde `dev` cuando lo pide el responsable (§5). El despliegue continuo desde `main` (ADR-0062) está listo pero sin activar.
 - **La CI de GitHub no arranca** (D69, un cobro pendiente de la cuenta): las puertas locales de `scripts/puertas.py` la sustituyen, con su línea en el PR.
 - **Interruptores de producción** (`.env` del servidor): cada uno se enciende o se apaga solo cuando lo pide el responsable, con el procedimiento de `operacion_backend.md` §2.2.
@@ -56,6 +56,7 @@ Al empezar una fase nueva, lo primero es planificarla: milestone e issues con co
 - **Nivel 1, operar sin código** (~1 min): desplegar `dev` (`deploy/desplegar.sh`), promover a `main`, cambiar una variable del `.env` de producción o hacer una copia. Se sigue `docs/infra/operacion_backend.md` y se comprueba en producción. Sin rama, PR ni puertas: la línea de la bitácora va en el siguiente PR, o en uno de nivel 2 si no hay otro.
 - **Nivel 2, solo documentación** (~1 min): solo archivos `.md` fuera de `apps/web`. Rama, PR y *squash*, sin puertas ni revisión con subagente: ninguna prueba lee esos archivos.
 - **Nivel 3, código** (5–10 min con el despliegue): cualquier otro archivo. El flujo de abajo entero, con las puertas solo de lo que se tocó (§6) y la revisión con subagente solo si toca la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas, o pasa de unas 200 líneas sin contar las pruebas; si no, basta releer uno mismo el diff.
+- **Cambio mínimo de código** (~1 min, #434): hasta unas 30 líneas sin contar las pruebas, sin tocar la API, la persistencia o las migraciones, el dominio o la aplicación, el contrato, la autenticación o las cuentas ni las dependencias. Sin `puertas.py`: `ruff` y `black` sobre los archivos tocados y `pytest` solo de las pruebas del paquete (en la web, `npm run lint` y `npx vitest related --run <archivos>`), con esa línea en el PR. TDD solo en un fallo. Sin revisión con subagente. La suite completa se pasa una vez sobre `dev` antes de desplegar (`docs/CONVENTIONS.md` §5.1).
 
 1. **Sincronizar:** `git switch dev`, `git pull --ff-only`, árbol limpio.
 2. **Estudiar:** leer el issue completo y la documentación y el código que cita.
@@ -139,7 +140,7 @@ Un issue está terminado únicamente cuando:
 - Incorporar dependencias pequeñas y estándar que el trabajo requiera.
 
 ### Detenerse y consultar al usuario
-- Las decisiones del responsable: el protocolo del estudio y sus fechas, la licencia, los objetivos de la tesis frente a lo entregado, qué se recorta, borrar o archivar salidas de `results/` y descargar corpus o páginas.
+- Las decisiones del responsable: la licencia, los objetivos de la tesis frente a lo entregado, qué se recorta, borrar o archivar salidas de `results/` y descargar corpus o páginas.
 - Encender o apagar un interruptor de producción, desplegar o promover a `main` sin que lo haya pedido.
 - Issues del milestone «Trabajo futuro (fuera del alcance)» y cualquier cambio del contrato de la API v1 que rompa compatibilidad.
 - Credenciales reales, secretos de producción o servicios de pago.

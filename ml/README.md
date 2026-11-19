@@ -552,19 +552,10 @@ Cada columna, su origen, sus valores y las limitaciones están en
 - **`exp_08` (línea base de oemer) se retiró en [#130](https://github.com/sebdavid3/Cadenza/issues/130)**
   sin haber ejecutado oemer: `oemer_baseline.csv`, `oemer_baseline_summary.json` y
   `exp_08_run_info.json` registran 100 fallos por falta de predicciones y no se citan.
-- **`exp_10` solo exporta sesiones reales** (`--db-url`). Sin base de datos, o con una sin
-  sesiones del estudio, falla en vez de rellenar con datos sintéticos. `--smoke` genera
-  datos sintéticos para probar la exportación, marcados con `"simulated": true` también en
-  su `exp_10_run_info.json`, y se niega a escribir en `results/`: exige un `--output-dir`
-  fuera de él. Los `effort_study_*` y `exp_10_run_info.json` que hay en `results/` (del
-  2026-10-12) son de una ejecución sintética anterior y no se citan; el estudio real llega
-  con [#253](https://github.com/sebdavid3/Cadenza/issues/253).
-- **`exp_10` mide la fidelidad residual y une el NASA-TLX**
-  ([#250](https://github.com/sebdavid3/Cadenza/issues/250)): solo toma TS-01 a TS-04 de
-  cuentas de transcriptor, compara el estado final de cada sesión con la verdad del banco del
-  estudio (`--bank-dir`, comprobada con su sha256; sin ella falla) y lee el NASA-TLX de un CSV
-  por participante y bloque (`--nasa-tlx`). Formato y columnas, en el §3.3 y el §6.2 del
-  protocolo.
+- **`exp_10` (exportación del estudio de esfuerzo) se retiró en [#429](https://github.com/sebdavid3/Cadenza/issues/429)**, con `ml export-effort`,
+  al quedar fuera del alcance el estudio con participantes (ADR-0070). Los `effort_study_*` y
+  `exp_10_run_info.json` que hay en `results/` (del 2026-10-12) son de una ejecución sintética y
+  no se citan.
 
 Archivar o borrar esas salidas de `results/` lo decide el responsable (`CLAUDE.md` §9).
 
