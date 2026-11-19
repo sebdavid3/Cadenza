@@ -476,7 +476,8 @@ uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report
   --db-url <url> --artifacts-dir <dir de artefactos de la API> --version <versión>
 
 # 4. Bucle de aprendizaje: el corpus de exp_12, sin modificarlo, más las sesiones finalizadas
-#    de Cadenza (partidas por página de origen) y las respuestas a sus sugerencias.
+#    de Cadenza (partidas por obra: las que comparten partitura de prueba o foto, juntas, #437)
+#    y las respuestas a sus sugerencias.
 uv run --no-sync python -m ml suggestions build-dataset --corpus <corpus de exp_12> `
   --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición>
 ```

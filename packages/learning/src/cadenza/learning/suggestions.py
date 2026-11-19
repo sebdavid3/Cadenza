@@ -158,8 +158,8 @@ def read_corpus(path: Path) -> list[dict[str, Any]]:
 
 
 def work_of(record: Mapping[str, Any]) -> str:
-    """La obra de un registro, para agrupar pliegues y particiones: la página de origen de una
-    sesión de Cadenza o el registro RISM de un incipit de PrIMuS."""
+    """La obra de un registro, para agrupar pliegues y particiones: la de una sesión de Cadenza
+    (`shared_works`, #437) o el registro RISM de un incipit de PrIMuS."""
     work = record.get("work_id")
     if work:
         return str(work)
@@ -842,23 +842,15 @@ def promotion_decision(
 # --- El bucle de aprendizaje: las sesiones finalizadas de Cadenza -------------------------------
 
 
-def _page_of(session: Any) -> str | None:
-    """La página de origen de una sesión: la partitura de prueba o el sha256 de su imagen."""
-    if session.test_score_id:
-        return f"test_score:{session.test_score_id}"
-    image = session.image_artifact or (session.document.get("provenance") or {}).get(
-        "source_image_hash"
-    )
-    return None if not image else f"image:{image}"
-
-
 def shared_works(sessions: Iterable[Any]) -> dict[str, str]:
-    """La obra de cada sesión para partir sin fugas (`ml export-pairs`, #420): las sesiones que
-    comparten partitura de prueba o foto son la misma obra, también encadenadas (una página del
-    banco subida sin `test_score_id` va con su partitura de prueba, porque su foto es la misma).
+    """La obra de cada sesión para partir sin fugas (`ml export-pairs`, #420, y
+    `session_records`, #437): las sesiones que comparten partitura de prueba o foto son la misma
+    obra, también encadenadas (una página del banco subida sin `test_score_id` va con su
+    partitura de prueba, porque su foto es la misma).
 
     La obra de un grupo es su partitura de prueba (la menor, si une varias) o, sin ninguna, su
-    foto (la menor): la de `_page_of` cuando la sesión no comparte nada. Las sesiones sin
+    foto (la menor). Una sesión que no comparte nada tiene la de su página de origen:
+    `test_score:<id>` o, sin partitura de prueba, `image:<sha256 de la foto>`. Las sesiones sin
     partitura de prueba ni foto no salen.
     """
 
@@ -927,13 +919,15 @@ def session_records(
     la misma regla que `ml export-staves`, ADR-0067).
 
     Para cada sesión, `build_correction_records(estado 0, estado final)`, verificados con la
-    misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su página de
-    origen (todas las sesiones de una página caen del mismo lado, ADR-0036 §10). Las
+    misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su obra
+    (`shared_works` de las sesiones que entran, como `ml export-pairs`): las que comparten
+    partitura de prueba o foto caen del mismo lado (ADR-0036 §10, enmienda de #437). Las
     respuestas a sus sugerencias van en registros `suggestion` (aceptada, rechazada o
     ignorada), para evaluar y analizar: no se entrena con ellas.
     """
     records: list[dict[str, Any]] = []
     left_out: dict[str, str] = {}
+    entering: list[Any] = []
     for session in session_repository.list(status=None if include_unfinished else "finalized"):
         owner = user_repository.get(session.owner_id)
         if owner is not None and owner.self_registered:
@@ -945,11 +939,14 @@ def session_records(
                     "cuenta del registro sin el permiso de uso de los datos vigente"
                 )
                 continue
-        page = _page_of(session)
-        if page is None:
+        entering.append(session)
+    works = shared_works(entering)
+    for session in entering:
+        work = works.get(session.id)
+        if work is None:
             left_out[session.id] = "sin página de origen (test_score_id ni imagen)"
             continue
-        split = assign_split(page, seed=split_seed, test_fraction=test_fraction)
+        split = assign_split(work, seed=split_seed, test_fraction=test_fraction)
         raw = ScoreIR.from_primitive(session.document["score"])
         edits = edit_repository.list_events(session.id)
         final = materialize(raw, edits) if edits else raw
@@ -959,7 +956,7 @@ def session_records(
             raw, final, incipit_id=incipit_id, split=split, verified=verified
         ):
             records.append(
-                {**record, "source": "cadenza", "session_id": session.id, "work_id": page}
+                {**record, "source": "cadenza", "session_id": session.id, "work_id": work}
             )
         for suggestion in session_repository.list_suggestions(session.id):
             records.append(
@@ -968,7 +965,7 @@ def session_records(
                     "source": "cadenza",
                     "incipit_id": incipit_id,
                     "session_id": session.id,
-                    "work_id": page,
+                    "work_id": work,
                     "split": split,
                     "condition": session.condition,
                     "response": suggestion.response or "ignored",
