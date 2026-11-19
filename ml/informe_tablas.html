@@ -166,6 +166,17 @@ table.top td { padding: 9px 10px; border-bottom: 1px solid var(--rule-soft); }
 table.top .n { text-align: right; }
 table.top tr[data-key]:hover td { background: var(--ink); color: var(--paper); }
 table.top tr[aria-current="true"] td { background: var(--accent); color: var(--on-accent); }
+/* Historial */
+.history-tools { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; margin: 0 0 14px; }
+.history-tools label { display: grid; gap: 4px; }
+.history-tools .search { flex: 1 1 260px; }
+.history-tools input, .history-tools select { font: 400 1rem/1.3 var(--body); color: var(--ink); background: var(--paper-raised); border: var(--rule); min-height: 44px; padding: 8px 12px; border-radius: 0; width: 100%; }
+.history-tools input:focus-visible, .history-tools select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.history-tools .small { margin: 0 0 12px; }
+.more-btn { font: 700 0.8125rem/1 var(--label); letter-spacing: 0.05em; text-transform: uppercase; min-height: 44px; padding: 0 18px; margin-top: 14px;
+  background: var(--paper); color: var(--ink); border: var(--rule); cursor: pointer; }
+.more-btn:hover { background: var(--ink); color: var(--paper); }
+table.top .clean { color: var(--ink-faint); }
 
 /* Ejemplos */
 .examples { position: sticky; top: var(--bar-h); align-self: start; max-height: calc(100vh - var(--bar-h)); overflow: auto; }
@@ -291,10 +302,25 @@ footer { padding: 24px var(--gutter) 40px; }
         <div class="scroll" id="durations"></div>
       </section>
     </div>
-    <section class="panel">
-      <h3>Las partituras con más correcciones</h3>
-      <p class="small">Correcciones por nota leída (con las notas que faltaban, la clave y la armadura), en partituras de 10 notas o más.</p>
-      <div class="scroll" id="top"></div>
+    <section class="panel" id="history-panel">
+      <h3>Historial de transcripciones</h3>
+      <p class="small">Todas las partituras de la exportación. Busca por partitura, sesión, origen o fecha y elige una
+      para ver sus correcciones con la foto. Las correcciones cuentan también las notas que HOMR no leyó, la clave y la armadura.</p>
+      <div class="history-tools">
+        <label class="search"><span class="label muted">Buscar</span>
+          <input type="search" id="history-q" placeholder="TS-04, sesión, PrIMuS, 2026-11…" autocomplete="off"></label>
+        <label class="sort"><span class="label muted">Orden</span>
+          <select id="history-sort">
+            <option value="rate">Más correcciones por nota</option>
+            <option value="fixes">Más correcciones</option>
+            <option value="date">Más recientes</option>
+            <option value="clean">Sin correcciones primero</option>
+            <option value="name">Por nombre</option>
+          </select></label>
+        <span class="small" id="history-count"></span>
+      </div>
+      <div class="scroll" id="history"></div>
+      <button type="button" class="more-btn" id="history-more" hidden>Ver más</button>
     </section>
   </main>
   <aside class="examples" id="examples" aria-live="polite" aria-labelledby="ex-title">
@@ -540,11 +566,7 @@ function render() {
       }).join("") + `</tr>`).join("") + `</tbody></table>`;
   }
 
-  document.getElementById("top").innerHTML = d.top.length ? `<table class="top"><thead><tr><th>Partitura</th><th>Origen</th>
-    <th class="n">Leídas</th><th class="n">Correcciones</th><th class="n">Por nota</th></tr></thead><tbody>` +
-    d.top.map(r => `<tr ${attrs(r.key, r.label, "Partitura", `<b>${esc(r.label)}</b>: ver sus correcciones`)}><td>${esc(r.label)}</td><td>${esc(r.origin)}</td>
-      <td class="n">${fmt(r.read)}</td><td class="n">${fmt(r.fixes)}</td><td class="n">${pct(r.fixes, r.read, 0)}</td></tr>`).join("") +
-    `</tbody></table>` : "<p class='small'>Ninguna partitura con 10 notas o más.</p>";
+  renderHistory();
 
   if (!selected || !d.example_keys[selected.key]) {
     const first = fs.find(f => f.key);
@@ -556,6 +578,43 @@ function render() {
 }
 
 // --- Ejemplos -----------------------------------------------------------------------------------
+// --- Historial de transcripciones --------------------------------------------------------------
+// Todas las partituras, con buscador y orden; elegir una enseña sus correcciones en el panel.
+const HISTORY_PAGE = 25, MIN_RATE_NOTES = 10;
+let historyQuery = "", historySort = "rate", historyShown = HISTORY_PAGE;
+const fold = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const dateText = iso => { const t = new Date(`${iso}T12:00:00`); return isNaN(t) ? iso : t.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" }); };
+function renderHistory() {
+  const d = variant(), counts = d.per_score;
+  const rows = DATA.history.filter(h => counts[h.id]).map(h => ({ ...h, read: counts[h.id][0], fixes: counts[h.id][1] }));
+  const q = fold(historyQuery.trim());
+  const found = q ? rows.filter(h => fold(`${h.label} ${h.id} ${h.origin} ${h.date} ${h.date ? dateText(h.date) : ""}`).includes(q)) : rows;
+  const rate = h => h.read ? h.fixes / h.read : 0;
+  const order = {
+    // Por nota, las de pocas notas van al final: 1 de 2 no es un 50 % que diga algo.
+    rate: (a, b) => (b.read >= MIN_RATE_NOTES) - (a.read >= MIN_RATE_NOTES) || rate(b) - rate(a) || b.fixes - a.fixes,
+    fixes: (a, b) => b.fixes - a.fixes || rate(b) - rate(a),
+    date: (a, b) => b.date.localeCompare(a.date) || a.label.localeCompare(b.label, "es"),
+    clean: (a, b) => a.fixes - b.fixes || b.read - a.read,
+    name: (a, b) => a.label.localeCompare(b.label, "es", { numeric: true }),
+  }[historySort];
+  const sorted = [...found].sort(order), shown = sorted.slice(0, historyShown);
+  const dates = rows.some(h => h.date);
+  document.getElementById("history-count").textContent = q
+    ? `${plural(found.length, "transcripción", "transcripciones")} de ${fmt(rows.length)}`
+    : plural(rows.length, "transcripción", "transcripciones");
+  document.getElementById("history").innerHTML = shown.length ? `<table class="top"><thead><tr><th>Partitura</th><th>Origen</th>${dates ? "<th>Fecha</th>" : ""}
+    <th class="n">Notas leídas</th><th class="n">Correcciones</th><th class="n">Por nota</th></tr></thead><tbody>` +
+    shown.map(h => `<tr ${attrs(`score:${h.id}`, h.label, h.origin, `<b>${esc(h.label)}</b>: ver sus correcciones`)}><td>${esc(h.label)}</td><td>${esc(h.origin)}</td>
+      ${dates ? `<td>${h.date ? esc(dateText(h.date)) : ""}</td>` : ""}<td class="n">${fmt(h.read)}</td>
+      <td class="n${h.fixes ? "" : " clean"}">${h.fixes ? fmt(h.fixes) : "ninguna"}</td><td class="n">${h.fixes ? pct(h.fixes, h.read, 0) : ""}</td></tr>`).join("") +
+    `</tbody></table>` : `<p class="small">Ninguna transcripción coincide con «${esc(historyQuery.trim())}».</p>`;
+  const more = document.getElementById("history-more");
+  more.hidden = sorted.length <= historyShown;
+  more.textContent = `Ver ${fmt(Math.min(HISTORY_PAGE, sorted.length - historyShown))} más`;
+  markSelected();
+}
+
 // Qué pasó, en palabras: se corrigió, HOMR la leyó de más o no la leyó.
 function changeHtml(x) {
   const read = `${x.read_beats ? figSym(x.read_beats) : ""}${esc(x.read)}`, fix = `${x.fix_beats ? figSym(x.fix_beats) : ""}${esc(x.fix)}`;
@@ -701,6 +760,14 @@ function showExamples() {
   const ids = d.example_keys[selected.key] || [];
   document.getElementById("ex-kicker").textContent = selected.kicker || "Ejemplos";
   document.getElementById("ex-title").textContent = selected.title;
+  // Una partitura del historial que HOMR leyó sin errores: su foto y nada que corregir.
+  if (!ids.length && selected.key.startsWith("score:")) {
+    const h = DATA.history.find(x => `score:${x.id}` === selected.key);
+    document.getElementById("ex-note").textContent = "HOMR la leyó sin ninguna corrección.";
+    list.innerHTML = h ? `<article class="ex">${photoHtml(h.img, `Primer pentagrama de ${h.label}`)}
+      <div class="txt"><div class="small">${esc(h.label)} · ${esc(h.origin)}${h.date ? ` · ${esc(dateText(h.date))}` : ""}</div></div></article>` : "";
+    return;
+  }
   document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? ", los 12 primeros" : ""}. Cada foto es el pentagrama entero; debajo, su compás dibujado: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.` : "Ningún ejemplo con este filtro.";
   list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
     ${photoHtml(x.img, `Pentagrama ${x.staff}, sistema del compás ${x.measure}`)}
@@ -804,6 +871,11 @@ seg.addEventListener("click", e => {
   render();
 });
 document.getElementById("reorder").addEventListener("change", render);
+document.getElementById("history-q").addEventListener("input", e => { historyQuery = e.target.value; historyShown = HISTORY_PAGE; renderHistory(); });
+document.getElementById("history-sort").addEventListener("change", e => { historySort = e.target.value; historyShown = HISTORY_PAGE; renderHistory(); });
+document.getElementById("history-more").addEventListener("click", () => { historyShown += HISTORY_PAGE; renderHistory(); });
+// Sin fechas (PrIMuS) no tiene sentido ordenar por fecha.
+if (!DATA.history.some(h => h.date)) document.querySelector('#history-sort option[value="date"]').remove();
 let resizing = 0, lastWidth = innerWidth;
 addEventListener("resize", () => {
   clearTimeout(resizing);

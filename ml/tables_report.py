@@ -42,8 +42,6 @@ MAX_EXAMPLES = 12
 """Ejemplos por barra o celda."""
 MIN_GROUP = 30
 """Notas que necesita un grupo de contexto para salir en «dónde se equivoca más»."""
-MIN_SCORE_EVENTS = 10
-"""Notas leídas que necesita una partitura para salir en la tabla de las que más se corrigen."""
 
 STEPS = "CDEFGAB"
 FIGURES = {
@@ -578,22 +576,6 @@ def aggregate(
         )
     for row in claves:
         per_score.setdefault(row["incipit_id"], [0, 0])[1] += len(_ops(row))
-    origins = {r["incipit_id"]: _origin_label(r) for r in partituras}
-    top = sorted(
-        (
-            {
-                "key": f"score:{incipit}",
-                "label": labels.get(incipit, incipit),
-                "origin": origins.get(incipit, ""),
-                "read": read,
-                "fixes": fixes,
-                "rate": fixes / read,
-            }
-            for incipit, (read, fixes) in per_score.items()
-            if read >= MIN_SCORE_EVENTS
-        ),
-        key=lambda r: (-float(r["rate"]), -int(r["fixes"]), str(r["label"])),
-    )[:15]
 
     return {
         "scores": len(partituras),
@@ -611,7 +593,8 @@ def aggregate(
         "by_vs_key": by_vs_key,
         "by_clef": by_clef,
         "by_duration": by_duration,
-        "top": top,
+        # Para el historial: notas leídas y correcciones de cada partitura, en esta variante.
+        "per_score": per_score,
         "examples": examples.items,
         "example_keys": dict(examples.by_key),
     }
@@ -649,6 +632,28 @@ def session_strips(folder: Path, partituras: list[Row]) -> list[dict[str, Any]]:
             }
         )
     return list(sessions.values())
+
+
+def history(tables: dict[str, list[Row]], real: set[str]) -> list[dict[str, Any]]:
+    """El historial de todas las transcripciones de la exportación (#418): una fila por partitura,
+    con su nombre, de dónde sale, su fecha y la foto de su primer pentagrama, para buscarla y ver
+    sus correcciones. Las cifras de cada una están en `per_score` de cada variante. No lleva el
+    nombre de la cuenta: el informe nombra cada sesión por su página y su identificador."""
+    photos: dict[str, str] = {}
+    for row in tables["notas"]:
+        if row.get("recorte"):
+            photos.setdefault(row["incipit_id"], row["recorte"])
+    return [
+        {
+            "id": row["incipit_id"],
+            "label": _score_label(row),
+            "origin": _origin_label(row),
+            "date": (row.get("created_at") or "")[:10],
+            "real": row["incipit_id"] in real,
+            "img": photos.get(row["incipit_id"], ""),
+        }
+        for row in tables["partituras"]
+    ]
 
 
 def figures(tables: dict[str, list[Row]], sessions: list[dict[str, Any]]) -> dict[str, Any]:
@@ -697,6 +702,7 @@ def report_data(folder: Path) -> dict[str, Any]:
         "sessions": sessions,
         "figures": figures(tables, sessions),
         "bars": bars.bars,
+        "history": history(tables, real),
     }
 
 

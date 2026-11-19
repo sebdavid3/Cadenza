@@ -153,8 +153,17 @@ def test_only_the_real_tests_of_cadenza_are_split(
     assert data["variants"]["todas|0"]["read"] == len(notas)
     real_sessions = {r["session_id"] for r in partituras if r["origen"] == "registro"}
     assert {s["session"] for s in data["sessions"] if s["real"]} <= real_sessions
-    origins = {r["origin"] for r in data["variants"]["todas|0"]["top"]}
-    assert origins <= {"Prueba real", "Equipo", "Banco del estudio", "PrIMuS"}
+    # En el historial, cada sesión dice de dónde sale y cuándo se hizo, y las pruebas reales se
+    # pueden separar; ninguna fila lleva el nombre de la cuenta.
+    by_id = {h["id"]: h for h in data["history"]}
+    assert {h["id"] for h in data["history"] if h["real"]} == real
+    assert {by_id[i]["origin"] for i in real} == {"Prueba real"}
+    assert all(h["origin"] == "Equipo" for h in data["history"] if not h["real"])
+    assert all(h["date"] for h in data["history"])
+    accounts = {r["participante"] for r in partituras} - {""}
+    values = {v for h in data["history"] for v in h.values() if isinstance(v, str)}
+    assert accounts and not accounts & values
+    assert set(data["variants"]["pruebas|0"]["per_score"]) == real
 
 
 @pytest.mark.parametrize(
@@ -327,14 +336,12 @@ def test_a_chord_reordered_around_a_good_note_and_what_is_not_a_reordering() -> 
     assert reordered_chords(notas) == {0, 2}
 
 
-def test_all_the_figures_of_the_report_come_from_the_csv(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_all_the_figures_of_the_report_come_from_the_csv(tmp_path: Path) -> None:
     corpus = write_corpus(tmp_path / "corpus.jsonl", works=6)
     output = tmp_path / "primus"
     assert main(["export-tables", "--output-dir", str(output), "--corpus", str(corpus)]) == 0
-    monkeypatch.setattr(tables_report, "MIN_SCORE_EVENTS", 1)
-    every = tables_report.report_data(output)["variants"]["todas|0"]
+    data = tables_report.report_data(output)
+    every = data["variants"]["todas|0"]
     notas = _rows(output / "notas.csv")
     faltantes = _rows(output / "faltantes.csv")
     claves = _rows(output / "clave_armadura.csv")
@@ -346,10 +353,14 @@ def test_all_the_figures_of_the_report_come_from_the_csv(
     assert sum(c["n"] for c in every["durations"]) == sum(
         1 for r in notas if "SetDuration" in r["ops"]
     )
-    # Las correcciones de cada partitura son sus `correcciones_netas`.
+    # El historial tiene todas las partituras, y las correcciones de cada una son sus
+    # `correcciones_netas`; sus notas leídas, las filas de `notas`.
     netas = {r["incipit_id"]: int(r["correcciones_netas"]) for r in partituras}
-    shown = {r["key"].removeprefix("score:"): r["fixes"] for r in every["top"]}
-    assert shown and all(netas[incipit] == fixes for incipit, fixes in shown.items())
+    assert [h["id"] for h in data["history"]] == [r["incipit_id"] for r in partituras]
+    assert {incipit: fixes for incipit, (_, fixes) in every["per_score"].items()} == netas
+    read = Counter(r["incipit_id"] for r in notas)
+    assert all(every["per_score"][incipit][0] == n for incipit, n in read.items())
+    assert {h["origin"] for h in data["history"]} == {"PrIMuS"}
     assert every["clean_scores"] == sum(1 for n in netas.values() if n == 0)
 
 
