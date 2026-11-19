@@ -216,9 +216,11 @@ el corpus.
 ### `exp_18_camera_primus.py` — corpus de correcciones con Camera-PrIMuS (#421, ADR-0074)
 
 Los mismos incipits de PrIMuS con la imagen distorsionada para que parezca una foto
-(`data/camera_primus/Corpus/<id>/<id>_distorted.jpg`, de `CameraPrIMuS.tgz`). Elige 10 000 al
+(`data/camera_primus/Corpus/<id>/<id>_distorted.jpg`, de `CameraPrIMuS.tgz`). Elige 3 000 al
 azar con la semilla de `exp_12`, sin los 100 de `exp_03`: son los primeros de una ordenación al
-azar, así que una muestra mayor con la misma semilla empieza por esta y no repite lo leído.
+azar, así que una muestra mayor con la misma semilla empieza por esta y no repite lo leído. Se
+propusieron 10 000 y el responsable decidió el 2026-11-19 cortar en 3 000 por tiempo: son las
+primeras de la misma ordenación.
 Los lee HOMR en la GPU (ADR-0066), sin preprocesado, con la transcripción reanudable de
 `external_corpus` (nacida en #102), y mide como `exp_12`: la altura que suena del `.semantic`, el
 corrector ideal verificado, la armadura, el compás y la clave, más la SER y el OMR-NED.

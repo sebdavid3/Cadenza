@@ -88,7 +88,9 @@ from ml.experiments.exp_12_correction_corpus import (  # noqa: E402
 EXPERIMENT = "exp_18"
 SOURCE = "camera-primus"
 CORPUS_DIR = "camera_primus"
-SAMPLE_SIZE = 10_000
+SAMPLE_SIZE = 3_000
+"""Decisión del responsable del 2026-11-19: se propusieron 10 000 y se cortó en 3 000 por tiempo.
+Son las primeras de la misma ordenación al azar: una submuestra al azar de la de 10 000."""
 OPS = external_corpus.OPS
 OUTPUT_PREFIX = "camera_primus_correction_corpus"
 EXP_12_SPLIT = "correction_corpus_split.json"
