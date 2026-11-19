@@ -4,6 +4,7 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/AppLayout";
 import { AccountPage } from "./pages/account/AccountPage";
 import { DataUsePage } from "./pages/consent/DataUsePage";
+import { HomrErrorsPage } from "./pages/homr-errors/HomrErrors";
 import { LandingPage } from "./pages/landing/LandingPage";
 import { LoginPage } from "./pages/login/LoginPage";
 import { NotFoundPage } from "./pages/not-found/NotFoundPage";
@@ -20,6 +21,7 @@ export const routes: RouteObject[] = [
       { path: "/entrar", element: <LoginPage /> },
       { path: "/registro", element: <RegisterPage /> },
       { path: "/uso-de-los-datos", element: <DataUsePage /> },
+      { path: "/errores-de-homr", element: <HomrErrorsPage /> },
       {
         element: (
           <RequireAuth>

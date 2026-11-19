@@ -1,4 +1,4 @@
-import { Link } from "react-router";
+import { Link, NavLink } from "react-router";
 import { REPOSITORY_URL } from "../config";
 import { BrandWordmark } from "./BrandWordmark";
 import "./button.css";
@@ -13,7 +13,7 @@ export function SiteHeader({
   showEnter?: boolean;
 }) {
   return (
-    <header className="site-header">
+    <header className={showSections ? "site-header site-header--sections" : "site-header"}>
       <Link className="site-header__brand" to="/" aria-label="Cadenza, inicio">
         <BrandWordmark />
       </Link>
@@ -29,6 +29,9 @@ export function SiteHeader({
             </a>
           </>
         )}
+        <NavLink className="label" to="/errores-de-homr">
+          Errores de HOMR
+        </NavLink>
         <a className="label" href={REPOSITORY_URL}>
           Código
         </a>

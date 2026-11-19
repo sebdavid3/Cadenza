@@ -38,10 +38,31 @@
   padding-block: var(--space-2);
 }
 
-/* Con el logo de 4 px, el lema solo cabe en la fila desde unos 1140 px (#383). */
+/* Con el logo de 4 px, el lema solo cabe en la fila desde unos 1140 px (#383); en la portada, con
+   sus anclas y el enlace a los errores de HOMR (#424), desde unos 1360 px. */
 @media (max-width: 1140px) {
   .site-header__tagline {
     display: none;
+  }
+}
+
+@media (max-width: 1360px) {
+  .site-header--sections .site-header__tagline {
+    display: none;
+  }
+}
+
+/* En la portada, las anclas y el enlace a los errores de HOMR no caben en la fila de la marca y
+   «Entrar» hasta unos 1080 px (#424): pasan a su propia fila, debajo. */
+@media (max-width: 1080px) {
+  .site-header--sections .site-header__brand {
+    flex: 1;
+  }
+
+  .site-header--sections .site-header__nav {
+    order: 1;
+    width: 100%;
+    margin-left: 0;
   }
 }
 

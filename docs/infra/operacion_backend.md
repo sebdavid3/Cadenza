@@ -457,7 +457,7 @@ docker compose --profile batch run --rm ml-batch suggestions --help
 2. calcula los grupos `cadenza` (todas) y `pruebas` (las del registro), cada uno publicado solo con 5 sesiones de 3 cuentas o más (y `pruebas`, solo si el resto no se queda entre 1 y 4 sesiones), y un grupo por cada `<grupo>.jsonl` de la carpeta de corpus, que se calcula al arrancar el servicio y después solo si cambia el archivo;
 3. sustituye las filas en `public_stats` y anota una línea `public_stats_computed cadenza=… pruebas=…` en su registro.
 
-Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
+Los grupos de corpus llevan además sus ejemplos con el compás dibujado (formato 2, enmienda de #424 a ADR-0073), unos 390 KiB por corpus; los de Cadenza, nunca. Tras desplegar un formato nuevo, la página no enseña cifras hasta el primer cálculo, al minuto de arrancar el servicio. Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
 
 Comprobarlo en el servidor:
 

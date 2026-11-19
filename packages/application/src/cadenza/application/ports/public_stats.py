@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
 
-PUBLIC_STATS_FORMAT_VERSION: Final = 1
-"""La versión de lo que lleva `PublicStatsGroup.stats`. La API no publica otra."""
+PUBLIC_STATS_FORMAT_VERSION: Final = 2
+"""La versión de lo que lleva `PublicStatsGroup.stats`. La API no publica otra. La 2 añade los
+ejemplos de los corpus (#424): al desplegarla, las filas de la 1 no se publican hasta el
+siguiente cálculo."""
 MIN_PUBLIC_SESSIONS: Final = 5
 """Sesiones que necesita un grupo de Cadenza para publicarse (ADR-0073 §5). Lo aplica quien
 calcula y lo vuelve a comprobar la API."""
