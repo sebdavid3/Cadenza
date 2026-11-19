@@ -39,7 +39,6 @@ const CONSENT_LABEL = "Doy mi permiso para que se usen mis datos así.";
 const CREATED: UserRead = {
   id: "u-1",
   username: "ana",
-  role: "transcriptor",
   active: true,
   self_registered: true,
   created_at: "2026-10-23T10:00:00",
@@ -298,7 +297,7 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(toggle).toHaveAttribute("aria-controls", full.id);
     // Con desplazamiento propio: se enfoca para recorrerlo con el teclado.
     expect(full).toHaveAttribute("tabindex", "0");
-    expect(full).toHaveTextContent("Versión del 9 de noviembre de 2026");
+    expect(full).toHaveTextContent("Versión del 19 de noviembre de 2026");
     for (const section of [
       "Qué se guarda",
       "Para qué, con tu permiso",
@@ -357,7 +356,7 @@ describe("permiso de uso de los datos al registrarse (#378)", () => {
     expect(
       await screen.findByRole("heading", { name: "Uso de tus datos", level: 1 }),
     ).toBeVisible();
-    expect(screen.getByText("Versión del 9 de noviembre de 2026")).toBeVisible();
+    expect(screen.getByText("Versión del 19 de noviembre de 2026")).toBeVisible();
     for (const section of [
       "Qué se guarda",
       "Para qué, con tu permiso",
@@ -386,7 +385,7 @@ describe("registro cerrado en el build (#248)", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: /registro cerrado/i }),
     ).toBeVisible();
-    expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
+    expect(screen.getByText(/ahora no se pueden crear cuentas/i)).toBeVisible();
     expect(screen.getByRole("link", { name: /ir a entrar/i })).toHaveAttribute("href", "/entrar");
     expect(screen.queryByLabelText("Usuario")).toBeNull();
     expect(screen.queryByRole("button", { name: /crear cuenta/i })).toBeNull();

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from fractions import Fraction
 from pathlib import Path
-from typing import Any
 
 from cadenza.domain import (
     BBox,
@@ -117,31 +116,6 @@ class FakeOMREngine(OMREngine):
         self._document_id = document_id
         self._model_version = model_version
         self._preprocessing = preprocessing
-
-    @classmethod
-    def from_active_model(
-        cls,
-        model_registry: Any | None,
-        artifact_store: Any | None = None,
-        *,
-        use_gpu: bool = False,
-        document_id: str = FAKE_DOCUMENT_ID,
-        preprocessing: PreprocessingConfig | None = None,
-    ) -> FakeOMREngine:
-        """Instancia FakeOMREngine con la versión de modelo activa si existe (#21).
-
-        Acepta los mismos argumentos que `HOMREngine.from_active_model`; `use_gpu`
-        se ignora porque el doble no ejecuta inferencia.
-        """
-        if model_registry is None:
-            return cls(document_id=document_id, preprocessing=preprocessing)
-        active = model_registry.active()
-        version_str = active.version if active is not None else None
-        return cls(
-            document_id=document_id,
-            model_version=version_str,
-            preprocessing=preprocessing,
-        )
 
     @property
     def engine_id(self) -> str:

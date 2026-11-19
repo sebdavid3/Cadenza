@@ -1,0 +1,48 @@
+# Las cifras públicas de los errores de HOMR, en vivo (#423, ADR-0073): la imagen del servicio
+# `stats` del compose de producción. Cada pocos minutos lee la base en solo lectura, calcula con el
+# código del informe local y guarda en `public_stats` lo que sirve GET /api/stats/homr-errors.
+#
+# Sin HOMR, GPU ni la API: solo cadenza-learning y cadenza-persistence, con las dependencias del
+# workspace que arrastran, y los dos módulos de `ml/` que usa el cálculo.
+FROM python:3.12.15-slim-bookworm
+
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /bin/
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+ENV UV_PYTHON_DOWNLOADS=never
+ENV PYTHONUNBUFFERED=1
+
+# Primero las dependencias, desde los manifiestos: una capa que no cambia con el código.
+COPY pyproject.toml uv.lock ./
+COPY apps/api/pyproject.toml apps/api/
+COPY packages/application/pyproject.toml packages/application/
+COPY packages/domain/pyproject.toml packages/domain/
+COPY packages/interchange/pyproject.toml packages/interchange/
+COPY packages/learning/pyproject.toml packages/learning/
+COPY packages/omr/pyproject.toml packages/omr/
+COPY packages/persistence/pyproject.toml packages/persistence/
+COPY packages/validation/pyproject.toml packages/validation/
+RUN uv sync --frozen --no-dev --package cadenza-learning --package cadenza-persistence \
+    --no-install-workspace
+
+COPY packages/ packages/
+RUN uv sync --frozen --no-dev --package cadenza-learning --package cadenza-persistence
+COPY ml/tables_report.py ml/public_stats.py ml/
+
+ENV PATH="/app/.venv/bin:$PATH"
+
+# La imagen no se construye si el cálculo no se puede importar.
+RUN python -c "import ml.public_stats" \
+    && python -m compileall -q /app/ml /app/packages \
+    && groupadd --system --gid 10001 cadenza \
+    && useradd --system --uid 10001 --gid cadenza --no-create-home --shell /usr/sbin/nologin \
+        cadenza
+
+# Sin root, como la API (ADR-0029): no escribe ningún archivo.
+USER cadenza
+
+ENTRYPOINT ["python", "-m", "ml.public_stats"]
+CMD ["--help"]

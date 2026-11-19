@@ -18,13 +18,11 @@ from cadenza.application import (
     REJECTED,
     EffortMetricsData,
     EffortSegment,
-    Forbidden,
     InMemoryEditEventRepository,
     InMemoryEffortRepository,
     InMemorySessionRepository,
     InvalidEffortSegment,
     NewSuggestion,
-    Role,
     SessionClosed,
     SessionData,
     SessionNotFound,
@@ -48,8 +46,8 @@ SESSION = "s-1"
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 
 
-def _user(user_id: str, role: Role = Role.TRANSCRIPTOR) -> User:
-    return User(id=user_id, username=user_id, password_hash="h", role=role, active=True)
+def _user(user_id: str) -> User:
+    return User(id=user_id, username=user_id, password_hash="h", active=True)
 
 
 OWNER = _user("owner")
@@ -87,7 +85,7 @@ class Repos:
         )
 
     def edit(self, measure: int, op: EditOp, *, reverts: str | None = None) -> EditEvent:
-        seq = self.edits.next_seq(SESSION)
+        seq = len(self.edits.list_events(SESSION)) + 1
         return self.edits.append(
             SESSION,
             EditEvent(
@@ -267,8 +265,6 @@ def test_the_number_of_segments_is_bounded(repos: Repos, monkeypatch: pytest.Mon
 def test_only_the_owner_measures(repos: Repos) -> None:
     with pytest.raises(SessionNotFound):
         repos.segment("tab-a", 1_000, user=_user("other"))
-    with pytest.raises(Forbidden):
-        repos.segment("tab-a", 1_000, user=_user("inv", Role.INVESTIGADOR))
     with pytest.raises(SessionNotFound):
         record_effort_segment(
             "missing",

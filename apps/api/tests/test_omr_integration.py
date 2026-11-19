@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import HOMREngine, OMREngine, OMRTranscriptionError
 from cadenza.persistence import (
@@ -53,7 +53,6 @@ def _client_with_engine(engine: OMREngine) -> TestClient:
                 id="test-user",
                 username="tester",
                 password_hash="test-pass",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -64,7 +63,7 @@ def _client_with_engine(engine: OMREngine) -> TestClient:
         omr_engine=engine,
         settings=Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long"),
     )
-    token = app.state.token_service.create_access_token(user_id="test-user", role=Role.INVESTIGADOR)
+    token = app.state.token_service.create_access_token(user_id="test-user")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {token}"
     return client
@@ -192,15 +191,12 @@ def test_homr_configured_in_api_transcribes_mocked(monkeypatch: pytest.MonkeyPat
                 id="homr-tester",
                 username="homr_user",
                 password_hash="test-pass",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
         db.commit()
 
-    token = app.state.token_service.create_access_token(
-        user_id="homr-tester", role=Role.INVESTIGADOR
-    )
+    token = app.state.token_service.create_access_token(user_id="homr-tester")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {token}"
 

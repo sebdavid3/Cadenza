@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.application import SuggestionModelVersionData
+from cadenza.learning.consent import ConsentTally
 from cadenza.learning.suggestions import (
     SuggestionTrainingError,
     artifact_bytes,
@@ -52,6 +53,8 @@ from cadenza.validation.learned import (
     FrequencyBackoffModel,
     InvalidSuggestionArtifact,
 )
+
+from ml.consent_cli import add_consent_options
 
 DEFAULT_CONFIG = "configs/learning/suggestions.json"
 
@@ -189,6 +192,7 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     if not corpus.is_file():
         return _fail(f"no existe el corpus de exp_12: {corpus}")
     factory = create_session_factory(create_engine_for_url(args.db_url or _default_db_url()))
+    consent = ConsentTally()
     with session_scope(factory) as db:
         records, left_out = session_records(
             session_repository=SqlAlchemySessionRepository(db),
@@ -196,7 +200,8 @@ def build_dataset_command(args: argparse.Namespace) -> int:
             user_repository=SqlAlchemyUserRepository(db),
             split_seed=args.split_seed,
             test_fraction=args.test_fraction,
-            include_self_registered=args.include_self_registered,
+            exclude_self_registered=args.exclude_self_registered,
+            consent=consent,
         )
     output = Path(args.output)
     if output.resolve() == corpus.resolve():
@@ -212,7 +217,10 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     print("[suggestions build-dataset] Corpus escrito.")
     print(f"  sesiones finalizadas : {len(sessions)}")
     print(f"  registros añadidos   : {len(records)}")
-    print(f"  fuera                : {len(left_out)}")
+    print(
+        f"  fuera                : {len(left_out)}, más {consent.without_current_consent} sin el"
+        f" permiso vigente y {consent.excluded_by_option} con --exclude-self-registered"
+    )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
     print(f"  dataset_hash         : {file_sha256(output)}")
@@ -263,11 +271,7 @@ def add_parser(subparsers: Any) -> None:
         help="Semilla de la partición de #255 (la de correction_corpus_split.json).",
     )
     p_build.add_argument("--test-fraction", type=float, default=0.2)
-    p_build.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las sesiones de cuentas del registro público (fuera por defecto).",
-    )
+    add_consent_options(p_build)
 
 
 def run(args: argparse.Namespace) -> int:

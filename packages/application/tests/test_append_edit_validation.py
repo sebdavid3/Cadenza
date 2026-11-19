@@ -10,7 +10,6 @@ from cadenza.application import (
     InMemoryArtifactStore,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     SequenceConflict,
     User,
     append_edit,
@@ -28,9 +27,6 @@ from cadenza.validation import ValidationEngine
 class InMemoryEditRepo(EditEventRepository):
     def __init__(self) -> None:
         self.events: dict[str, list[EditEvent]] = {}
-
-    def next_seq(self, session_id: str) -> int:
-        return len(self.events.get(session_id, [])) + 1
 
     def append(self, session_id: str, edit: EditEvent) -> EditEvent:
         events = self.events.setdefault(session_id, [])
@@ -56,9 +52,7 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\n" + b"\x00" * 20
 
 @pytest.fixture
 def test_setup() -> tuple[str, User, InMemorySessionRepository, InMemoryEditRepo]:
-    owner = User(
-        id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR, active=True
-    )
+    owner = User(id="u1", username="transcriptor1", password_hash="h", active=True)
     session_repo = InMemorySessionRepository()
     edit_repo = InMemoryEditRepo()
     store = InMemoryArtifactStore()

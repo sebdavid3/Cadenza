@@ -213,6 +213,37 @@ del mismo lado. Lo que no se puede leer (un MEI o una predicción que el dominio
 o un `.semantic` que no describe las mismas notas) se registra por incipit y no entra en
 el corpus.
 
+### `exp_18_camera_primus.py` — corpus de correcciones con Camera-PrIMuS (#421, ADR-0074)
+
+Los mismos incipits de PrIMuS con la imagen distorsionada para que parezca una foto
+(`data/camera_primus/Corpus/<id>/<id>_distorted.jpg`, de `CameraPrIMuS.tgz`). Elige 3 000 al
+azar con la semilla de `exp_12`, sin los 100 de `exp_03`: son los primeros de una ordenación al
+azar, así que una muestra mayor con la misma semilla empieza por esta y no repite lo leído. Se
+propusieron 10 000 y el responsable decidió el 2026-11-19 cortar en 3 000 por tiempo: son las
+primeras de la misma ordenación.
+Los lee HOMR en la GPU (ADR-0066), sin preprocesado, con la transcripción reanudable de
+`external_corpus` (nacida en #102), y mide como `exp_12`: la altura que suena del `.semantic`, el
+corrector ideal verificado, la armadura, el compás y la clave, más la SER y el OMR-NED.
+
+```powershell
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py prepare            # data/camera_primus/exp_18/manifest.json
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py transcribe         # en la GPU (--cpu, en la CPU); se reanuda
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py build              # corpus, partición y análisis en results/
+```
+
+En el corpus (`results/camera_primus_correction_corpus.jsonl`), cada incipit es
+`camera-primus:<id de PrIMuS>`, con `source: camera-primus` y la obra RISM en `work_id`: no se
+confunde con el mismo incipit de `exp_12` en `ml export-tables`. La partición es la de #255:
+`build` lee `results/correction_corpus_split.json` y falla si la semilla, la fracción o el lado
+de alguna obra compartida no coinciden. Escribe también `camera_primus_correction_corpus_incipits.csv`,
+`_split.json`, `_summary.json` (con `"simulated": false`) y `exp_18_run_info.json`; los de
+`exp_12` no se tocan.
+
+Una prueba de humo no pisa la medición: `build --limit N --results-dir <carpeta> --exp-12-split
+results/correction_corpus_split.json` escribe en otra carpeta, y el resumen y el `run_info` dicen
+`limit`, `manifest_count` y `partial`. `prepare --force` y `transcribe --force` no borran
+predicciones: las apartan a `predictions.previas-<fecha>`.
+
 ### `exp_14_suggestion_layer.py` — medición de la capa de sugerencias (#257)
 
 La primera medición de la capa de sugerencias (#256, ADR-0036), con la que el responsable
@@ -390,7 +421,7 @@ artefactos, nunca la de producción, y con la salida fuera de `results/`:
 
 ```powershell
 uv run --no-sync python -m ml export-staves --output-dir <carpeta> --db-url <url de la copia> `
-  --artifacts-dir <artefactos de la copia> [--laminas] [--include-unfinished] [--include-self-registered]
+  --artifacts-dir <artefactos de la copia> [--laminas] [--include-unfinished] [--exclude-self-registered]
 ```
 
 Escribe `recortes/<sesión>/s<sistema>_<parte>-<pentagrama>.png`, `pentagramas.csv` (una fila por
@@ -398,14 +429,56 @@ tira: su caja en la foto, sus compases y las secuencias `lectura` y `corregida`,
 si difieren), `musicxml/<sesión>-homr.musicxml` y `-final.musicxml`, con `--laminas` una lámina
 por sesión para comprobarlo a ojo, y `run_info.json` con las sesiones que quedan fuera y su
 motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por defecto, solo las
-sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
-con el permiso de uso de los datos vigente.
+sesiones finalizadas; de las cuentas del registro, las que tienen el permiso de uso de los datos
+vigente (#422), ninguna con `--exclude-self-registered` y nunca las que no lo tienen, que solo
+se cuentan en `run_info.json` (`consent`). Es la misma regla en todos los comandos que leen la
+base (`cadenza.learning.consent`); `--include-self-registered` se retiró en #422 y darla falla.
+
+### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0071)
+
+Deja listos, para un reentrenamiento futuro (#103), los pares de cada tira de pentagrama: el PNG
+de la tira (el mismo recorte de `export-staves`), el MusicXML de lo que leyó HOMR y el MusicXML
+corregido, la etiqueta. Solo sesiones finalizadas cuya corrección se verifica; de las cuentas del
+registro, por defecto las del permiso vigente (#422), ninguna con `--exclude-self-registered` y
+nunca las que no lo tienen. La partición es la fija
+por obra de #255, así que la semilla es obligatoria. Sobre una copia, con la salida vacía y fuera
+de `results/` y `data/`:
+
+```powershell
+uv run --no-sync python -m ml export-pairs --output-dir <carpeta> --db-url <url de la copia> `
+  --artifacts-dir <artefactos de la copia> --split-seed <semilla> [--test-fraction 0.2] `
+  [--exclude-self-registered]
+```
+
+Escribe `train/` y `test/` con los tres archivos de cada par, `pares.csv` (una fila por par, con
+su obra, sus compases y el sha256 de sus archivos), `run_info.json` (filtros, sesiones fuera con
+su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
+`"simulated": false`) y `README.md`, la ficha del dataset
+(origen, licencias, permiso, partición y limitaciones). Columnas y uso en
+[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md); en producción,
+[`docs/infra/operacion_backend.md` §2.5](../docs/infra/operacion_backend.md).
+
+### Las cifras públicas de los errores de HOMR (`ml public-stats`, #423, ADR-0073)
+
+Calcula las cifras de conjunto de las correcciones con el código del informe (`aggregate`, sin
+ejemplos ni fotos) y las guarda en la tabla `public_stats`, de donde las sirve
+`GET /stats/homr-errors`. Lee la base en solo lectura y cuenta las sesiones finalizadas del equipo
+y de las cuentas del registro con el permiso vigente (#422); los grupos `cadenza` y `pruebas` solo
+se publican con 5 sesiones de 3 cuentas o más. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS
+de `exp_12` como `primus.jsonl`) se calcula una vez y solo se repite si cambia el archivo.
+
+```powershell
+uv run --no-sync python -m ml public-stats --db-url <url> [--corpus-dir <carpeta>] [--every 300]
+```
+
+Sin `--every`, calcula una vez. En producción lo ejecuta el servicio `stats` del compose
+(`python -m ml.public_stats`, imagen `Dockerfile.stats`, `docs/infra/operacion_backend.md` §2.4).
 
 ### Encadenamiento y trazabilidad de artefactos
 
 | Comando | Entrada | Salida | Metadatos persistidos |
 |---|---|---|---|
-| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`, `UserRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, `self_registered_included`, muestras |
+| `build-dataset` | Base de datos (`SessionRepository`, `EditEventRepository`, `UserRepository`) | `dataset.json` | `dataset_hash`, `count`, `config_hash`, `seed`, `self_registered_included` (si entraron las cuentas del registro con el permiso vigente, #422), `consent` (las sesiones que dejó fuera el permiso, sin cuáles), muestras |
 | `select` | `dataset.json` | `selected.json` | `dataset_hash`, `source_dataset_hash`, `strategy`, `budget`, `seed`, `self_registered_included` |
 | `train` | `selected.json` | `trained_artifact.json` + `data/artifacts/sha256/...` | `artifact_hash` (pesos), `dataset_hash`, `config_hash`, métricas |
 | `evaluate` | `trained_artifact.json` | `evaluation_report.json` | `metrics` (SER, OMR-NED), `threshold`, `meets_threshold` |
@@ -453,9 +526,12 @@ uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report
   --db-url <url> --artifacts-dir <dir de artefactos de la API> --version <versión>
 
 # 4. Bucle de aprendizaje: el corpus de exp_12, sin modificarlo, más las sesiones finalizadas
-#    de Cadenza (partidas por página de origen) y las respuestas a sus sugerencias.
+#    de Cadenza (partidas por obra: las que comparten partitura de prueba o foto, juntas, #437)
+#    y las respuestas a sus sugerencias. De las cuentas del registro, las del permiso de uso de
+#    los datos vigente (#422); con --exclude-self-registered, ninguna.
 uv run --no-sync python -m ml suggestions build-dataset --corpus <corpus de exp_12> `
-  --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición>
+  --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición> `
+  [--exclude-self-registered]
 ```
 
 | Comando | Entrada | Salida | Trazabilidad |
@@ -475,6 +551,56 @@ Entre el congelado (#252) y el final del estudio no se promueve ninguna versión
 El coste en línea se mide con `scripts/measure_suggestion_cost.py` sobre una página real (no
 escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
 
+### Tablas para analizar los errores de HOMR (`ml export-tables`, #400)
+
+Las estadísticas que permiten reconocer los errores de HOMR se calculan fuera de la plataforma
+(pandas, R, hojas de cálculo). `export-tables` escribe en `--output-dir` (obligatorio) un CSV por
+tabla y un `run_info.json` con el commit, la fecha, los filtros, las sesiones que quedan fuera y
+por qué, los recuentos y el sha256 de cada CSV. No escribe nada por defecto en `results/` ni en
+`data/`, y se ejecuta sobre una copia de la base, nunca sobre la de producción.
+
+```powershell
+# Base: sesiones finalizadas; de las cuentas del registro, las del permiso vigente (#422).
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
+  --split-seed <semilla de la partición> [--include-unfinished] [--exclude-self-registered]
+
+# Corpus JSONL (el de PrIMuS de exp_12, el de Camera-PrIMuS de exp_18 o el de
+# `suggestions build-dataset`), mismas columnas. --corpus se repite para juntar varios.
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --corpus <corpus.jsonl>
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> `
+  --corpus results/correction_corpus.jsonl --corpus results/camera_primus_correction_corpus.jsonl
+
+# Con las fotos (#414, ADR-0068): lo de export-staves para las mismas sesiones, y `sistema` y
+# `recorte` en notas, faltantes y compases; con --primus-dir y --camera-primus-dir, la imagen
+# de cada incipit.
+uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url de la copia> `
+  --split-seed <semilla> --corpus <corpus.jsonl> --recortes --artifacts-dir <artefactos> `
+  --primus-dir data/primus --camera-primus-dir data/camera_primus/Corpus
+```
+
+La salida ha de estar vacía y fuera de `results/` y `data/`, como la de `export-staves`.
+
+Con `--informe` (#415, #418, ADR-0069), además `informe.html`: una página sin red, con el
+sistema visual de Cadenza, que explica qué son HOMR, PrIMuS y Camera-PrIMuS (ADR-0074). Trae las cifras de los errores
+de HOMR de estas tablas: qué se corrige, cuánto se mueve la altura, la figura leída frente a
+la correcta (con su nombre y su símbolo) y dónde se equivoca más. Incluye un historial de las
+transcripciones con buscador y paginación y, de cada barra, celda o fila, hasta 12 ejemplos
+con la foto de su compás y el compás dibujado tal como lo leyó HOMR y como es en realidad.
+Se abre en local.
+
+| Tabla | Una fila por | Orígenes |
+|---|---|---|
+| `partituras` | sesión (o incipit de PrIMuS) | base y corpus |
+| `notas` | evento leído, con su resultado (`bien`, `corregida`, `borrada`, `sin_alinear`) y su contexto | base y corpus |
+| `faltantes` | evento que faltaba | base y corpus |
+| `clave_armadura` | compás con la clave o la armadura corregidas | base y corpus |
+| `compases` | compás, comparando lectura y estado final | base |
+| `sugerencias` | sugerencia, con su respuesta (un rechazo heredado se marca) | base (y corpus de `build-dataset`) |
+| `avisos` | posible error, unido a la corrección de su compás | base |
+
+Cada columna, su origen, sus valores y las limitaciones están en
+[`docs/experimentos/diccionario_tablas.md`](../docs/experimentos/diccionario_tablas.md).
+
 ## Experimentos retirados y datos simulados (#271)
 
 - **`exp_09` (SMB y MUSCIMA++) se retiró en [#271](https://github.com/sebdavid3/Cadenza/issues/271).**
@@ -486,19 +612,10 @@ escribe nada) y con la prueba `packages/learning/tests/test_suggestion_cost.py`.
 - **`exp_08` (línea base de oemer) se retiró en [#130](https://github.com/sebdavid3/Cadenza/issues/130)**
   sin haber ejecutado oemer: `oemer_baseline.csv`, `oemer_baseline_summary.json` y
   `exp_08_run_info.json` registran 100 fallos por falta de predicciones y no se citan.
-- **`exp_10` solo exporta sesiones reales** (`--db-url`). Sin base de datos, o con una sin
-  sesiones del estudio, falla en vez de rellenar con datos sintéticos. `--smoke` genera
-  datos sintéticos para probar la exportación, marcados con `"simulated": true` también en
-  su `exp_10_run_info.json`, y se niega a escribir en `results/`: exige un `--output-dir`
-  fuera de él. Los `effort_study_*` y `exp_10_run_info.json` que hay en `results/` (del
-  2026-10-12) son de una ejecución sintética anterior y no se citan; el estudio real llega
-  con [#253](https://github.com/sebdavid3/Cadenza/issues/253).
-- **`exp_10` mide la fidelidad residual y une el NASA-TLX**
-  ([#250](https://github.com/sebdavid3/Cadenza/issues/250)): solo toma TS-01 a TS-04 de
-  cuentas de transcriptor, compara el estado final de cada sesión con la verdad del banco del
-  estudio (`--bank-dir`, comprobada con su sha256; sin ella falla) y lee el NASA-TLX de un CSV
-  por participante y bloque (`--nasa-tlx`). Formato y columnas, en el §3.3 y el §6.2 del
-  protocolo.
+- **`exp_10` (exportación del estudio de esfuerzo) se retiró en [#429](https://github.com/sebdavid3/Cadenza/issues/429)**, con `ml export-effort`,
+  al quedar fuera del alcance el estudio con participantes (ADR-0070). Los `effort_study_*` y
+  `exp_10_run_info.json` que hay en `results/` (del 2026-10-12) son de una ejecución sintética y
+  no se citan.
 
 Archivar o borrar esas salidas de `results/` lo decide el responsable (`CLAUDE.md` §9).
 

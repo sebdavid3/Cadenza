@@ -15,7 +15,7 @@ from .alignment import (
     is_structurally_equal,
     split_pitch,
 )
-from .config import JobConfig, compute_config_hash, load_job_config, load_training_config
+from .config import JobConfig, compute_config_hash, load_job_config
 from .correction_corpus import (
     CORPUS_FORMAT_VERSION,
     DEFAULT_TEST_FRACTION,
@@ -47,7 +47,7 @@ from .evaluation import (
     time_symbol_agreement,
     without_time_symbols,
 )
-from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_batch, omr_ned_pair
+from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
 from .primus import (
     SemanticMismatch,
@@ -135,9 +135,7 @@ __all__ = [
     "is_structurally_equal",
     "key_accidental",
     "load_job_config",
-    "load_training_config",
     "normalized_edit_distance",
-    "omr_ned_batch",
     "omr_ned_pair",
     "pitch_to_midi",
     "primus_work_id",

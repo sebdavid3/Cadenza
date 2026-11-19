@@ -16,12 +16,13 @@ el recorte del papel y los sistemas), escribe en `--output-dir`:
 - `run_info.json`: el commit, la fecha, los filtros, las sesiones que quedan fuera con su motivo,
   los recuentos y el sha256 del CSV (`"simulated": false`).
 
-De la base, por defecto solo las sesiones finalizadas y sin cuentas del registro público. Con
-`--include-self-registered` entran las del registro **con el permiso de uso de los datos vigente**
-(el de la versión actual del texto, ADR-0065; decisión del responsable del 2026-11-11). No tiene
-salida por defecto: la ruta se da siempre, ha de estar vacía (o no existir) y no puede caer en
-`results/` ni en `data/` del repositorio. Una sesión que falla por cualquier motivo queda fuera
-con él, sin parar la exportación.
+De la base, por defecto solo las sesiones finalizadas. De las cuentas del registro público, por
+defecto las que tienen **el permiso de uso de los datos vigente** (el de la versión actual del
+texto, ADR-0065; decisión del responsable del 2026-11-19, #422), y ninguna con
+`--exclude-self-registered`; sin el permiso vigente, nunca, y solo se cuentan
+(`cadenza.learning.consent`). No tiene salida por defecto: la ruta se da siempre, ha de estar
+vacía (o no existir) y no puede caer en `results/` ni en `data/` del repositorio. Una sesión que
+falla por cualquier motivo queda fuera con él, sin parar la exportación.
 """
 
 from __future__ import annotations
@@ -38,8 +39,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cadenza.application import ArtifactNotFound, has_current_data_consent
+from cadenza.application import ArtifactNotFound
 from cadenza.domain import ScoreDocument, ScoreIR, materialize
+from cadenza.learning.consent import ConsentTally, filter_by_consent
 from cadenza.learning.staff_strips import Strip, StripError, plan_strips, strip_sequence
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -53,6 +55,8 @@ from cadenza.persistence import (
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
+
+from ml.consent_cli import add_consent_options
 
 FORMAT_VERSION = 1
 
@@ -166,7 +170,7 @@ def _final_score(raw: ScoreIR, edits: Any) -> ScoreIR:
     return materialize(raw, edits) if edits else raw
 
 
-def _open_photo(content: bytes) -> Image.Image:
+def open_photo(content: bytes) -> Image.Image:
     """La foto como la ve HOMR, que la lee con OpenCV: con la orientación EXIF aplicada (una foto
     de móvil) y en 8 bits (OpenCV escala los 16 bits; PIL los recortaría a 255)."""
 
@@ -180,7 +184,7 @@ def _open_photo(content: bytes) -> Image.Image:
     return photo
 
 
-def _export_session(
+def export_session_strips(
     session: Any,
     edits_repo: Any,
     store: Any,
@@ -190,7 +194,10 @@ def _export_session(
 ) -> str | None:
     """Recorta y empareja una sesión: añade sus filas a `rows` y escribe sus archivos. Devuelve
     None si se exportó, o el motivo por el que queda fuera. Lo calcula todo antes de escribir
-    nada: una sesión que falla no deja archivos a medias."""
+    nada: una sesión que falla no deja archivos a medias.
+
+    Cada fila lleva además `_strip` (el `Strip`, que no se escribe en el CSV), para que
+    `ml export-tables --recortes` (#414) una cada compás de sus tablas a su tira."""
 
     # Aquí y no arriba: construir la CLI no debe cargar music21 (`ml/cli.py`).
     from cadenza.interchange import score_ir_to_musicxml
@@ -203,7 +210,7 @@ def _export_session(
     if capture.get("format_version") != CAPTURE_FORMAT_VERSION:
         return f"captura de otro formato ({capture.get('format_version')!r})"
     try:
-        photo = _open_photo(store.get(session.image_artifact or ""))
+        photo = open_photo(store.get(session.image_artifact or ""))
     except (ArtifactNotFound, OSError, ValueError) as exc:
         return f"sin la imagen ({type(exc).__name__})"
     raw = document.score
@@ -243,6 +250,7 @@ def _export_session(
                 "lectura": read,
                 "corregida": corrected,
                 "corregido": read != corrected,
+                "_strip": strip,
             }
         )
     xml_folder = output / "musicxml"
@@ -265,52 +273,8 @@ def _export_session(
     return None
 
 
-def export_staves_command(args: argparse.Namespace) -> int:
-    db_url = args.db_url or os.environ.get("CADENZA_DATABASE_URL")
-    if not db_url:
-        return _fail("falta la base: da --db-url o CADENZA_DATABASE_URL")
-    artifacts = args.artifacts_dir or os.environ.get("CADENZA_ARTIFACTS_DIR")
-    if not artifacts:
-        return _fail("faltan las imágenes: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
-    output = Path(args.output_dir).resolve()
-    repository = Path(__file__).resolve().parents[1]
-    for forbidden in (repository / "results", repository / "data"):
-        if output == forbidden or forbidden in output.parents:
-            return _fail(f"la salida no puede estar en {forbidden.name}/ del repositorio")
-    if output.exists() and (not output.is_dir() or any(output.iterdir())):
-        # Lo de una exportación anterior (de alguien que ya retiró su permiso) se quedaría.
-        return _fail(f"la carpeta de salida no está vacía: {output}")
-    rows: list[dict[str, Any]] = []
-    left_out: dict[str, str] = {}
-    exported: list[str] = []
-    factory = create_session_factory(create_engine_for_url(db_url))
-    with session_scope(factory) as db:
-        sessions = SqlAlchemySessionRepository(db)
-        edits_repo = SqlAlchemyEditEventRepository(db)
-        users = SqlAlchemyUserRepository(db)
-        store = FilesystemArtifactStore(artifacts, db)
-        for session in sessions.list(status=None if args.include_unfinished else "finalized"):
-            owner = users.get(session.owner_id)
-            if owner is not None and owner.self_registered:
-                if not args.include_self_registered:
-                    left_out[session.id] = "cuenta del registro público"
-                    continue
-                if not has_current_data_consent(owner):
-                    left_out[session.id] = "cuenta del registro sin permiso de uso de los datos"
-                    continue
-            try:
-                reason = _export_session(session, edits_repo, store, output, args.laminas, rows)
-            except SQLAlchemyError:
-                # Con PostgreSQL, la transacción quedaría abortada para las que siguen.
-                raise
-            except Exception as exc:  # una sesión rara no para la exportación
-                reason = f"no se pudo exportar ({type(exc).__name__}: {exc})"
-            if reason is None:
-                exported.append(session.id)
-            else:
-                left_out[session.id] = reason
-
-    output.mkdir(parents=True, exist_ok=True)
+def strips_csv(rows: list[dict[str, Any]]) -> bytes:
+    """`pentagramas.csv`: una fila por tira, en el orden de `COLUMNS`."""
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(COLUMNS)
@@ -325,7 +289,68 @@ def export_staves_command(args: argparse.Namespace) -> int:
                 for c in COLUMNS
             ]
         )
-    content = buffer.getvalue().encode("utf-8")
+    return buffer.getvalue().encode("utf-8")
+
+
+def unsafe_output(output: Path) -> str | None:
+    """Por qué no se puede escribir en `output`, o None. La salida no cae en `results/` ni en
+    `data/` del repositorio, y ha de estar vacía: lo de una exportación anterior (de alguien que
+    ya retiró su permiso) se quedaría."""
+    repository = Path(__file__).resolve().parents[1]
+    resolved = output.resolve()
+    for folder in ("results", "data"):
+        # Resueltas: `data/` puede ser un enlace o una unión a otra carpeta.
+        forbidden = (repository / folder).resolve()
+        if resolved == forbidden or forbidden in resolved.parents:
+            return f"la salida no puede estar en {folder}/ del repositorio"
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        return f"la carpeta de salida no está vacía: {output}"
+    return None
+
+
+def export_staves_command(args: argparse.Namespace) -> int:
+    db_url = args.db_url or os.environ.get("CADENZA_DATABASE_URL")
+    if not db_url:
+        return _fail("falta la base: da --db-url o CADENZA_DATABASE_URL")
+    artifacts = args.artifacts_dir or os.environ.get("CADENZA_ARTIFACTS_DIR")
+    if not artifacts:
+        return _fail("faltan las imágenes: da --artifacts-dir o CADENZA_ARTIFACTS_DIR")
+    output = Path(args.output_dir).resolve()
+    problem = unsafe_output(output)
+    if problem is not None:
+        return _fail(problem)
+    rows: list[dict[str, Any]] = []
+    exported: list[str] = []
+    consent = ConsentTally()
+    factory = create_session_factory(create_engine_for_url(db_url))
+    with session_scope(factory) as db:
+        sessions = SqlAlchemySessionRepository(db)
+        edits_repo = SqlAlchemyEditEventRepository(db)
+        users = SqlAlchemyUserRepository(db)
+        store = FilesystemArtifactStore(artifacts, db)
+        entering, left_out = filter_by_consent(
+            sessions.list(status=None if args.include_unfinished else "finalized"),
+            users,
+            exclude_self_registered=args.exclude_self_registered,
+            tally=consent,
+        )
+        for session in entering:
+            try:
+                reason = export_session_strips(
+                    session, edits_repo, store, output, args.laminas, rows
+                )
+            except SQLAlchemyError:
+                # Con PostgreSQL, la transacción quedaría abortada para las que siguen.
+                raise
+            except Exception as exc:  # una sesión rara no para la exportación
+                reason = f"no se pudo exportar ({type(exc).__name__}: {exc})"
+            if reason is None:
+                exported.append(session.id)
+            else:
+                left_out[session.id] = reason
+
+    output.mkdir(parents=True, exist_ok=True)
+    content = strips_csv(rows)
     (output / "pentagramas.csv").write_bytes(content)
     info = {
         "format_version": FORMAT_VERSION,
@@ -334,9 +359,10 @@ def export_staves_command(args: argparse.Namespace) -> int:
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "origin": {"database": _safe_url(db_url), "artifacts_dir": Path(artifacts).name},
         "filters": {
-            "include_self_registered": args.include_self_registered,
+            "exclude_self_registered": args.exclude_self_registered,
             "include_unfinished": args.include_unfinished,
         },
+        "consent": consent.to_primitive(),
         "sessions": sorted(exported),
         "left_out": dict(sorted(left_out.items())),
         "strips": len(rows),
@@ -349,7 +375,10 @@ def export_staves_command(args: argparse.Namespace) -> int:
     print("[export-staves] Recortes escritos.")
     print(f"  sesiones   : {len(exported)}")
     print(f"  tiras      : {len(rows)} ({info['strips_corrected']} con correcciones)")
-    print(f"  fuera      : {len(left_out)}")
+    print(
+        f"  fuera      : {len(left_out)}, más {consent.without_current_consent} sin el permiso"
+        f" vigente y {consent.excluded_by_option} con --exclude-self-registered"
+    )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
     print(f"  salida     : {output}")
@@ -368,11 +397,7 @@ def add_parser(subparsers: Any) -> None:
         default=None,
         help="Directorio de los artefactos, con las fotos (o CADENZA_ARTIFACTS_DIR).",
     )
-    parser.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las cuentas del registro público con el permiso de uso de los datos.",
-    )
+    add_consent_options(parser)
     parser.add_argument(
         "--include-unfinished",
         action="store_true",

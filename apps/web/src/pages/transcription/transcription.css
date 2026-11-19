@@ -261,11 +261,6 @@
   content: "\00a0· ";
 }
 
-.plate__owner {
-  color: var(--color-ink);
-  font-weight: 500;
-}
-
 .plate__state {
   display: flex;
   flex-wrap: wrap;

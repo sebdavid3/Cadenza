@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -35,7 +35,6 @@ def ops_test_client(tmp_path: Path) -> TestClient:
                 id="usr-ops-1",
                 username="operator_test",
                 password_hash="$argon2id$v=19$m=65536,t=3,p=4$anBkd3hhc2Rhc2Q$1oXv1n01gZzZ51g5bZk5Y5",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )

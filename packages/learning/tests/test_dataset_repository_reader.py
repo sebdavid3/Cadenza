@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import secrets
+from dataclasses import replace
 from datetime import UTC, datetime
 from fractions import Fraction
 
-import pytest
-from cadenza.application import Role, User
+from cadenza.application import DATA_CONSENT_VERSION, User
 from cadenza.application.ports import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
@@ -21,7 +21,6 @@ from cadenza.domain import (
     Severity,
 )
 from cadenza.learning import (
-    DatasetBuilder,
     RepositoryDatasetReader,
     dataset_hash,
 )
@@ -295,19 +294,12 @@ def test_read_dataset_with_real_database() -> None:
         assert len(hash_result) == 64
         assert hash_result == dataset_hash(samples)
 
-        # El método de conveniencia en DatasetBuilder produce exactamente lo mismo
-        builder_samples = DatasetBuilder().read_from_repositories(
-            session_repo, edit_repo, user_repository=users, status="finalized"
-        )
-        assert builder_samples == samples
-
 
 def _user(user_id: str, *, self_registered: bool) -> User:
     return User(
         id=user_id,
         username=user_id,
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=self_registered,
     )
 
@@ -357,10 +349,10 @@ def _repositories(
     return session_repo, edit_repo, users
 
 
-def test_self_registered_sessions_are_left_out_of_the_dataset() -> None:
-    # Las cuentas del registro público no forman parte del estudio (ADR-0022, D55, #191). Hasta
-    # este cambio entraban en el dataset como cualquier otra. Tampoco entra la de un propietario
-    # que no es una cuenta, como en la exportación del estudio de esfuerzo.
+def test_sessions_without_the_current_consent_are_left_out_of_the_dataset() -> None:
+    # Por defecto entran las cuentas del registro con el permiso vigente (#422, ADR-0065); la
+    # de `visita` no lo dio, así que queda fuera, como la de un propietario que no es una cuenta.
+    # El detalle del permiso, en test_data_consent_filter.py.
     session_repo, edit_repo, users = _repositories()
 
     samples = RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=users)
@@ -368,45 +360,27 @@ def test_self_registered_sessions_are_left_out_of_the_dataset() -> None:
     assert sorted({sample.document_id for sample in samples}) == ["doc-estudio"]
 
 
-def test_self_registered_sessions_only_enter_when_asked() -> None:
+def test_registered_sessions_with_the_current_consent_enter_unless_excluded() -> None:
     session_repo, edit_repo, users = _repositories()
-
-    samples = RepositoryDatasetReader().read_dataset(
-        session_repo, edit_repo, user_repository=users, include_self_registered=True
+    visitor = users.get("visita")
+    assert visitor is not None
+    users.update(
+        replace(
+            visitor,
+            data_consent_at=datetime(2026, 11, 19, tzinfo=UTC),
+            data_consent_version=DATA_CONSENT_VERSION,
+        )
     )
-
-    assert sorted({sample.document_id for sample in samples}) == [
-        "doc-estudio",
-        "doc-huerfana",
-        "doc-registro",
-    ]
-
-
-@pytest.mark.parametrize("owner_id", ["visita", "sin-cuenta"])
-def test_asking_for_an_account_outside_the_study_is_an_error(owner_id: str) -> None:
-    # Pedir las sesiones de una cuenta que no es del estudio daría un dataset vacío sin avisar.
-    session_repo, edit_repo, users = _repositories()
     reader = RepositoryDatasetReader()
 
-    with pytest.raises(ValueError, match="no es del estudio"):
-        reader.read_dataset(session_repo, edit_repo, user_repository=users, owner_id=owner_id)
-
-    samples = reader.read_dataset(
-        session_repo,
-        edit_repo,
-        user_repository=users,
-        owner_id=owner_id,
-        include_self_registered=True,
+    samples = reader.read_dataset(session_repo, edit_repo, user_repository=users)
+    excluded = reader.read_dataset(
+        session_repo, edit_repo, user_repository=users, exclude_self_registered=True
     )
-    assert len(samples) == 1
 
-
-def test_without_users_the_reader_does_not_guess() -> None:
-    # Sin el repositorio de usuarios no se sabe quién se registró solo: no se adivina.
-    session_repo, edit_repo, _users = _repositories()
-
-    with pytest.raises(ValueError, match="repositorio de usuarios"):
-        RepositoryDatasetReader().read_dataset(session_repo, edit_repo, user_repository=None)
+    # La sesión huérfana no entra nunca: sin su cuenta no se sabe si tiene el permiso.
+    assert sorted({sample.document_id for sample in samples}) == ["doc-estudio", "doc-registro"]
+    assert sorted({sample.document_id for sample in excluded}) == ["doc-estudio"]
 
 
 def _hash_of(sessions: list[tuple[str, str]]) -> str:

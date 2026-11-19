@@ -8,12 +8,12 @@ related_targets: ["apps/web/src/pages/transcription/SessionsDiary.tsx","apps/web
 # Vista de transcripción (`/transcripcion`)
 
 ## Alcance y modo
-La portada de la zona privada: el archivo de las sesiones de una persona (todas, para un investigador), con la subida de imágenes y la cola. Modo: Operate. Hereda el mundo de DESIGN.md (muestrario bitmap); el rediseño (#370) cambia la composición, no el mundo.
+La portada de la zona privada: el archivo de las sesiones de una persona, con la subida de imágenes y la cola. Modo: Operate. Hereda el mundo de DESIGN.md (muestrario bitmap); el rediseño (#370) cambia la composición, no el mundo.
 
 ## Visitante, tarea y contenido
-- Visitante: transcriptores que vuelven a ver y retomar sus transcripciones, y que de vez en cuando suben un lote; investigadores que auditan las de todos.
+- Visitante: transcriptores que vuelven a ver y retomar sus transcripciones, y que de vez en cuando suben un lote.
 - Tarea principal, según el responsable (2026-11-09): ver las transcripciones hechas. Subir es secundario y la cola solo importa mientras hay imágenes.
-- Contenido real por sesión: imagen, nombre (título, archivo o identificador), hora de creación, compositor, instrumentos, estado (transcrita, en corrección, finalizada, fallida), posibles errores, ediciones y, para un investigador, de quién es. La API pagina de 20 en 20 y no da totales.
+- Contenido real por sesión: imagen, nombre (título, archivo o identificador), hora de creación, compositor, instrumentos, estado (transcrita, en corrección, finalizada, fallida), posibles errores, ediciones. La API pagina de 20 en 20 y no da totales.
 - Restricciones: contrato de la API v1 sin cambios; la portada (#277) comparte la zona de subida y los rótulos de estado.
 
 ## Dirección elegida

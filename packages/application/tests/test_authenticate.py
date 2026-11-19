@@ -8,7 +8,6 @@ from cadenza.application import (
     InMemoryTokenService,
     InMemoryUserRepository,
     NotAuthenticated,
-    Role,
     User,
     authenticate,
 )
@@ -27,7 +26,6 @@ def user_repo() -> InMemoryUserRepository:
             id="usr-1",
             username="alice",
             password_hash=hasher.hash(TEST_PASS_ALICE),
-            role=Role.TRANSCRIPTOR,
             active=True,
         )
     )
@@ -37,7 +35,6 @@ def user_repo() -> InMemoryUserRepository:
             id="usr-2",
             username="bob",
             password_hash=hasher.hash(TEST_PASS_BOB),
-            role=Role.INVESTIGADOR,
             active=False,
         )
     )
@@ -61,7 +58,6 @@ def test_authenticate_success(
     )
     assert user.id == "usr-1"
     assert user.username == "alice"
-    assert user.role == Role.TRANSCRIPTOR
 
 
 def test_authenticate_wrong_password_raises_not_authenticated(
@@ -108,11 +104,10 @@ def test_authenticate_inactive_user_raises_not_authenticated(
 
 def test_in_memory_token_service_roundtrip() -> None:
     token_service = InMemoryTokenService(default_expire_seconds=60)
-    token = token_service.create_access_token(user_id="usr-1", role=Role.TRANSCRIPTOR)
+    token = token_service.create_access_token(user_id="usr-1")
 
     payload = token_service.decode_token(token)
     assert payload.sub == "usr-1"
-    assert payload.role == Role.TRANSCRIPTOR
 
 
 def test_in_memory_token_service_expired_raises_not_authenticated() -> None:
@@ -120,7 +115,6 @@ def test_in_memory_token_service_expired_raises_not_authenticated() -> None:
     token_service = InMemoryTokenService(default_expire_seconds=0)
     token = token_service.create_access_token(
         user_id="usr-1",
-        role=Role.INVESTIGADOR,
         expires_in_seconds=-1,
     )
 

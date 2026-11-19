@@ -3,7 +3,7 @@ quedó corregido.
 
 Una base SQLite temporal con una foto de dos sistemas de un pentagrama (dibujada aquí) y sesiones
 que entran y que quedan fuera: sin captura, de una cuenta del registro con y sin permiso de uso
-de los datos, y sin finalizar.
+de los datos (por defecto entran las que lo tienen vigente, #422), y sin finalizar.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import pytest
-from cadenza.application import DATA_CONSENT_VERSION, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, SessionData, User
 from cadenza.domain import (
     Anchor,
     EditEvent,
@@ -158,7 +158,6 @@ def base(tmp_path: Path) -> tuple[str, Path]:
                 id=user_id,
                 username=user_id,
                 password_hash=secrets.token_hex(8),
-                role=Role.TRANSCRIPTOR,
                 self_registered=self_registered,
             )
             if consented:
@@ -179,6 +178,8 @@ def base(tmp_path: Path) -> tuple[str, Path]:
             _session("s-version-antigua", "version-antigua", image),
             _session("s-girada", "ana", rotated),
             _broken(_session("s-rota", "ana", image)),
+            # Su cuenta no está (la clave ajena no se comprueba en SQLite): fuera, con su motivo.
+            _session("s-sin-cuenta", "nadie", image),
         ):
             sessions.add(session, [])
         # En el estudio se corrigió la altura del compás 2 (sistema 1).
@@ -251,22 +252,27 @@ def test_each_staff_of_the_photo_is_cut_and_paired_with_its_measures(
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     assert info["simulated"] is False
     # La foto girada con EXIF se endereza como la vio HOMR, y sus tiras salen igual.
-    assert info["sessions"] == ["s-estudio", "s-girada"]
+    assert info["sessions"] == ["s-estudio", "s-girada", "s-visita"]
     turned = [r for r in _rows(output) if r["session_id"] == "s-girada"]
     assert [(r["y0"], r["y1"]) for r in turned] == [(r["y0"], r["y1"]) for r in rows]
-    assert info["strips"] == 4 and info["strips_corrected"] == 1
+    assert info["strips"] == 6 and info["strips_corrected"] == 1
     # Una sesión con la captura a medias queda fuera con su motivo, sin parar la exportación.
     assert info["left_out"].pop("s-rota").startswith("no se pudo exportar (KeyError")
     assert info["left_out"] == {
-        "s-anonima": "cuenta del registro público",
         "s-antigua": "sin la captura de HOMR (transcrita antes de #403)",
+        "s-sin-cuenta": "sin la cuenta de su dueño",
         "s-sin-foto": "sin la imagen (ArtifactNotFound)",
-        "s-version-antigua": "cuenta del registro público",
-        "s-visita": "cuenta del registro público",
     }
     assert not (output / "recortes" / "s-rota").exists()
     assert len(info["csv_sha256"]) == 64
     assert info["origin"] == {"database": "sqlite:copia.db", "artifacts_dir": "artefactos"}
+
+
+def _nothing_of(output: Path, session_id: str) -> None:
+    """Ni un recorte, ni una fila, ni su identificador en `run_info.json`."""
+    assert not any(session_id in str(p.relative_to(output)) for p in output.rglob("*"))
+    for name in ("pentagramas.csv", "run_info.json"):
+        assert session_id not in (output / name).read_text(encoding="utf-8"), name
 
 
 def test_registered_accounts_enter_only_with_their_data_consent(
@@ -274,17 +280,40 @@ def test_registered_accounts_enter_only_with_their_data_consent(
 ) -> None:
     db_url, artifacts = base
     output = tmp_path / "salida"
-    assert (
-        _export(output, db_url, artifacts, "--include-self-registered", "--include-unfinished") == 0
-    )
+    assert _export(output, db_url, artifacts, "--include-unfinished") == 0
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     assert info["sessions"] == ["s-a-medias", "s-estudio", "s-girada", "s-visita"]
-    assert info["left_out"]["s-anonima"] == "cuenta del registro sin permiso de uso de los datos"
-    # Un permiso dado a un texto anterior no vale: no es el vigente (ADR-0065).
+    assert info["filters"] == {"exclude_self_registered": False, "include_unfinished": True}
+    # Sin el permiso, o con el de un texto anterior (no es el vigente, ADR-0065): fuera
+    # también con opciones, y solo se cuentan (#422).
+    assert info["consent"] == {
+        "version": DATA_CONSENT_VERSION,
+        "sessions_without_current_consent": 2,
+        "sessions_excluded_by_option": 0,
+    }
+    for session_id in ("s-anonima", "s-version-antigua"):
+        _nothing_of(output, session_id)
+
+
+def test_an_option_leaves_out_every_registered_account(
+    base: tuple[str, Path], tmp_path: Path
+) -> None:
+    db_url, artifacts = base
+    output = tmp_path / "salida"
+    assert _export(output, db_url, artifacts, "--exclude-self-registered") == 0
+    info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
+    assert info["sessions"] == ["s-estudio", "s-girada"]
+    assert info["filters"]["exclude_self_registered"] is True
     assert (
-        info["left_out"]["s-version-antigua"]
-        == "cuenta del registro sin permiso de uso de los datos"
-    )
+        info["consent"]["sessions_without_current_consent"],
+        info["consent"]["sessions_excluded_by_option"],
+    ) == (2, 1)
+    for session_id in ("s-visita", "s-anonima", "s-version-antigua"):
+        _nothing_of(output, session_id)
+    # La opción vieja ya es lo de por defecto: falla y dice qué hacer.
+    with pytest.raises(SystemExit):
+        _export(tmp_path / "vieja", db_url, artifacts, "--include-self-registered")
+    assert not (tmp_path / "vieja").exists()
 
 
 def test_the_export_needs_its_sources_and_writes_only_in_the_output_dir(

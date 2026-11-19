@@ -16,7 +16,7 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Documento arquitectónico oficial** (v1.2): filosofía de diseño, `ScoreDocument`, separación de planos, stack justificado, módulos de investigación, capa de aplicación y funciones, organización de los datos y brechas frente a la implementación. |
 | [`PROJECT_STATE.md`](PROJECT_STATE.md) | Estado vivo del proyecto: fase actual, deuda técnica y bitácora de hitos. |
-| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase. Lo vigente es el [plan de cierre](phases/plan_de_cierre/README.md) (26 de octubre – 15 de noviembre de 2026), con las Fases 8 a 11; el detalle de la interfaz web, en la [Fase 8](phases/phase_8_web_interface/README.md). |
+| [`phases/`](phases/) | Alcance y criterios de cierre de cada fase. El [plan de cierre](phases/plan_de_cierre/README.md) (26 de octubre – 15 de noviembre de 2026) ya es histórico: el estudio con participantes quedó fuera del alcance (ADR-0070); el detalle de la interfaz web, en la [Fase 8](phases/phase_8_web_interface/README.md). |
 | [`investigaciones/`](investigaciones/) | Investigaciones técnicas: coordenadas y confianza de HOMR (INV-0001) y Audiveris frente a HOMR (INV-0002). |
 | [`api/`](api/) | Contrato congelado de la API v1 (`openapi.json`) y guía de integración del frontend (`frontend-handoff.md`). |
 | [`infra/`](infra/) | Operación: despliegue local y público, salud, registros, copias de seguridad y GPU. |
@@ -25,7 +25,7 @@ Convertir partituras físicas (fotografías, escaneos y manuscritos) a formatos 
 | [`revision-literatura-prisma.md`](revision-literatura-prisma.md) | Metodología de revisión sistemática de la literatura bajo el estándar PRISMA (458 registros identificados, 31 estudios incluidos). |
 | [`arquitectura-dbb.md`](arquitectura-dbb.md) | Especificación de la arquitectura extremo a extremo (E2E) con Diagramas de Bloques de Construcción (DBB Niveles 1, 2 y 3). Vista de bloques alineada con `ARCHITECTURE.md` v1.2, que es el diseño técnico vigente. |
 | [`literatura/`](literatura/) | Colección de 43 fichas bibliográficas organizadas por área temática y componentes del sistema. |
-| [`experimentos/protocolo_medicion_esfuerzo.md`](experimentos/protocolo_medicion_esfuerzo.md) | Protocolo metodológico de medición de esfuerzo con participantes (estudio HITL con Cuadrado Latino, condiciones asistida/no asistida, NASA-TLX y consentimiento informado). |
+| [`experimentos/protocolo_medicion_esfuerzo.md`](experimentos/protocolo_medicion_esfuerzo.md) | **Fuera del alcance desde el 2026-11-19 (ADR-0070); se conserva como registro.** Protocolo metodológico de medición de esfuerzo con participantes (estudio HITL con Cuadrado Latino, condiciones asistida/no asistida, NASA-TLX y consentimiento informado). |
 
 ---
 

@@ -13,7 +13,6 @@ Decidido en `docs/ARCHITECTURE.md` (tabla de stack) y ADR-0006: React 18 + TypeS
 ## Users
 
 - **Transcriptores.** Digitalizan partituras impresas por lotes: suben muchas imágenes en una jornada, siguen el estado de cada una y después revisan y corrigen la transcripción propuesta. Solo ven sus propias sesiones.
-- **Investigadores.** Crean las cuentas del estudio, pueden desactivar las del registro, ven las sesiones de todos y auditan el trabajo. También pueden transcribir.
 - **Visitantes de la página pública.** Archivos, bibliotecas y músicos que pueden registrarse y probarlo en el momento (registro abierto desde el 2026-10-23). Les interesa el uso, no la investigación.
 
 ## Product Purpose
@@ -30,7 +29,7 @@ No es un reconocimiento automático que entrega un resultado cerrado: la máquin
 
 - La transcripción es síncrona: una imagen por petición, de unos segundos en el peor caso documentado, con imágenes PNG o JPEG de hasta 20 MB.
 - Cada imagen crea una sesión de trabajo con hallazgos del validador. Hoy la sesión se revisa, se descarga y se escucha; la corrección sobre la partitura está planificada ([#182](https://github.com/sebdavid3/Cadenza/issues/182)–[#186](https://github.com/sebdavid3/Cadenza/issues/186)).
-- Cualquiera puede crear una cuenta en `/registro` (solo usuario y contraseña) y entra en el momento; un investigador puede desactivarla en `/cuentas`. Los investigadores también crean cuentas para el estudio, que no se mezclan con las del registro (ADR-0022, ADR-0025). No hay recuperación de contraseña por correo. La sesión del navegador dura 30 minutos y no se renueva.
+- Cualquiera puede crear una cuenta en `/registro` (solo usuario y contraseña) y entra en el momento. Todas las cuentas son iguales y cada una ve solo sus sesiones (ADR-0025, ADR-0070). No hay recuperación de contraseña por correo. La sesión del navegador dura 30 minutos y no se renueva.
 
 ## Capabilities and Constraints
 

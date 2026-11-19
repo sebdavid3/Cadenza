@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -33,7 +33,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="usr-p01",
                 username="P01",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -42,16 +41,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="usr-p02",
                 username="P02",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="usr-res",
-                username="investigador",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -68,15 +57,8 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     )
 
     tokens = {
-        "p1": app.state.token_service.create_access_token(
-            user_id="usr-p01", role=Role.TRANSCRIPTOR
-        ),
-        "p2": app.state.token_service.create_access_token(
-            user_id="usr-p02", role=Role.TRANSCRIPTOR
-        ),
-        "res": app.state.token_service.create_access_token(
-            user_id="usr-res", role=Role.INVESTIGADOR
-        ),
+        "p1": app.state.token_service.create_access_token(user_id="usr-p01"),
+        "p2": app.state.token_service.create_access_token(user_id="usr-p02"),
     }
 
     return TestClient(app), tokens
@@ -172,7 +154,7 @@ def test_list_sessions_filter_by_condition_and_score(tmp_path: Path) -> None:
     # Filtrar por condición asistida
     res_ast = client.get(
         "/sessions?condition=assisted",
-        headers={"Authorization": f"Bearer {tokens['res']}"},
+        headers={"Authorization": f"Bearer {tokens['p1']}"},
     )
     assert res_ast.status_code == 200
     assert len(res_ast.json()) == 1
@@ -182,7 +164,7 @@ def test_list_sessions_filter_by_condition_and_score(tmp_path: Path) -> None:
     # Filtrar por condición no asistida
     res_una = client.get(
         "/sessions?condition=unassisted",
-        headers={"Authorization": f"Bearer {tokens['res']}"},
+        headers={"Authorization": f"Bearer {tokens['p1']}"},
     )
     assert res_una.status_code == 200
     assert len(res_una.json()) == 1
@@ -192,7 +174,7 @@ def test_list_sessions_filter_by_condition_and_score(tmp_path: Path) -> None:
     # Filtrar por partitura de prueba
     res_ts2 = client.get(
         "/sessions?test_score_id=TS-02",
-        headers={"Authorization": f"Bearer {tokens['res']}"},
+        headers={"Authorization": f"Bearer {tokens['p1']}"},
     )
     assert res_ts2.status_code == 200
     assert len(res_ts2.json()) == 1

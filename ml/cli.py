@@ -11,8 +11,17 @@ Comandos implementados:
   - suggestions   : entrena, evalúa, promueve y construye el corpus de la capa de sugerencias
                     (`ml/suggestions_cli.py`, ADR-0036). Sustituye en el flujo de aprendizaje a la
                     red de `PyTorchTrainer`, retirada del código en #271.
+  - export-tables : exporta a CSV planos, con su `run_info.json`, la lectura de HOMR, sus
+                    correcciones, los posibles errores y las sugerencias, para analizarlos fuera
+                    de la plataforma (`ml/export_tables_cli.py`).
   - export-staves : recorta cada pentagrama de las fotos y lo empareja con lo que leyó HOMR y
                     con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
+  - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
+                    con la partición por obra y la ficha del dataset, para entrenar un lector
+                    (`ml/export_pairs_cli.py`, #420, ADR-0071).
+  - public-stats  : calcula las cifras públicas de los errores de HOMR y las guarda para la
+                    API; con --every, cada tantos segundos (`ml/public_stats.py`, #423,
+                    ADR-0073).
 """
 
 from __future__ import annotations
@@ -47,6 +56,7 @@ from cadenza.learning import (
     load_job_config,
     serialize_dataset,
 )
+from cadenza.learning.consent import ConsentTally
 from cadenza.persistence import (
     ArtifactRecord,
     FilesystemArtifactStore,
@@ -59,6 +69,8 @@ from cadenza.persistence import (
     create_session_factory,
     session_scope,
 )
+
+from ml.consent_cli import add_consent_options
 
 
 def _default_db_url() -> str:
@@ -106,8 +118,10 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     create_schema(engine)
     factory = create_session_factory(engine)
 
-    # Las cuentas del registro público quedan fuera salvo que se pida (ADR-0022, D55).
-    include_self_registered: bool = args.include_self_registered
+    # Las cuentas del registro con el permiso de uso de los datos vigente entran salvo que se
+    # pida lo contrario; las que no lo tienen, nunca (#422, ADR-0065).
+    exclude_self_registered: bool = args.exclude_self_registered
+    consent = ConsentTally()
     with session_scope(factory) as db:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
@@ -120,7 +134,8 @@ def build_dataset_command(args: argparse.Namespace) -> int:
                 user_repository=SqlAlchemyUserRepository(db),
                 status=args.status,
                 owner_id=args.owner_id,
-                include_self_registered=include_self_registered,
+                exclude_self_registered=exclude_self_registered,
+                consent=consent,
             )
         except ValueError as err:
             print(f"Error: {err}", file=sys.stderr)
@@ -130,7 +145,10 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     serialized["config_hash"] = cfg_hash
     serialized["seed"] = seed
     serialized["status_filter"] = args.status
-    serialized["self_registered_included"] = include_self_registered
+    # Si entraron las cuentas del registro con el permiso vigente (antes de #422, si entraron
+    # todas, con permiso o sin él), y cuántas sesiones dejó fuera el permiso, sin cuáles.
+    serialized["self_registered_included"] = not exclude_self_registered
+    serialized["consent"] = consent.to_primitive()
     serialized["created_at"] = datetime.datetime.now(datetime.UTC).isoformat()
 
     output_path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
@@ -187,8 +205,8 @@ def select_command(args: argparse.Namespace) -> int:
         "budget": budget,
         "seed": seed,
         "config_hash": config.config_hash if config else raw_input.get("config_hash", "none"),
-        # Si el dataset de origen incluía las cuentas del registro público (D55); None si no
-        # lo dice, como los de antes de #191.
+        # Si el dataset de origen incluía las cuentas del registro público (D55; desde #422,
+        # las que tienen el permiso vigente); None si no lo dice, como los de antes de #191.
         "self_registered_included": raw_input.get("self_registered_included"),
         "count": len(selected_samples),
         "selected_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -602,7 +620,7 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         status=args.status,
         owner_id=args.owner_id,
-        include_self_registered=args.include_self_registered,
+        exclude_self_registered=args.exclude_self_registered,
     )
     rc = build_dataset_command(b_args)
     if rc != 0:
@@ -703,11 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", default="finalized", help="Filtrar por estado de sesión (default: finalized)."
     )
     p_build.add_argument("--owner-id", default=None, help="Filtrar por propietario (opcional).")
-    p_build.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
-    )
+    add_consent_options(p_build)
 
     # 2. select
     p_select = subparsers.add_parser(
@@ -860,11 +874,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--status", default="finalized", help="Filtrar sesiones por estado.")
     p_run.add_argument("--owner-id", default=None, help="Filtrar sesiones por propietario.")
-    p_run.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
-    )
+    add_consent_options(p_run)
     p_run.add_argument("--strategy", default=None, help="Estrategia de adquisición.")
     p_run.add_argument("--budget", type=int, default=None, help="Presupuesto de adquisición.")
     p_run.add_argument("--seed", type=int, default=None, help="Semilla.")
@@ -886,79 +896,32 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-rejected", action="store_true", help="No fallar si la promoción es rechazada."
     )
 
-    # 7. export-effort (#33, D38)
-    p_effort = subparsers.add_parser(
-        "export-effort",
-        help="Exporta métricas del estudio de esfuerzo a formato tabular (#33).",
-    )
-    p_effort.add_argument(
-        "--db-url",
-        default=None,
-        help="URL de la base con las sesiones del estudio (obligatoria salvo con --smoke).",
-    )
-    p_effort.add_argument(
-        "--output-dir",
-        default=None,
-        help="Directorio de destino para los archivos CSV y JSON (por defecto, results/).",
-    )
-    p_effort.add_argument(
-        "--smoke",
-        action="store_true",
-        help=(
-            "Probar la exportación con datos sintéticos, marcados como simulados; exige un "
-            "--output-dir fuera de results/."
-        ),
-    )
-    p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
-    # Las mismas que `add_study_arguments` de exp_10, sin importar music21 al construir la CLI.
-    p_effort.add_argument(
-        "--bank-dir",
-        default=None,
-        help="Carpeta del banco del estudio con la verdad de cada partitura (por defecto, "
-        "banco_estudio/).",
-    )
-    p_effort.add_argument(
-        "--nasa-tlx",
-        default=None,
-        help="CSV del NASA-TLX por participante y bloque (formato en el protocolo §3.3).",
-    )
-
     # 8. suggestions (capa de sugerencias, ADR-0036)
     from ml import suggestions_cli
 
     suggestions_cli.add_parser(subparsers)
+
+    # 9. export-tables (CSV para analizar los errores de HOMR fuera de la plataforma)
+    from ml import export_tables_cli
+
+    export_tables_cli.add_parser(subparsers)
 
     # Cada pentagrama de la foto con sus compases (#403, ADR-0067)
     from ml import export_staves_cli
 
     export_staves_cli.add_parser(subparsers)
 
+    # Pares imagen-partitura para entrenar un lector (#420, ADR-0071)
+    from ml import export_pairs_cli
+
+    export_pairs_cli.add_parser(subparsers)
+
+    # Las cifras públicas de los errores de HOMR, en vivo (#423, ADR-0073)
+    from ml import public_stats
+
+    public_stats.add_parser(subparsers)
+
     return parser
-
-
-def export_effort_command(args: argparse.Namespace) -> int:
-    """Exporta métricas de esfuerzo a formato tabular (#33, D38)."""
-    repo_root = Path(__file__).resolve().parents[1]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-
-    from ml.experiments.exp_10_effort_study import run_effort_study_export
-
-    try:
-        summary = run_effort_study_export(
-            db_url=args.db_url,
-            output_dir=args.output_dir,
-            smoke=args.smoke,
-            seed=args.seed,
-            bank_dir=args.bank_dir,
-            nasa_tlx_csv=args.nasa_tlx,
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    print(f"Exportación de esfuerzo completada en: {args.output_dir or 'results/'}")
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
-    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -977,16 +940,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         return promote_command(args)
     if args.subcommand == "run":
         return run_command(args)
-    if args.subcommand == "export-effort":
-        return export_effort_command(args)
     if args.subcommand == "suggestions":
         from ml import suggestions_cli
 
         return suggestions_cli.run(args)
+    if args.subcommand == "export-tables":
+        from ml import export_tables_cli
+
+        return export_tables_cli.export_tables_command(args)
     if args.subcommand == "export-staves":
         from ml import export_staves_cli
 
         return export_staves_cli.export_staves_command(args)
+    if args.subcommand == "export-pairs":
+        from ml import export_pairs_cli
+
+        return export_pairs_cli.export_pairs_command(args)
+    if args.subcommand == "public-stats":
+        from ml import public_stats
+
+        return public_stats.public_stats_command(args)
 
     parser.print_help()
     return 1

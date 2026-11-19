@@ -6,7 +6,7 @@ from fractions import Fraction
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import (
     Event,
     EventKind,
@@ -87,7 +87,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -96,16 +95,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -122,15 +111,8 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     )
 
     tokens = {
-        "owner": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "other": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "researcher": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "owner": app.state.token_service.create_access_token(user_id="user-t1"),
+        "other": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     return TestClient(app), tokens
@@ -225,7 +207,6 @@ def test_session_lifecycle_authorization(tmp_path: Path) -> None:
     client, tokens = _setup_api(tmp_path)
     owner_headers = {"Authorization": f"Bearer {tokens['owner']}"}
     other_headers = {"Authorization": f"Bearer {tokens['other']}"}
-    researcher_headers = {"Authorization": f"Bearer {tokens['researcher']}"}
 
     # Crear sesión con el dueño
     files = {"file": ("test.png", PNG_BYTES, "image/png")}
@@ -236,18 +217,9 @@ def test_session_lifecycle_authorization(tmp_path: Path) -> None:
     assert client.post(f"/sessions/{session_id}/finalize").status_code == 401
     assert client.post(f"/sessions/{session_id}/reopen").status_code == 401
 
-    # Transcriptor ajeno -> 404
+    # Otra cuenta -> 404
     assert client.post(f"/sessions/{session_id}/finalize", headers=other_headers).status_code == 404
     assert client.post(f"/sessions/{session_id}/reopen", headers=other_headers).status_code == 404
-
-    # Investigador ajeno -> 403 Forbidden
-    assert (
-        client.post(f"/sessions/{session_id}/finalize", headers=researcher_headers).status_code
-        == 403
-    )
-    assert (
-        client.post(f"/sessions/{session_id}/reopen", headers=researcher_headers).status_code == 403
-    )
 
     # Sesión inexistente -> 404
     assert client.post("/sessions/nonexistent/finalize", headers=owner_headers).status_code == 404

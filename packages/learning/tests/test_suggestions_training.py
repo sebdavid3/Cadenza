@@ -17,7 +17,7 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InMemoryUserRepository,
-    Role,
+    NewSuggestion,
     SessionData,
     User,
     append_edit,
@@ -30,14 +30,18 @@ from cadenza.domain import (
     EditOp,
     Event,
     EventKind,
+    Finding,
     KeySignature,
     Measure,
     Part,
     ScoreIR,
+    Severity,
     Staff,
+    SuggestedEdit,
     TimeSignature,
 )
 from cadenza.learning import assign_split, build_correction_records
+from cadenza.learning.consent import ConsentTally
 from cadenza.learning.suggestions import (
     SuggestionTrainingError,
     artifact_bytes,
@@ -433,10 +437,8 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     model = FrequencyBackoffModel(train(corpus_records(), config, dataset_hash="d"), version="v")
     edits = InMemoryEditEventRepository()
     sessions = InMemorySessionRepository(edit_repository=edits)
-    owner = User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
-    outsider = User(
-        id="u2", username="pub", password_hash="h", role=Role.TRANSCRIPTOR, self_registered=True
-    )
+    owner = User(id="u1", username="ana", password_hash="h")
+    outsider = User(id="u2", username="pub", password_hash="h", self_registered=True)
     users = InMemoryUserRepository([owner, outsider])
     image = tmp_path / "page.png"
     image.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
@@ -483,29 +485,36 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
         SessionData(id="open", document_id="d", omr_engine="f", document={}, owner_id="u1"), []
     )
 
+    tally = ConsentTally()
     records, left_out = session_records(
         session_repository=sessions,
         edit_repository=edits,
         user_repository=users,
         split_seed=SPLIT_SEED,
         test_fraction=0.2,
+        consent=tally,
     )
-    assert left_out == {ids[2]: "cuenta del registro público"}
+    # La cuenta del registro no dio el permiso de uso de los datos: queda fuera y solo se
+    # cuenta, sin su identificador (#422, ADR-0065).
+    assert left_out == {}
+    assert (tally.without_current_consent, tally.excluded_by_option) == (1, 0)
     assert {r["session_id"] for r in records} == {ids[0], ids[1]}
-    # El permiso de uso de los datos solo se guarda (#378, ADR-0065): con él, todo igual, y la
-    # cuenta del registro sigue fuera.
+    # Con el permiso vigente entra por defecto, y la opción la deja fuera.
     consented = InMemoryUserRepository(
         [
             replace(user, data_consent_at=CONSENT_AT, data_consent_version=DATA_CONSENT_VERSION)
             for user in (owner, outsider)
         ]
     )
+    repositories: dict[str, Any] = {
+        "session_repository": sessions,
+        "edit_repository": edits,
+        "user_repository": consented,
+    }
+    with_consent, _ = session_records(**repositories, split_seed=SPLIT_SEED, test_fraction=0.2)
+    assert {r["session_id"] for r in with_consent} == set(ids)
     assert session_records(
-        session_repository=sessions,
-        edit_repository=edits,
-        user_repository=consented,
-        split_seed=SPLIT_SEED,
-        test_fraction=0.2,
+        **repositories, split_seed=SPLIT_SEED, test_fraction=0.2, exclude_self_registered=True
     ) == (records, left_out)
     assert all(r["source"] == "cadenza" and r["work_id"] == "test_score:TS-01" for r in records)
     expected_split = assign_split("test_score:TS-01", seed=SPLIT_SEED, test_fraction=0.2)
@@ -527,7 +536,13 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     exp12 = write_corpus(tmp_path / "exp12.jsonl", works=2)
     original = exp12.read_bytes()
     output = tmp_path / "joined.jsonl"
-    monkeypatch.setattr(suggestions_cli, "session_records", lambda **_: (records, left_out))
+    seen: dict[str, Any] = {}
+
+    def fake_records(**kwargs: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
+        seen.update(kwargs)
+        return records, left_out
+
+    monkeypatch.setattr(suggestions_cli, "session_records", fake_records)
     db_url = f"sqlite:///{(tmp_path / 'empty.db').as_posix()}"
     create_schema(create_engine_for_url(db_url))
     command = ["suggestions", "build-dataset", "--corpus", str(exp12), "--output", str(output)]
@@ -535,8 +550,87 @@ def test_build_dataset_adds_finalized_sessions_with_their_responses(
     assert exp12.read_bytes() == original
     assert output.read_bytes().startswith(original)
     assert len(json_lines(output)) == len(json_lines(exp12)) + len(records)
+    assert seen["exclude_self_registered"] is False
+    excluded = [*command[:-1], str(tmp_path / "sin-registro.jsonl"), "--exclude-self-registered"]
+    assert main([*excluded, "--db-url", db_url, "--split-seed", str(SPLIT_SEED)]) == 0
+    assert seen["exclude_self_registered"] is True
     # La salida nunca es el corpus de exp_12.
     assert main([*command[:-1], str(exp12), "--db-url", db_url, "--split-seed", "1"]) == 1
+
+
+def test_a_bank_photo_without_its_test_score_falls_on_its_side() -> None:
+    """La fuga de #437: las fotos del banco son idénticas byte a byte, así que una página del
+    banco subida sin `test_score_id` es la misma obra que su partitura de prueba. Partir por la
+    página de cada sesión la ponía en la otra partición."""
+    from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
+
+    read, _ = incipit_pair(0, 0)
+    document = ScoreDocument(
+        id="doc",
+        score=read,
+        anchors=build_anchor_index(read),
+        provenance=Provenance(omr_engine="homr"),
+    ).to_primitive()
+    staff_id = read.parts[0].staves[0].id
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id=staff_id)
+    finding = Finding(
+        anchor=anchor, rule_id="learned.accidental", severity=Severity.WARNING, message="m"
+    )
+    suggestion = NewSuggestion(
+        SuggestedEdit(op=EditOp.SET_ACCIDENTAL, anchor=anchor, after={"accidental": "#"})
+    )
+    team = User(id="u1", username="ana", password_hash="h")
+    visitor = User(id="u2", username="pub", password_hash="h", self_registered=True)
+    sessions = InMemorySessionRepository(edit_repository=InMemoryEditEventRepository())
+    for sid, owner, status, test_score, image in (
+        ("banco", team, "finalized", "TS-01", "h1"),
+        # La foto de TS-01, subida sin su partitura de prueba, con una sugerencia.
+        ("subida", team, "finalized", None, "h1"),
+        ("otra", team, "finalized", None, "h2"),  # no comparte nada de lo que entra: su página
+        ("abierta", team, "transcribed", "TS-02", "h2"),  # sin finalizar: no une a nadie
+        ("fuera", visitor, "finalized", "TS-06", "h3"),  # del registro sin el permiso: tampoco
+        ("sola", team, "finalized", None, "h3"),
+    ):
+        sessions.add(
+            SessionData(
+                id=sid,
+                document_id=f"doc-{sid}",
+                omr_engine="homr",
+                document=document,
+                image_artifact=image,
+                owner_id=owner.id,
+                status=status,
+                test_score_id=test_score,
+            ),
+            [finding] if sid == "subida" else [],
+            [[suggestion]] if sid == "subida" else None,
+        )
+
+    # Con la semilla, la página de cada sesión las ponía en particiones distintas: la fuga.
+    def side(work: str) -> str:
+        return assign_split(work, seed=SPLIT_SEED, test_fraction=0.2)
+
+    assert side("test_score:TS-01") != side("image:h1")
+
+    records, left_out = session_records(
+        session_repository=sessions,
+        edit_repository=InMemoryEditEventRepository(),
+        user_repository=InMemoryUserRepository([team, visitor]),
+        split_seed=SPLIT_SEED,
+        test_fraction=0.2,
+    )
+    assert left_out == {}
+    works = {r["session_id"]: (r["work_id"], r["split"]) for r in records}
+    assert works == {
+        "banco": ("test_score:TS-01", side("test_score:TS-01")),
+        "subida": ("test_score:TS-01", side("test_score:TS-01")),
+        "otra": ("image:h2", side("image:h2")),
+        "sola": ("image:h3", side("image:h3")),
+    }
+    # Todos los registros de una sesión, también los de sus sugerencias, llevan su obra.
+    assert any(r["record"] == "suggestion" and r["session_id"] == "subida" for r in records)
+    for record in records:
+        assert (record["work_id"], record["split"]) == works[record["session_id"]]
 
 
 def json_lines(path: Path) -> list[dict[str, Any]]:

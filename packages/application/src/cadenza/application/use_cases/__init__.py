@@ -3,7 +3,6 @@
 from .append_edit import AppliedEdit, append_edit, append_edit_with_state
 from .authenticate import authenticate
 from .change_password import change_password
-from .create_user import create_user
 from .dismiss_finding import dismiss_finding
 from .export_score import export_score
 from .finalize_session import FinalizeResult, finalize_session
@@ -13,7 +12,6 @@ from .get_session_image import SessionImageData, get_session_image
 from .get_timing import get_timing
 from .list_findings import list_findings
 from .list_sessions import list_sessions
-from .list_users import list_users
 from .previews import (
     PreviewResult,
     claim_preview,
@@ -41,7 +39,6 @@ from .transcribe_score import (
 )
 from .undo_edit import UndoResult, undo_edit
 from .update_session_metadata import UNCHANGED, Unchanged, update_session_metadata
-from .update_user import update_user
 
 __all__ = [
     "MAX_EFFORT_SEGMENTS",
@@ -63,7 +60,6 @@ __all__ = [
     "claim_preview",
     "create_preview",
     "create_session_from_document",
-    "create_user",
     "dismiss_finding",
     "ensure_preview_capacity",
     "export_score",
@@ -75,7 +71,6 @@ __all__ = [
     "hash_claim_token",
     "list_findings",
     "list_sessions",
-    "list_users",
     "normalize_condition",
     "record_effort",
     "record_effort_segment",
@@ -89,5 +84,4 @@ __all__ = [
     "transcribe_score",
     "undo_edit",
     "update_session_metadata",
-    "update_user",
 ]

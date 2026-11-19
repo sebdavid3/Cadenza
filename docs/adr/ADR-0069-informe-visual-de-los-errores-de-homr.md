@@ -1,0 +1,64 @@
+# ADR-0069: El informe visual de los errores de HOMR
+
+- **Estado:** Aceptado. Su alternativa «una vista en la web» la revisa [ADR-0073](ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md): las cifras de conjunto, sin fotos, se publican en vivo
+- **Fecha:** 2026-11-12
+- **Decisores:** Responsable del proyecto (pidió el 2026-11-12 una forma de ver los datos de la toma sin abrir pandas ni una hoja de cálculo) y Equipo de Desarrollo
+- **Relacionado:** [ADR-0068](ADR-0068-tablas-y-recortes-en-una-sola-exportacion.md), [#400](https://github.com/sebdavid3/Cadenza/issues/400), [#414](https://github.com/sebdavid3/Cadenza/issues/414), [#415](https://github.com/sebdavid3/Cadenza/issues/415)
+
+---
+
+## Contexto
+
+`ml export-tables` escribe CSV para analizar los errores de HOMR fuera de la plataforma, y con `--recortes` cada compás lleva su foto (ADR-0068). Leer esos CSV exige pandas, R o una hoja de cálculo, y en ellos no se ve la foto. Un prototipo del 2026-11-12 sobre `TS-04` y el corpus de `exp_12` enseñó cosas que no se veían en los CSV:
+
+- HOMR falla sobre todo la figura (10 correcciones por cada 100 notas);
+- falla el 50 % de las fusas y semifusas;
+- falla el 36 % de las notas con una alteración contra la armadura, frente al 16 % de las que van según la armadura;
+- en una partitura comparada con su referencia, 66 de las 76 correcciones de altura de `TS-04` solo reordenaban las notas de un acorde.
+
+## Decisión
+
+1. **Un archivo, sin red.** `ml export-tables --informe` escribe `informe.html` en la carpeta de la exportación (`ml/tables_report.py` y la plantilla `ml/informe_tablas.html`). La página lleva dentro los datos agregados y abre los recortes por su ruta relativa: no carga nada de fuera ni manda nada fuera. Se abre en local, y sus fotos son las de la exportación (ADR-0065).
+2. **Sale de los CSV ya escritos.** El informe lee `partituras`, `notas`, `faltantes` y `clave_armadura` de la carpeta, así que sus cifras coinciden con ellos. Una prueba lo comprueba. Las correcciones de una partitura son sus `correcciones_netas` (una por operación, con las notas que faltaban, la clave y la armadura). Una nota sin alinear no cuenta como corregida: no se sabe cuál era su corrección. En Cadenza, cada partitura se nombra por su página del banco y su sesión.
+3. **Qué enseña:**
+   - las cifras de cabecera;
+   - qué pasó con cada nota leída, por origen;
+   - qué se corrige, por cada 100 notas leídas;
+   - cuánto se movió la altura, en pasos de pentagrama;
+   - la figura leída frente a la correcta;
+   - dónde se equivoca más (alteración frente a la armadura, clave y figura leída, en grupos de 30 notas o más);
+   - las partituras con más correcciones.
+4. **De cada cifra a sus ejemplos.** Cada barra, celda o fila lleva a hasta 12 ejemplos. Cada ejemplo da la tira de la foto de su compás (`recorte`), la partitura, el compás y el pentagrama, y lo que leyó HOMR frente a lo correcto. Sin `--recortes`, los ejemplos salen sin foto.
+5. **Acordes solo reordenados.** Al comparar con una partitura de referencia, un acorde que HOMR escribe en otro orden cuenta como correcciones de altura. Se marcan (`reordered_chords`) y una casilla deja de contarlos. Las correcciones de una persona no tienen este problema.
+6. **Filtro por origen** (todos, Cadenza o PrIMuS), modo oscuro, tooltips y una presentación que se lee en un móvil. Los colores de categoría son la paleta validada de la guía de visualización.
+
+## Consecuencias
+
+### Positivas
+- Cualquiera del equipo ve los errores de HOMR y sus fotos con un doble clic, sin instalar nada.
+- Lo que dice el informe es lo que dicen los CSV.
+
+### Negativas / Riesgos
+- Con el corpus de `exp_12`, la página pesa unos 3 MB: los agregados y los ejemplos de seis variantes (tres orígenes, con y sin acordes reordenados).
+- La tira es la del sistema entero: el ejemplo dice qué compás mirar, pero no lo recuadra, porque HOMR no da cajas por evento (INV-0001).
+- Los ejemplos son los primeros de cada categoría en el orden de las tablas, no una muestra al azar.
+- El texto de las tablas se escapa en la página, y en los datos del script no queda ningún `<`: ni `</script>` ni `<!--` pueden cortarlo.
+
+## Alternativas consideradas
+- **Una vista en la web de Cadenza.** Llevaría los datos de varias personas a la plataforma, con su contrato y sus permisos; el análisis se hace fuera (#400).
+- **Un cuaderno de Jupyter.** Exige instalar el entorno para mirarlo.
+- **Una biblioteca de gráficos desde un CDN.** Rompe el «sin red» y obliga a tener conexión para abrir los datos.
+
+## Enmienda de #418 (2026-11-19): el informe con el sistema de Cadenza, que se explica solo
+
+Lo iteró el responsable sobre la página generada, en cinco vueltas.
+
+- **Sistema visual de Cadenza** (`DESIGN.md`): papel, tinta, filetes de 3 px, rótulos bitmap en mayúsculas y texto en Hanken Grotesk. Las fuentes van dentro de la página (OFL 1.1, con sus licencias en `ml/informe_fuentes/`), así que sigue sin red. **Las cifras van siempre en Hanken Grotesk**: en la tipografía bitmap, «50 %» se leía «80 %».
+- **Arriba, qué es HOMR y qué es PrIMuS**, con sus enlaces, y de dónde salen las sesiones de Cadenza. Los enlaces solo se abren si se siguen: la página no carga nada de fuera (lo comprueba una prueba). Después vienen «Lo que dicen los datos», en frases calculadas de los CSV que dicen qué pasa y sobre cuántas notas. Los grupos de menos de 200 notas no entran ahí.
+- **Las figuras, por su nombre y su símbolo, nunca como fracción:** `figure_name` y `figure_symbol`, con puntillos, grupos irregulares, adornos y figuras ligadas. El símbolo se dibuja en SVG dentro de la página, porque ninguna fuente de símbolos musicales viaja con ella. **Las claves**, en lenguaje musical: «clave de sol», «clave de fa en 3.ª».
+- **Las correcciones**, con nombres que se entienden solos: «Figura equivocada», «Nota leída de más», «Nota que HOMR no leyó». La barra de «Qué pasó con cada nota leída» explica corregida, leída de más, sin alinear y bien leída. La matriz de figuras va en un degradado violeta: cuanto más violeta, más casos.
+- **Cada ejemplo dibuja su compás bajo la foto,** en dos pentagramas: lo que leyó HOMR y lo correcto, con la nota del ejemplo en violeta. Lo saca de las propias tablas (`_Bars`: clave, armadura, alteraciones, puntillos, corchetes y silencios, sin barras de unión), y solo se guardan los compases que algún ejemplo usa. El ejemplo dice qué pasó (`change`, `extra` o `missing`), en vez de un «—».
+- **Historial de transcripciones:** todas las partituras de la exportación, con buscador (sin distinguir tildes), orden y paginación. Elegir una enseña sus correcciones o su foto. Sustituye a la tabla de las 15 con más correcciones, que pasa a ser el orden por defecto. No lleva el nombre de ninguna cuenta.
+- **Un solo filtro:** las pruebas reales de Cadenza (`partituras.origen = registro`), y solo si las hay. Se quita la división entre «Todos» y PrIMuS. Tampoco aparece la casilla de los acordes reordenados cuando no los hay, ni el pie, ni el commit visible, que queda en una etiqueta `meta`.
+
+§6 queda así: el único filtro es el de las pruebas reales. Lo demás de la decisión no cambia: un archivo sin red, que sale de los CSV ya escritos.

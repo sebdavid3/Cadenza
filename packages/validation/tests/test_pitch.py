@@ -6,9 +6,6 @@ import pytest
 from cadenza.validation.pitch import (
     midi_to_pitch,
     parse_pitch,
-    pitch_alter,
-    pitch_octave,
-    pitch_step,
     pitch_to_midi,
 )
 
@@ -66,12 +63,3 @@ def test_midi_to_pitch() -> None:
     assert midi_to_pitch(61) == "C#4"
     assert midi_to_pitch(61, prefer_flats=True) == "Db4"
     assert midi_to_pitch(69) == "A4"
-
-
-def test_pitch_helpers() -> None:
-    assert pitch_step("G#3") == "G"
-    assert pitch_alter("G#3") == 1
-    assert pitch_octave("G#3") == 3
-    assert pitch_step(None) is None
-    assert pitch_alter(None) is None
-    assert pitch_octave(None) is None

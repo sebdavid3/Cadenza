@@ -6,7 +6,7 @@ import { DataUseText } from "./DataUseText";
 /**
  * El aviso breve del permiso de uso de los datos (#378, ADR-0065): qué se guarda, para qué y con
  * qué nombre, con el texto completo. Lo comparten el registro y «Tu cuenta», así que dicen lo
- * mismo. Lo aprobó el responsable del proyecto el 2026-11-09.
+ * mismo. Lo aprobó el responsable del proyecto el 2026-11-09 (versión actual, 2026-11-19: #427).
  *
  * Desde el registro (`expandable`), el texto completo se despliega bajo el aviso, en un recuadro
  * con su propio desplazamiento (#397): ni otra pestaña ni una navegación, que desmontaría el

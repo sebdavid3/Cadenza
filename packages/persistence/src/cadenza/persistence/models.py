@@ -44,14 +44,13 @@ class Base(DeclarativeBase):
 
 
 class UserRecord(Base):
-    """Cuenta de usuario y rol para control de acceso y autoría (ADR-0012)."""
+    """Cuenta de usuario para control de acceso y autoría (ADR-0012, ADR-0070)."""
 
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1", nullable=False)
     # Cuenta del registro público (ADR-0022, migración 0012): fuera de los datos del estudio.
     self_registered: Mapped[bool] = mapped_column(
@@ -403,3 +402,23 @@ class PreviewRecord(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
     )
+
+
+class PublicStatsRecord(Base):
+    """Las cifras de conjunto de los errores de HOMR de un grupo (#423, ADR-0073).
+
+    Las escribe el servicio `stats` (plano offline) y las lee la API: una fila por grupo
+    (`cadenza`, `pruebas` o un corpus). `stats` es NULL si el grupo no llega al mínimo de
+    sesiones y no se publica (migración 0019).
+    """
+
+    __tablename__ = "public_stats"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    min_sessions: Mapped[int] = mapped_column(Integer, nullable=False)
+    sessions: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stats: Mapped[dict[str, Any] | None] = mapped_column(NullableJsonDocument, nullable=True)

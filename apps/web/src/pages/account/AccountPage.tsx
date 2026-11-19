@@ -249,8 +249,8 @@ function DataConsentSection() {
   const savingRef = useRef(false);
   const [changed, setChanged] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Es el permiso de las cuentas del registro: a los participantes del estudio les rige el
-  // consentimiento del estudio, y los datos de sus cuentas no dependen de este (ADR-0065 §5).
+  // Es el permiso de las cuentas del registro; las pocas que no vienen de él son del equipo,
+  // anteriores a ADR-0070, y sus datos no dependen de este permiso (ADR-0065 §5).
   if (!user?.self_registered) return null;
   const granted = user.data_consent ?? false;
   // Dado para una versión anterior del texto: no está vigente hasta que se vuelva a dar.

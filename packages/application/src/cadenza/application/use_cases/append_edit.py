@@ -30,8 +30,8 @@ from cadenza.domain import (
     validate_after,
 )
 
+from ..access import require_owner
 from ..exceptions import (
-    Forbidden,
     InvalidEdit,
     SequenceConflict,
     SessionClosed,
@@ -48,7 +48,7 @@ from ..score_state import load_state, store_state, timing_of, try_musicxml_of
 from ..session_status import SessionStatus
 from ..stage_timing import timed_stage
 from ..suggestions import ACCEPTED, anchors_match_position, same_after
-from ..user import Role, User
+from ..user import User
 
 
 def _extract_clef(payload: Mapping[str, Any] | None) -> Clef | None:
@@ -339,11 +339,7 @@ def _append(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede editar sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
 
     # 1. Comprobar que la sesión no esté finalizada (#34, ADR-0014)
     if session_data.status == SessionStatus.FINALIZED:

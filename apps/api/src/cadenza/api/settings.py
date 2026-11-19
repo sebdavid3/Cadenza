@@ -259,27 +259,13 @@ class Settings(BaseSettings):
             "memoria por (sesión, seq); 0 los desactiva (#275, ADR-0037)."
         ),
     )
-    omr_preprocess_enabled: bool = Field(
-        default=False,
-        description="Indica si se activa el pipeline de preprocesado de imagen antes de OMR.",
-    )
-    omr_preprocess_deskew: bool = Field(
-        default=False,
-        description="Activa el enderezado automático (deskew) de pentagramas.",
-    )
-    omr_preprocess_binarize: bool = Field(
-        default=False,
-        description="Activa la binarización (umbralización Otsu o adaptativa).",
-    )
-    omr_preprocess_rescale: bool = Field(
-        default=False,
-        description="Activa el control de resolución / escalado de imagen.",
-    )
-    omr_preprocess_target_dpi: int = Field(
-        default=300,
+    stats_cache_seconds: int = Field(
+        default=60,
+        ge=0,
+        le=3600,
         description=(
-            "DPI objetivo para el control de resolución cuando "
-            "omr_preprocess_rescale está activo."
+            "Cuánto guarda la API en memoria la respuesta de GET /stats/homr-errors antes de "
+            "volver a leer la base, en segundos; 0 la lee cada vez (#423, ADR-0073)."
         ),
     )
     omr_meter_features: str = Field(
@@ -334,17 +320,3 @@ class Settings(BaseSettings):
 
         features = parse_meter_features(self.omr_meter_features)
         return MeterStage(features) if features else None
-
-    def build_preprocessing_config(self) -> Any | None:
-        """Construye un PreprocessingConfig si el preprocesado está habilitado."""
-        if not self.omr_preprocess_enabled:
-            return None
-        from cadenza.omr import PreprocessingConfig
-
-        return PreprocessingConfig(
-            enabled=True,
-            deskew=self.omr_preprocess_deskew,
-            binarize=self.omr_preprocess_binarize,
-            rescale=self.omr_preprocess_rescale,
-            target_dpi=self.omr_preprocess_target_dpi,
-        )

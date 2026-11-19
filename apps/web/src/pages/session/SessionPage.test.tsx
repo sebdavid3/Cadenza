@@ -286,12 +286,6 @@ vi.mock("./pdf", async (importOriginal) => {
 });
 
 const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
-const INVESTIGADORA: UserRead = {
-  ...ANA,
-  id: "0b7f6c1e-2222-4bbb-8ccc-000000000003",
-  username: "inv",
-  role: "investigador",
-};
 const ID = "3e951fef-8a58-489e-abc9-68cfc3cd405b";
 
 function measure(number: number, pitch = "C4") {
@@ -424,7 +418,6 @@ function api(
         : new Response(XML, { headers: { "Content-Type": "application/vnd.recordare.musicxml" } }),
     [`GET /sessions/${ID}/image`]: png,
     [`GET /sessions/${ID}/timing`]: options.timing ?? (() => jsonResponse(timingMap())),
-    "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
   });
 }
 
@@ -884,14 +877,6 @@ describe("vista de una sesión", () => {
       "href",
       "/transcripcion",
     );
-  });
-
-  it("muestra al investigador de quién es una sesión ajena", async () => {
-    api({ detail: detail({ owner_id: LUIS.id }) });
-    renderPage(INVESTIGADORA);
-
-    const owner = await screen.findByText("luis");
-    expect(owner.closest("div")).toHaveTextContent("Propietario");
   });
 
   it("descarga el MusicXML que ya tiene, con un nombre determinista y sin pedirlo otra vez", async () => {
@@ -2761,7 +2746,6 @@ describe("corregir la nota elegida", () => {
               }),
       [`GET /sessions/${ID}/image`]: png,
       [`GET /sessions/${ID}/timing`]: () => jsonResponse(timingMap()),
-      "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
       [`POST /sessions/${ID}/edits`]: (init) => {
         const body = JSON.parse(typeof init?.body === "string" ? init.body : "") as EditEventCreate;
         bodies.push(body);
@@ -3657,17 +3641,17 @@ describe("corregir la nota elegida", () => {
     expect(server.undoBodies).toEqual([{ base_seq: 1 }]);
   });
 
-  it("un 403 lo dice sin guardar nada", async () => {
+  it("un 403 inesperado se trata como un rechazo: no se guardó nada", async () => {
     const server = editableApi();
     renderPage();
     await chooseMeasure(2);
-    server.respond(() => jsonResponse({ detail: "Un investigador solo puede editar…" }, 403));
+    server.respond(() => jsonResponse({ detail: "Prohibido" }, 403));
 
     fireEvent.click(button("Subir un paso"));
 
     await waitFor(() => {
       expect(editStatus()).toHaveTextContent(
-        "No se guardó: solo la persona que hizo la transcripción puede corregirla.",
+        /El servidor no aceptó el cambio .*: no se guardó nada\./,
       );
     });
     expect(screen.getByText("Do4 · blanca con puntillo")).toBeVisible();
@@ -3722,30 +3706,6 @@ describe("corregir la nota elegida", () => {
     server.detailRoute(null);
     fireEvent.click(within(editor()).getByRole("button", { name: "Recargar la sesión" }));
     expect(await screen.findByText("Re4 · blanca con puntillo")).toBeVisible();
-  });
-
-  it("un investigador ve en solo lectura una sesión ajena", async () => {
-    const server = editableApi(detail({ owner_id: LUIS.id }));
-    renderPage(INVESTIGADORA);
-    const region = await chooseMeasure(2);
-
-    expect(screen.queryByRole("region", { name: "Corregir la nota elegida" })).toBeNull();
-    expect(document.querySelector(".session__summary")).toHaveTextContent(
-      /solo lectura · de luis$/,
-    );
-    expect(screen.getByText(/es una sesión de otra persona/i)).toBeInTheDocument();
-    fireEvent.keyDown(region, { key: "ArrowUp", shiftKey: true });
-    fireEvent.keyDown(region, { key: "4" });
-    expect(server.bodies).toHaveLength(0);
-  });
-
-  it("un investigador corrige sus propias sesiones", async () => {
-    editableApi(detail({ owner_id: INVESTIGADORA.id }));
-    renderPage(INVESTIGADORA);
-    await chooseMeasure(2);
-
-    expect(editor()).toBeVisible();
-    expect(screen.queryByText(/solo lectura/i)).toBeNull();
   });
 
   it("una sesión finalizada es de solo lectura", async () => {
@@ -3869,22 +3829,6 @@ describe("corregir la nota elegida", () => {
     });
     expect(button("Subir un paso")).toHaveAttribute("aria-disabled", "true");
     expect(within(editor()).getByRole("button", { name: "Recargar la sesión" })).toBeVisible();
-  });
-
-  it("tras un 403 no deja seguir enviando ediciones", async () => {
-    const server = editableApi();
-    renderPage();
-    await chooseMeasure(2);
-    server.respond(() => jsonResponse({ detail: "no" }, 403));
-
-    fireEvent.click(button("Subir un paso"));
-    await waitFor(() => {
-      expect(editStatus()).toHaveTextContent(/solo la persona que hizo la transcripción/);
-    });
-
-    expect(button("Bajar un paso")).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(button("Bajar un paso"));
-    expect(server.bodies).toHaveLength(1);
   });
 
   it("un 404 lleva a la sesión no encontrada", async () => {
@@ -4935,8 +4879,8 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura no se inserta ni se borra, tampoco con el teclado", async () => {
-      const server = editableApi(detail({ owner_id: LUIS.id }));
-      renderPage(INVESTIGADORA);
+      const server = editableApi(detail({ status: "finalized" }));
+      renderPage();
       const region = await chooseMeasure(2);
 
       expect(screen.queryByRole("button", { name: "Borrar" })).toBeNull();
@@ -5535,15 +5479,15 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura se consulta la historia, pero no se deshace ni se rehace", async () => {
-      const done = apply(detail({ owner_id: LUIS.id }), {
+      const done = apply(detail(), {
         base_seq: 0,
         op: "SetPitch",
         anchor: anchorOf(2),
         before: null,
         after: { pitch: "D4" },
       });
-      const server = editableApi(done.next);
-      renderPage(INVESTIGADORA);
+      const server = editableApi({ ...done.next, status: "finalized" });
+      renderPage();
       const region = await chooseMeasure(2);
 
       expect(screen.queryByRole("button", { name: "Deshacer" })).toBeNull();
@@ -6424,25 +6368,6 @@ describe("corregir la nota elegida", () => {
       expect(reasonField()).toHaveFocus();
     });
 
-    it("en solo lectura se ven los posibles errores, pero no se descartan, restauran ni revalidan", async () => {
-      editableApi(editedDetail({ owner_id: LUIS.id }), {
-        findings: [finding(1, 2), dismissedFinding(2, 3, "Así está")],
-      });
-      renderPage(INVESTIGADORA);
-      expect(
-        await within(await screen.findByRole("region", { name: "Posibles errores" })).findByText(
-          /después se editó y todavía no se ha vuelto a validar/i,
-        ),
-      ).toBeVisible();
-      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
-
-      expect(within(panel()).getByText("Motivo: Así está")).toBeVisible();
-      expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
-      expect(within(panel()).queryByRole("button", { name: /^restaurar/i })).toBeNull();
-      expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
-      expect(within(panel()).queryByText(/descartar un posible error no corrige/i)).toBeNull();
-    });
-
     it("una sesión finalizada tampoco ofrece descartar ni revalidar", async () => {
       editableApi(editedDetail({ status: "finalized" }), { findings: [finding(1, 2)] });
       renderPage();
@@ -6453,6 +6378,19 @@ describe("corregir la nota elegida", () => {
       ).toBeVisible();
       expect(within(panel()).queryByRole("button", { name: /^descartar/i })).toBeNull();
       expect(within(panel()).queryByRole("button", { name: "Revalidar" })).toBeNull();
+    });
+
+    it("en una sesión finalizada los descartados se ven con su motivo, sin restaurar", async () => {
+      editableApi(editedDetail({ status: "finalized" }), {
+        findings: [finding(1, 2), dismissedFinding(2, 3, "Así está")],
+      });
+      renderPage();
+      await screen.findByRole("region", { name: "Posibles errores" });
+      await userEvent.click(within(panel()).getByText(/descartados como falso positivo · 1/i));
+
+      expect(within(panel()).getByText("Motivo: Así está")).toBeVisible();
+      expect(within(panel()).queryByRole("button", { name: /^restaurar/i })).toBeNull();
+      expect(within(panel()).queryByText(/descartar un posible error no corrige/i)).toBeNull();
     });
   });
 
@@ -6865,14 +6803,6 @@ describe("corregir la nota elegida", () => {
       });
       expect(server.lifecycleCalls).toEqual(["finalize"]);
     });
-
-    it("solo la persona que la transcribió puede finalizarla o reabrirla", async () => {
-      lifecycleApi(detail({ status: "finalized" }));
-      renderPage(INVESTIGADORA);
-      await screen.findByText(/sesión de otra persona/i);
-      expect(screen.queryByRole("button", { name: "Reabrir la sesión" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Finalizar la corrección" })).toBeNull();
-    });
   });
 
   describe("ver, aplicar y rechazar las sugerencias de la capa (#258)", () => {
@@ -7277,8 +7207,8 @@ describe("corregir la nota elegida", () => {
     });
 
     it("en solo lectura se ven las sugerencias, sin aplicar ni rechazar", async () => {
-      suggestionApi(detail(), [learned(2, 2)]);
-      renderPage(INVESTIGADORA);
+      suggestionApi(detail({ status: "finalized" }), [learned(2, 2)]);
+      renderPage();
       await waitFor(() => {
         expect(markCount()).toBe(1);
       });
@@ -7585,15 +7515,6 @@ describe("corregir la nota elegida", () => {
       expect(await screen.findByRole("button", { name: "Reabrir la sesión" })).toBeVisible();
       window.dispatchEvent(new Event("pagehide"));
       expect(finalized.segments).toHaveLength(0);
-    });
-
-    it("no mide la sesión de otra persona", async () => {
-      const server = effortApi();
-      renderPage(INVESTIGADORA);
-      expect(await screen.findByRole("heading", { level: 1 })).toBeVisible();
-      await screen.findByRole("application", { name: /partitura transcrita/i });
-      window.dispatchEvent(new Event("pagehide"));
-      expect(server.segments).toHaveLength(0);
     });
   });
 

@@ -7,10 +7,11 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from ..exceptions import Forbidden, SessionNotFound
+from ..access import require_owner
+from ..exceptions import SessionNotFound
 from ..ports.effort_repository import EffortMetricsData, EffortRepository
 from ..ports.session_repository import SessionRepository
-from ..user import Role, User
+from ..user import User
 
 
 def record_effort(
@@ -27,9 +28,8 @@ def record_effort(
 ) -> EffortMetricsData:
     """Registra y persiste las métricas de esfuerzo de una sesión de corrección humana.
 
-    - Control de acceso ADR-0012:
-      * Transcriptor ajeno recibe SessionNotFound (404).
-      * Investigador ajeno recibe Forbidden (403): solo el dueño puede registrar su propio esfuerzo.
+    - Control de acceso (ADR-0012, ADR-0070): solo el dueño registra su esfuerzo; una sesión
+      ajena lanza SessionNotFound (404).
     - Valida que duration_ms y time_to_first_edit_ms sean no negativos.
     - Normaliza las claves de intervenciones a cadenas de texto ('1', '2', ...).
     """
@@ -38,11 +38,7 @@ def record_effort(
         raise SessionNotFound(session_id)
 
     # Control de acceso ADR-0012
-    if current_user.role == Role.TRANSCRIPTOR and session.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-
-    if current_user.role == Role.INVESTIGADOR and session.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede registrar esfuerzo en sus propias sesiones")
+    require_owner(session.owner_id, current_user, session_id)
 
     if duration_ms < 0:
         raise ValueError("duration_ms debe ser mayor o igual a 0")

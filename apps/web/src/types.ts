@@ -8,7 +8,6 @@
 export type BBox = [number, number, number, number];
 export type EventKind = "note" | "rest" | "clef" | "key" | "time";
 export type Severity = "info" | "warning" | "error";
-export type UserRole = "transcriptor" | "investigador";
 
 /**
  * Entrada individual en el mapa de anclas del ScoreDocument.
@@ -79,6 +78,50 @@ export interface DataConsentUpdate {
  */
 export interface DismissFindingRequest {
   reason?: string | null;
+}
+
+/**
+ * Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto.
+ */
+export interface DrawnBarRead {
+  /** La clave de la lectura («G2», «F4», «C3»). */
+  clef: string;
+  /** La armadura, en quintas (negativa en bemoles). */
+  key: number;
+  /** Lo que leyó HOMR, evento a evento. */
+  read: DrawnEventRead[];
+  /** Lo correcto, evento a evento. */
+  fixed: DrawnEventRead[];
+}
+
+/**
+ * Un evento de un compás dibujado: una nota o un silencio, con su duración en negras.
+ */
+export interface DrawnEventRead {
+  /** `note` o `rest`. */
+  kind: "note" | "rest";
+  /** La altura («Bb4», «F#5»); vacía en un silencio. */
+  pitch: string;
+  /** La duración en negras: clave de `figures`. */
+  beats: string;
+  /** Si suena con el evento anterior, en el mismo acorde. */
+  chord: boolean;
+}
+
+/**
+ * Cuántas veces HOMR leyó una figura y la persona la corrigió a otra.
+ */
+export interface DurationChangeRead {
+  /** Duración leída, en negras («1/2»): clave de `figures`, no se enseña. */
+  read: string;
+  /** Duración correcta, en negras: clave de `figures`. */
+  fix: string;
+  /** Nombre de la figura leída. */
+  read_name: string;
+  /** Nombre de la figura correcta. */
+  fix_name: string;
+  /** Correcciones de esa figura a esa otra. */
+  n: number;
 }
 
 /**
@@ -349,6 +392,22 @@ export interface ErrorDetail {
 }
 
 /**
+ * Qué parte de las notas de un grupo tuvo alguna corrección (grupos de 30 notas o más).
+ */
+export interface ErrorRateRead {
+  /** El grupo: `vs:in_key` o `vs:against_key` (alteración según o contra la armadura), `clef:G2` (clave) o `readdur:1/2` (figura leída). */
+  key: string;
+  /** El grupo en lenguaje musical («clave de sol»). */
+  label: string;
+  /** Notas leídas del grupo. */
+  n: number;
+  /** Las que tuvieron alguna corrección. */
+  wrong: number;
+  /** `wrong / n`. */
+  rate: number;
+}
+
+/**
  * Referencia mínima al evento del ScoreIR asociado a un ancla.
  */
 export interface EventRefPayload {
@@ -380,6 +439,30 @@ export interface EventTimingRead {
   duration_beats: string;
   /** Instante de inicio relativo al comienzo del compás */
   measure_offset_beats: string;
+}
+
+/**
+ * Una duración en lenguaje musical: su nombre y su símbolo, nunca la fracción.
+ */
+export interface FigureRead {
+  /** «corchea», «negra con puntillo», «blanca + corchea» (ligadas)… */
+  name: string;
+  /** Las figuras que la escriben, ligadas; vacío si no se escribe con figuras. */
+  symbol: FigureSymbolRead[];
+}
+
+/**
+ * Una figura escrita del símbolo de una duración, para dibujarlo (`figure_symbol`).
+ */
+export interface FigureSymbolRead {
+  /** La figura base: «redonda», «blanca», «negra», «corchea»… */
+  figure: string;
+  /** Sus puntillos. */
+  dots: number;
+  /** Notas del grupo irregular en que va (3 = tresillo); 0 si no va en ninguno. */
+  tuplet: number;
+  /** Nota de adorno, sin duración. */
+  grace: boolean;
 }
 
 /**
@@ -428,6 +511,108 @@ export interface HealthStatusResponse {
   omr_engine: string;
   /** Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.) */
   device: string;
+}
+
+/**
+ * Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
+ * qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen.
+ */
+export interface HomrErrorExampleRead {
+  /** El íncipit del corpus («000100134-7_1_1»). */
+  score: string;
+  /** El compás. */
+  measure: string;
+  /** `parte-pentagrama`, desde 0. */
+  staff: string;
+  /** `change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó). */
+  kind: "change" | "extra" | "missing";
+  /** Lo que leyó HOMR, en palabras; vacío en `missing`. */
+  read: string;
+  /** Lo correcto, en palabras; vacío en `extra`. */
+  fix: string;
+  /** La duración leída en negras: clave de `figures`. */
+  read_beats: string;
+  /** La duración correcta en negras: clave de `figures`. */
+  fix_beats: string;
+  /** Su compás dibujado: clave de `bars`. */
+  bar?: string | null;
+  /** La posición del evento en `read` del compás dibujado. */
+  at_read?: number | null;
+  /** La posición del evento en `fixed` del compás dibujado. */
+  at_fix?: number | null;
+}
+
+/**
+ * Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las
+ * cuentas del registro) o un corpus (`primus`).
+ */
+export interface HomrErrorStatsGroupRead {
+  /** `cadenza`, `pruebas` o el nombre del corpus (`primus`). */
+  id: string;
+  /** `cadenza`, en vivo; `corpus`, precalculado de su archivo. */
+  source: "cadenza" | "corpus";
+  /** Cuándo se calcularon sus cifras. */
+  computed_at: string;
+  /** Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus). */
+  min_sessions: number;
+  /** Si llega al mínimo y lleva sus cifras. */
+  published: boolean;
+  /** Sus sesiones (o íncipits); null si no se publica. */
+  sessions: number | null;
+  /** Sus cifras; null si no se publica. */
+  stats: HomrErrorStatsValuesRead | null;
+}
+
+/**
+ * Las cifras de conjunto de los errores de HOMR que corrigen las personas (ADR-0073).
+ */
+export interface HomrErrorStatsRead {
+  /** El último cálculo de las cifras de Cadenza (se repite cada pocos minutos); null si aún no se han calculado. */
+  computed_at: string | null;
+  /** Los grupos: primero los de Cadenza y después los de los corpus. */
+  groups: HomrErrorStatsGroupRead[];
+}
+
+/**
+ * Las cifras de conjunto de un grupo, las del informe local (ADR-0069). Solo los grupos de
+ * corpus llevan además sus ejemplos con el compás dibujado (ADR-0073, enmienda de #424).
+ * 
+ * Los acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas
+ * notas eran).
+ */
+export interface HomrErrorStatsValuesRead {
+  /** Partituras: sesiones de Cadenza o íncipits. */
+  scores: number;
+  /** Partituras sin ninguna corrección. */
+  clean_scores: number;
+  /** Notas y silencios que leyó HOMR. */
+  read: number;
+  /** Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un compás que sobraba). */
+  outcome: Record<string, number>;
+  /** Notas y silencios que HOMR no leyó. */
+  missing: number;
+  /** Notas de acordes que solo cambiaron de orden (no se cuentan). */
+  reordered: number;
+  /** Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`… */
+  ops: Record<string, number>;
+  /** Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los extremos suman los de más allá). */
+  steps: Record<string, number>;
+  /** La figura leída frente a la correcta, de la más frecuente a la menos. */
+  durations: DurationChangeRead[];
+  /** Por alteración frente a la armadura, de la que más falla a la que menos. */
+  by_vs_key: ErrorRateRead[];
+  /** Por clave, igual. */
+  by_clef: ErrorRateRead[];
+  /** Por figura leída, igual. */
+  by_duration: ErrorRateRead[];
+  /** El nombre y el símbolo de cada duración (en negras) que sale en el grupo. */
+  figures: Record<string, FigureRead>;
+  /** Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local. Null en los de Cadenza, que nunca los llevan. */
+  examples?: HomrErrorExampleRead[] | null;
+  /** Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`. */
+  example_keys?: Record<string, number[]> | null;
+  /** Solo en los corpus: los compases dibujados de los ejemplos. */
+  bars?: Record<string, DrawnBarRead> | null;
 }
 
 /**
@@ -552,8 +737,8 @@ export interface ProvenancePayload {
 /**
  * Registro de una cuenta por la propia persona (ADR-0022, #154).
  * 
- * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
- * siempre transcriptor y cualquier otro campo se rechaza.
+ * Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier
+ * otro campo se rechaza.
  */
 export interface RegisterRequest {
   /** De 3 a 64 caracteres: minúsculas sin tilde, cifras, punto, guion y guion bajo. */
@@ -893,21 +1078,11 @@ export interface UndoResponse {
 }
 
 /**
- * Payload para dar de alta una cuenta (ADR-0012, #46).
- */
-export interface UserCreate {
-  username: string;
-  password: string;
-  role: UserRole;
-}
-
-/**
  * Perfil público de un usuario autenticado (ADR-0012).
  */
 export interface UserRead {
   id: string;
   username: string;
-  role: UserRole;
   active: boolean;
   created_at?: string | null;
   /** Cuenta creada desde el registro público (ADR-0022, ADR-0025): entra en el momento y no forma parte de los datos del estudio. */
@@ -918,15 +1093,6 @@ export interface UserRead {
   data_consent_at?: string | null;
   /** Versión del texto del permiso que se aceptó; null, sin permiso */
   data_consent_version?: string | null;
-}
-
-/**
- * Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46).
- */
-export interface UserUpdate {
-  role?: string | null;
-  active?: boolean | null;
-  password?: string | null;
 }
 
 export interface ValidationError {

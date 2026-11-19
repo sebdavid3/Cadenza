@@ -1,6 +1,6 @@
 # ADR-0035: Descartar, restaurar y revalidar los posibles errores desde la vista
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado (Enmendado por [ADR-0070](ADR-0070-una-sola-clase-de-cuenta.md): sin investigadores, revalidar una sesión ajena responde 404 como lo demás)
 - **Fecha:** 2026-10-24
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0012, ADR-0013, ADR-0014, ADR-0019, ADR-0021, ADR-0030, ADR-0031, ADR-0032 y ADR-0034, CLAUDE.md §9)
 - **Relacionado:** [ADR-0012](ADR-0012-autenticacion-e-identidad.md), [ADR-0013](ADR-0013-revalidacion-y-versionado-de-hallazgos.md), [ADR-0014](ADR-0014-ciclo-de-vida-de-la-sesion.md), [ADR-0021](ADR-0021-visualizacion-de-la-transcripcion-y-marcado-de-hallazgos.md), [ADR-0030](ADR-0030-correccion-de-altura-duracion-y-alteracion.md), [ADR-0031](ADR-0031-marcas-de-notacion-en-el-score-ir.md), [ADR-0032](ADR-0032-varias-voces-huecos-y-plicas.md), [ADR-0034](ADR-0034-deshacer-y-rehacer-desde-la-vista.md), [#186](https://github.com/sebdavid3/Cadenza/issues/186)

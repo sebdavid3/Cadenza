@@ -12,7 +12,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     SessionData,
     SessionStatus,
     User,
@@ -35,7 +34,7 @@ from cadenza.domain import (
     materialize,
 )
 
-USER = User(id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR)
+USER = User(id="u1", username="transcriptor1", password_hash="h")
 
 
 def _anchor(event_index: int = 0, measure: int = 1) -> Anchor:

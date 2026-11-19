@@ -6,13 +6,14 @@ from fractions import Fraction
 
 from cadenza.domain import TimingMap
 
+from ..access import require_owner
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.score_state_cache import ScoreStateCache
 from ..ports.session_repository import SessionRepository
 from ..score_state import load_state, timing_of
 from ..stage_timing import timed_stage
-from ..user import Role, User
+from ..user import User
 
 
 def get_timing(
@@ -25,8 +26,8 @@ def get_timing(
 ) -> TimingMap:
     """Recupera la sesión, materializa su ScoreIR actual y calcula su TimingMap determinista.
 
-    Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
-    sesiones; un investigador puede consultar todas. Con `score_cache`, el estado y su mapa
+    Aplica la regla de acceso (ADR-0012, ADR-0070): cada cuenta solo accede a sus propias
+    sesiones. Con `score_cache`, el estado y su mapa
     salen de la caché si están (#275, ADR-0037).
     """
     with timed_stage("db"):
@@ -34,8 +35,7 @@ def get_timing(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role != Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session_data.owner_id, current_user, session_id)
 
     raw_score_data = session_data.document.get("score")
     if raw_score_data is None:

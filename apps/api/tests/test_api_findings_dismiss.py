@@ -7,7 +7,7 @@ Valida:
 - Preservación de falsos positivos en revalidación (POST /sessions/{id}/validate) si el
   evento no fue modificado tras el descarte.
 - Reactivación del hallazgo en revalidación si el evento fue modificado tras el descarte.
-- Control de autorización ADR-0012 (transcriptor ajeno 404, investigador ajeno 403, dueño 200).
+- Control de autorización ADR-0012 (cuenta ajena 404, dueño 200).
 - Verificación de ciclo de vida ADR-0014 (sesión finalizada responde 409 SessionClosed).
 """
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import (
     Event,
     EventKind,
@@ -117,7 +117,6 @@ def _setup_environment(
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -126,16 +125,6 @@ def _setup_environment(
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -152,15 +141,8 @@ def _setup_environment(
     )
 
     tokens = {
-        "owner": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "other": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "researcher": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "owner": app.state.token_service.create_access_token(user_id="user-t1"),
+        "other": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     client = TestClient(app)
@@ -398,17 +380,12 @@ def test_authorization_controls_for_dismiss_and_restore(tmp_path: Path) -> None:
     session_id = resp.json()["session_id"]
     finding_id = client.get(f"/sessions/{session_id}/findings").json()[0]["id"]
 
-    # 1. Transcriptor ajeno responde 404 (ADR-0012)
+    # 1. Otra cuenta responde 404 (ADR-0012)
     client.headers["Authorization"] = f"Bearer {tokens['other']}"
     assert client.post(f"/sessions/{session_id}/findings/{finding_id}/dismiss").status_code == 404
     assert client.post(f"/sessions/{session_id}/findings/{finding_id}/restore").status_code == 404
 
-    # 2. Investigador ajeno responde 403 (ADR-0012)
-    client.headers["Authorization"] = f"Bearer {tokens['researcher']}"
-    assert client.post(f"/sessions/{session_id}/findings/{finding_id}/dismiss").status_code == 403
-    assert client.post(f"/sessions/{session_id}/findings/{finding_id}/restore").status_code == 403
-
-    # 3. Dueño responde 200
+    # 2. Dueño responde 200
     client.headers["Authorization"] = f"Bearer {tokens['owner']}"
     assert client.post(f"/sessions/{session_id}/findings/{finding_id}/dismiss").status_code == 200
     assert client.post(f"/sessions/{session_id}/findings/{finding_id}/restore").status_code == 200

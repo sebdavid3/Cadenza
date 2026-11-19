@@ -6,7 +6,6 @@ import type { UserRead } from "../types";
 export const ANA: UserRead = {
   id: "7a6d519d-92e9-41de-bf1c-49a1ba7c4c1c",
   username: "ana",
-  role: "transcriptor",
   active: true,
   created_at: "2026-10-22T20:00:00",
 };

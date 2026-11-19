@@ -53,6 +53,31 @@
         }
       }
     },
+    "/stats/homr-errors": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Cifras de conjunto de los errores de HOMR",
+        "description": "Sin cuenta. Las cifras de conjunto de lo que corrigen las personas en las transcripciones de HOMR, de las sesiones finalizadas que cuentan (las del equipo y las de las cuentas con el permiso de uso de los datos vigente) y de los corpus precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza no se publica hasta tener 5 sesiones de 3 cuentas. Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y `ETag`: con `If-None-Match` y sin cambios, 304.",
+        "operationId": "get_homr_error_stats_endpoint_stats_homr_errors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomrErrorStatsRead"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Sin cambios desde ese ETag"
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -121,7 +146,7 @@
           "Auth"
         ],
         "summary": "Registro de una cuenta por la propia persona",
-        "description": "Crea una cuenta de transcriptor activa y marcada como autorregistrada: puede iniciar sesión en el momento, y un investigador puede desactivarla con PATCH /users/{id} (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
+        "description": "Crea una cuenta activa y marcada como autorregistrada: puede iniciar sesión en el momento (ADR-0022, ADR-0025). Usuario y contraseña y, si se da, la versión del texto del permiso de uso de los datos (`data_consent_version`): sin ella, la cuenta nace sin permiso; si no es la vigente, 409 y no se crea (#378, ADR-0065). Limitado por IP (red /64 en IPv6); si el registro está desactivado en la configuración, responde 404.",
         "operationId": "register_auth_register_post",
         "requestBody": {
           "content": {
@@ -193,7 +218,7 @@
           "Auth"
         ],
         "summary": "Perfil del usuario autenticado",
-        "description": "Devuelve el perfil y rol del usuario correspondiente al token Bearer provisto.",
+        "description": "Devuelve el perfil del usuario correspondiente al token Bearer provisto.",
         "operationId": "get_me_auth_me_get",
         "responses": {
           "200": {
@@ -348,220 +373,6 @@
         ]
       }
     },
-    "/users": {
-      "get": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Listar cuentas registradas",
-        "description": "Lista las cuentas registradas en el sistema. Operación exclusiva para usuarios con rol investigador (ADR-0012).",
-        "operationId": "list_users_endpoint_users_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UserRead"
-                  },
-                  "type": "array",
-                  "title": "Response List Users Endpoint Users Get"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Dar de alta una nueva cuenta de usuario",
-        "description": "Crea una nueva cuenta de usuario con rol tipado. Exclusivo para investigadores (ADR-0012).",
-        "operationId": "create_user_endpoint_users_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRead"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflicto de secuencia, estado inválido o recurso duplicado",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Entidad no procesable o violación de validación de negocio",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ]
-      }
-    },
-    "/users/{user_id}": {
-      "patch": {
-        "tags": [
-          "Users"
-        ],
-        "summary": "Modificar rol, estado o restablecer contraseña",
-        "description": "Permite a un investigador modificar datos de acceso o rol de una cuenta existente.",
-        "operationId": "update_user_endpoint_users__user_id__patch",
-        "security": [
-          {
-            "OAuth2PasswordBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "User Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UserUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserRead"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Recurso no encontrado o no accesible para el usuario actual",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Entidad no procesable o violación de validación de negocio",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/transcribe": {
       "post": {
         "tags": [
@@ -701,7 +512,7 @@
           "Transcription"
         ],
         "summary": "Mis transcripciones en segundo plano",
-        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona, tampoco para un investigador (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
+        "description": "Las transcripciones en segundo plano de quien pregunta, de la más antigua a la más reciente: las que están en cola o en curso y las terminadas en la última hora. Nunca las de otra persona (ADR-0012). Tras un reinicio de la API, la lista está vacía (#375, ADR-0064).",
         "operationId": "list_transcription_jobs_transcription_jobs_get",
         "responses": {
           "200": {
@@ -1335,16 +1146,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1414,16 +1215,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -1519,16 +1310,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1605,16 +1386,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1675,16 +1446,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -1801,16 +1562,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -1897,16 +1648,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2002,16 +1743,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2099,16 +1830,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2187,16 +1908,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2257,16 +1968,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2353,16 +2054,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2433,16 +2124,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -2546,16 +2227,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2644,16 +2315,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2724,16 +2385,6 @@
               }
             }
           },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
           "404": {
             "description": "Recurso no encontrado o no accesible para el usuario actual",
             "content": {
@@ -2763,7 +2414,7 @@
           "Effort"
         ],
         "summary": "Sumar un tramo al registro de esfuerzo de la sesión",
-        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a un transcriptor ajeno, 403 a un investigador ajeno); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
+        "description": "Guarda lo que midió una pestaña de la vista hasta ahora: su tiempo con la página visible y con actividad y, si en ella se guardó la primera edición, el tiempo en ese momento. El servidor mantiene un solo registro por sesión (`accumulated`), suma los tramos, cuenta las ediciones del log por compás y por clase, y las respuestas a las sugerencias. Un tramo solo crece: repetir la petición no cuenta dos veces. Solo el dueño (404 a cualquier otra cuenta); 409 si la sesión está finalizada; 422 si el tramo no puede ser (#188, ADR-0050).",
         "operationId": "record_effort_segment_endpoint_sessions__session_id__effort_segments__segment_id__put",
         "security": [
           {
@@ -2818,16 +2469,6 @@
           },
           "401": {
             "description": "Credenciales inválidas, token ausente o expirado (ADR-0012)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorDetail"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Permisos insuficientes para realizar la operación solicitada",
             "content": {
               "application/json": {
                 "schema": {
@@ -3413,6 +3054,122 @@
         "title": "DismissFindingRequest",
         "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
       },
+      "DrawnBarRead": {
+        "properties": {
+          "clef": {
+            "type": "string",
+            "title": "Clef",
+            "description": "La clave de la lectura («G2», «F4», «C3»)."
+          },
+          "key": {
+            "type": "integer",
+            "title": "Key",
+            "description": "La armadura, en quintas (negativa en bemoles)."
+          },
+          "read": {
+            "items": {
+              "$ref": "#/components/schemas/DrawnEventRead"
+            },
+            "type": "array",
+            "title": "Read",
+            "description": "Lo que leyó HOMR, evento a evento."
+          },
+          "fixed": {
+            "items": {
+              "$ref": "#/components/schemas/DrawnEventRead"
+            },
+            "type": "array",
+            "title": "Fixed",
+            "description": "Lo correcto, evento a evento."
+          }
+        },
+        "type": "object",
+        "required": [
+          "clef",
+          "key",
+          "read",
+          "fixed"
+        ],
+        "title": "DrawnBarRead",
+        "description": "Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto."
+      },
+      "DrawnEventRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "note",
+              "rest"
+            ],
+            "title": "Kind",
+            "description": "`note` o `rest`."
+          },
+          "pitch": {
+            "type": "string",
+            "title": "Pitch",
+            "description": "La altura («Bb4», «F#5»); vacía en un silencio."
+          },
+          "beats": {
+            "type": "string",
+            "title": "Beats",
+            "description": "La duración en negras: clave de `figures`."
+          },
+          "chord": {
+            "type": "boolean",
+            "title": "Chord",
+            "description": "Si suena con el evento anterior, en el mismo acorde."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "pitch",
+          "beats",
+          "chord"
+        ],
+        "title": "DrawnEventRead",
+        "description": "Un evento de un compás dibujado: una nota o un silencio, con su duración en negras."
+      },
+      "DurationChangeRead": {
+        "properties": {
+          "read": {
+            "type": "string",
+            "title": "Read",
+            "description": "Duración leída, en negras («1/2»): clave de `figures`, no se enseña."
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix",
+            "description": "Duración correcta, en negras: clave de `figures`."
+          },
+          "read_name": {
+            "type": "string",
+            "title": "Read Name",
+            "description": "Nombre de la figura leída."
+          },
+          "fix_name": {
+            "type": "string",
+            "title": "Fix Name",
+            "description": "Nombre de la figura correcta."
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N",
+            "description": "Correcciones de esa figura a esa otra."
+          }
+        },
+        "type": "object",
+        "required": [
+          "read",
+          "fix",
+          "read_name",
+          "fix_name",
+          "n"
+        ],
+        "title": "DurationChangeRead",
+        "description": "Cuántas veces HOMR leyó una figura y la persona la corrigió a otra."
+      },
       "DynamicPayload": {
         "properties": {
           "mark": {
@@ -3984,6 +3741,49 @@
         "title": "ErrorDetail",
         "description": "Estructura uniforme de mensaje de error HTTP de la API."
       },
+      "ErrorRateRead": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "El grupo: `vs:in_key` o `vs:against_key` (alteración según o contra la armadura), `clef:G2` (clave) o `readdur:1/2` (figura leída)."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "El grupo en lenguaje musical («clave de sol»)."
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N",
+            "description": "Notas leídas del grupo."
+          },
+          "wrong": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Wrong",
+            "description": "Las que tuvieron alguna corrección."
+          },
+          "rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rate",
+            "description": "`wrong / n`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "n",
+          "wrong",
+          "rate"
+        ],
+        "title": "ErrorRateRead",
+        "description": "Qué parte de las notas de un grupo tuvo alguna corrección (grupos de 30 notas o más)."
+      },
       "EventRefPayload": {
         "properties": {
           "kind": {
@@ -4090,6 +3890,65 @@
         ],
         "title": "EventTimingRead",
         "description": "Información temporal de un evento musical para reproducción sincronizada (#42, D12)."
+      },
+      "FigureRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "«corchea», «negra con puntillo», «blanca + corchea» (ligadas)…"
+          },
+          "symbol": {
+            "items": {
+              "$ref": "#/components/schemas/FigureSymbolRead"
+            },
+            "type": "array",
+            "title": "Symbol",
+            "description": "Las figuras que la escriben, ligadas; vacío si no se escribe con figuras."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "symbol"
+        ],
+        "title": "FigureRead",
+        "description": "Una duración en lenguaje musical: su nombre y su símbolo, nunca la fracción."
+      },
+      "FigureSymbolRead": {
+        "properties": {
+          "figure": {
+            "type": "string",
+            "title": "Figure",
+            "description": "La figura base: «redonda», «blanca», «negra», «corchea»…"
+          },
+          "dots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Dots",
+            "description": "Sus puntillos."
+          },
+          "tuplet": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tuplet",
+            "description": "Notas del grupo irregular en que va (3 = tresillo); 0 si no va en ninguno."
+          },
+          "grace": {
+            "type": "boolean",
+            "title": "Grace",
+            "description": "Nota de adorno, sin duración."
+          }
+        },
+        "type": "object",
+        "required": [
+          "figure",
+          "dots",
+          "tuplet",
+          "grace"
+        ],
+        "title": "FigureSymbolRead",
+        "description": "Una figura escrita del símbolo de una duración, para dibujarlo (`figure_symbol`)."
       },
       "FinalizeResponse": {
         "properties": {
@@ -4277,6 +4136,370 @@
         ],
         "title": "HealthStatusResponse",
         "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
+      },
+      "HomrErrorExampleRead": {
+        "properties": {
+          "score": {
+            "type": "string",
+            "title": "Score",
+            "description": "El íncipit del corpus («000100134-7_1_1»)."
+          },
+          "measure": {
+            "type": "string",
+            "title": "Measure",
+            "description": "El compás."
+          },
+          "staff": {
+            "type": "string",
+            "title": "Staff",
+            "description": "`parte-pentagrama`, desde 0."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "change",
+              "extra",
+              "missing"
+            ],
+            "title": "Kind",
+            "description": "`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó)."
+          },
+          "read": {
+            "type": "string",
+            "title": "Read",
+            "description": "Lo que leyó HOMR, en palabras; vacío en `missing`."
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix",
+            "description": "Lo correcto, en palabras; vacío en `extra`."
+          },
+          "read_beats": {
+            "type": "string",
+            "title": "Read Beats",
+            "description": "La duración leída en negras: clave de `figures`."
+          },
+          "fix_beats": {
+            "type": "string",
+            "title": "Fix Beats",
+            "description": "La duración correcta en negras: clave de `figures`."
+          },
+          "bar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bar",
+            "description": "Su compás dibujado: clave de `bars`."
+          },
+          "at_read": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Read",
+            "description": "La posición del evento en `read` del compás dibujado."
+          },
+          "at_fix": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Fix",
+            "description": "La posición del evento en `fixed` del compás dibujado."
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "measure",
+          "staff",
+          "kind",
+          "read",
+          "fix",
+          "read_beats",
+          "fix_beats"
+        ],
+        "title": "HomrErrorExampleRead",
+        "description": "Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y\nqué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."
+      },
+      "HomrErrorStatsGroupRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "`cadenza`, `pruebas` o el nombre del corpus (`primus`)."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "cadenza",
+              "corpus"
+            ],
+            "title": "Source",
+            "description": "`cadenza`, en vivo; `corpus`, precalculado de su archivo."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At",
+            "description": "Cuándo se calcularon sus cifras."
+          },
+          "min_sessions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Min Sessions",
+            "description": "Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus)."
+          },
+          "published": {
+            "type": "boolean",
+            "title": "Published",
+            "description": "Si llega al mínimo y lleva sus cifras."
+          },
+          "sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions",
+            "description": "Sus sesiones (o íncipits); null si no se publica."
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomrErrorStatsValuesRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sus cifras; null si no se publica."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "computed_at",
+          "min_sessions",
+          "published",
+          "sessions",
+          "stats"
+        ],
+        "title": "HomrErrorStatsGroupRead",
+        "description": "Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las\ncuentas del registro) o un corpus (`primus`)."
+      },
+      "HomrErrorStatsRead": {
+        "properties": {
+          "computed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At",
+            "description": "El último cálculo de las cifras de Cadenza (se repite cada pocos minutos); null si aún no se han calculado."
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/HomrErrorStatsGroupRead"
+            },
+            "type": "array",
+            "title": "Groups",
+            "description": "Los grupos: primero los de Cadenza y después los de los corpus."
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed_at",
+          "groups"
+        ],
+        "title": "HomrErrorStatsRead",
+        "description": "Las cifras de conjunto de los errores de HOMR que corrigen las personas (ADR-0073)."
+      },
+      "HomrErrorStatsValuesRead": {
+        "properties": {
+          "scores": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Scores",
+            "description": "Partituras: sesiones de Cadenza o íncipits."
+          },
+          "clean_scores": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Clean Scores",
+            "description": "Partituras sin ninguna corrección."
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Read",
+            "description": "Notas y silencios que leyó HOMR."
+          },
+          "outcome": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Outcome",
+            "description": "Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un compás que sobraba)."
+          },
+          "missing": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Missing",
+            "description": "Notas y silencios que HOMR no leyó."
+          },
+          "reordered": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reordered",
+            "description": "Notas de acordes que solo cambiaron de orden (no se cuentan)."
+          },
+          "ops": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Ops",
+            "description": "Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`…"
+          },
+          "steps": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Steps",
+            "description": "Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los extremos suman los de más allá)."
+          },
+          "durations": {
+            "items": {
+              "$ref": "#/components/schemas/DurationChangeRead"
+            },
+            "type": "array",
+            "title": "Durations",
+            "description": "La figura leída frente a la correcta, de la más frecuente a la menos."
+          },
+          "by_vs_key": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Vs Key",
+            "description": "Por alteración frente a la armadura, de la que más falla a la que menos."
+          },
+          "by_clef": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Clef",
+            "description": "Por clave, igual."
+          },
+          "by_duration": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Duration",
+            "description": "Por figura leída, igual."
+          },
+          "figures": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FigureRead"
+            },
+            "type": "object",
+            "title": "Figures",
+            "description": "El nombre y el símbolo de cada duración (en negras) que sale en el grupo."
+          },
+          "examples": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HomrErrorExampleRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Examples",
+            "description": "Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local. Null en los de Cadenza, que nunca los llevan."
+          },
+          "example_keys": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Example Keys",
+            "description": "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
+          },
+          "bars": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/DrawnBarRead"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bars",
+            "description": "Solo en los corpus: los compases dibujados de los ejemplos."
+          }
+        },
+        "type": "object",
+        "required": [
+          "scores",
+          "clean_scores",
+          "read",
+          "outcome",
+          "missing",
+          "reordered",
+          "ops",
+          "steps",
+          "durations",
+          "by_vs_key",
+          "by_clef",
+          "by_duration",
+          "figures"
+        ],
+        "title": "HomrErrorStatsValuesRead",
+        "description": "Las cifras de conjunto de un grupo, las del informe local (ADR-0069). Solo los grupos de\ncorpus llevan además sus ejemplos con el compás dibujado (ADR-0073, enmienda de #424).\n\nLos acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas\nnotas eran)."
       },
       "Instrument": {
         "type": "string",
@@ -4725,7 +4948,7 @@
           "password"
         ],
         "title": "RegisterRequest",
-        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es\nsiempre transcriptor y cualquier otro campo se rechaza."
+        "description": "Registro de una cuenta por la propia persona (ADR-0022, #154).\n\nUsuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier\notro campo se rechaza."
       },
       "ReopenResponse": {
         "properties": {
@@ -5947,34 +6170,6 @@
         "title": "UndoResponse",
         "description": "Respuesta tras deshacer una edición en el servidor (ADR-0007, ADR-0011, #35, #48)."
       },
-      "UserCreate": {
-        "properties": {
-          "username": {
-            "type": "string",
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Username"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 8,
-            "title": "Password"
-          },
-          "role": {
-            "type": "string",
-            "pattern": "^(transcriptor|investigador)$",
-            "title": "Role"
-          }
-        },
-        "type": "object",
-        "required": [
-          "username",
-          "password",
-          "role"
-        ],
-        "title": "UserCreate",
-        "description": "Payload para dar de alta una cuenta (ADR-0012, #46)."
-      },
       "UserRead": {
         "properties": {
           "id": {
@@ -5984,10 +6179,6 @@
           "username": {
             "type": "string",
             "title": "Username"
-          },
-          "role": {
-            "type": "string",
-            "title": "Role"
           },
           "active": {
             "type": "boolean",
@@ -6047,53 +6238,10 @@
         "required": [
           "id",
           "username",
-          "role",
           "active"
         ],
         "title": "UserRead",
         "description": "Perfil público de un usuario autenticado (ADR-0012)."
-      },
-      "UserUpdate": {
-        "properties": {
-          "role": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^(transcriptor|investigador)$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Role"
-          },
-          "active": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Active"
-          },
-          "password": {
-            "anyOf": [
-              {
-                "type": "string",
-                "minLength": 8
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Password"
-          }
-        },
-        "type": "object",
-        "title": "UserUpdate",
-        "description": "Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."
       },
       "ValidationError": {
         "properties": {
@@ -6369,10 +6517,6 @@
       "description": "Autenticación JWT e identidad del usuario"
     },
     {
-      "name": "Users",
-      "description": "Gestión de cuentas (exclusivo para investigadores)"
-    },
-    {
       "name": "Transcription",
       "description": "Ingesta de imágenes y transcripción OMR"
     },
@@ -6395,6 +6539,10 @@
     {
       "name": "System",
       "description": "Metadatos, salud y versión del servicio"
+    },
+    {
+      "name": "Stats",
+      "description": "Cifras de conjunto públicas de los errores de HOMR (ADR-0073)"
     }
   ]
 }

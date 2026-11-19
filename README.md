@@ -54,7 +54,7 @@ Es el proyecto de una tesis.
 
 **Terminar.** Finalizar o reabrir la sesión y descargarla en MusicXML, MIDI o PDF.
 
-**Cuentas.** Registro libre con un permiso explícito de uso de los datos, que se puede retirar desde «Tu cuenta». Los investigadores moderan las cuentas.
+**Cuentas.** Registro libre con un permiso explícito de uso de los datos, que se puede retirar desde «Tu cuenta». Todas las cuentas son iguales y cada una ve solo sus sesiones.
 
 ---
 
@@ -85,7 +85,7 @@ flowchart LR
    - El servidor valida su contenido, fija su autor y guarda el estado previo, así que **deshacer** devuelve siempre el estado exacto ([ADR-0007](docs/adr/ADR-0007-edit-events-inmutables.md), [ADR-0011](docs/adr/ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](docs/adr/ADR-0017-validacion-del-contenido-de-las-ediciones.md)).
 4. **Aprendizaje.**
    - El plano offline trabaja sobre una copia de la base: construye el corpus de correcciones, exporta tablas y recortes para analizar los errores de HOMR y entrena la **capa de sugerencias**.
-   - Esa capa propone el arreglo de cada posible error, y la persona lo aplica o lo rechaza ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)). Está preparada, pero aún no tiene un modelo promovido.
+   - Esa capa propone el arreglo de cada posible error, y la persona lo aplica o lo rechaza ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)). Está activa en producción desde el 2026-11-03, solo con las sugerencias de alteración de confianza alta.
    - Los dos planos solo se comunican por datos guardados ([ADR-0003](docs/adr/ADR-0003-separacion-planos-computo.md)).
 
 ---
@@ -121,9 +121,8 @@ export CADENZA_AUTH_SECRET_KEY="$(openssl rand -hex 32)"
 export CADENZA_DATABASE_URL="sqlite+pysqlite:////ruta/fuera/del/repo/cadenza.db"
 export CADENZA_ARTIFACTS_DIR="/ruta/fuera/del/repo/artifacts"
 export CADENZA_OMR_USE_GPU="false"          # "true" con la GPU
-
-# El primer usuario (con SQLite, crea también el esquema). Sin --password, la pide sin eco.
-uv run --no-sync python -m cadenza.api.cli create-investigator --username admin
+export CADENZA_AUTO_CREATE_SCHEMA="true"    # con SQLite, crea el esquema al arrancar
+export CADENZA_REGISTRATION_ENABLED="true"  # las cuentas se crean desde /registro
 
 uv run --no-sync uvicorn cadenza.api.main:create_default_app --factory --host 127.0.0.1 --port 8000
 ```
@@ -192,13 +191,12 @@ El diseño completo está en [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## API v1
 
-Treinta rutas y treinta y cinco operaciones. Todo salvo `/health`, `/version`, `/auth/login` y `/auth/register` pide un token Bearer. Un transcriptor ve sus sesiones; un investigador ve todas, edita las suyas y administra las cuentas ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md)).
+Veintiocho rutas y treinta y dos operaciones. Todo salvo `/health`, `/version`, `/auth/login` y `/auth/register` pide un token Bearer. Cada cuenta ve y corrige solo sus sesiones ([ADR-0012](docs/adr/ADR-0012-autenticacion-e-identidad.md), [ADR-0070](docs/adr/ADR-0070-una-sola-clase-de-cuenta.md)).
 
 | Área | Rutas |
 |---|---|
 | Sistema | `/health` · `/version` |
 | Cuenta | `/auth/login` · `/auth/register` · `/auth/me` · `/auth/password` · `/auth/data-consent` |
-| Usuarios | `/users` · `/users/{id}` |
 | Transcripción | `/transcription-jobs` (en segundo plano, con su avance) · `/transcribe` (síncrona, para guiones) · `/previews` (sin cuenta, apagada) |
 | Sesiones | `/sessions` · `/sessions/{id}` · su imagen, exportación (`musicxml` o `midi`) y mapa de tiempos |
 | Edición | `/sessions/{id}/edits` · `/undo` · rechazar una sugerencia |
@@ -227,7 +225,6 @@ uv run --no-sync python -m ml --help
 |---|---|
 | `ml suggestions build-dataset` · `train` · `evaluate` · `promote` | Corpus de correcciones y capa de sugerencias ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)) |
 | `ml export-staves` | Recorta cada pentagrama de la foto y lo empareja con lo que leyó HOMR y lo que quedó corregido: el par con que se entrenaría un lector ([ADR-0067](docs/adr/ADR-0067-captura-de-homr-y-recortes-de-los-pentagramas.md)) |
-| `ml export-effort` | Métricas de esfuerzo de las sesiones |
 | `ml build-dataset` · `select` · `train` · `evaluate` · `promote` · `run` | El dataset y el aprendizaje activo originales ([ADR-0008](docs/adr/ADR-0008-active-learning-model-registry.md)). `train` solo guarda los pesos de un entrenador de prueba, con métricas siempre marcadas como simuladas: reentrenar HOMR es trabajo futuro ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) |
 
 Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments), descritos en [`ml/README.md`](ml/README.md). Escriben en `results/` y leen los corpus de `data/`, dos carpetas que no se versionan.
@@ -266,7 +263,6 @@ Cada cambio de código lleva además una revisión independiente del diff cuando
   ```bash
   cp .env.example .env        # contraseña de PostgreSQL y clave JWT
   docker compose up --build
-  docker exec -it cadenza-api python -m cadenza.api.cli create-investigator --username <usuario>
   ```
 
   La imagen de la API trae HOMR con sus pesos, así que transcribe sin red. Con `--build-arg CADENZA_OMR_DEVICE=gpu` lleva además ONNX Runtime con CUDA ([ADR-0066](docs/adr/ADR-0066-homr-en-la-gpu-de-produccion.md)).
@@ -274,7 +270,7 @@ Cada cambio de código lleva además una revisión independiente del diff cuando
 - **Copias de seguridad** de la base y los artefactos, con verificación SHA-256: `scripts/backup_restore.py {backup,verify,restore}`.
 
 > [!NOTE]
-> Las migraciones de Alembic son solo para PostgreSQL (usan `JSONB`). En local con SQLite, el esquema lo crea `create-investigator`.
+> Las migraciones de Alembic son solo para PostgreSQL (usan `JSONB`). En local con SQLite, el esquema lo crea la API al arrancar con `CADENZA_AUTO_CREATE_SCHEMA=true`.
 
 Todo lo de la operación (salud, registros, copias, GPU y los interruptores de producción) está en [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md).
 
@@ -289,9 +285,9 @@ Todo lo de la operación (salud, registros, copias, GPU y los interruptores de p
 | [`docs/adr/`](docs/adr) | Las decisiones de arquitectura, de ADR-0001 a ADR-0067, con su índice |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
-| [`docs/experimentos/`](docs/experimentos) | Protocolo del estudio de esfuerzo y banco de partituras |
+| [`docs/experimentos/`](docs/experimentos) | Banco de partituras de prueba (TS-xx) y diccionario de las tablas de `ml export-tables` |
 | [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (cajas y confianza de HOMR, Audiveris frente a HOMR) |
-| [`docs/phases/plan_de_cierre/`](docs/phases/plan_de_cierre/README.md) | Plan de cierre del proyecto |
+| [`docs/phases/plan_de_cierre/`](docs/phases/plan_de_cierre/README.md) | Plan de cierre del proyecto (histórico; el estudio quedó fuera, ADR-0070) |
 | [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) | El producto y su sistema de diseño |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Git, calidad, niveles de cambio y definición de terminado |
 
@@ -308,4 +304,13 @@ Las reglas completas están en [`CLAUDE.md`](CLAUDE.md) y [`docs/CONVENTIONS.md`
 
 El prototipo original se conserva congelado en `legacy/` y en la etiqueta `archive/legacy-mvp`.
 
-**Licencia.** El proyecto declara hoy una licencia propietaria (`pyproject.toml`). La licencia final, con las atribuciones de HOMR (AGPL-3.0), está pendiente ([#259](https://github.com/sebdavid3/Cadenza/issues/259)).
+## Licencia y atribuciones
+
+Cadenza se distribuye con la **GNU Affero General Public License v3.0 o posterior** (AGPL-3.0-or-later, archivo [`LICENSE`](LICENSE)), por decisión del responsable del 2026-11-19 ([#259](https://github.com/sebdavid3/Cadenza/issues/259)). Es la licencia de HOMR, que Cadenza importa como biblioteca y modifica en ejecución (sustituye `detect_title`), y la aplicación se ofrece por red. Por eso la web enlaza a este repositorio («Código», en la portada, el acceso, el registro y el uso de los datos): quien la usa puede obtener su código fuente.
+
+- **HOMR** 0.7.0 ([liebharc/homr](https://github.com/liebharc/homr)), AGPL-3.0: el motor de reconocimiento.
+- **PrIMuS y Camera-PrIMuS** (Calvo-Zaragoza y Rizo, 2018, [grfia.dlsi.ua.es/primus](https://grfia.dlsi.ua.es/primus/)): los corpus de las mediciones y del corpus de correcciones. Su página no indica licencia: se citan y no se redistribuyen (`data/` no se versiona).
+- **Fuentes:** Hanken Grotesk, Pixelify Sans y Silkscreen, con la SIL Open Font License 1.1 (en la web, por Fontsource; el informe de `ml` las incrusta con su licencia en `ml/informe_fuentes/`), y los contornos de Noto Music de la portada (OFL 1.1).
+- **Retratos del acceso:** cinco imágenes de Wikimedia Commons, con su fuente en [`apps/web/src/pages/login/retratos/README.md`](apps/web/src/pages/login/retratos/README.md).
+- **Sonido:** sintetizado con Tone.js, sin muestras de audio ([ADR-0046](docs/adr/ADR-0046-sonido-de-cada-instrumento-en-la-vista.md)).
+- Las demás dependencias conservan sus licencias (`uv.lock` y `apps/web/package-lock.json`).

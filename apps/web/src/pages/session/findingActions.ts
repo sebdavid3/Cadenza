@@ -56,8 +56,6 @@ function failureText(action: FindingAction, error: unknown): string | null {
     case "aborted":
     case "unauthorized":
       return null;
-    case "forbidden":
-      return `No se ${done}: solo la persona que hizo la transcripción puede cambiar sus posibles errores.`;
     // Sin respuesta, o con una que no lo confirma: pudo hacerse. Repetirlo no cambia nada.
     case "network":
     case "timeout":
@@ -485,5 +483,3 @@ export function useFindingActions(
     reject,
   };
 }
-
-export type FindingActions = ReturnType<typeof useFindingActions>;

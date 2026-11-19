@@ -777,7 +777,6 @@ class UserRead(BaseModel):
 
     id: str
     username: str
-    role: str
     active: bool
     created_at: datetime | None = None
     self_registered: bool = Field(
@@ -806,7 +805,6 @@ class UserRead(BaseModel):
         return cls(
             id=user.id,
             username=user.username,
-            role=user.role.value,
             active=user.active,
             created_at=user.created_at,
             self_registered=user.self_registered,
@@ -819,8 +817,8 @@ class UserRead(BaseModel):
 class RegisterRequest(BaseModel):
     """Registro de una cuenta por la propia persona (ADR-0022, #154).
 
-    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): el rol es
-    siempre transcriptor y cualquier otro campo se rechaza.
+    Usuario y contraseña, y el permiso de uso de los datos si se da (#378, ADR-0065): cualquier
+    otro campo se rechaza.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -861,22 +859,6 @@ class DataConsentUpdate(BaseModel):
             "'stale_data_consent'. Al retirarlo no hace falta."
         ),
     )
-
-
-class UserCreate(BaseModel):
-    """Payload para dar de alta una cuenta (ADR-0012, #46)."""
-
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=8)
-    role: str = Field(pattern="^(transcriptor|investigador)$")
-
-
-class UserUpdate(BaseModel):
-    """Payload para modificar rol, estado o restablecer contraseña (ADR-0012, #46)."""
-
-    role: str | None = Field(default=None, pattern="^(transcriptor|investigador)$")
-    active: bool | None = None
-    password: str | None = Field(default=None, min_length=8)
 
 
 class ChangePasswordRequest(BaseModel):
@@ -1096,3 +1078,214 @@ class HealthStatusResponse(BaseModel):
 # `UndoResponse` y `PreviewResponse` usan `TimingMapRead`, definido después.
 UndoResponse.model_rebuild()
 PreviewResponse.model_rebuild()
+
+
+# --- Las cifras de los errores de HOMR, en vivo (#423, ADR-0073) ------------------------------
+#
+# Solo agregados musicales: la API publica los campos que declaran estos esquemas y ninguno más,
+# aunque la fila guardada llevara otros (las cifras de `ml/public_stats.py`, sin ejemplos, fotos
+# ni filas por sesión).
+
+
+class FigureSymbolRead(BaseModel):
+    """Una figura escrita del símbolo de una duración, para dibujarlo (`figure_symbol`)."""
+
+    figure: str = Field(..., description="La figura base: «redonda», «blanca», «negra», «corchea»…")
+    dots: int = Field(..., ge=0, description="Sus puntillos.")
+    tuplet: int = Field(
+        ...,
+        ge=0,
+        description="Notas del grupo irregular en que va (3 = tresillo); 0 si no va en ninguno.",
+    )
+    grace: bool = Field(..., description="Nota de adorno, sin duración.")
+
+
+class FigureRead(BaseModel):
+    """Una duración en lenguaje musical: su nombre y su símbolo, nunca la fracción."""
+
+    name: str = Field(
+        ..., description="«corchea», «negra con puntillo», «blanca + corchea» (ligadas)…"
+    )
+    symbol: list[FigureSymbolRead] = Field(
+        ...,
+        description="Las figuras que la escriben, ligadas; vacío si no se escribe con figuras.",
+    )
+
+
+class DurationChangeRead(BaseModel):
+    """Cuántas veces HOMR leyó una figura y la persona la corrigió a otra."""
+
+    read: str = Field(
+        ..., description="Duración leída, en negras («1/2»): clave de `figures`, no se enseña."
+    )
+    fix: str = Field(..., description="Duración correcta, en negras: clave de `figures`.")
+    read_name: str = Field(..., description="Nombre de la figura leída.")
+    fix_name: str = Field(..., description="Nombre de la figura correcta.")
+    n: int = Field(..., ge=0, description="Correcciones de esa figura a esa otra.")
+
+
+class ErrorRateRead(BaseModel):
+    """Qué parte de las notas de un grupo tuvo alguna corrección (grupos de 30 notas o más)."""
+
+    key: str = Field(
+        ...,
+        description=(
+            "El grupo: `vs:in_key` o `vs:against_key` (alteración según o contra la armadura),"
+            " `clef:G2` (clave) o `readdur:1/2` (figura leída)."
+        ),
+    )
+    label: str = Field(..., description="El grupo en lenguaje musical («clave de sol»).")
+    n: int = Field(..., ge=0, description="Notas leídas del grupo.")
+    wrong: int = Field(..., ge=0, description="Las que tuvieron alguna corrección.")
+    rate: float = Field(..., ge=0, le=1, description="`wrong / n`.")
+
+
+class DrawnEventRead(BaseModel):
+    """Un evento de un compás dibujado: una nota o un silencio, con su duración en negras."""
+
+    kind: Literal["note", "rest"] = Field(..., description="`note` o `rest`.")
+    pitch: str = Field(..., description="La altura («Bb4», «F#5»); vacía en un silencio.")
+    beats: str = Field(..., description="La duración en negras: clave de `figures`.")
+    chord: bool = Field(..., description="Si suena con el evento anterior, en el mismo acorde.")
+
+
+class DrawnBarRead(BaseModel):
+    """Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto."""
+
+    clef: str = Field(..., description="La clave de la lectura («G2», «F4», «C3»).")
+    key: int = Field(..., description="La armadura, en quintas (negativa en bemoles).")
+    read: list[DrawnEventRead] = Field(..., description="Lo que leyó HOMR, evento a evento.")
+    fixed: list[DrawnEventRead] = Field(..., description="Lo correcto, evento a evento.")
+
+
+class HomrErrorExampleRead(BaseModel):
+    """Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
+    qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."""
+
+    score: str = Field(..., description="El íncipit del corpus («000100134-7_1_1»).")
+    measure: str = Field(..., description="El compás.")
+    staff: str = Field(..., description="`parte-pentagrama`, desde 0.")
+    kind: Literal["change", "extra", "missing"] = Field(
+        ...,
+        description=(
+            "`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó)."
+        ),
+    )
+    read: str = Field(..., description="Lo que leyó HOMR, en palabras; vacío en `missing`.")
+    fix: str = Field(..., description="Lo correcto, en palabras; vacío en `extra`.")
+    read_beats: str = Field(..., description="La duración leída en negras: clave de `figures`.")
+    fix_beats: str = Field(..., description="La duración correcta en negras: clave de `figures`.")
+    bar: str | None = Field(default=None, description="Su compás dibujado: clave de `bars`.")
+    at_read: int | None = Field(
+        default=None, description="La posición del evento en `read` del compás dibujado."
+    )
+    at_fix: int | None = Field(
+        default=None, description="La posición del evento en `fixed` del compás dibujado."
+    )
+
+
+class HomrErrorStatsValuesRead(BaseModel):
+    """Las cifras de conjunto de un grupo, las del informe local (ADR-0069). Solo los grupos de
+    corpus llevan además sus ejemplos con el compás dibujado (ADR-0073, enmienda de #424).
+
+    Los acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas
+    notas eran).
+    """
+
+    scores: int = Field(..., ge=0, description="Partituras: sesiones de Cadenza o íncipits.")
+    clean_scores: int = Field(..., ge=0, description="Partituras sin ninguna corrección.")
+    read: int = Field(..., ge=0, description="Notas y silencios que leyó HOMR.")
+    outcome: dict[str, int] = Field(
+        ...,
+        description=(
+            "Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y"
+            " `sin_alinear` (en un compás que sobraba)."
+        ),
+    )
+    missing: int = Field(..., ge=0, description="Notas y silencios que HOMR no leyó.")
+    reordered: int = Field(
+        ..., ge=0, description="Notas de acordes que solo cambiaron de orden (no se cuentan)."
+    )
+    ops: dict[str, int] = Field(
+        ...,
+        description=(
+            "Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`,"
+            " `InsertEvent`, `SetClef`, `SetKey`…"
+        ),
+    )
+    steps: dict[str, int] = Field(
+        ...,
+        description=(
+            "Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los"
+            " extremos suman los de más allá)."
+        ),
+    )
+    durations: list[DurationChangeRead] = Field(
+        ..., description="La figura leída frente a la correcta, de la más frecuente a la menos."
+    )
+    by_vs_key: list[ErrorRateRead] = Field(
+        ..., description="Por alteración frente a la armadura, de la que más falla a la que menos."
+    )
+    by_clef: list[ErrorRateRead] = Field(..., description="Por clave, igual.")
+    by_duration: list[ErrorRateRead] = Field(..., description="Por figura leída, igual.")
+    figures: dict[str, FigureRead] = Field(
+        ...,
+        description="El nombre y el símbolo de cada duración (en negras) que sale en el grupo.",
+    )
+    examples: list[HomrErrorExampleRead] | None = Field(
+        default=None,
+        description=(
+            "Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local."
+            " Null en los de Cadenza, que nunca los llevan."
+        ),
+    )
+    example_keys: dict[str, list[int]] | None = Field(
+        default=None,
+        description=(
+            "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra:"
+            " `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
+        ),
+    )
+    bars: dict[str, DrawnBarRead] | None = Field(
+        default=None, description="Solo en los corpus: los compases dibujados de los ejemplos."
+    )
+
+
+class HomrErrorStatsGroupRead(BaseModel):
+    """Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las
+    cuentas del registro) o un corpus (`primus`)."""
+
+    id: str = Field(..., description="`cadenza`, `pruebas` o el nombre del corpus (`primus`).")
+    source: Literal["cadenza", "corpus"] = Field(
+        ..., description="`cadenza`, en vivo; `corpus`, precalculado de su archivo."
+    )
+    computed_at: datetime = Field(..., description="Cuándo se calcularon sus cifras.")
+    min_sessions: int = Field(
+        ...,
+        ge=0,
+        description=(
+            "Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus)."
+        ),
+    )
+    published: bool = Field(..., description="Si llega al mínimo y lleva sus cifras.")
+    sessions: int | None = Field(
+        ..., description="Sus sesiones (o íncipits); null si no se publica."
+    )
+    stats: HomrErrorStatsValuesRead | None = Field(
+        ..., description="Sus cifras; null si no se publica."
+    )
+
+
+class HomrErrorStatsRead(BaseModel):
+    """Las cifras de conjunto de los errores de HOMR que corrigen las personas (ADR-0073)."""
+
+    computed_at: datetime | None = Field(
+        ...,
+        description=(
+            "El último cálculo de las cifras de Cadenza (se repite cada pocos minutos); null"
+            " si aún no se han calculado."
+        ),
+    )
+    groups: list[HomrErrorStatsGroupRead] = Field(
+        ..., description="Los grupos: primero los de Cadenza y después los de los corpus."
+    )

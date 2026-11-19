@@ -5,9 +5,7 @@ from __future__ import annotations
 import pytest
 from cadenza.application import (
     FindingNotFound,
-    Forbidden,
     InMemorySessionRepository,
-    Role,
     SessionClosed,
     SessionData,
     SessionNotFound,
@@ -48,7 +46,7 @@ def _setup_session_repo() -> tuple[InMemorySessionRepository, str, int]:
 
 def test_dismiss_and_restore_use_case_with_in_memory_repo() -> None:
     repo, session_id, finding_id = _setup_session_repo()
-    owner = User(id="owner-1", username="alice", password_hash="h", role=Role.TRANSCRIPTOR)
+    owner = User(id="owner-1", username="alice", password_hash="h")
 
     # 1. Descartar hallazgo
     dismissed = dismiss_finding(
@@ -107,11 +105,10 @@ def test_dismiss_and_restore_use_case_with_in_memory_repo() -> None:
 
 def test_dismiss_and_restore_authorization_and_lifecycle_in_memory() -> None:
     repo, session_id, finding_id = _setup_session_repo()
-    owner = User(id="owner-1", username="alice", password_hash="h", role=Role.TRANSCRIPTOR)
-    other = User(id="other-1", username="bob", password_hash="h", role=Role.TRANSCRIPTOR)
-    researcher = User(id="res-1", username="carol", password_hash="h", role=Role.INVESTIGADOR)
+    owner = User(id="owner-1", username="alice", password_hash="h")
+    other = User(id="other-1", username="bob", password_hash="h")
 
-    # Transcriptor ajeno -> SessionNotFound (404)
+    # Cuenta ajena -> SessionNotFound (404)
     with pytest.raises(SessionNotFound):
         dismiss_finding(
             session_id,
@@ -125,22 +122,6 @@ def test_dismiss_and_restore_authorization_and_lifecycle_in_memory() -> None:
             finding_id,
             session_repository=repo,
             current_user=other,
-        )
-
-    # Investigador ajeno -> Forbidden (403)
-    with pytest.raises(Forbidden):
-        dismiss_finding(
-            session_id,
-            finding_id,
-            session_repository=repo,
-            current_user=researcher,
-        )
-    with pytest.raises(Forbidden):
-        restore_finding(
-            session_id,
-            finding_id,
-            session_repository=repo,
-            current_user=researcher,
         )
 
     # Sesión inexistente -> SessionNotFound

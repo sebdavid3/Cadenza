@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument, build_anchor_index
 from cadenza.omr import OMREngine
 from cadenza.omr.testing import FakeOMREngine
@@ -70,7 +70,6 @@ def _client(omr_engine: OMREngine | None = None) -> TestClient:
                 id="default-user",
                 username="admin",
                 password_hash="test-pass",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -82,9 +81,7 @@ def _client(omr_engine: OMREngine | None = None) -> TestClient:
         omr_engine=omr_engine if omr_engine is not None else FakeOMREngine(),
         settings=settings,
     )
-    token = app.state.token_service.create_access_token(
-        user_id="default-user", role=Role.INVESTIGADOR
-    )
+    token = app.state.token_service.create_access_token(user_id="default-user")
     client = TestClient(app)
     client.headers["Authorization"] = f"Bearer {token}"
     return client
@@ -251,28 +248,19 @@ def test_ownership_authorization_rules_in_api() -> None:
 
     with session_factory() as db:
         user_repo = SqlAlchemyUserRepository(db)
-        u1 = user_repo.add(
-            User(id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR)
-        )
-        u2 = user_repo.add(
-            User(id="u2", username="transcriptor2", password_hash="h", role=Role.TRANSCRIPTOR)
-        )
-        res = user_repo.add(
-            User(id="u3", username="investigador1", password_hash="h", role=Role.INVESTIGADOR)
-        )
+        u1 = user_repo.add(User(id="u1", username="transcriptor1", password_hash="h"))
+        u2 = user_repo.add(User(id="u2", username="transcriptor2", password_hash="h"))
         db.commit()
 
     settings = Settings(auth_secret_key="test-jwt-signing-key-minimum-32-bytes-long")
     app = create_app(session_factory, omr_engine=FakeOMREngine(), settings=settings)
     token_serv = app.state.token_service
 
-    t1_token = token_serv.create_access_token(user_id=u1.id, role=u1.role)
-    t2_token = token_serv.create_access_token(user_id=u2.id, role=u2.role)
-    res_token = token_serv.create_access_token(user_id=res.id, role=res.role)
+    t1_token = token_serv.create_access_token(user_id=u1.id)
+    t2_token = token_serv.create_access_token(user_id=u2.id)
 
     c1 = TestClient(app, headers={"Authorization": f"Bearer {t1_token}"})
     c2 = TestClient(app, headers={"Authorization": f"Bearer {t2_token}"})
-    c_res = TestClient(app, headers={"Authorization": f"Bearer {res_token}"})
 
     # Transcriptor 1 crea una sesión
     sess_id = c1.post("/transcribe", files=_upload()).json()["session_id"]
@@ -291,15 +279,3 @@ def test_ownership_authorization_rules_in_api() -> None:
         ).status_code
         == 404
     )
-
-    # Investigador intenta leer la sesión de Transcriptor 1 -> 200 permitido
-    assert c_res.get(f"/sessions/{sess_id}").status_code == 200
-    assert c_res.get(f"/sessions/{sess_id}/findings").status_code == 200
-
-    # Investigador intenta editar la sesión ajena -> 403 Forbidden
-    edit_res = c_res.post(
-        f"/sessions/{sess_id}/edits",
-        json={"base_seq": 0, "op": "SetPitch", "anchor": ANCHOR},
-    )
-    assert edit_res.status_code == 403
-    assert "investigador" in edit_res.json()["detail"].lower()

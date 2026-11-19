@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User, compute_interventions_from_edits, contrast_interventions
+from cadenza.application import User, compute_interventions_from_edits
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -33,7 +33,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -42,16 +41,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -68,15 +57,8 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     )
 
     tokens = {
-        "t1": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "t2": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "inv": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "t1": app.state.token_service.create_access_token(user_id="user-t1"),
+        "t2": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     return TestClient(app), tokens
@@ -160,49 +142,6 @@ def test_record_effort_other_transcriptor_returns_404(tmp_path: Path) -> None:
     assert get_res.status_code == 404
 
 
-def test_record_effort_other_investigator_returns_403(tmp_path: Path) -> None:
-    client, tokens = _setup_api(tmp_path)
-    session_id = _create_session(client, tokens["t1"])
-
-    # Dueño registra una medición
-    client.post(
-        f"/sessions/{session_id}/effort",
-        json={"duration_ms": 20000},
-        headers={"Authorization": f"Bearer {tokens['t1']}"},
-    )
-
-    # Investigador intenta mutar / registrar esfuerzo en sesión ajena -> 403 Forbidden
-    res = client.post(
-        f"/sessions/{session_id}/effort",
-        json={"duration_ms": 20000},
-        headers={"Authorization": f"Bearer {tokens['inv']}"},
-    )
-    assert res.status_code == 403
-    assert "investigador" in res.json()["detail"].lower()
-
-    # Investigador consulta métricas de sesión ajena -> 200 OK (ADR-0012)
-    get_res = client.get(
-        f"/sessions/{session_id}/effort",
-        headers={"Authorization": f"Bearer {tokens['inv']}"},
-    )
-    assert get_res.status_code == 200
-    assert len(get_res.json()) == 1
-
-
-def test_record_effort_investigator_own_session_allowed(tmp_path: Path) -> None:
-    client, tokens = _setup_api(tmp_path)
-    # Investigador crea su propia sesión
-    session_id = _create_session(client, tokens["inv"])
-
-    res = client.post(
-        f"/sessions/{session_id}/effort",
-        json={"duration_ms": 15000},
-        headers={"Authorization": f"Bearer {tokens['inv']}"},
-    )
-    assert res.status_code == 201
-    assert res.json()["duration_ms"] == 15000
-
-
 def test_record_effort_session_not_found(tmp_path: Path) -> None:
     client, tokens = _setup_api(tmp_path)
     res = client.post(
@@ -242,7 +181,7 @@ def test_record_effort_validation_errors(tmp_path: Path) -> None:
     assert res3.status_code == 422
 
 
-def test_contrast_effort_with_session_edits(tmp_path: Path) -> None:
+def test_effort_interventions_match_session_edits(tmp_path: Path) -> None:
     client, tokens = _setup_api(tmp_path)
     session_id = _create_session(client, tokens["t1"])
 
@@ -313,11 +252,3 @@ def test_contrast_effort_with_session_edits(tmp_path: Path) -> None:
     # Verificar función de cálculo
     computed = compute_interventions_from_edits(edits_logged)
     assert computed == {"1": 2}
-
-    # Contrastar
-    comparison = contrast_interventions(reported_interventions, edits_logged)
-    assert len(comparison) == 1
-    assert comparison[0].measure == "1"
-    assert comparison[0].matches
-    assert comparison[0].reported_count == 2
-    assert comparison[0].logged_count == 2

@@ -8,7 +8,6 @@ import pytest
 from cadenza.application import (
     DuplicateUsername,
     InMemoryUserRepository,
-    Role,
     SessionData,
     User,
     UserNotFound,
@@ -36,7 +35,6 @@ def test_in_memory_user_repository() -> None:
         id="usr-1",
         username="alice",
         password_hash="hash_alice",
-        role=Role.TRANSCRIPTOR,
     )
     repo.add(user)
 
@@ -51,7 +49,6 @@ def test_in_memory_user_repository() -> None:
                 id="usr-2",
                 username="alice",
                 password_hash="another_hash",
-                role=Role.INVESTIGADOR,
             )
         )
 
@@ -63,14 +60,12 @@ def test_sqlalchemy_user_repository(db_session_factory: SessionFactory) -> None:
             id="usr-sql-1",
             username="carol",
             password_hash="hash_carol",
-            role=Role.INVESTIGADOR,
         )
         saved = repo.add(user)
         db.commit()
 
         assert saved.id == "usr-sql-1"
         assert saved.username == "carol"
-        assert saved.role == Role.INVESTIGADOR
         assert saved.active is True
         assert saved.created_at is not None
 
@@ -79,7 +74,6 @@ def test_sqlalchemy_user_repository(db_session_factory: SessionFactory) -> None:
         found_id = repo.get("usr-sql-1")
         assert found_id is not None
         assert found_id.username == "carol"
-        assert found_id.role == Role.INVESTIGADOR
 
         found_username = repo.get_by_username("carol")
         assert found_username is not None
@@ -94,7 +88,6 @@ def test_sqlalchemy_user_repository(db_session_factory: SessionFactory) -> None:
                     id="usr-sql-2",
                     username="carol",
                     password_hash="hash_other",
-                    role=Role.TRANSCRIPTOR,
                 )
             )
 
@@ -102,8 +95,8 @@ def test_sqlalchemy_user_repository(db_session_factory: SessionFactory) -> None:
 def test_sqlalchemy_user_repository_list_and_update(db_session_factory: SessionFactory) -> None:
     with db_session_factory() as db:
         repo = SqlAlchemyUserRepository(db)
-        u1 = repo.add(User(id="u1", username="user1", password_hash="h1", role=Role.TRANSCRIPTOR))
-        repo.add(User(id="u2", username="user2", password_hash="h2", role=Role.INVESTIGADOR))
+        u1 = repo.add(User(id="u1", username="user1", password_hash="h1"))
+        repo.add(User(id="u2", username="user2", password_hash="h2"))
         db.commit()
 
     with db_session_factory() as db:
@@ -127,7 +120,7 @@ def test_sqlalchemy_user_repository_list_and_update(db_session_factory: SessionF
 
         # Usuario no encontrado
         with pytest.raises(UserNotFound):
-            repo.update(User(id="missing", username="m", password_hash="h", role=Role.TRANSCRIPTOR))
+            repo.update(User(id="missing", username="m", password_hash="h"))
 
 
 def test_session_repository_list_and_owner_filtering(db_session_factory: SessionFactory) -> None:
@@ -136,12 +129,8 @@ def test_session_repository_list_and_owner_filtering(db_session_factory: Session
         session_repo = SqlAlchemySessionRepository(db)
 
         # Crear dos usuarios
-        u1 = user_repo.add(
-            User(id="u1", username="transcriptor1", password_hash="h1", role=Role.TRANSCRIPTOR)
-        )
-        u2 = user_repo.add(
-            User(id="u2", username="investigador1", password_hash="h2", role=Role.INVESTIGADOR)
-        )
+        u1 = user_repo.add(User(id="u1", username="transcriptor1", password_hash="h1"))
+        u2 = user_repo.add(User(id="u2", username="investigador1", password_hash="h2"))
 
         # Crear 2 sesiones para u1 y 1 sesión para u2
         s1 = SessionData(

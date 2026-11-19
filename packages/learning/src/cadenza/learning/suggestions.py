@@ -60,6 +60,7 @@ from cadenza.validation.learned import (
 
 from .alignment import derive_edit_events, is_structurally_equal
 from .config import compute_config_hash
+from .consent import ConsentTally, filter_by_consent
 from .correction_corpus import assign_split, build_correction_records
 from .primus import primus_work_id
 from .validation_metrics import with_content_candidates
@@ -157,8 +158,8 @@ def read_corpus(path: Path) -> list[dict[str, Any]]:
 
 
 def work_of(record: Mapping[str, Any]) -> str:
-    """La obra de un registro, para agrupar pliegues y particiones: la página de origen de una
-    sesión de Cadenza o el registro RISM de un incipit de PrIMuS."""
+    """La obra de un registro, para agrupar pliegues y particiones: la de una sesión de Cadenza
+    (`shared_works`, #437) o el registro RISM de un incipit de PrIMuS."""
     work = record.get("work_id")
     if work:
         return str(work)
@@ -841,14 +842,61 @@ def promotion_decision(
 # --- El bucle de aprendizaje: las sesiones finalizadas de Cadenza -------------------------------
 
 
-def _page_of(session: Any) -> str | None:
-    """La página de origen de una sesión: la partitura de prueba o el sha256 de su imagen."""
-    if session.test_score_id:
-        return f"test_score:{session.test_score_id}"
-    image = session.image_artifact or (session.document.get("provenance") or {}).get(
-        "source_image_hash"
-    )
-    return None if not image else f"image:{image}"
+def shared_works(sessions: Iterable[Any]) -> dict[str, str]:
+    """La obra de cada sesión para partir sin fugas (`ml export-pairs`, #420, y
+    `session_records`, #437): las sesiones que comparten partitura de prueba o foto son la misma
+    obra, también encadenadas (una página del banco subida sin `test_score_id` va con su
+    partitura de prueba, porque su foto es la misma).
+
+    La obra de un grupo es su partitura de prueba (la menor, si une varias) o, sin ninguna, su
+    foto (la menor). Una sesión que no comparte nada tiene la de su página de origen:
+    `test_score:<id>` o, sin partitura de prueba, `image:<sha256 de la foto>`. Las sesiones sin
+    partitura de prueba ni foto no salen.
+    """
+
+    parent: dict[str, str] = {}
+
+    def find(key: str) -> str:
+        while parent[key] != key:
+            parent[key] = parent[parent[key]]
+            key = parent[key]
+        return key
+
+    keys_of: dict[str, list[str]] = {}
+    for session in sessions:
+        keys = []
+        if session.test_score_id:
+            keys.append(f"test_score:{session.test_score_id}")
+        image = session.image_artifact or (session.document.get("provenance") or {}).get(
+            "source_image_hash"
+        )
+        if image:
+            keys.append(f"image:{image}")
+        if not keys:
+            continue
+        keys_of[session.id] = keys
+        for key in keys:
+            parent.setdefault(key, key)
+        for key in keys[1:]:
+            parent[find(key)] = find(keys[0])
+    members: dict[str, list[str]] = {}
+    for key in parent:
+        members.setdefault(find(key), []).append(key)
+    names = {
+        root: min(keys, key=lambda k: (not k.startswith("test_score:"), k))
+        for root, keys in members.items()
+    }
+    return {session_id: names[find(keys[0])] for session_id, keys in keys_of.items()}
+
+
+def correction_verified(raw: ScoreIR, final: ScoreIR, *, document_id: str) -> bool:
+    """Si las ediciones derivadas de la lectura al estado final lo reproducen: la comprobación
+    de PrIMuS (#255), que deja fuera del entrenamiento lo que la alineación no explica."""
+    try:
+        derived = derive_edit_events(raw, final, document_id=document_id)
+        return is_structurally_equal(materialize(raw, derived), final)
+    except (ValueError, IndexError):
+        return False
 
 
 def session_records(
@@ -858,43 +906,51 @@ def session_records(
     user_repository: Any,
     split_seed: int,
     test_fraction: float,
-    include_self_registered: bool = False,
+    exclude_self_registered: bool = False,
+    include_unfinished: bool = False,
+    consent: ConsentTally | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Los registros del corpus de las sesiones finalizadas, y las que se dejan fuera y por qué.
 
+    Con `include_unfinished`, también las que no se finalizaron (para `ml export-tables`): su
+    estado final es el último del log, no uno que la persona dio por bueno.
+
+    Entran según el permiso de uso de los datos (`filter_by_consent`, #422, ADR-0065): las
+    cuentas del registro con el permiso del texto vigente entran por defecto, y ninguna con
+    `exclude_self_registered`. Las que deja fuera el permiso no van a la lista de las que se
+    dejan fuera: solo se cuentan en `consent`, si se da.
+
     Para cada sesión, `build_correction_records(estado 0, estado final)`, verificados con la
-    misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su página de
-    origen (todas las sesiones de una página caen del mismo lado, ADR-0036 §10). Las
+    misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su obra
+    (`shared_works` de las sesiones que entran, como `ml export-pairs`): las que comparten
+    partitura de prueba o foto caen del mismo lado (ADR-0036 §10, enmienda de #437). Las
     respuestas a sus sugerencias van en registros `suggestion` (aceptada, rechazada o
     ignorada), para evaluar y analizar: no se entrena con ellas.
     """
     records: list[dict[str, Any]] = []
-    left_out: dict[str, str] = {}
-    for session in session_repository.list(status="finalized"):
-        if not include_self_registered:
-            owner = user_repository.get(session.owner_id)
-            if owner is not None and owner.self_registered:
-                left_out[session.id] = "cuenta del registro público"
-                continue
-        page = _page_of(session)
-        if page is None:
+    entering, left_out = filter_by_consent(
+        session_repository.list(status=None if include_unfinished else "finalized"),
+        user_repository,
+        exclude_self_registered=exclude_self_registered,
+        tally=consent,
+    )
+    works = shared_works(entering)
+    for session in entering:
+        work = works.get(session.id)
+        if work is None:
             left_out[session.id] = "sin página de origen (test_score_id ni imagen)"
             continue
-        split = assign_split(page, seed=split_seed, test_fraction=test_fraction)
+        split = assign_split(work, seed=split_seed, test_fraction=test_fraction)
         raw = ScoreIR.from_primitive(session.document["score"])
         edits = edit_repository.list_events(session.id)
         final = materialize(raw, edits) if edits else raw
-        try:
-            derived = derive_edit_events(raw, final, document_id=session.document_id)
-            verified = is_structurally_equal(materialize(raw, derived), final)
-        except (ValueError, IndexError):
-            verified = False
+        verified = correction_verified(raw, final, document_id=session.document_id)
         incipit_id = f"cadenza:{session.id}"
         for record in build_correction_records(
             raw, final, incipit_id=incipit_id, split=split, verified=verified
         ):
             records.append(
-                {**record, "source": "cadenza", "session_id": session.id, "work_id": page}
+                {**record, "source": "cadenza", "session_id": session.id, "work_id": work}
             )
         for suggestion in session_repository.list_suggestions(session.id):
             records.append(
@@ -903,7 +959,7 @@ def session_records(
                     "source": "cadenza",
                     "incipit_id": incipit_id,
                     "session_id": session.id,
-                    "work_id": page,
+                    "work_id": work,
                     "split": split,
                     "condition": session.condition,
                     "response": suggestion.response or "ignored",

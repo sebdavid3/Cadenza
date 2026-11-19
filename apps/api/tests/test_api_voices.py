@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import Provenance, ScoreDocument, build_anchor_index
 from cadenza.interchange import musicxml_to_score_ir
 from cadenza.omr.testing import FakeOMREngine
@@ -62,7 +62,6 @@ def _client(tmp_path: Path, engine: FakeOMREngine) -> tuple[TestClient, dict[str
                 id="user-t1",
                 username="transcriptor1",
                 password_hash=secrets.token_hex(16),
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -75,7 +74,7 @@ def _client(tmp_path: Path, engine: FakeOMREngine) -> tuple[TestClient, dict[str
             artifacts_dir=tmp_path / "artifacts",
         ),
     )
-    token = app.state.token_service.create_access_token(user_id="user-t1", role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id="user-t1")
     return TestClient(app), {"Authorization": f"Bearer {token}"}
 
 

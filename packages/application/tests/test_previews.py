@@ -15,7 +15,6 @@ from cadenza.application import (
     PreviewData,
     PreviewNotFound,
     PreviewResult,
-    Role,
     User,
     claim_preview,
     create_preview,
@@ -29,8 +28,8 @@ from cadenza.validation import ValidationEngine, get_default_rules
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
-ANA = User(id="ana", username="ana", password_hash="-", role=Role.TRANSCRIPTOR)
-LUIS = User(id="luis", username="luis", password_hash="-", role=Role.TRANSCRIPTOR)
+ANA = User(id="ana", username="ana", password_hash="-")
+LUIS = User(id="luis", username="luis", password_hash="-")
 
 
 def _preview(

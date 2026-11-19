@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..exceptions import Forbidden, SessionNotFound
+from ..access import require_owner
+from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import SessionRepository
 from ..session_status import SessionStatus
-from ..user import Role, User
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -38,11 +39,7 @@ def reopen_session(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
-
-    if current_user.role == Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise Forbidden("Un investigador solo puede reabrir sus propias sesiones")
+    require_owner(session_data.owner_id, current_user, session_id)
 
     # 1. Recuperar ediciones y determinar secuencia actual
     edits = edit_repository.list_events(session_id)
