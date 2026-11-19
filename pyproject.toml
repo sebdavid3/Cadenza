@@ -93,6 +93,9 @@ module = [
     "converter21.*",
     "musicdiff",
     "musicdiff.*",
+    # Solo lo importa `exp_17` (SMB) al leer su parquet; no es dependencia del proyecto (#102).
+    "pyarrow",
+    "pyarrow.*",
 ]
 ignore_missing_imports = true
 follow_imports = "skip"

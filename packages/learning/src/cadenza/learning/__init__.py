@@ -47,6 +47,15 @@ from .evaluation import (
     time_symbol_agreement,
     without_time_symbols,
 )
+from .muscima import (
+    MungConversionError,
+    MungNode,
+    mung_counts,
+    mung_texture,
+    mung_to_score,
+    parse_mung,
+    read_mung,
+)
 from .omr_metrics import MetricsExtraMissing, OmrNedResult, omr_ned_pair
 from .pitch import pitch_to_midi, semitone_distance
 from .primus import (
@@ -99,6 +108,8 @@ __all__ = [
     "MetricsExtraMissing",
     "ModelRegistry",
     "ModelVersion",
+    "MungConversionError",
+    "MungNode",
     "OmrNedResult",
     "PromotionRejected",
     "PromotionThreshold",
@@ -135,10 +146,15 @@ __all__ = [
     "is_structurally_equal",
     "key_accidental",
     "load_job_config",
+    "mung_counts",
+    "mung_texture",
+    "mung_to_score",
     "normalized_edit_distance",
     "omr_ned_pair",
+    "parse_mung",
     "pitch_to_midi",
     "primus_work_id",
+    "read_mung",
     "resolve_pitch_with_key_signature",
     "score_ser_pair",
     "score_to_symbol_sequence",
