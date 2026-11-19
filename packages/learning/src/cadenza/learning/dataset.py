@@ -30,6 +30,7 @@ from cadenza.domain import (
     origin_anchor,
 )
 
+from .consent import ConsentTally, consent_refusal, filter_by_consent
 from .pitch import pitch_to_midi, semitone_distance
 
 _ACCIDENTAL_SEMITONES: Final[dict[str, float]] = {
@@ -384,43 +385,41 @@ class RepositoryDatasetReader:
         session_repository: SessionRepository,
         edit_event_repository: EditEventRepository,
         *,
-        user_repository: UserRepository | None,
+        user_repository: UserRepository,
         status: str = "finalized",
         owner_id: str | None = None,
-        include_self_registered: bool = False,
+        exclude_self_registered: bool = False,
+        consent: ConsentTally | None = None,
     ) -> tuple[TrainingSample, ...]:
         """Muestras de las sesiones con `status`, opcionalmente de un solo propietario.
 
-        Solo entran las sesiones de las cuentas del estudio: las que existen y no vienen del
-        registro público (`self_registered`, ADR-0022), el mismo criterio que la exportación del
-        estudio de esfuerzo. Con `include_self_registered` entran todas (D55, #191). Para saber
-        cuáles son hace falta `user_repository`; sin él, solo se admite incluirlas todas, para
-        no adivinar. Pedir las de un propietario que no es del estudio, sin incluirlas todas, es
+        Entran según el permiso de uso de los datos (#422, ADR-0065, `filter_by_consent`): las
+        cuentas que no vienen del registro público y las del registro con el permiso vigente;
+        con `exclude_self_registered`, ninguna del registro. Las del registro sin el permiso
+        vigente y las sesiones sin su cuenta no entran nunca. Las que deja fuera el permiso o la
+        opción se cuentan en `consent`, si se da. Pedir las de un propietario que no entra es
         un error y no un dataset vacío.
         """
-        study_accounts: set[str] | None = None
-        if not include_self_registered:
-            if user_repository is None:
-                raise ValueError(
-                    "Hace falta el repositorio de usuarios para dejar fuera las cuentas del "
-                    "registro público, o pedir include_self_registered=True"
-                )
-            study_accounts = {
-                user.id for user in user_repository.list() if not user.self_registered
-            }
-            if owner_id is not None and owner_id not in study_accounts:
-                raise ValueError(
-                    f"La cuenta {owner_id!r} no es del estudio: no existe o viene del registro "
-                    "público. Para incluirla, pida include_self_registered=True"
-                )
-        sessions = session_repository.list(owner_id=owner_id, status=status)
+        if owner_id is not None:
+            owner = user_repository.get(owner_id)
+            if owner is None:
+                raise ValueError(f"La cuenta {owner_id!r} no existe")
+            refusal = consent_refusal(owner, exclude_self_registered=exclude_self_registered)
+            if refusal is not None:
+                raise ValueError(f"La cuenta {owner_id!r} no entra en el dataset: {refusal}")
+        sessions, _ = filter_by_consent(
+            (
+                s
+                for s in session_repository.list(owner_id=owner_id, status=status)
+                if s.status == status
+            ),
+            user_repository,
+            exclude_self_registered=exclude_self_registered,
+            tally=consent,
+        )
         all_samples: list[TrainingSample] = []
 
         for s in sessions:
-            if s.status != status:
-                continue
-            if study_accounts is not None and s.owner_id not in study_accounts:
-                continue
             document = ScoreDocument.from_primitive(s.document)
             persisted_findings = session_repository.list_findings(
                 s.id, latest_only=False, include_dismissed=True

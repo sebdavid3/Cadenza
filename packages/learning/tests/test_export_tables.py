@@ -1,10 +1,11 @@
 """`ml export-tables`: los datos para reconocer los errores de HOMR, en CSV planos.
 
-Las pruebas montan una base SQLite temporal con dos sesiones que entran (una con correcciones
-de altura, figura, alteración, borrado, inserción, clave y armadura, y otra con el compás
-corregido) y dos que quedan fuera (una sin terminar y otra de una cuenta del registro). Las
-filas de las notas, los faltantes y las sugerencias salen de `session_records` y
-`build_correction_records`: son exactamente lo que usa el entrenamiento.
+Las pruebas montan una base SQLite temporal con tres sesiones que entran (una con correcciones
+de altura, figura, alteración, borrado, inserción, clave y armadura, otra con el compás corregido
+y otra de una cuenta del registro con el permiso vigente, que entra por defecto desde #422) y
+tres que quedan fuera (una sin terminar y dos de cuentas del registro sin el permiso vigente,
+que solo se cuentan). Las filas de las notas, los faltantes y las sugerencias salen de
+`session_records` y `build_correction_records`: son exactamente lo que usa el entrenamiento.
 """
 
 from __future__ import annotations
@@ -190,7 +191,7 @@ def _as_stored(edit: EditEvent) -> EditEvent:
 
 @pytest.fixture
 def db_url(tmp_path: Path) -> str:
-    """Una base con dos sesiones que entran y dos que quedan fuera."""
+    """Una base con tres sesiones que entran y cuatro que quedan fuera."""
     url = f"sqlite:///{(tmp_path / 'cadenza.db').as_posix()}"
     engine = create_engine_for_url(url)
     create_schema(engine)
@@ -284,14 +285,17 @@ def db_url(tmp_path: Path) -> str:
             ),
         )
 
-        # 3. Sin terminar y 4. del registro: fuera.
+        # 3. Sin terminar: fuera. 4. Del registro con el permiso vigente: entra (#422).
         sessions.add(_session("s-abierta", "ana", read, test_score_id="TS-02"), [])
         sessions.add(
             _session("s-registro", "visita", read, status="finalized", image="cd" * 32), []
         )
-        # 5. y 6. Del registro sin el permiso vigente: fuera también con la opción.
+        # 5. y 6. Del registro sin el permiso vigente: siempre fuera, solo contadas.
         for session_id, owner in (("s-sin-permiso", "anonima"), ("s-permiso-antiguo", "antigua")):
             sessions.add(_session(session_id, owner, read, status="finalized", image="ef" * 32), [])
+        # 7. Sin terminar y sin su cuenta (la clave ajena no se comprueba en SQLite): fuera, con
+        # ese motivo, también sin --include-unfinished.
+        sessions.add(_session("s-sin-cuenta", "nadie", read, image="12" * 32), [])
     return url
 
 
@@ -327,14 +331,20 @@ def test_the_export_writes_one_csv_per_table_and_the_run_info(exported: Path) ->
         assert all(c == c.lower() and " " not in c for c in columns)
     info = json.loads((exported / "run_info.json").read_text(encoding="utf-8"))
     assert info["simulated"] is False
-    assert info["filters"]["include_self_registered"] is False
+    assert info["filters"]["exclude_self_registered"] is False
     assert info["filters"]["include_unfinished"] is False
     assert info["left_out"] == {
         "s-abierta": "sin terminar (status transcribed)",
-        "s-registro": "cuenta del registro público",
-        "s-sin-permiso": "cuenta del registro público",
-        "s-permiso-antiguo": "cuenta del registro público",
+        "s-sin-cuenta": "sin la cuenta de su dueño",
     }
+    # Sin el permiso vigente (nunca dado o retirado, o de otro texto): solo se cuentan (#422).
+    assert info["consent"] == {
+        "version": DATA_CONSENT_VERSION,
+        "sessions_without_current_consent": 2,
+        "sessions_excluded_by_option": 0,
+    }
+    for session_id in ("s-sin-permiso", "s-permiso-antiguo"):
+        _nothing_of(exported, session_id)
     for name in TABLES:
         _, rows = _csv(exported / f"{name}.csv")
         assert info["tables"][name]["rows"] == len(rows)
@@ -349,7 +359,7 @@ def test_partituras_has_one_row_per_session_without_the_file_name(exported: Path
     for written in exported.iterdir():
         assert "Apellido" not in written.read_text(encoding="utf-8"), written.name
     sessions = {r["session_id"]: r for r in rows}
-    assert set(sessions) == {"s-estudio", "s-compas"}
+    assert set(sessions) == {"s-estudio", "s-compas", "s-registro"}
     study = sessions["s-estudio"]
     assert study["participante"] == "P-ana"
     assert study["origen"] == "estudio"
@@ -363,6 +373,8 @@ def test_partituras_has_one_row_per_session_without_the_file_name(exported: Path
     assert study["verified"] == "true"
     assert study["versiones_capa"] == "sug-1"
     assert sessions["s-compas"]["origen"] == "equipo"
+    assert sessions["s-registro"]["origen"] == "registro"
+    assert sessions["s-registro"]["permiso_datos"] == "true"
     assert sessions["s-compas"]["source_image_hash"] == "ab" * 32
     # verified no mira la indicación de compás: se ve en compases_con_indicacion_corregida.
     assert sessions["s-compas"]["verified"] == "true"
@@ -481,10 +493,18 @@ def test_the_run_info_hides_the_database_credentials() -> None:
     assert _safe_url("sqlite:///C:/Users/alguien/copia.db") == "sqlite:copia.db"
 
 
+def _nothing_of(output: Path, session_id: str) -> None:
+    """Ni un archivo, ni una fila, ni su identificador en `run_info.json`."""
+    assert not any(session_id in str(p.relative_to(output)) for p in output.rglob("*"))
+    for written in output.rglob("*"):
+        if written.is_file() and written.suffix in {".csv", ".json"}:
+            assert session_id not in written.read_text(encoding="utf-8"), written.name
+
+
 def test_options_include_the_sessions_left_out(db_url: str, tmp_path: Path) -> None:
     output = tmp_path / "todas"
     args = ["--db-url", db_url, "--split-seed", str(SPLIT_SEED)]
-    assert _export(output, *args, "--include-self-registered", "--include-unfinished") == 0
+    assert _export(output, *args, "--include-unfinished") == 0
     _, rows = _csv(output / "partituras.csv")
     origins = {r["session_id"]: r["origen"] for r in rows}
     assert origins == {
@@ -496,11 +516,48 @@ def test_options_include_the_sessions_left_out(db_url: str, tmp_path: Path) -> N
     assert {r["session_id"]: r["permiso_datos"] for r in rows}["s-registro"] == "true"
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     # Las cuentas del registro solo entran con el permiso de la versión vigente del texto
-    # (ADR-0065, como `ml export-staves`, ADR-0067).
+    # (ADR-0065), también con opciones: las demás solo se cuentan.
+    assert info["left_out"] == {"s-sin-cuenta": "sin la cuenta de su dueño"}
+    assert info["consent"]["sessions_without_current_consent"] == 2
+    for session_id in ("s-sin-permiso", "s-permiso-antiguo"):
+        _nothing_of(output, session_id)
+
+
+def test_an_option_leaves_out_every_registered_account(db_url: str, tmp_path: Path) -> None:
+    output = tmp_path / "sin-registro"
+    args = ["--db-url", db_url, "--split-seed", str(SPLIT_SEED), "--exclude-self-registered"]
+    assert _export(output, *args) == 0
+    _, rows = _csv(output / "partituras.csv")
+    assert {r["session_id"] for r in rows} == {"s-estudio", "s-compas"}
+    info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
+    assert info["filters"]["exclude_self_registered"] is True
     assert info["left_out"] == {
-        "s-sin-permiso": "cuenta del registro sin el permiso de uso de los datos vigente",
-        "s-permiso-antiguo": "cuenta del registro sin el permiso de uso de los datos vigente",
+        "s-abierta": "sin terminar (status transcribed)",
+        "s-sin-cuenta": "sin la cuenta de su dueño",
     }
+    # Las que no tienen el permiso siguen contadas por eso, no por la opción.
+    assert info["consent"] == {
+        "version": DATA_CONSENT_VERSION,
+        "sessions_without_current_consent": 2,
+        "sessions_excluded_by_option": 1,
+    }
+    for session_id in ("s-registro", "s-sin-permiso", "s-permiso-antiguo"):
+        _nothing_of(output, session_id)
+
+
+def test_the_old_option_to_include_registered_accounts_is_retired(
+    db_url: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Ya es lo que se hace por defecto (#422): pedirlo falla y dice qué hacer, sin escribir nada.
+    output = tmp_path / "vieja"
+    args = ["--db-url", db_url, "--split-seed", str(SPLIT_SEED), "--include-self-registered"]
+    with pytest.raises(SystemExit) as exit_info:
+        _export(output, *args)
+    assert exit_info.value.code == 2
+    error = capsys.readouterr().err
+    assert "--include-self-registered ya no existe" in error
+    assert "--exclude-self-registered" in error
+    assert not output.exists()
 
 
 def test_each_row_is_the_record_used_for_training(db_url: str) -> None:
@@ -577,7 +634,7 @@ def test_a_joined_corpus_does_not_duplicate_the_database_sessions(
     assert _export(output, *args) == 0
     _, scores = _csv(output / "partituras.csv")
     cadenza = [r["incipit_id"] for r in scores if r["source"] == "cadenza"]
-    assert sorted(cadenza) == ["cadenza:s-compas", "cadenza:s-estudio"]
+    assert sorted(cadenza) == ["cadenza:s-compas", "cadenza:s-estudio", "cadenza:s-registro"]
     _, notes = _csv(output / "notas.csv")
     _, alone = _csv(exported / "notas.csv")
     assert sum(r["source"] == "cadenza" for r in notes) == len(alone)
@@ -614,6 +671,10 @@ def test_the_export_fails_clearly(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     url = f"sqlite:///{(tmp_path / 'vacia.db').as_posix()}"
     create_schema(create_engine_for_url(url))
     assert _export(tmp_path / "c", "--db-url", url) == 1  # falta --split-seed
+    # Un corpus trae las sesiones que entraron al hacerlo: la opción no lo puede filtrar.
+    corpus = write_corpus(tmp_path / "corpus.jsonl", works=1)
+    assert _export(tmp_path / "d", "--corpus", str(corpus), "--exclude-self-registered") == 1
+    assert not (tmp_path / "d").exists()
 
 
 def test_the_export_writes_only_in_the_output_dir(db_url: str, tmp_path: Path) -> None:

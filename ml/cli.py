@@ -56,6 +56,7 @@ from cadenza.learning import (
     load_job_config,
     serialize_dataset,
 )
+from cadenza.learning.consent import ConsentTally
 from cadenza.persistence import (
     ArtifactRecord,
     FilesystemArtifactStore,
@@ -68,6 +69,8 @@ from cadenza.persistence import (
     create_session_factory,
     session_scope,
 )
+
+from ml.consent_cli import add_consent_options
 
 
 def _default_db_url() -> str:
@@ -115,8 +118,10 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     create_schema(engine)
     factory = create_session_factory(engine)
 
-    # Las cuentas del registro público quedan fuera salvo que se pida (ADR-0022, D55).
-    include_self_registered: bool = args.include_self_registered
+    # Las cuentas del registro con el permiso de uso de los datos vigente entran salvo que se
+    # pida lo contrario; las que no lo tienen, nunca (#422, ADR-0065).
+    exclude_self_registered: bool = args.exclude_self_registered
+    consent = ConsentTally()
     with session_scope(factory) as db:
         session_repo = SqlAlchemySessionRepository(db)
         edit_repo = SqlAlchemyEditEventRepository(db)
@@ -129,7 +134,8 @@ def build_dataset_command(args: argparse.Namespace) -> int:
                 user_repository=SqlAlchemyUserRepository(db),
                 status=args.status,
                 owner_id=args.owner_id,
-                include_self_registered=include_self_registered,
+                exclude_self_registered=exclude_self_registered,
+                consent=consent,
             )
         except ValueError as err:
             print(f"Error: {err}", file=sys.stderr)
@@ -139,7 +145,10 @@ def build_dataset_command(args: argparse.Namespace) -> int:
     serialized["config_hash"] = cfg_hash
     serialized["seed"] = seed
     serialized["status_filter"] = args.status
-    serialized["self_registered_included"] = include_self_registered
+    # Si entraron las cuentas del registro con el permiso vigente (antes de #422, si entraron
+    # todas, con permiso o sin él), y cuántas sesiones dejó fuera el permiso, sin cuáles.
+    serialized["self_registered_included"] = not exclude_self_registered
+    serialized["consent"] = consent.to_primitive()
     serialized["created_at"] = datetime.datetime.now(datetime.UTC).isoformat()
 
     output_path.write_text(json.dumps(serialized, indent=2), encoding="utf-8")
@@ -196,8 +205,8 @@ def select_command(args: argparse.Namespace) -> int:
         "budget": budget,
         "seed": seed,
         "config_hash": config.config_hash if config else raw_input.get("config_hash", "none"),
-        # Si el dataset de origen incluía las cuentas del registro público (D55); None si no
-        # lo dice, como los de antes de #191.
+        # Si el dataset de origen incluía las cuentas del registro público (D55; desde #422,
+        # las que tienen el permiso vigente); None si no lo dice, como los de antes de #191.
         "self_registered_included": raw_input.get("self_registered_included"),
         "count": len(selected_samples),
         "selected_at": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -611,7 +620,7 @@ def run_command(args: argparse.Namespace) -> int:
         db_url=args.db_url,
         status=args.status,
         owner_id=args.owner_id,
-        include_self_registered=args.include_self_registered,
+        exclude_self_registered=args.exclude_self_registered,
     )
     rc = build_dataset_command(b_args)
     if rc != 0:
@@ -712,11 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--status", default="finalized", help="Filtrar por estado de sesión (default: finalized)."
     )
     p_build.add_argument("--owner-id", default=None, help="Filtrar por propietario (opcional).")
-    p_build.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
-    )
+    add_consent_options(p_build)
 
     # 2. select
     p_select = subparsers.add_parser(
@@ -869,11 +874,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_run.add_argument("--status", default="finalized", help="Filtrar sesiones por estado.")
     p_run.add_argument("--owner-id", default=None, help="Filtrar sesiones por propietario.")
-    p_run.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las sesiones de cuentas del registro público, que quedan fuera por defecto.",
-    )
+    add_consent_options(p_run)
     p_run.add_argument("--strategy", default=None, help="Estrategia de adquisición.")
     p_run.add_argument("--budget", type=int, default=None, help="Presupuesto de adquisición.")
     p_run.add_argument("--seed", type=int, default=None, help="Semilla.")
