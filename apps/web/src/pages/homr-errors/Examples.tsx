@@ -191,7 +191,7 @@ export function ExamplesPanel({
           {!selected
             ? "Elige una cifra, una barra, una columna o una casilla para ver sus ejemplos."
             : examples.length
-              ? `${plural(examples.length, "ejemplo", "ejemplos")}${examples.length === 12 ? " (como mucho, 12)" : ""}. Cada compás lo dibuja Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018), no es una imagen del corpus: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.`
+              ? `${plural(examples.length, "ejemplo", "ejemplos")}. Cada compás lo dibuja Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018), no es una imagen del corpus: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.`
               : "Ningún ejemplo de esta cifra."}
         </p>
       </div>

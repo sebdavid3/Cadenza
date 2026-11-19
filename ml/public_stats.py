@@ -8,8 +8,9 @@ cada 5 minutos lee la base en solo lectura, calcula con el código del informe l
 Solo se guardan agregados musicales (`PUBLISHED` y el nombre y el símbolo de cada figura): nada
 de fotos, filas por sesión, cuentas ni títulos. Los grupos de corpus añaden los ejemplos de cada
 cifra con su compás dibujado (`EXAMPLES`, #424); los de Cadenza, nunca. Un grupo de Cadenza se
-publica con al menos `MIN_SESSIONS` sesiones. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS de
-`exp_12`, y los que vengan) se calcula una vez y solo se repite si cambia el archivo.
+publica con al menos `MIN_SESSIONS` sesiones. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus
+de PrIMuS de `exp_12`, y los que vengan) se calcula una vez y solo se repite si cambia el
+archivo.
 
 Sin `--every`, calcula una vez y termina.
 """
