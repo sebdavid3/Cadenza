@@ -1,6 +1,6 @@
 # ADR-0065: Permiso de uso de los datos al registrarse
 
-- **Estado:** Aceptado (el responsable aprobó el texto del permiso el 2026-11-09. Enmendado por [ADR-0070](ADR-0070-una-sola-clase-de-cuenta.md): sin investigadores; el §5 sigue rigiendo las cuentas que ya existían)
+- **Estado:** Aceptado (el responsable aprobó el texto del permiso el 2026-11-09. Enmendado por [ADR-0070](ADR-0070-una-sola-clase-de-cuenta.md): sin investigadores; el §5 sigue rigiendo las cuentas que ya existían. El texto pasó a la versión 2026-11-19 sin el párrafo del estudio ([#427](https://github.com/sebdavid3/Cadenza/issues/427)): los permisos de 2026-11-09 dejaron de estar vigentes)
 - **Fecha:** 2026-11-09
 - **Decisores:** Responsable del proyecto (que cualquiera pueda crear una cuenta y que quede guardado si dio permiso para usar sus datos, 2026-11-09) y Equipo de Desarrollo
 - **Enmienda:** [ADR-0022](ADR-0022-registro-de-cuentas-con-activacion.md) y [ADR-0025](ADR-0025-registro-abierto-sin-aprobacion.md)
