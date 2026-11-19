@@ -221,3 +221,20 @@ def test_an_omr_ned_failure_keeps_the_derived_corrections(
     assert subset["derived"] == 2 and subset["omr_ned"] is None
     assert set(subset["omr_ned_errors"]) == {A, B}
     assert subset["edit_distribution"]["same_measure_count"]["counts"]["SetPitch"] == 1
+
+
+def test_a_derivation_error_is_recorded_and_its_image_left_out_of_the_corpus(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path, _ = _run(tmp_path)
+
+    def broken(*_: object, **__: object) -> None:
+        raise IndexError("voz sin eventos")
+
+    monkeypatch.setattr(external_corpus, "derive_edit_events", broken)
+    summary = exp_16.build(manifest_path, with_omr_ned=False)
+
+    subset = summary["converted_subset"]
+    assert subset["derived"] == 0
+    assert set(subset["derive_errors"]) == {A, B}
+    assert summary["correction_corpus"]["records"] == 0
