@@ -257,3 +257,48 @@
 .register__consent > legend {
   margin-bottom: var(--space-2);
 }
+
+/* Pedir el permiso al entrar (#430): una banda de papel bajo la cabecera de la zona privada,
+   cerrada por el filete de tinta como las demás bandas. Texto llano bajo su rótulo, sin barra
+   lateral ni marco. */
+.consent-prompt {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-5) var(--gutter);
+  border-bottom: var(--rule);
+}
+
+.consent-prompt__title {
+  margin: 0;
+  padding: 2px var(--space-3);
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.consent-prompt__lead {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.consent-prompt__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* La región viva está desde el principio; vacía, no ocupa sitio. */
+.consent-prompt__status {
+  margin: 0;
+}
+
+.consent-prompt__status:empty {
+  display: none;
+}
