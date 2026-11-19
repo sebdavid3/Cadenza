@@ -81,6 +81,22 @@ export interface DismissFindingRequest {
 }
 
 /**
+ * Cuántas veces HOMR leyó una figura y la persona la corrigió a otra.
+ */
+export interface DurationChangeRead {
+  /** Duración leída, en negras («1/2»): clave de `figures`, no se enseña. */
+  read: string;
+  /** Duración correcta, en negras: clave de `figures`. */
+  fix: string;
+  /** Nombre de la figura leída. */
+  read_name: string;
+  /** Nombre de la figura correcta. */
+  fix_name: string;
+  /** Correcciones de esa figura a esa otra. */
+  n: number;
+}
+
+/**
  * Dinámica en una posición del compás; rige su pentagrama (ADR-0031).
  */
 export interface DynamicPayload {
@@ -348,6 +364,22 @@ export interface ErrorDetail {
 }
 
 /**
+ * Qué parte de las notas de un grupo tuvo alguna corrección (grupos de 30 notas o más).
+ */
+export interface ErrorRateRead {
+  /** El grupo: `vs:in_key` o `vs:against_key` (alteración según o contra la armadura), `clef:G2` (clave) o `readdur:1/2` (figura leída). */
+  key: string;
+  /** El grupo en lenguaje musical («clave de sol»). */
+  label: string;
+  /** Notas leídas del grupo. */
+  n: number;
+  /** Las que tuvieron alguna corrección. */
+  wrong: number;
+  /** `wrong / n`. */
+  rate: number;
+}
+
+/**
  * Referencia mínima al evento del ScoreIR asociado a un ancla.
  */
 export interface EventRefPayload {
@@ -379,6 +411,30 @@ export interface EventTimingRead {
   duration_beats: string;
   /** Instante de inicio relativo al comienzo del compás */
   measure_offset_beats: string;
+}
+
+/**
+ * Una duración en lenguaje musical: su nombre y su símbolo, nunca la fracción.
+ */
+export interface FigureRead {
+  /** «corchea», «negra con puntillo», «blanca + corchea» (ligadas)… */
+  name: string;
+  /** Las figuras que la escriben, ligadas; vacío si no se escribe con figuras. */
+  symbol: FigureSymbolRead[];
+}
+
+/**
+ * Una figura escrita del símbolo de una duración, para dibujarlo (`figure_symbol`).
+ */
+export interface FigureSymbolRead {
+  /** La figura base: «redonda», «blanca», «negra», «corchea»… */
+  figure: string;
+  /** Sus puntillos. */
+  dots: number;
+  /** Notas del grupo irregular en que va (3 = tresillo); 0 si no va en ninguno. */
+  tuplet: number;
+  /** Nota de adorno, sin duración. */
+  grace: boolean;
 }
 
 /**
@@ -427,6 +483,72 @@ export interface HealthStatusResponse {
   omr_engine: string;
   /** Dispositivo de cómputo efectivo para OMR ('cpu', 'cuda', etc.) */
   device: string;
+}
+
+/**
+ * Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las
+ * cuentas del registro) o un corpus (`primus`).
+ */
+export interface HomrErrorStatsGroupRead {
+  /** `cadenza`, `pruebas` o el nombre del corpus (`primus`). */
+  id: string;
+  /** `cadenza`, en vivo; `corpus`, precalculado de su archivo. */
+  source: "cadenza" | "corpus";
+  /** Cuándo se calcularon sus cifras. */
+  computed_at: string;
+  /** Sesiones que necesita para publicarse (0 en un corpus). */
+  min_sessions: number;
+  /** Si llega al mínimo y lleva sus cifras. */
+  published: boolean;
+  /** Sus sesiones (o íncipits); null si no se publica. */
+  sessions: number | null;
+  /** Sus cifras; null si no se publica. */
+  stats: HomrErrorStatsValuesRead | null;
+}
+
+/**
+ * Las cifras de conjunto de los errores de HOMR que corrigen las personas (ADR-0073).
+ */
+export interface HomrErrorStatsRead {
+  /** El último cálculo de las cifras de Cadenza (se repite cada pocos minutos); null si aún no se han calculado. */
+  computed_at: string | null;
+  /** Los grupos: primero los de Cadenza y después los de los corpus. */
+  groups: HomrErrorStatsGroupRead[];
+}
+
+/**
+ * Las cifras de conjunto de un grupo, las del informe local (ADR-0069) sin sus ejemplos.
+ * 
+ * Los acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas
+ * notas eran).
+ */
+export interface HomrErrorStatsValuesRead {
+  /** Partituras: sesiones de Cadenza o íncipits. */
+  scores: number;
+  /** Partituras sin ninguna corrección. */
+  clean_scores: number;
+  /** Notas y silencios que leyó HOMR. */
+  read: number;
+  /** Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un compás que sobraba). */
+  outcome: Record<string, number>;
+  /** Notas y silencios que HOMR no leyó. */
+  missing: number;
+  /** Notas de acordes que solo cambiaron de orden (no se cuentan). */
+  reordered: number;
+  /** Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`… */
+  ops: Record<string, number>;
+  /** Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los extremos suman los de más allá). */
+  steps: Record<string, number>;
+  /** La figura leída frente a la correcta, de la más frecuente a la menos. */
+  durations: DurationChangeRead[];
+  /** Por alteración frente a la armadura, de la que más falla a la que menos. */
+  by_vs_key: ErrorRateRead[];
+  /** Por clave, igual. */
+  by_clef: ErrorRateRead[];
+  /** Por figura leída, igual. */
+  by_duration: ErrorRateRead[];
+  /** El nombre y el símbolo de cada duración (en negras) que sale en el grupo. */
+  figures: Record<string, FigureRead>;
 }
 
 /**

@@ -19,6 +19,9 @@ Comandos implementados:
   - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
                     con la partición por obra y la ficha del dataset, para entrenar un lector
                     (`ml/export_pairs_cli.py`, #420, ADR-0071).
+  - public-stats  : calcula las cifras públicas de los errores de HOMR y las guarda para la
+                    API; con --every, cada tantos segundos (`ml/public_stats.py`, #423,
+                    ADR-0073).
 """
 
 from __future__ import annotations
@@ -912,6 +915,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_pairs_cli.add_parser(subparsers)
 
+    # Las cifras públicas de los errores de HOMR, en vivo (#423, ADR-0073)
+    from ml import public_stats
+
+    public_stats.add_parser(subparsers)
+
     return parser
 
 
@@ -947,6 +955,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import export_pairs_cli
 
         return export_pairs_cli.export_pairs_command(args)
+    if args.subcommand == "public-stats":
+        from ml import public_stats
+
+        return public_stats.public_stats_command(args)
 
     parser.print_help()
     return 1

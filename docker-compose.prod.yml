@@ -146,6 +146,38 @@ services:
       timeout: 5s
       retries: 3
 
+  # Las cifras públicas de los errores de HOMR, en vivo (#423, ADR-0073): cada
+  # CADENZA_STATS_EVERY_SECONDS (300) lee la base en solo lectura, calcula con el código del
+  # informe local y guarda en public_stats lo que sirve GET /api/stats/homr-errors. Los corpus
+  # precalculados (primus.jsonl…) van en CADENZA_STATS_CORPUS_DIR, de solo lectura
+  # (operacion_backend.md §2.4). Si la base aún no está migrada, reintenta al minuto.
+  stats:
+    build:
+      context: .
+      dockerfile: Dockerfile.stats
+    image: cadenza-stats:prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["--every", "${CADENZA_STATS_EVERY_SECONDS:-300}", "--corpus-dir", "/app/corpus"]
+    environment:
+      CADENZA_DATABASE_URL: postgresql+psycopg2://${CADENZA_POSTGRES_USER:-cadenza}:${CADENZA_POSTGRES_PASSWORD}@postgres:5432/${CADENZA_POSTGRES_DB:-cadenza}
+    volumes:
+      - ${CADENZA_STATS_CORPUS_DIR:-./data/stats-corpus}:/app/corpus:ro
+    networks:
+      - cadenza
+    # El corpus de PrIMuS (1877 íncipits) llega a unos 330 MiB al calcularse la primera vez.
+    mem_limit: 1g
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+
   # Copias de seguridad (#159, docs/infra/operacion_backend.md §4). Solo se ejecuta a petición:
   #   docker compose -f docker-compose.prod.yml --profile backup run --rm backup backup -o /backups/cadenza.tar.gz
   # Lleva el pg_dump de la misma versión que el servidor; la copia lee los artefactos y la

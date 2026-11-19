@@ -24,6 +24,12 @@ from .model_registry import (
     PromotionThreshold,
 )
 from .preview_repository import InMemoryPreviewRepository, PreviewData, PreviewRepository
+from .public_stats import (
+    PUBLIC_STATS_FORMAT_VERSION,
+    InMemoryPublicStatsRepository,
+    PublicStatsGroup,
+    PublicStatsRepository,
+)
 from .recognition_stage import RecognitionStage
 from .score_exporter import InMemoryScoreExporter, ScoreExporter
 from .score_state_cache import (
@@ -57,6 +63,7 @@ from .suggestion_model import (
 from .user_repository import InMemoryUserRepository, UserRepository
 
 __all__ = [
+    "PUBLIC_STATS_FORMAT_VERSION",
     "ArtifactStore",
     "CachedScoreState",
     "EditEventRepository",
@@ -71,6 +78,7 @@ __all__ = [
     "InMemoryModelRegistry",
     "InMemoryPasswordHasher",
     "InMemoryPreviewRepository",
+    "InMemoryPublicStatsRepository",
     "InMemoryScoreExporter",
     "InMemoryScoreStateCache",
     "InMemorySessionRepository",
@@ -87,6 +95,8 @@ __all__ = [
     "PreviewRepository",
     "PromotionRejected",
     "PromotionThreshold",
+    "PublicStatsGroup",
+    "PublicStatsRepository",
     "RecognitionStage",
     "ScoreExporter",
     "ScoreStateCache",

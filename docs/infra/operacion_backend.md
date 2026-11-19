@@ -31,6 +31,9 @@ El backend se configura siguiendo los principios de la metodología *12-Factor A
 | `CADENZA_SUGGESTIONS_ENABLED` | `bool` | `false` | Activa la capa de sugerencias que aprende de las correcciones ([ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md)), global. Al arrancar, la API carga la versión promovida de `suggestion_model_versions` (migración `0013_suggestions`), comprueba el `sha256` de su artefacto en `CADENZA_ARTIFACTS_DIR` y su `feature_version`; si no hay versión o no cuadra, valida sin capa y lo registra (`suggestion_layer unavailable reason=…`). Una versión se promueve con `ml suggestions promote` (ver `ml/README.md`) y entra en vigor al reiniciar la API. Entre el congelado (#252) y el final del estudio no se promueve ninguna. |
 | `CADENZA_SUGGESTIONS_MIN_LEVEL` | `str` | `high` | Con la capa activa, nivel de confianza mínimo de las sugerencias que se muestran, se guardan y se pueden aplicar: `high` o `medium` ([ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md), enmienda 19). El valor por defecto es la decisión del responsable para la condición asistida del estudio (#244). |
 | `CADENZA_SUGGESTIONS_FAMILIES` | `str` | `accidental` | Con la capa activa, familias de las sugerencias que se muestran, separadas por comas: `accidental`, `duration`, `pitch`, `delete` e `insertion` (enmienda 19). Los hallazgos de las reglas se muestran siempre, aunque se queden sin sugerencias; los posibles errores propios (`learned.*`) de otra familia no. Al cargar la capa, la API registra la política (`suggestion_layer loaded … policy_min_level=… policy_families=…`); un nivel o una familia inválidos no impiden arrancar: la API valida sin capa y lo registra (`suggestion_layer unavailable reason=invalid_policy`). Como el resto, se lee al arrancar. |
+| `CADENZA_STATS_CACHE_SECONDS` | `int` | `60` | Cuánto guarda la API en memoria la respuesta de `GET /stats/homr-errors` antes de volver a leer `public_stats`, de 0 a 3600 segundos; 0 la lee cada vez ([ADR-0073](../adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)). La respuesta lleva además `Cache-Control: public, max-age=60` y `ETag`. |
+| `CADENZA_STATS_EVERY_SECONDS` | `int` | `300` | Solo en `docker-compose.prod.yml` (no la lee la API): cada cuántos segundos recalcula el servicio `stats` las cifras públicas de los errores de HOMR (§2.4). |
+| `CADENZA_STATS_CORPUS_DIR` | `path` | `./data/stats-corpus` | Solo en `docker-compose.prod.yml`: la carpeta del servidor con los corpus precalculados (`primus.jsonl`…), que el servicio `stats` monta en solo lectura (§2.4). |
 | `CADENZA_DISABLE_POWER_THROTTLING` | `bool` | `true` | Desactiva la limitación de energía (EcoQoS) del proceso en Windows (#106). |
 | `CADENZA_FORWARDED_ALLOW_IPS` | `str` | `127.0.0.1` | Solo en la imagen Docker (el `CMD` del `Dockerfile`, no la API): direcciones o redes desde las que uvicorn acepta `X-Forwarded-For` y `X-Forwarded-Proto` (`--forwarded-allow-ips`). En `docker-compose.prod.yml` es la IP fija del servicio `web`, `10.77.0.10` ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailscale-funnel.md)). |
 
@@ -69,6 +72,7 @@ El despliegue público ([ADR-0023](../adr/ADR-0023-despliegue-publico-con-tailsc
 | `postgres` | `postgres:16.15-alpine3.24` | ninguno | Base de datos, volumen `postgres_data` |
 | `api` | `Dockerfile` (`cadenza-api:prod`, con `CADENZA_OMR_DEVICE=gpu`) | ninguno | FastAPI con HOMR en la GPU NVIDIA (ADR-0066; en la CPU con `CADENZA_API_GPUS=0`), con el usuario `cadenza` (UID 10001), sin root; aplica las migraciones al arrancar; volumen `artifacts_data`; tope de memoria de 3 GiB |
 | `web` | `Dockerfile.web` (`cadenza-web:prod`) | `127.0.0.1:${CADENZA_WEB_PORT:-8380}` | Nginx sin privilegios: sirve `apps/web/dist` (con `index.html` para las rutas de la interfaz) y reenvía `/api/*` a `api:8000` quitando el prefijo (`deploy/nginx/`) |
+| `stats` | `Dockerfile.stats` (`cadenza-stats:prod`) | ninguno | Las cifras públicas de los errores de HOMR (§2.4, [ADR-0073](../adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md)): cada 5 minutos lee la base en solo lectura y guarda las cifras en `public_stats`; sin HOMR ni GPU, sin root, con el sistema de archivos de solo lectura y un tope de 1 GiB |
 
 Puesta en marcha en el servidor:
 
@@ -444,6 +448,35 @@ docker compose --profile batch run --rm ml-batch suggestions --help
 
 > [!WARNING]
 > Hoy la imagen `Dockerfile.ml-cuda` no se construye (deuda D53): pide `--extra torch --extra metrics` a la raíz del workspace, que no define extras (también en su alternativa `|| uv sync ...`), fija uv 0.5.21, anterior al formato del lockfile, y copia el `pyproject.toml` de `apps/api`, miembro del workspace, pero no su código. Su arreglo va con el ajuste fino real del modelo ([#103](https://github.com/sebdavid3/Cadenza/issues/103)), que queda fuera de la entrega de noviembre de 2026 (trabajo futuro).
+
+### 2.4 Las cifras públicas de los errores de HOMR ([#423](https://github.com/sebdavid3/Cadenza/issues/423), [ADR-0073](../adr/ADR-0073-cifras-de-los-errores-de-homr-en-vivo.md))
+
+`GET /api/stats/homr-errors` sirve, sin cuenta, las cifras de conjunto de lo que corrigen las personas en las lecturas de HOMR: las del informe local (`ml export-tables --informe`) sin fotos ni ejemplos. La API no las calcula: las lee de la tabla `public_stats` (migración 0019), donde las deja el servicio `stats`. Ese servicio ejecuta `python -m ml.public_stats --every 300 --corpus-dir /app/corpus` y en cada vuelta:
+
+1. lee la base en una transacción de solo lectura, con el mismo filtro que las exportaciones (#422): las sesiones finalizadas del equipo y de las cuentas del registro con el permiso de uso de los datos vigente;
+2. calcula los grupos `cadenza` (todas) y `pruebas` (las del registro), cada uno publicado solo con 5 sesiones o más, y un grupo por cada `<grupo>.jsonl` de la carpeta de corpus, que solo se recalcula si cambia el archivo;
+3. sustituye las filas en `public_stats` y anota una línea `public_stats_computed cadenza=… pruebas=…` en su registro.
+
+Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
+
+Comprobarlo en el servidor:
+
+```bash
+DC="docker compose -f docker-compose.prod.yml --env-file .env"
+$DC logs --tail 20 stats                       # public_stats_computed … cada 5 minutos
+curl -s http://127.0.0.1:8380/api/stats/homr-errors | head -c 400; echo   # computed_at y los grupos
+```
+
+**Las cifras de PrIMuS** salen del corpus de `exp_12` (`results/correction_corpus.jsonl`, 1877 íncipits), que vive en el portátil. Se copian una vez a la carpeta de corpus del servidor con el nombre del grupo, y el servicio las calcula en la vuelta siguiente (unos 10 s y 330 MiB; después, nada hasta que cambie el archivo):
+
+```bash
+ssh r2d2 'mkdir -p /opt/docker/cadenza/data/stats-corpus'
+scp results/correction_corpus.jsonl r2d2:/opt/docker/cadenza/data/stats-corpus/primus.jsonl
+```
+
+El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS, MUSCIMA++ y SMB, cuando tengan corpus, entran igual (`camera-primus.jsonl`…), y quitar un archivo quita su grupo. Un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, o un archivo que no se puede leer, se salta con un aviso (`public_stats_corpus_skipped`).
+
+**Cambiar el ritmo:** `CADENZA_STATS_EVERY_SECONDS` en el `.env` y `$DC up -d stats`. **Pararlo:** `$DC stop stats`; la API sigue sirviendo el último cálculo, con su hora en `computed_at`. **En local**, una vez y sin bucle: `uv run --no-sync python -m ml.public_stats --db-url sqlite:///./cadenza.db [--corpus-dir carpeta]`.
 
 ---
 

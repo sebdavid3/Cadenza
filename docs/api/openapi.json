@@ -53,6 +53,31 @@
         }
       }
     },
+    "/stats/homr-errors": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Cifras de conjunto de los errores de HOMR",
+        "description": "Sin cuenta. Las cifras de conjunto de lo que corrigen las personas en las transcripciones de HOMR, de las sesiones finalizadas que cuentan (las del equipo y las de las cuentas con el permiso de uso de los datos vigente) y de los corpus precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza no se publica hasta tener un mínimo de sesiones. Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y `ETag`: con `If-None-Match` y sin cambios, 304.",
+        "operationId": "get_homr_error_stats_endpoint_stats_homr_errors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomrErrorStatsRead"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Sin cambios desde ese ETag"
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -3029,6 +3054,46 @@
         "title": "DismissFindingRequest",
         "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
       },
+      "DurationChangeRead": {
+        "properties": {
+          "read": {
+            "type": "string",
+            "title": "Read",
+            "description": "Duración leída, en negras («1/2»): clave de `figures`, no se enseña."
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix",
+            "description": "Duración correcta, en negras: clave de `figures`."
+          },
+          "read_name": {
+            "type": "string",
+            "title": "Read Name",
+            "description": "Nombre de la figura leída."
+          },
+          "fix_name": {
+            "type": "string",
+            "title": "Fix Name",
+            "description": "Nombre de la figura correcta."
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N",
+            "description": "Correcciones de esa figura a esa otra."
+          }
+        },
+        "type": "object",
+        "required": [
+          "read",
+          "fix",
+          "read_name",
+          "fix_name",
+          "n"
+        ],
+        "title": "DurationChangeRead",
+        "description": "Cuántas veces HOMR leyó una figura y la persona la corrigió a otra."
+      },
       "DynamicPayload": {
         "properties": {
           "mark": {
@@ -3600,6 +3665,49 @@
         "title": "ErrorDetail",
         "description": "Estructura uniforme de mensaje de error HTTP de la API."
       },
+      "ErrorRateRead": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key",
+            "description": "El grupo: `vs:in_key` o `vs:against_key` (alteración según o contra la armadura), `clef:G2` (clave) o `readdur:1/2` (figura leída)."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "El grupo en lenguaje musical («clave de sol»)."
+          },
+          "n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "N",
+            "description": "Notas leídas del grupo."
+          },
+          "wrong": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Wrong",
+            "description": "Las que tuvieron alguna corrección."
+          },
+          "rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Rate",
+            "description": "`wrong / n`."
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "n",
+          "wrong",
+          "rate"
+        ],
+        "title": "ErrorRateRead",
+        "description": "Qué parte de las notas de un grupo tuvo alguna corrección (grupos de 30 notas o más)."
+      },
       "EventRefPayload": {
         "properties": {
           "kind": {
@@ -3706,6 +3814,65 @@
         ],
         "title": "EventTimingRead",
         "description": "Información temporal de un evento musical para reproducción sincronizada (#42, D12)."
+      },
+      "FigureRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "«corchea», «negra con puntillo», «blanca + corchea» (ligadas)…"
+          },
+          "symbol": {
+            "items": {
+              "$ref": "#/components/schemas/FigureSymbolRead"
+            },
+            "type": "array",
+            "title": "Symbol",
+            "description": "Las figuras que la escriben, ligadas; vacío si no se escribe con figuras."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "symbol"
+        ],
+        "title": "FigureRead",
+        "description": "Una duración en lenguaje musical: su nombre y su símbolo, nunca la fracción."
+      },
+      "FigureSymbolRead": {
+        "properties": {
+          "figure": {
+            "type": "string",
+            "title": "Figure",
+            "description": "La figura base: «redonda», «blanca», «negra», «corchea»…"
+          },
+          "dots": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Dots",
+            "description": "Sus puntillos."
+          },
+          "tuplet": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Tuplet",
+            "description": "Notas del grupo irregular en que va (3 = tresillo); 0 si no va en ninguno."
+          },
+          "grace": {
+            "type": "boolean",
+            "title": "Grace",
+            "description": "Nota de adorno, sin duración."
+          }
+        },
+        "type": "object",
+        "required": [
+          "figure",
+          "dots",
+          "tuplet",
+          "grace"
+        ],
+        "title": "FigureSymbolRead",
+        "description": "Una figura escrita del símbolo de una duración, para dibujarlo (`figure_symbol`)."
       },
       "FinalizeResponse": {
         "properties": {
@@ -3893,6 +4060,224 @@
         ],
         "title": "HealthStatusResponse",
         "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
+      },
+      "HomrErrorStatsGroupRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "`cadenza`, `pruebas` o el nombre del corpus (`primus`)."
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "cadenza",
+              "corpus"
+            ],
+            "title": "Source",
+            "description": "`cadenza`, en vivo; `corpus`, precalculado de su archivo."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At",
+            "description": "Cuándo se calcularon sus cifras."
+          },
+          "min_sessions": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Min Sessions",
+            "description": "Sesiones que necesita para publicarse (0 en un corpus)."
+          },
+          "published": {
+            "type": "boolean",
+            "title": "Published",
+            "description": "Si llega al mínimo y lleva sus cifras."
+          },
+          "sessions": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sessions",
+            "description": "Sus sesiones (o íncipits); null si no se publica."
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HomrErrorStatsValuesRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sus cifras; null si no se publica."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "computed_at",
+          "min_sessions",
+          "published",
+          "sessions",
+          "stats"
+        ],
+        "title": "HomrErrorStatsGroupRead",
+        "description": "Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las\ncuentas del registro) o un corpus (`primus`)."
+      },
+      "HomrErrorStatsRead": {
+        "properties": {
+          "computed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Computed At",
+            "description": "El último cálculo de las cifras de Cadenza (se repite cada pocos minutos); null si aún no se han calculado."
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/HomrErrorStatsGroupRead"
+            },
+            "type": "array",
+            "title": "Groups",
+            "description": "Los grupos: primero los de Cadenza y después los de los corpus."
+          }
+        },
+        "type": "object",
+        "required": [
+          "computed_at",
+          "groups"
+        ],
+        "title": "HomrErrorStatsRead",
+        "description": "Las cifras de conjunto de los errores de HOMR que corrigen las personas (ADR-0073)."
+      },
+      "HomrErrorStatsValuesRead": {
+        "properties": {
+          "scores": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Scores",
+            "description": "Partituras: sesiones de Cadenza o íncipits."
+          },
+          "clean_scores": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Clean Scores",
+            "description": "Partituras sin ninguna corrección."
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Read",
+            "description": "Notas y silencios que leyó HOMR."
+          },
+          "outcome": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Outcome",
+            "description": "Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un compás que sobraba)."
+          },
+          "missing": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Missing",
+            "description": "Notas y silencios que HOMR no leyó."
+          },
+          "reordered": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reordered",
+            "description": "Notas de acordes que solo cambiaron de orden (no se cuentan)."
+          },
+          "ops": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Ops",
+            "description": "Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`…"
+          },
+          "steps": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Steps",
+            "description": "Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los extremos suman los de más allá)."
+          },
+          "durations": {
+            "items": {
+              "$ref": "#/components/schemas/DurationChangeRead"
+            },
+            "type": "array",
+            "title": "Durations",
+            "description": "La figura leída frente a la correcta, de la más frecuente a la menos."
+          },
+          "by_vs_key": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Vs Key",
+            "description": "Por alteración frente a la armadura, de la que más falla a la que menos."
+          },
+          "by_clef": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Clef",
+            "description": "Por clave, igual."
+          },
+          "by_duration": {
+            "items": {
+              "$ref": "#/components/schemas/ErrorRateRead"
+            },
+            "type": "array",
+            "title": "By Duration",
+            "description": "Por figura leída, igual."
+          },
+          "figures": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FigureRead"
+            },
+            "type": "object",
+            "title": "Figures",
+            "description": "El nombre y el símbolo de cada duración (en negras) que sale en el grupo."
+          }
+        },
+        "type": "object",
+        "required": [
+          "scores",
+          "clean_scores",
+          "read",
+          "outcome",
+          "missing",
+          "reordered",
+          "ops",
+          "steps",
+          "durations",
+          "by_vs_key",
+          "by_clef",
+          "by_duration",
+          "figures"
+        ],
+        "title": "HomrErrorStatsValuesRead",
+        "description": "Las cifras de conjunto de un grupo, las del informe local (ADR-0069) sin sus ejemplos.\n\nLos acordes que solo cambian de orden no cuentan como corrección (`reordered` dice cuántas\nnotas eran)."
       },
       "Instrument": {
         "type": "string",
@@ -5932,6 +6317,10 @@
     {
       "name": "System",
       "description": "Metadatos, salud y versión del servicio"
+    },
+    {
+      "name": "Stats",
+      "description": "Cifras de conjunto públicas de los errores de HOMR (ADR-0073)"
     }
   ]
 }

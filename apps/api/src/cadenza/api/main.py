@@ -161,6 +161,7 @@ from cadenza.persistence import (
     SqlAlchemyEditEventRepository,
     SqlAlchemyEffortRepository,
     SqlAlchemyPreviewRepository,
+    SqlAlchemyPublicStatsRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
     create_engine_for_url,
@@ -190,6 +191,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
+from .public_stats import CACHE_CONTROL, StatsCache, etag_matches
 from .schemas import (
     AnchorIndexPayload,
     AnchorPayload,
@@ -207,6 +209,7 @@ from .schemas import (
     FinalizeResponse,
     FindingRead,
     HealthStatusResponse,
+    HomrErrorStatsRead,
     PartInstrumentRead,
     PreviewClaimRequest,
     PreviewResponse,
@@ -726,6 +729,10 @@ def create_app(
             },
             {"name": "Effort", "description": "Registro y telemetría de métricas de esfuerzo"},
             {"name": "System", "description": "Metadatos, salud y versión del servicio"},
+            {
+                "name": "Stats",
+                "description": "Cifras de conjunto públicas de los errores de HOMR (ADR-0073)",
+            },
         ],
     )
 
@@ -860,7 +867,37 @@ def create_app(
         }
         return JSONResponse(status_code=http_code, content=payload)
 
+    @app.get(
+        "/stats/homr-errors",
+        response_model=HomrErrorStatsRead,
+        tags=["Stats"],
+        summary="Cifras de conjunto de los errores de HOMR",
+        description=(
+            "Sin cuenta. Las cifras de conjunto de lo que corrigen las personas en las "
+            "transcripciones de HOMR, de las sesiones finalizadas que cuentan (las del equipo y "
+            "las de las cuentas con el permiso de uso de los datos vigente) y de los corpus "
+            "precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API "
+            "sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza "
+            "no se publica hasta tener un mínimo de sesiones. Nunca lleva fotos, partituras, "
+            "títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y "
+            "`ETag`: con `If-None-Match` y sin cambios, 304."
+        ),
+        responses={
+            status.HTTP_304_NOT_MODIFIED: {"description": "Sin cambios desde ese ETag"},
+        },
+    )
+    def get_homr_error_stats_endpoint(request: Request, db: DbDep) -> Response:
+        stats = request.app.state.stats_cache.get(
+            lambda: SqlAlchemyPublicStatsRepository(db), request.app.state.stats_monotonic
+        )
+        headers = {"Cache-Control": CACHE_CONTROL, "ETag": stats.etag}
+        if etag_matches(request.headers.get("If-None-Match"), stats.etag):
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+        return Response(content=stats.body, media_type="application/json", headers=headers)
+
     app.state.session_factory = session_factory
+    app.state.stats_cache = StatsCache(app_settings.stats_cache_seconds)
+    app.state.stats_monotonic = time.monotonic
     app.state.settings = app_settings
     app.state.login_rate_limiter = LoginRateLimiter(
         max_attempts=app_settings.login_rate_limit_max_attempts,
