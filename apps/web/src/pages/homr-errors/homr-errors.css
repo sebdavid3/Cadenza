@@ -687,15 +687,40 @@
   margin: 0;
 }
 
-.homr__corner {
-  color: var(--color-ink-muted);
+/* Los dos ejes, con su nombre: arriba, sobre las columnas, la figura que era; a la izquierda, en
+   vertical junto a las filas, la que leyó HOMR. Cada uno con un filete hacia su lado. */
+.homr__matrix .homr__axis {
+  color: var(--color-ink);
   font-family: var(--font-label);
   font-size: 0.75rem;
+  font-weight: 700;
   letter-spacing: 0.05em;
-  line-height: 1.3;
-  text-align: left;
   text-transform: uppercase;
-  vertical-align: bottom;
+}
+
+/* La esquina, vacía: sin el marco de las casillas. */
+.homr__matrix td.homr__corner {
+  border: 0;
+}
+
+.homr__axis--top {
+  padding: 0 0 6px 6px;
+  border-bottom: var(--rule);
+  text-align: left;
+}
+
+.homr__matrix tbody th.homr__axis--side {
+  position: static;
+  padding: 8px 8px 6px 0;
+  border-right: var(--rule);
+  text-align: center;
+  vertical-align: top;
+}
+
+.homr__axis--side span {
+  display: inline-block;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
 }
 
 .homr__matrix td {

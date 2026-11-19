@@ -483,8 +483,17 @@ const GroupStats = memo(function GroupStats({
       <section className="homr__panel" aria-labelledby="homr-durations">
         <h3 id="homr-durations">Figura leída y correcta</h3>
         <p className="homr__panel-note">
-          En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta.
-          Cuanto más violeta, más casos.
+          En las correcciones de figura. Cada fila es la figura que leyó HOMR y cada columna, la que
+          era: la casilla dice cuántas veces pasó, y cuanto más violeta, más.
+          {stats.durations[0] && (
+            <>
+              {" "}
+              Por ejemplo, la casilla de la fila «{stats.durations[0].read_name}» y la columna «
+              {stats.durations[0].fix_name}» (
+              <span className="homr__num">{fmt(stats.durations[0].n)}</span>) son las veces que HOMR
+              leyó «{stats.durations[0].read_name}» donde era «{stats.durations[0].fix_name}».
+            </>
+          )}
         </p>
         <DurationTable durations={stats.durations} figures={figures} choosing={choosing} />
       </section>
@@ -839,11 +848,16 @@ function DurationTable({
       <table className="homr__matrix">
         <thead>
           <tr>
-            <th className="homr__corner" rowSpan={2} scope="col">
-              Leída, por filas
-              <br />
-              Correcta, por columnas
+            <td className="homr__corner" colSpan={2} rowSpan={3} />
+            <th
+              className="homr__axis homr__axis--top"
+              colSpan={matrix.fixes.length}
+              scope="colgroup"
+            >
+              La figura que era
             </th>
+          </tr>
+          <tr>
             {matrix.fixes.map((fix) => (
               <th key={fix} className="homr__matrix-name" scope="col">
                 {matrix.names[fix]}
@@ -859,8 +873,17 @@ function DurationTable({
           </tr>
         </thead>
         <tbody>
-          {matrix.reads.map((readBeats) => (
+          {matrix.reads.map((readBeats, index) => (
             <tr key={readBeats}>
+              {index === 0 && (
+                <th
+                  className="homr__axis homr__axis--side"
+                  rowSpan={matrix.reads.length}
+                  scope="rowgroup"
+                >
+                  <span>La que leyó HOMR</span>
+                </th>
+              )}
               <th scope="row">
                 <FigureSymbol figure={figures[readBeats]} />
                 {matrix.names[readBeats]}
@@ -870,7 +893,7 @@ function DurationTable({
                 if (!n) return <td key={fix} />;
                 const alpha = cellAlpha(n, matrix.max);
                 const share = Math.round(alpha * 100);
-                const title = `Leída ${matrix.names[readBeats] ?? ""}, correcta ${matrix.names[fix] ?? ""}`;
+                const title = `HOMR leyó ${matrix.names[readBeats] ?? ""}, era ${matrix.names[fix] ?? ""}`;
                 return (
                   <td
                     key={fix}

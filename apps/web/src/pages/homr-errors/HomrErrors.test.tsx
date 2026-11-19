@@ -392,8 +392,11 @@ describe("volver a una cifra", () => {
       "aria-current",
       "page",
     );
-    // Cada casilla de la matriz dice qué es, no solo su número.
-    expect(screen.getByRole("button", { name: "Leída corchea, correcta negra: 40" })).toBeVisible();
+    // Cada casilla de la matriz dice qué es, no solo su número, y cada eje dice lo que es.
+    expect(screen.getByRole("button", { name: "HOMR leyó corchea, era negra: 40" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "La figura que era" })).toBeVisible();
+    expect(screen.getByRole("rowheader", { name: "La que leyó HOMR" })).toBeVisible();
+    expect(screen.getByText(/la casilla de la fila «corchea» y la columna «negra»/)).toBeVisible();
   });
 });
 
