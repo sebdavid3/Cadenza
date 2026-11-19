@@ -64,3 +64,13 @@ Hay tres límites:
 ## Enmienda de #424 (2026-11-19): las cifras, en su propia página
 
 El responsable decidió, mientras se hacía #424, que las cifras no vayan en la portada sino en una vista propia. Es pública y se enlaza desde la cabecera: `/errores-de-homr`. Donde este ADR dice «la portada», se lee esa página. Lo demás no cambia: qué se calcula, cada cuánto, qué se publica y el endpoint.
+
+## Enmienda de #424 (2026-11-19): los ejemplos de los corpus
+
+El responsable decidió que la vista en vivo sea el informe local (#418) en línea, y que de PrIMuS y Camera-PrIMuS enseñe también los ejemplos con su compás dibujado.
+
+- **Solo los grupos de corpus** llevan los ejemplos: `examples`, `example_keys` y `bars` en sus `stats`. Los calcula `ml/public_stats.py` con el mismo `aggregate` y los mismos compases dibujados (`_Bars`) del informe. No llevan ni el recorte (`img`) ni los ejemplos de cada partitura (`score:`, el historial).
+- **Los grupos de Cadenza** (`cadenza` y `pruebas`) siguen sin ejemplos, sin historial y sin nada por partitura. La API los quita de una fila de Cadenza aunque los trajera.
+- **La web dibuja cada compás desde los datos**, como el informe (`staffSvg`, `groupSvg`, `barHtml`): no sirve ninguna imagen del corpus y lo cita.
+- **El formato pasa a la 2** (`PUBLIC_STATS_FORMAT_VERSION`). Al desplegar, las filas de la 1 no se publican hasta el siguiente cálculo, que el servicio hace al arrancar, con los corpus recalculados. Es una ampliación compatible del contrato: los tres campos son opcionales y nulos en Cadenza.
+- **Lo que pesa:** con el corpus de PrIMuS de `exp_12` son 612 ejemplos, 111 cifras y 392 compases, unos 390 KiB de JSON por corpus, que Nginx sirve comprimidos y la caché de 60 s ahorra.

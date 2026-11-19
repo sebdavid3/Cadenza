@@ -217,6 +217,8 @@ def test_a_corpus_is_computed_once_and_again_only_when_it_changes(
     assert first.source_sha256 == file_sha256(primus)
     assert first.sessions == first.stats["scores"] > 0
     assert first.stats["read"] > 0
+    # Un corpus lleva sus ejemplos con el compás dibujado, como el informe local (#424).
+    assert first.stats["examples"] and first.stats["example_keys"] and first.stats["bars"]
 
     _compute(db_url, corpus_dir, when=LATER, fresh=process)
     kept = _stored(db_url)
@@ -395,5 +397,45 @@ def test_the_api_schema_publishes_every_computed_value(db_url: str, tmp_path: Pa
             continue
         values = HomrErrorStatsValuesRead.model_validate(group.stats)
         # Nada calculado se queda fuera del esquema, y el esquema no pide nada que no se calcule.
-        assert values.model_dump(mode="json") == json.loads(json.dumps(group.stats))
+        dumped = values.model_dump(mode="json", exclude_unset=True)
+        assert dumped == json.loads(json.dumps(group.stats))
     assert "groups" in HomrErrorStatsRead.model_fields
+
+
+def test_a_corpus_publishes_its_examples_with_the_drawn_bar_and_no_image(
+    db_url: str, tmp_path: Path
+) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    write_corpus(corpus_dir / "primus.jsonl", works=6)
+    _compute(db_url, corpus_dir)
+    stats = _stored(db_url)["primus"].stats
+    assert stats is not None
+
+    assert set(stats) == {*public_stats.PUBLISHED, "figures", *public_stats.EXAMPLES}
+    examples, keys, bars = stats["examples"], stats["example_keys"], stats["bars"]
+    # Ni el historial de cada partitura (`score:`) ni el recorte de la foto.
+    assert keys and not any(key.startswith("score:") for key in keys)
+    assert all(set(x) == set(public_stats._EXAMPLE_FIELDS) for x in examples)
+    assert "img" not in json.dumps(stats)
+    used = {i for indices in keys.values() for i in indices}
+    assert used == set(range(len(examples)))
+    # Cada ejemplo con compás lo encuentra en `bars`, y cada figura tiene su nombre y su símbolo.
+    assert {x["bar"] for x in examples if x["bar"]} == set(bars)
+    for bar in bars.values():
+        assert {e["kind"] for e in [*bar["read"], *bar["fixed"]]} <= {"note", "rest"}
+        for event in [*bar["read"], *bar["fixed"]]:
+            assert event["beats"] in stats["figures"]
+    for example in examples:
+        for beats in (example["read_beats"], example["fix_beats"]):
+            assert not beats or beats in stats["figures"]
+
+
+def test_the_cadenza_groups_never_carry_examples_history_or_scores(db_url: str) -> None:
+    _compute(db_url)
+    cadenza = _stored(db_url)["cadenza"].stats
+    assert cadenza is not None
+
+    assert set(cadenza) == {*public_stats.PUBLISHED, "figures"}
+    for key in (*public_stats.EXAMPLES, "per_score", "history", "sessions"):
+        assert key not in cadenza

@@ -1,4 +1,4 @@
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { api } from "../../api/instance";
 import { SiteHeader } from "../../components/SiteHeader";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -8,6 +8,7 @@ import type {
   HomrErrorStatsRead,
   HomrErrorStatsValuesRead,
 } from "../../types";
+import { EXAMPLES_ID, ExamplesPanel, Pager, type Selection } from "./Examples";
 import { FigureSymbol } from "./FigureSymbol";
 import "./homr-errors.css";
 import {
@@ -296,6 +297,58 @@ export function HomrErrors({
   );
 }
 
+/** Si la vista es estrecha: el panel de los ejemplos va debajo y hay que llevarlo a la vista. */
+function narrowView(): boolean {
+  try {
+    return window.matchMedia("(max-width: 1180px)").matches;
+  } catch {
+    return false;
+  }
+}
+
+/** Una cifra que se puede elegir para ver sus ejemplos (solo en los corpus); si no, un bloque. */
+function Choice({
+  selection,
+  selected,
+  onChoose,
+  className,
+  tip,
+  children,
+}: {
+  selection: Selection | null;
+  selected: Selection | null;
+  onChoose: ((selection: Selection) => void) | null;
+  className: string;
+  tip?: Record<string, string>;
+  children: ReactNode;
+}) {
+  if (!onChoose || !selection) {
+    return (
+      <div className={className} {...tip}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`${className} homr__choice`}
+      aria-pressed={selected?.key === selection.key}
+      onClick={() => {
+        onChoose(selection);
+      }}
+      {...tip}
+    >
+      {children}
+    </button>
+  );
+}
+
+interface Choosing {
+  selected: Selection | null;
+  onChoose: ((selection: Selection) => void) | null;
+}
+
 function GroupStats({
   name,
   about,
@@ -314,10 +367,100 @@ function GroupStats({
   const figures = stats.figures;
   const read = stats.read;
   const facts = findings(stats);
+  const withExamples = source === "corpus" && Boolean(stats.example_keys);
+  // Como en el informe, al empezar se ven los ejemplos de lo primero que dicen los datos.
+  const [selected, setSelected] = useState<Selection | null>(() => {
+    const first = withExamples ? facts.find((fact) => fact.key) : undefined;
+    return first?.key ? { key: first.key, title: first.title ?? "", kicker: first.kicker } : null;
+  });
+  const onChoose = withExamples
+    ? (selection: Selection) => {
+        setSelected(selection);
+        if (narrowView()) document.getElementById(EXAMPLES_ID)?.scrollIntoView({ block: "start" });
+      }
+    : null;
+  const choosing: Choosing = { selected, onChoose };
   const count =
     source === "corpus"
       ? plural(sessions, "íncipit", "íncipits")
       : plural(sessions, "transcripción", "transcripciones");
+
+  const charts = (
+    <>
+      <section className="homr__panel" aria-labelledby="homr-outcome">
+        <h3 id="homr-outcome">Qué pasó con cada nota leída</h3>
+        <p className="homr__panel-note">
+          Cada nota o silencio que leyó HOMR, comparado con la partitura correcta. Las notas que
+          HOMR no leyó no están aquí: salen en «Qué se corrige».
+        </p>
+        <dl className="homr__defs">
+          {OUTCOMES.map((outcome) => (
+            <div key={outcome.key} className="homr__def">
+              <dt>
+                <span className={`homr__swatch homr__part--${outcome.key}`} aria-hidden="true" />
+                <span className="label">{outcome.label}</span>
+              </dt>
+              <dd>{outcome.what}</dd>
+            </div>
+          ))}
+        </dl>
+        <OutcomeBar stats={stats} name={name} />
+      </section>
+
+      <div className="homr__pair">
+        <section className="homr__panel" aria-labelledby="homr-ops">
+          <h3 id="homr-ops">Qué se corrige</h3>
+          <p className="homr__panel-note">
+            Por cada 100 notas que leyó HOMR, cuántas correcciones de cada tipo hicieron falta.
+          </p>
+          <OpsBars ops={stats.ops} read={read} choosing={choosing} />
+        </section>
+        <section className="homr__panel" aria-labelledby="homr-steps">
+          <h3 id="homr-steps">Cuánto se movió la altura</h3>
+          <p className="homr__panel-note">
+            En las correcciones de altura, cuántas líneas o espacios del pentagrama hay entre lo que
+            leyó HOMR y lo correcto.
+          </p>
+          <StepsChart steps={stats.steps} choosing={choosing} />
+        </section>
+      </div>
+
+      <section className="homr__panel" aria-labelledby="homr-where">
+        <h3 id="homr-where">Dónde se equivoca más</h3>
+        <p className="homr__panel-note">
+          Qué parte de las notas tuvo alguna corrección, en grupos de 30 notas o más.
+        </p>
+        {stats.by_vs_key.length + stats.by_clef.length + stats.by_duration.length ? (
+          <div className="homr__where">
+            <RateList
+              title="Alteración frente a la armadura"
+              rows={stats.by_vs_key}
+              choosing={choosing}
+            />
+            <RateList title="Clave" rows={stats.by_clef} choosing={choosing} />
+            <RateList
+              title="Figura leída"
+              rows={stats.by_duration}
+              figures={figures}
+              choosing={choosing}
+            />
+          </div>
+        ) : (
+          <p className="homr__panel-note">Aún hay pocas notas para comparar.</p>
+        )}
+      </section>
+
+      <section className="homr__panel" aria-labelledby="homr-durations">
+        <h3 id="homr-durations">Figura leída y correcta</h3>
+        <p className="homr__panel-note">
+          En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta.
+          Cuanto más violeta, más casos.
+        </p>
+        <DurationTable durations={stats.durations} figures={figures} choosing={choosing} />
+      </section>
+    </>
+  );
+
   return (
     <>
       <p className="homr__scope">
@@ -341,12 +484,25 @@ function GroupStats({
         {facts.length ? (
           <ul className="homr__findings" role="list">
             {facts.map((fact) => (
-              <li key={fact.kicker} className="homr__finding">
-                <span className="label homr__muted">{fact.kicker}</span>
-                <b className="homr__big">{fact.big}</b>
-                <span className="homr__finding-text">
-                  <FindingText fact={fact} figures={figures} />
-                </span>
+              <li key={fact.kicker}>
+                <Choice
+                  className="homr__finding"
+                  selection={
+                    fact.key
+                      ? { key: fact.key, title: fact.title ?? "", kicker: fact.kicker }
+                      : null
+                  }
+                  {...choosing}
+                >
+                  <span className="label homr__muted">{fact.kicker}</span>
+                  <b className="homr__big">{fact.big}</b>
+                  <span className="homr__finding-text">
+                    <FindingText fact={fact} figures={figures} />
+                  </span>
+                  {onChoose && fact.key && (
+                    <span className="label homr__muted homr__more">Ver ejemplos</span>
+                  )}
+                </Choice>
               </li>
             ))}
           </ul>
@@ -390,70 +546,24 @@ function GroupStats({
       <section className="homr__band" aria-labelledby="homr-charts">
         <div className="homr__head">
           <h2 id="homr-charts">Dónde y cómo falla</h2>
-        </div>
-
-        <section className="homr__panel" aria-labelledby="homr-outcome">
-          <h3 id="homr-outcome">Qué pasó con cada nota leída</h3>
-          <p className="homr__panel-note">
-            Cada nota o silencio que leyó HOMR, comparado con la partitura correcta. Las notas que
-            HOMR no leyó no están aquí: salen en «Qué se corrige».
-          </p>
-          <dl className="homr__defs">
-            {OUTCOMES.map((outcome) => (
-              <div key={outcome.key} className="homr__def">
-                <dt>
-                  <span className={`homr__swatch homr__part--${outcome.key}`} aria-hidden="true" />
-                  <span className="label">{outcome.label}</span>
-                </dt>
-                <dd>{outcome.what}</dd>
-              </div>
-            ))}
-          </dl>
-          <OutcomeBar stats={stats} name={name} />
-        </section>
-
-        <div className="homr__pair">
-          <section className="homr__panel" aria-labelledby="homr-ops">
-            <h3 id="homr-ops">Qué se corrige</h3>
-            <p className="homr__panel-note">
-              Por cada 100 notas que leyó HOMR, cuántas correcciones de cada tipo hicieron falta.
-            </p>
-            <OpsBars ops={stats.ops} read={read} />
-          </section>
-          <section className="homr__panel" aria-labelledby="homr-steps">
-            <h3 id="homr-steps">Cuánto se movió la altura</h3>
-            <p className="homr__panel-note">
-              En las correcciones de altura, cuántas líneas o espacios del pentagrama hay entre lo
-              que leyó HOMR y lo correcto.
-            </p>
-            <StepsChart steps={stats.steps} />
-          </section>
-        </div>
-
-        <section className="homr__panel" aria-labelledby="homr-where">
-          <h3 id="homr-where">Dónde se equivoca más</h3>
-          <p className="homr__panel-note">
-            Qué parte de las notas tuvo alguna corrección, en grupos de 30 notas o más.
-          </p>
-          {stats.by_vs_key.length + stats.by_clef.length + stats.by_duration.length ? (
-            <div className="homr__where">
-              <RateList title="Alteración frente a la armadura" rows={stats.by_vs_key} />
-              <RateList title="Clave" rows={stats.by_clef} />
-              <RateList title="Figura leída" rows={stats.by_duration} figures={figures} />
-            </div>
-          ) : (
-            <p className="homr__panel-note">Aún hay pocas notas para comparar.</p>
+          {withExamples && (
+            <span className="homr__count">Elige una cifra para ver sus ejemplos</span>
           )}
-        </section>
-
-        <section className="homr__panel" aria-labelledby="homr-durations">
-          <h3 id="homr-durations">Figura leída y correcta</h3>
-          <p className="homr__panel-note">
-            En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta.
-            Cuanto más violeta, más casos.
-          </p>
-          <DurationTable durations={stats.durations} figures={figures} />
-        </section>
+        </div>
+        {withExamples ? (
+          <div className="homr__layout">
+            <div className="homr__charts">{charts}</div>
+            <ExamplesPanel stats={stats} selected={selected} corpus={name} />
+          </div>
+        ) : (
+          <>
+            <p className="homr__band-note">
+              Los ejemplos, con su compás dibujado, solo se enseñan de los corpus públicos (PrIMuS y
+              Camera-PrIMuS). De las transcripciones de Cadenza salen solo cifras de conjunto.
+            </p>
+            {charts}
+          </>
+        )}
       </section>
     </>
   );
@@ -508,7 +618,15 @@ function OutcomeBar({ stats, name }: { stats: HomrErrorStatsValuesRead; name: st
   );
 }
 
-function OpsBars({ ops, read }: { ops: Record<string, number>; read: number }) {
+function OpsBars({
+  ops,
+  read,
+  choosing,
+}: {
+  ops: Record<string, number>;
+  read: number;
+  choosing: Choosing;
+}) {
   const rows = Object.entries(ops)
     .filter(([, n]) => n > 0)
     .sort((a, b) => b[1] - a[1]);
@@ -519,19 +637,22 @@ function OpsBars({ ops, read }: { ops: Record<string, number>; read: number }) {
       {rows.map(([op, n]) => {
         const per100 = perHundred(n, read);
         return (
-          <li
-            key={op}
-            className="homr__bar"
-            {...tipProps(opName(op), `${fmt(n)} correcciones, ${per100} por cada 100 notas`)}
-          >
-            <span className="homr__bar-name">{opName(op)}</span>
-            <span className="homr__bar-track" aria-hidden="true">
-              <span className="homr__bar-fill" style={{ width: `${String((100 * n) / top)}%` }} />
-            </span>
-            <span className="homr__bar-value">
-              {per100}
-              <span className="visually-hidden"> por cada 100 notas ({fmt(n)} correcciones)</span>
-            </span>
+          <li key={op}>
+            <Choice
+              className="homr__bar"
+              selection={{ key: `op:${op}`, title: opName(op), kicker: "Qué se corrige" }}
+              tip={tipProps(opName(op), `${fmt(n)} correcciones, ${per100} por cada 100 notas`)}
+              {...choosing}
+            >
+              <span className="homr__bar-name">{opName(op)}</span>
+              <span className="homr__bar-track" aria-hidden="true">
+                <span className="homr__bar-fill" style={{ width: `${String((100 * n) / top)}%` }} />
+              </span>
+              <span className="homr__bar-value">
+                {per100}
+                <span className="visually-hidden"> por cada 100 notas ({fmt(n)} correcciones)</span>
+              </span>
+            </Choice>
           </li>
         );
       })}
@@ -541,7 +662,7 @@ function OpsBars({ ops, read }: { ops: Record<string, number>; read: number }) {
 
 const STEPS = Array.from({ length: 17 }, (_, i) => i - 8);
 
-function StepsChart({ steps }: { steps: Record<string, number> }) {
+function StepsChart({ steps, choosing }: { steps: Record<string, number>; choosing: Choosing }) {
   const total = Object.values(steps).reduce((a, b) => a + b, 0);
   if (!total) return <p className="homr__panel-note">Sin correcciones de altura.</p>;
   const top = Math.max(1, ...Object.values(steps));
@@ -550,21 +671,28 @@ function StepsChart({ steps }: { steps: Record<string, number> }) {
       <ol className="homr__steps-cols" role="list">
         {STEPS.map((step) => {
           const n = steps[String(step)] ?? 0;
-          if (!n) return <li key={step} className="homr__steps-col" aria-hidden="true" />;
+          if (!n) return <li key={step} className="homr__steps-slot" aria-hidden="true" />;
           return (
-            <li
-              key={step}
-              className="homr__steps-col homr__steps-col--data"
-              {...tipProps(stepName(step), `${fmt(n)} (${pct(n, total)})`)}
-            >
-              <span
-                className="homr__steps-fill"
-                style={{ height: `${String((100 * n) / top)}%` }}
-                aria-hidden="true"
-              />
-              <span className="visually-hidden">
-                {stepName(step)}: {fmt(n)} ({pct(n, total)})
-              </span>
+            <li key={step} className="homr__steps-slot">
+              <Choice
+                className="homr__steps-col"
+                selection={{
+                  key: `step:${String(step)}`,
+                  title: `Altura: ${stepName(step)}`,
+                  kicker: "Cuánto se movió la altura",
+                }}
+                tip={tipProps(stepName(step), `${fmt(n)} (${pct(n, total)})`)}
+                {...choosing}
+              >
+                <span
+                  className="homr__steps-fill"
+                  style={{ height: `${String((100 * n) / top)}%` }}
+                  aria-hidden="true"
+                />
+                <span className="visually-hidden">
+                  {stepName(step)}: {fmt(n)} ({pct(n, total)})
+                </span>
+              </Choice>
             </li>
           );
         })}
@@ -588,10 +716,12 @@ function RateList({
   title,
   rows,
   figures,
+  choosing,
 }: {
   title: string;
   rows: ErrorRateRead[];
   figures?: Record<string, FigureRead>;
+  choosing: Choosing;
 }) {
   const [page, setPage] = useState(0);
   if (!rows.length) return null;
@@ -603,64 +733,31 @@ function RateList({
       <h4 className="label homr__muted homr__rates-title">{title}</h4>
       <ul className="homr__bars" role="list">
         {shown.map((row) => (
-          <li
-            key={row.key}
-            className="homr__bar"
-            {...tipProps(row.label, `${fmt(row.wrong)} de ${fmt(row.n)} notas con corrección`)}
-          >
-            <span className="homr__bar-name">
-              <span className="homr__bar-label">
-                {figures && <FigureSymbol figure={figures[row.key.slice("readdur:".length)]} />}
-                {row.label}
+          <li key={row.key}>
+            <Choice
+              className="homr__bar"
+              selection={{ key: row.key, title: row.label, kicker: title }}
+              tip={tipProps(row.label, `${fmt(row.wrong)} de ${fmt(row.n)} notas con corrección`)}
+              {...choosing}
+            >
+              <span className="homr__bar-name">
+                <span className="homr__bar-label">
+                  {figures && <FigureSymbol figure={figures[row.key.slice("readdur:".length)]} />}
+                  {row.label}
+                </span>
+                <span className="homr__bar-sub">
+                  {fmt(row.wrong)} de {fmt(row.n)} notas
+                </span>
               </span>
-              <span className="homr__bar-sub">
-                {fmt(row.wrong)} de {fmt(row.n)} notas
+              <span className="homr__bar-track" aria-hidden="true">
+                <span className="homr__bar-fill" style={{ width: `${String(100 * row.rate)}%` }} />
               </span>
-            </span>
-            <span className="homr__bar-track" aria-hidden="true">
-              <span className="homr__bar-fill" style={{ width: `${String(100 * row.rate)}%` }} />
-            </span>
-            <span className="homr__bar-value">{pct(row.wrong, row.n, 0)}</span>
+              <span className="homr__bar-value">{pct(row.wrong, row.n, 0)}</span>
+            </Choice>
           </li>
         ))}
       </ul>
-      {pages > 1 && (
-        <nav className="homr__pager" aria-label={`Páginas de «${title}»`}>
-          <button
-            type="button"
-            className="homr__pager-step"
-            aria-disabled={current === 0}
-            onClick={() => {
-              if (current > 0) setPage(current - 1);
-            }}
-          >
-            Anterior
-          </button>
-          {Array.from({ length: pages }, (_, index) => (
-            <button
-              key={index}
-              type="button"
-              aria-current={index === current ? "page" : undefined}
-              aria-label={`Página ${String(index + 1)} de ${String(pages)}`}
-              onClick={() => {
-                setPage(index);
-              }}
-            >
-              {index + 1}
-            </button>
-          ))}
-          <button
-            type="button"
-            className="homr__pager-step"
-            aria-disabled={current === pages - 1}
-            onClick={() => {
-              if (current < pages - 1) setPage(current + 1);
-            }}
-          >
-            Siguiente
-          </button>
-        </nav>
-      )}
+      <Pager label={`Páginas de «${title}»`} page={current} pages={pages} onPage={setPage} />
     </div>
   );
 }
@@ -668,9 +765,11 @@ function RateList({
 function DurationTable({
   durations,
   figures,
+  choosing,
 }: {
   durations: HomrErrorStatsValuesRead["durations"];
   figures: Record<string, FigureRead>;
+  choosing: Choosing;
 }) {
   if (!durations.length) return <p className="homr__panel-note">Sin correcciones de figura.</p>;
   const matrix = durationMatrix(durations);
@@ -710,6 +809,7 @@ function DurationTable({
                 if (!n) return <td key={fix} />;
                 const alpha = cellAlpha(n, matrix.max);
                 const share = Math.round(alpha * 100);
+                const title = `Leída ${matrix.names[readBeats] ?? ""}, correcta ${matrix.names[fix] ?? ""}`;
                 return (
                   <td
                     key={fix}
@@ -719,12 +819,19 @@ function DurationTable({
                     style={{
                       backgroundColor: `color-mix(in srgb, var(--color-accent) ${String(share)}%, var(--color-paper))`,
                     }}
-                    {...tipProps(
-                      `Leída ${matrix.names[readBeats] ?? ""}, correcta ${matrix.names[fix] ?? ""}`,
-                      fmt(n),
-                    )}
                   >
-                    {fmt(n)}
+                    <Choice
+                      className="homr__cell-value"
+                      selection={{
+                        key: `dur:${readBeats}>${fix}`,
+                        title,
+                        kicker: "Figura leída y correcta",
+                      }}
+                      tip={tipProps(title, fmt(n))}
+                      {...choosing}
+                    >
+                      {fmt(n)}
+                    </Choice>
                   </td>
                 );
               })}

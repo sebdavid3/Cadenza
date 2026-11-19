@@ -81,6 +81,34 @@ export interface DismissFindingRequest {
 }
 
 /**
+ * Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto.
+ */
+export interface DrawnBarRead {
+  /** La clave de la lectura («G2», «F4», «C3»). */
+  clef: string;
+  /** La armadura, en quintas (negativa en bemoles). */
+  key: number;
+  /** Lo que leyó HOMR, evento a evento. */
+  read: DrawnEventRead[];
+  /** Lo correcto, evento a evento. */
+  fixed: DrawnEventRead[];
+}
+
+/**
+ * Un evento de un compás dibujado: una nota o un silencio, con su duración en negras.
+ */
+export interface DrawnEventRead {
+  /** `note` o `rest`. */
+  kind: "note" | "rest";
+  /** La altura («Bb4», «F#5»); vacía en un silencio. */
+  pitch: string;
+  /** La duración en negras: clave de `figures`. */
+  beats: string;
+  /** Si suena con el evento anterior, en el mismo acorde. */
+  chord: boolean;
+}
+
+/**
  * Cuántas veces HOMR leyó una figura y la persona la corrigió a otra.
  */
 export interface DurationChangeRead {
@@ -486,6 +514,35 @@ export interface HealthStatusResponse {
 }
 
 /**
+ * Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
+ * qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen.
+ */
+export interface HomrErrorExampleRead {
+  /** El íncipit del corpus («000100134-7_1_1»). */
+  score: string;
+  /** El compás. */
+  measure: string;
+  /** `parte-pentagrama`, desde 0. */
+  staff: string;
+  /** `change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó). */
+  kind: "change" | "extra" | "missing";
+  /** Lo que leyó HOMR, en palabras; vacío en `missing`. */
+  read: string;
+  /** Lo correcto, en palabras; vacío en `extra`. */
+  fix: string;
+  /** La duración leída en negras: clave de `figures`. */
+  read_beats: string;
+  /** La duración correcta en negras: clave de `figures`. */
+  fix_beats: string;
+  /** Su compás dibujado: clave de `bars`. */
+  bar?: string | null;
+  /** La posición del evento en `read` del compás dibujado. */
+  at_read?: number | null;
+  /** La posición del evento en `fixed` del compás dibujado. */
+  at_fix?: number | null;
+}
+
+/**
  * Un grupo de las cifras: `cadenza` (todas las sesiones que cuentan), `pruebas` (las de las
  * cuentas del registro) o un corpus (`primus`).
  */
@@ -549,6 +606,12 @@ export interface HomrErrorStatsValuesRead {
   by_duration: ErrorRateRead[];
   /** El nombre y el símbolo de cada duración (en negras) que sale en el grupo. */
   figures: Record<string, FigureRead>;
+  /** Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local. Null en los de Cadenza, que nunca los llevan. */
+  examples?: HomrErrorExampleRead[] | null;
+  /** Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`. */
+  example_keys?: Record<string, number[]> | null;
+  /** Solo en los corpus: los compases dibujados de los ejemplos. */
+  bars?: Record<string, DrawnBarRead> | null;
 }
 
 /**

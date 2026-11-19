@@ -27,6 +27,8 @@ from .schemas import HomrErrorStatsGroupRead, HomrErrorStatsRead
 logger = logging.getLogger("cadenza.api.public_stats")
 
 CACHE_CONTROL = "public, max-age=60"
+CORPUS_ONLY = frozenset({"examples", "example_keys", "bars"})
+"""Lo que solo llevan los grupos de corpus: los ejemplos con su compás dibujado."""
 """Para el navegador y cualquier caché por el camino: las cifras cambian cada 5 minutos."""
 
 
@@ -44,6 +46,10 @@ def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:
             # Quien calcula ya lo aplica; si una fila lo incumple, no se publica igual.
             logger.warning("public_stats_group_unpublished id=%s reason=min_sessions", group.id)
             stats = None
+        if stats is not None and group.source == "cadenza":
+            # Los grupos de Cadenza nunca llevan ejemplos (ADR-0073, enmienda de #424): solo los
+            # corpus públicos. Si una fila los trajera, no se publican.
+            stats = {k: v for k, v in stats.items() if k not in CORPUS_ONLY}
         if group.format_version != PUBLIC_STATS_FORMAT_VERSION:
             logger.warning(
                 "public_stats_group_skipped id=%s reason=format_version=%s",

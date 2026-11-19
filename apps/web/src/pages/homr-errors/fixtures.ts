@@ -82,3 +82,54 @@ export function payload(
 
 /** Cadenza sin publicar: ni sus sesiones ni sus cifras. */
 export const UNPUBLISHED = { published: false, sessions: null, stats: null } as const;
+
+/** Los ejemplos de un corpus: seis de «Figura equivocada» y uno de «Altura equivocada». */
+export function withExamples(stats: HomrErrorStatsValuesRead): HomrErrorStatsValuesRead {
+  const durationExamples = Array.from({ length: 6 }, (_, i) => ({
+    score: `00010013${String(i)}-1_1_1`,
+    measure: String(i + 1),
+    staff: "0-0",
+    kind: "change" as const,
+    read: "C5 corchea",
+    fix: "C5 negra",
+    read_beats: "1/2",
+    fix_beats: "1",
+    bar: "b0",
+    at_read: 1,
+    at_fix: 1,
+  }));
+  const pitchExample = {
+    score: "000100200-1_1_1",
+    measure: "3",
+    staff: "0-0",
+    kind: "change" as const,
+    read: "Bb4 negra",
+    fix: "B4 negra",
+    read_beats: "1",
+    fix_beats: "1",
+    bar: "b0",
+    at_read: 0,
+    at_fix: 0,
+  };
+  return {
+    ...stats,
+    examples: [...durationExamples, pitchExample],
+    example_keys: { "op:SetDuration": [0, 1, 2, 3, 4, 5], "op:SetPitch": [6] },
+    bars: {
+      b0: {
+        clef: "G2",
+        key: -1,
+        read: [
+          { kind: "note", pitch: "Bb4", beats: "1", chord: false },
+          { kind: "note", pitch: "C5", beats: "1/2", chord: false },
+          { kind: "rest", pitch: "", beats: "1", chord: false },
+        ],
+        fixed: [
+          { kind: "note", pitch: "B4", beats: "1", chord: false },
+          { kind: "note", pitch: "C5", beats: "1", chord: false },
+          { kind: "rest", pitch: "", beats: "1", chord: false },
+        ],
+      },
+    },
+  };
+}

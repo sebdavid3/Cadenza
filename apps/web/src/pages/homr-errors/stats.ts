@@ -25,6 +25,9 @@ export const MIN_ACCOUNTS = 3;
 /** Filas por página en las listas de «Dónde se equivoca más». */
 export const PAGE_SIZE = 8;
 
+/** Ejemplos por página en el panel de los ejemplos de un corpus. */
+export const EXAMPLES_PAGE_SIZE = 4;
+
 export interface GroupInfo {
   /** Cómo se llama en el conmutador. */
   name: string;
@@ -194,6 +197,11 @@ export interface Finding {
    * nombre (`label`), que está en `text`. */
   figure?: { beats: string; label: string };
   kicker: string;
+  /** La cifra de la que habla, para elegir sus ejemplos (en los corpus): `op:SetPitch`,
+   * `readdur:1/2`, `vs:against_key` o `clef:G2`. */
+  key?: string;
+  /** Cómo se llama esa cifra en el panel de los ejemplos. */
+  title?: string;
 }
 
 /** Hasta cuatro frases calculadas de las cifras, como en el informe (#418). Los grupos de
@@ -210,6 +218,8 @@ export function findings(stats: HomrErrorStatsValuesRead): Finding[] {
       big: pct(n, read, 0),
       text: `de las notas que leyó HOMR ${OP_FINDING[op] ?? ""}: es lo que más se corrige (${fmt(n)} de ${fmt(read)}).`,
       kicker: "Qué se corrige",
+      key: `op:${op}`,
+      title: opName(op),
     });
   }
   const big = (rows: ErrorRateRead[]) => rows.filter((r) => r.n >= MIN_HEADLINE && r.wrong > 0);
@@ -220,6 +230,8 @@ export function findings(stats: HomrErrorStatsValuesRead): Finding[] {
       text: `de las notas leídas como ${figure.label} tienen alguna corrección (${fmt(figure.wrong)} de ${fmt(figure.n)}): es la figura que peor lee.`,
       figure: { beats: figure.key.slice("readdur:".length), label: figure.label },
       kicker: "Figura leída",
+      key: figure.key,
+      title: figure.label,
     });
   }
   const against = stats.by_vs_key.find((r) => r.key === "vs:against_key");
@@ -229,6 +241,8 @@ export function findings(stats: HomrErrorStatsValuesRead): Finding[] {
       big: pct(against.wrong, against.n, 0),
       text: `de las notas con una alteración contra la armadura se corrigen (${fmt(against.wrong)} de ${fmt(against.n)}), frente al ${pct(inKey.wrong, inKey.n, 0)} de las que van según la armadura.`,
       kicker: "Alteración y armadura",
+      key: against.key,
+      title: against.label,
     });
   }
   const clef = big(stats.by_clef)[0];
@@ -237,6 +251,8 @@ export function findings(stats: HomrErrorStatsValuesRead): Finding[] {
       big: pct(clef.wrong, clef.n, 0),
       text: `de las notas en ${clef.label} tienen alguna corrección (${fmt(clef.wrong)} de ${fmt(clef.n)}): la clave en que más falla.`,
       kicker: "Clave",
+      key: clef.key,
+      title: clef.label,
     });
   }
   if (out.length < 4 && stats.scores) {

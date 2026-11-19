@@ -48,7 +48,14 @@ from cadenza.persistence import (
 from sqlalchemy import text
 from sqlalchemy.orm import Session as DbSession
 
-from ml.tables_report import REAL_TESTS, aggregate, figure_name, figure_symbol, reordered_chords
+from ml.tables_report import (
+    REAL_TESTS,
+    _Bars,
+    aggregate,
+    figure_name,
+    figure_symbol,
+    reordered_chords,
+)
 
 logger = logging.getLogger("ml.public_stats")
 
@@ -79,7 +86,25 @@ PUBLISHED: Final[tuple[str, ...]] = (
     "by_clef",
     "by_duration",
 )
-"""Lo que se publica de `aggregate`: sin `examples`, `example_keys` ni `per_score`."""
+"""Lo que se publica de `aggregate` en todos los grupos: sin `examples`, `example_keys` ni
+`per_score`. Los grupos de corpus añaden sus ejemplos (`EXAMPLES`); los de Cadenza, nunca."""
+EXAMPLES: Final[tuple[str, ...]] = ("examples", "example_keys", "bars")
+"""Lo que añaden los grupos de corpus (ADR-0073, enmienda de #424): los ejemplos de cada cifra con
+su compás dibujado, como el informe local, sin imagen y sin los de cada partitura (`score:`)."""
+_EXAMPLE_FIELDS: Final[tuple[str, ...]] = (
+    "score",
+    "measure",
+    "staff",
+    "kind",
+    "read",
+    "fix",
+    "read_beats",
+    "fix_beats",
+    "bar",
+    "at_read",
+    "at_fix",
+)
+"""Lo que se publica de un ejemplo del informe: sin su recorte (`img`)."""
 _CORPUS_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
 
@@ -92,15 +117,62 @@ def as_csv_rows(tables: dict[str, list[dict[str, Any]]]) -> dict[str, list[Row]]
     }
 
 
+def _drawn_event(event: list[Any]) -> dict[str, Any]:
+    """Un evento de un compás dibujado (`_Bars`: tipo, altura, duración y si va en acorde)."""
+    kind, pitch, beats, chord = event
+    return {
+        "kind": "rest" if kind == "r" else "note",
+        "pitch": pitch,
+        "beats": beats,
+        "chord": bool(chord),
+    }
+
+
+def _examples(data: dict[str, Any], bars: _Bars) -> dict[str, Any]:
+    """Los ejemplos de cada cifra y sus compases dibujados, sin los de cada partitura (`score:`,
+    el historial del informe) ni su recorte, renumerados para que solo vayan los que se usan."""
+    keys = {k: v for k, v in data["example_keys"].items() if not k.startswith("score:")}
+    used = sorted({i for indices in keys.values() for i in indices})
+    position = {old: new for new, old in enumerate(used)}
+    examples = [{field: data["examples"][i].get(field) for field in _EXAMPLE_FIELDS} for i in used]
+    bar_ids = {str(x["bar"]) for x in examples if x.get("bar")}
+    return {
+        "examples": examples,
+        "example_keys": {k: [position[i] for i in v] for k, v in keys.items()},
+        "bars": {
+            bar_id: {
+                "clef": bar["clef"],
+                "key": bar["key"],
+                "read": [_drawn_event(e) for e in bar["read"]],
+                "fixed": [_drawn_event(e) for e in bar["fixed"]],
+            }
+            for bar_id, bar in bars.bars.items()
+            if bar_id in bar_ids
+        },
+    }
+
+
 def group_stats(
-    tables: dict[str, list[Row]], only: set[str] | None, reordered: set[int]
+    tables: dict[str, list[Row]],
+    only: set[str] | None,
+    reordered: set[int],
+    *,
+    with_examples: bool = False,
 ) -> dict[str, Any]:
     """Las cifras publicables de unas partituras (`incipit_id`; todas con None), sin contar los
-    acordes solo reordenados, y el nombre y el símbolo de cada figura que sale en ellas."""
-    data = aggregate(tables, only, True, reordered)
+    acordes solo reordenados, y el nombre y el símbolo de cada figura que sale en ellas. Con
+    `with_examples` (solo los corpus), también sus ejemplos con el compás dibujado."""
+    bars = _Bars(tables) if with_examples else None
+    data = aggregate(tables, only, True, reordered, bars)
     stats = {key: data[key] for key in PUBLISHED}
     beats = {d["read"] for d in data["durations"]} | {d["fix"] for d in data["durations"]}
     beats |= {str(r["key"]).split(":", 1)[1] for r in data["by_duration"]}
+    if bars is not None:
+        stats.update(_examples(data, bars))
+        for example in stats["examples"]:
+            beats |= {example["read_beats"], example["fix_beats"]}
+        for bar in stats["bars"].values():
+            beats |= {e["beats"] for e in [*bar["read"], *bar["fixed"]]}
     stats["figures"] = {
         value: {"name": figure_name(value), "symbol": figure_symbol(value)}
         for value in sorted(beats - {"", "—"})
@@ -175,7 +247,7 @@ def _corpus_group(path: Path, sha256: str, computed_at: datetime.datetime) -> Pu
         # Un corpus de `build-dataset` trae sesiones de Cadenza: saldrían sin el mínimo.
         raise ValueError("trae sesiones de Cadenza: sus cifras salen en vivo, no de un corpus")
     tables = as_csv_rows(corpus_tables(records))
-    stats = group_stats(tables, None, reordered_chords(tables["notas"]))
+    stats = group_stats(tables, None, reordered_chords(tables["notas"]), with_examples=True)
     return PublicStatsGroup(
         id=path.stem,
         source=CORPUS,

@@ -430,7 +430,13 @@ Ampliación compatible del contrato: ningún campo existente cambia. Son datos d
 - Cada grupo (`HomrErrorStatsGroupRead`) dice su `id` (`cadenza`: todas las sesiones que cuentan; `pruebas`: las de las cuentas del registro; `primus`: el corpus de PrIMuS), su `source` (`cadenza`, en vivo, o `corpus`, precalculado), su `computed_at` y `min_sessions`. Con `published: false` no llegó al mínimo (5 sesiones de 3 cuentas): `sessions` y `stats` vienen `null`, y la web no ha de enseñar nada de él salvo que aún no hay cifras.
 - `stats` (`HomrErrorStatsValuesRead`) son las cifras del informe local (ADR-0069): partituras y cuántas salieron sin ninguna corrección, notas leídas y qué pasó con ellas (`outcome`), las que faltaban, las correcciones por tipo (`ops`), cuánto se movió la altura (`steps`), la figura leída frente a la correcta (`durations`) y la proporción corregida por alteración frente a la armadura, por clave y por figura leída (grupos de 30 notas o más). Las duraciones van en negras («1/2») solo como clave: su nombre y su símbolo están en `figures`, y la web no enseña la fracción.
 - Las cifras se recalculan cada 5 minutos: la respuesta lleva `Cache-Control: public, max-age=60` y `ETag` (con `If-None-Match` y sin cambios, **304**), así que basta pedirla al abrir la página y cada pocos minutos (la web lo hace en `/errores-de-homr`, §6).
-- Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión.
+- **Solo los grupos de corpus** (`source: corpus`) llevan, en `stats`, los ejemplos del informe local (ADR-0073, enmienda de #424). Son tres campos:
+  - `examples`: dónde está cada ejemplo, qué leyó HOMR y lo correcto;
+  - `example_keys`: qué ejemplos tiene cada cifra (`op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`);
+  - `bars`: el compás de cada ejemplo, evento a evento, para dibujarlo.
+
+  En los grupos de Cadenza los tres son `null`. La web dibuja cada compás desde estos datos: no hay ninguna imagen del corpus.
+- Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión de Cadenza.
 
 ## 6. Estado Actual de `apps/web` (Fase 8)
 

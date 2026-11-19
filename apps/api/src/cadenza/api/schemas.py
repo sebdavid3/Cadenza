@@ -1140,6 +1140,48 @@ class ErrorRateRead(BaseModel):
     rate: float = Field(..., ge=0, le=1, description="`wrong / n`.")
 
 
+class DrawnEventRead(BaseModel):
+    """Un evento de un compás dibujado: una nota o un silencio, con su duración en negras."""
+
+    kind: Literal["note", "rest"] = Field(..., description="`note` o `rest`.")
+    pitch: str = Field(..., description="La altura («Bb4», «F#5»); vacía en un silencio.")
+    beats: str = Field(..., description="La duración en negras: clave de `figures`.")
+    chord: bool = Field(..., description="Si suena con el evento anterior, en el mismo acorde.")
+
+
+class DrawnBarRead(BaseModel):
+    """Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto."""
+
+    clef: str = Field(..., description="La clave de la lectura («G2», «F4», «C3»).")
+    key: int = Field(..., description="La armadura, en quintas (negativa en bemoles).")
+    read: list[DrawnEventRead] = Field(..., description="Lo que leyó HOMR, evento a evento.")
+    fixed: list[DrawnEventRead] = Field(..., description="Lo correcto, evento a evento.")
+
+
+class HomrErrorExampleRead(BaseModel):
+    """Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y
+    qué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."""
+
+    score: str = Field(..., description="El íncipit del corpus («000100134-7_1_1»).")
+    measure: str = Field(..., description="El compás.")
+    staff: str = Field(..., description="`parte-pentagrama`, desde 0.")
+    kind: Literal["change", "extra", "missing"] = Field(
+        ...,
+        description="`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó).",
+    )
+    read: str = Field(..., description="Lo que leyó HOMR, en palabras; vacío en `missing`.")
+    fix: str = Field(..., description="Lo correcto, en palabras; vacío en `extra`.")
+    read_beats: str = Field(..., description="La duración leída en negras: clave de `figures`.")
+    fix_beats: str = Field(..., description="La duración correcta en negras: clave de `figures`.")
+    bar: str | None = Field(default=None, description="Su compás dibujado: clave de `bars`.")
+    at_read: int | None = Field(
+        default=None, description="La posición del evento en `read` del compás dibujado."
+    )
+    at_fix: int | None = Field(
+        default=None, description="La posición del evento en `fixed` del compás dibujado."
+    )
+
+
 class HomrErrorStatsValuesRead(BaseModel):
     """Las cifras de conjunto de un grupo, las del informe local (ADR-0069) sin sus ejemplos.
 
@@ -1186,6 +1228,23 @@ class HomrErrorStatsValuesRead(BaseModel):
     figures: dict[str, FigureRead] = Field(
         ...,
         description="El nombre y el símbolo de cada duración (en negras) que sale en el grupo.",
+    )
+    examples: list[HomrErrorExampleRead] | None = Field(
+        default=None,
+        description=(
+            "Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local."
+            " Null en los de Cadenza, que nunca los llevan."
+        ),
+    )
+    example_keys: dict[str, list[int]] | None = Field(
+        default=None,
+        description=(
+            "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`,"
+            " `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
+        ),
+    )
+    bars: dict[str, DrawnBarRead] | None = Field(
+        default=None, description="Solo en los corpus: los compases dibujados de los ejemplos."
     )
 
 

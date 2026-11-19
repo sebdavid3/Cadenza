@@ -3054,6 +3054,82 @@
         "title": "DismissFindingRequest",
         "description": "Payload opcional para descartar un hallazgo como falso positivo (#36)."
       },
+      "DrawnBarRead": {
+        "properties": {
+          "clef": {
+            "type": "string",
+            "title": "Clef",
+            "description": "La clave de la lectura («G2», «F4», «C3»)."
+          },
+          "key": {
+            "type": "integer",
+            "title": "Key",
+            "description": "La armadura, en quintas (negativa en bemoles)."
+          },
+          "read": {
+            "items": {
+              "$ref": "#/components/schemas/DrawnEventRead"
+            },
+            "type": "array",
+            "title": "Read",
+            "description": "Lo que leyó HOMR, evento a evento."
+          },
+          "fixed": {
+            "items": {
+              "$ref": "#/components/schemas/DrawnEventRead"
+            },
+            "type": "array",
+            "title": "Fixed",
+            "description": "Lo correcto, evento a evento."
+          }
+        },
+        "type": "object",
+        "required": [
+          "clef",
+          "key",
+          "read",
+          "fixed"
+        ],
+        "title": "DrawnBarRead",
+        "description": "Un compás de un ejemplo de un corpus, para dibujarlo: lo que leyó HOMR y lo correcto."
+      },
+      "DrawnEventRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "note",
+              "rest"
+            ],
+            "title": "Kind",
+            "description": "`note` o `rest`."
+          },
+          "pitch": {
+            "type": "string",
+            "title": "Pitch",
+            "description": "La altura («Bb4», «F#5»); vacía en un silencio."
+          },
+          "beats": {
+            "type": "string",
+            "title": "Beats",
+            "description": "La duración en negras: clave de `figures`."
+          },
+          "chord": {
+            "type": "boolean",
+            "title": "Chord",
+            "description": "Si suena con el evento anterior, en el mismo acorde."
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "pitch",
+          "beats",
+          "chord"
+        ],
+        "title": "DrawnEventRead",
+        "description": "Un evento de un compás dibujado: una nota o un silencio, con su duración en negras."
+      },
       "DurationChangeRead": {
         "properties": {
           "read": {
@@ -4061,6 +4137,104 @@
         "title": "HealthStatusResponse",
         "description": "Estado de operatividad y salud del sistema backend (#40, D44)."
       },
+      "HomrErrorExampleRead": {
+        "properties": {
+          "score": {
+            "type": "string",
+            "title": "Score",
+            "description": "El íncipit del corpus («000100134-7_1_1»)."
+          },
+          "measure": {
+            "type": "string",
+            "title": "Measure",
+            "description": "El compás."
+          },
+          "staff": {
+            "type": "string",
+            "title": "Staff",
+            "description": "`parte-pentagrama`, desde 0."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "change",
+              "extra",
+              "missing"
+            ],
+            "title": "Kind",
+            "description": "`change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó)."
+          },
+          "read": {
+            "type": "string",
+            "title": "Read",
+            "description": "Lo que leyó HOMR, en palabras; vacío en `missing`."
+          },
+          "fix": {
+            "type": "string",
+            "title": "Fix",
+            "description": "Lo correcto, en palabras; vacío en `extra`."
+          },
+          "read_beats": {
+            "type": "string",
+            "title": "Read Beats",
+            "description": "La duración leída en negras: clave de `figures`."
+          },
+          "fix_beats": {
+            "type": "string",
+            "title": "Fix Beats",
+            "description": "La duración correcta en negras: clave de `figures`."
+          },
+          "bar": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bar",
+            "description": "Su compás dibujado: clave de `bars`."
+          },
+          "at_read": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Read",
+            "description": "La posición del evento en `read` del compás dibujado."
+          },
+          "at_fix": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Fix",
+            "description": "La posición del evento en `fixed` del compás dibujado."
+          }
+        },
+        "type": "object",
+        "required": [
+          "score",
+          "measure",
+          "staff",
+          "kind",
+          "read",
+          "fix",
+          "read_beats",
+          "fix_beats"
+        ],
+        "title": "HomrErrorExampleRead",
+        "description": "Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y\nqué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."
+      },
       "HomrErrorStatsGroupRead": {
         "properties": {
           "id": {
@@ -4258,6 +4432,54 @@
             "type": "object",
             "title": "Figures",
             "description": "El nombre y el símbolo de cada duración (en negras) que sale en el grupo."
+          },
+          "examples": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HomrErrorExampleRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Examples",
+            "description": "Solo en los grupos de corpus: los ejemplos de cada cifra, como en el informe local. Null en los de Cadenza, que nunca los llevan."
+          },
+          "example_keys": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Example Keys",
+            "description": "Solo en los corpus: los ejemplos (posiciones en `examples`) de cada cifra: `op:SetPitch`, `step:-2`, `dur:1/2>1`, `vs:in_key`, `clef:G2` o `readdur:1/2`."
+          },
+          "bars": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/DrawnBarRead"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bars",
+            "description": "Solo en los corpus: los compases dibujados de los ejemplos."
           }
         },
         "type": "object",

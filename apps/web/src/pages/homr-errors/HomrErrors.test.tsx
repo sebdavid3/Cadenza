@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAuthStore } from "../../auth/store";
 import { routes } from "../../router";
 import type { HomrErrorStatsRead } from "../../types";
-import { group, payload, rate, UNPUBLISHED, values } from "./fixtures";
+import { group, payload, rate, UNPUBLISHED, values, withExamples } from "./fixtures";
 import { HomrErrors, type StatsLoader } from "./HomrErrors";
 
 afterEach(() => {
@@ -308,5 +308,60 @@ describe("la vista de los errores de HOMR", () => {
     await userEvent.click(link);
     expect(router.state.location.pathname).toBe("/errores-de-homr");
     expect(await screen.findByText(/calculadas el/)).toBeInTheDocument();
+  });
+});
+
+describe("los ejemplos de los corpus", () => {
+  it("enseñan de entrada los de lo primero que dicen los datos, con su compás dibujado", async () => {
+    const stats = withExamples(values());
+    const { container } = render(
+      <HomrErrors load={loader(payload([group("primus", { stats })]))} />,
+    );
+    await screen.findByText(/Calculadas una vez/);
+
+    const panel = screen.getByRole("complementary", { name: "Figura equivocada" });
+    expect(within(panel).getByText(/Calvo-Zaragoza y Rizo, 2018/)).toBeInTheDocument();
+    expect(within(panel).getByText(/no es una imagen del corpus/)).toBeInTheDocument();
+    expect(
+      within(panel).getAllByRole("img", { name: /^Compás \d+: lo que leyó HOMR/ }),
+    ).toHaveLength(4);
+    expect(
+      within(panel).getByText("000100130-1_1_1 · compás 1 · pentagrama 0-0"),
+    ).toBeInTheDocument();
+    // La nota del ejemplo va en violeta: su grupo, marcado en cada pentagrama.
+    expect(panel.querySelectorAll(".homr__drawn-focus").length).toBeGreaterThan(0);
+    // Ninguna imagen del corpus: los compases son SVG dibujados desde los datos.
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  it("pagina los ejemplos y cambia al elegir otra cifra", async () => {
+    const stats = withExamples(values());
+    render(<HomrErrors load={loader(payload([group("primus", { stats })]))} />);
+    await screen.findByText(/Calculadas una vez/);
+    const pager = screen.getByRole("navigation", { name: "Páginas de los ejemplos" });
+
+    await userEvent.click(within(pager).getByRole("button", { name: "Página 2 de 2" }));
+    expect(screen.getByText("000100135-1_1_1 · compás 6 · pentagrama 0-0")).toBeInTheDocument();
+
+    const bar = screen.getByRole("button", { name: /^Altura equivocada/ });
+    await userEvent.click(bar);
+    expect(bar).toHaveAttribute("aria-pressed", "true");
+    const panel = screen.getByRole("complementary", { name: "Altura equivocada" });
+    expect(
+      within(panel).getByText("000100200-1_1_1 · compás 3 · pentagrama 0-0"),
+    ).toBeInTheDocument();
+    expect(within(panel).queryByRole("navigation")).toBeNull();
+    expect(within(panel).getByText("Bb4 negra")).toHaveClass("homr__tok--del");
+  });
+
+  it("no salen en los grupos de Cadenza, que solo enseñan cifras de conjunto", async () => {
+    // Aunque llegaran (la API ya los quita), un grupo de Cadenza no los enseña.
+    const stats = withExamples(values());
+    render(<HomrErrors load={loader(payload([group("cadenza", { stats })]))} />);
+    await screen.findByText(/calculadas el/);
+
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Altura equivocada/ })).toBeNull();
+    expect(screen.getByText(/solo se enseñan de los corpus públicos/)).toBeInTheDocument();
   });
 });

@@ -137,10 +137,12 @@ def test_only_the_fields_of_the_schema_are_published() -> None:
     }
     _store(factory, "cadenza", [_group("cadenza", stats=leaked, source_sha256="ab" * 32)])
 
-    text = TestClient(app).get(PATH).text
+    response = TestClient(app).get(PATH)
 
-    for forbidden in ("examples", "recortes", "per_score", "TS-01", "cadenza:s-1", "ab" * 32):
-        assert forbidden not in text
+    # Los ejemplos de un grupo de Cadenza no salen (ni válidos ni, como aquí, con una foto).
+    assert response.json()["groups"][0]["stats"]["examples"] is None
+    for forbidden in ("recortes", "per_score", "TS-01", "cadenza:s-1", "ab" * 32):
+        assert forbidden not in response.text
 
 
 def test_a_group_of_another_format_or_that_does_not_validate_is_left_out(
@@ -174,6 +176,52 @@ def test_a_live_group_under_the_minimum_is_not_published_even_if_stored_with_sta
 
     assert (group["published"], group["sessions"], group["stats"]) == (False, None, None)
     assert "min_sessions" in caplog.text
+
+
+EXAMPLES: dict[str, Any] = {
+    "examples": [
+        {
+            "score": "000100134-7_1_1",
+            "measure": "1",
+            "staff": "0-0",
+            "kind": "change",
+            "read": "C5 corchea",
+            "fix": "C5 negra",
+            "read_beats": "1/2",
+            "fix_beats": "1",
+            "bar": "b0",
+            "at_read": 0,
+            "at_fix": 0,
+        }
+    ],
+    "example_keys": {"op:SetDuration": [0]},
+    "bars": {
+        "b0": {
+            "clef": "G2",
+            "key": -1,
+            "read": [{"kind": "note", "pitch": "C5", "beats": "1/2", "chord": False}],
+            "fixed": [{"kind": "note", "pitch": "C5", "beats": "1", "chord": False}],
+        }
+    },
+}
+
+
+def test_only_the_corpus_groups_carry_their_examples() -> None:
+    app, factory = _app()
+    _store(factory, "cadenza", [_group("cadenza", stats={**STATS, **EXAMPLES})])
+    _store(factory, "corpus", [_group("primus", "corpus", stats={**STATS, **EXAMPLES})])
+
+    body = TestClient(app).get(PATH).json()
+    cadenza, primus = body["groups"]
+
+    # Aunque la fila de Cadenza los trajera, no salen: solo cifras de conjunto.
+    assert cadenza["stats"]["examples"] is None
+    assert cadenza["stats"]["example_keys"] is None
+    assert cadenza["stats"]["bars"] is None
+    assert "000100134" not in str(cadenza)
+    assert primus["stats"]["examples"][0]["score"] == "000100134-7_1_1"
+    assert primus["stats"]["example_keys"] == {"op:SetDuration": [0]}
+    assert primus["stats"]["bars"]["b0"]["fixed"][0]["beats"] == "1"
 
 
 def test_it_can_be_cached_and_answers_304_to_the_same_etag() -> None:
