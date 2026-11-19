@@ -220,12 +220,12 @@ Los mismos incipits de PrIMuS con la imagen distorsionada para que parezca una f
 azar con la semilla de `exp_12`, sin los 100 de `exp_03`: son los primeros de una ordenación al
 azar, así que una muestra mayor con la misma semilla empieza por esta y no repite lo leído.
 Los lee HOMR en la GPU (ADR-0066), sin preprocesado, con la transcripción reanudable de
-`external_corpus` (ADR-0072), y mide como `exp_12`: la altura que suena del `.semantic`, el
+`external_corpus` (nacida en #102), y mide como `exp_12`: la altura que suena del `.semantic`, el
 corrector ideal verificado, la armadura, el compás y la clave, más la SER y el OMR-NED.
 
 ```powershell
 uv run --no-sync python ml/experiments/exp_18_camera_primus.py prepare            # data/camera_primus/exp_18/manifest.json
-uv run --no-sync python ml/experiments/exp_18_camera_primus.py transcribe --gpu   # se reanuda; --retry-failures repite los fallos
+uv run --no-sync python ml/experiments/exp_18_camera_primus.py transcribe         # en la GPU (--cpu, en la CPU); se reanuda
 uv run --no-sync python ml/experiments/exp_18_camera_primus.py build              # corpus, partición y análisis en results/
 ```
 
@@ -236,6 +236,11 @@ confunde con el mismo incipit de `exp_12` en `ml export-tables`. La partición e
 de alguna obra compartida no coinciden. Escribe también `camera_primus_correction_corpus_incipits.csv`,
 `_split.json`, `_summary.json` (con `"simulated": false`) y `exp_18_run_info.json`; los de
 `exp_12` no se tocan.
+
+Una prueba de humo no pisa la medición: `build --limit N --results-dir <carpeta> --exp-12-split
+results/correction_corpus_split.json` escribe en otra carpeta, y el resumen y el `run_info` dicen
+`limit`, `manifest_count` y `partial`. `prepare --force` y `transcribe --force` no borran
+predicciones: las apartan a `predictions.previas-<fecha>`.
 
 ### `exp_14_suggestion_layer.py` — medición de la capa de sugerencias (#257)
 
@@ -553,8 +558,7 @@ uv run --no-sync python -m ml export-tables --output-dir <carpeta> --db-url <url
 La salida ha de estar vacía y fuera de `results/` y `data/`, como la de `export-staves`.
 
 Con `--informe` (#415, #418, ADR-0069), además `informe.html`: una página sin red, con el
-sistema visual de Cadenza, que explica qué son HOMR, PrIMuS y Camera-PrIMuS y, si la
-exportación junta varias fuentes, las separa en su filtro (ADR-0074). Trae las cifras de los errores
+sistema visual de Cadenza, que explica qué son HOMR, PrIMuS y Camera-PrIMuS (ADR-0074). Trae las cifras de los errores
 de HOMR de estas tablas: qué se corrige, cuánto se mueve la altura, la figura leída frente a
 la correcta (con su nombre y su símbolo) y dónde se equivoca más. Incluye un historial de las
 transcripciones con buscador y paginación y, de cada barra, celda o fila, hasta 12 ejemplos

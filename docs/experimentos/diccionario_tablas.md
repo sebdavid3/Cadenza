@@ -116,7 +116,7 @@ En PrIMuS y Camera-PrIMuS, `recorte` es la imagen del incipit entero.
 
 ## Tablas
 
-### `partituras.csv`: una fila por sesión (o por incipit de PrIMuS)
+### `partituras.csv`: una fila por sesión (o por incipit de PrIMuS o Camera-PrIMuS)
 
 | Columna | Significado | Origen |
 |---|---|---|
@@ -139,8 +139,8 @@ En PrIMuS y Camera-PrIMuS, `recorte` es la imagen del incipit entero.
 | `permiso_datos` | Si la cuenta tiene el permiso de uso de los datos de la versión vigente del texto (#378, ADR-0065). Una cuenta del registro sin él no llega a las tablas. | `users.data_consent_at`, `users.data_consent_version` |
 | `created_at` | Fecha de la sesión (ISO 8601). | `sessions` |
 
-No hay `source_filename`: un nombre de archivo puede llevar datos personales. En PrIMuS solo
-se rellenan las claves, `eventos_leidos`, `correcciones_netas` y `verified`.
+No hay `source_filename`: un nombre de archivo puede llevar datos personales. En PrIMuS y
+Camera-PrIMuS solo se rellenan las claves, `eventos_leidos`, `correcciones_netas` y `verified`.
 
 ### `notas.csv`: una fila por evento leído (registro `event`)
 
@@ -262,7 +262,14 @@ indicación sin mover compases), así que el compás N leído es el compás N fi
   final es lo que dejó quien corrigió. Un error de HOMR que se le escapó cuenta como `bien`, y
   una corrección equivocada cuenta como corrección. Las tasas de error que salgan de estas
   tablas son, por eso, una cota inferior de los errores de HOMR, sesgada hacia lo que una
-  persona ve. En PrIMuS la verdad es la del corpus.
+  persona ve. En PrIMuS y Camera-PrIMuS la verdad es la del corpus.
+- **Lo que HOMR no lee no está en las tablas.** De un corpus solo salen los incipits que HOMR
+  leyó y que se pudieron comparar con su verdad: los fallos del motor («No staffs found»), las
+  lecturas o verdades que el dominio no admite y los `.semantic` que no casan con el MEI no
+  tienen registros. Con la imagen distorsionada de Camera-PrIMuS son muchos más que con la de
+  PrIMuS, así que `bien` se mide solo sobre lo que HOMR consiguió leer. Su número está en el
+  resumen de cada experimento (`correction_corpus_summary.json`,
+  `camera_primus_correction_corpus_summary.json`).
 - Con `--include-unfinished`, el estado final de una sesión sin finalizar es el último del log,
   que la persona aún no dio por bueno.
 - `verified` falso marca las sesiones cuyas correcciones derivadas no reproducen el estado final:
