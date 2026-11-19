@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import PUBLIC_STATS_FORMAT_VERSION, PublicStatsGroup
+from cadenza.application import PUBLIC_STATS_FORMAT_VERSION, PublicStatsGroup, PublicStatsImage
 from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyPublicStatsRepository,
@@ -279,3 +279,143 @@ def test_the_contract_declares_the_endpoint_without_security() -> None:
     assert "304" in operation["responses"]
     schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert schema == {"$ref": "#/components/schemas/HomrErrorStatsRead"}
+
+
+HISTORY: list[dict[str, Any]] = [
+    {
+        "id": "primus:000100134-7_1_1",
+        "label": "000100134-7_1_1",
+        "read": 12,
+        "fixes": 1,
+        "image": False,
+    },
+    {
+        "id": "primus:000100135-1_1_1",
+        "label": "000100135-1_1_1",
+        "read": 9,
+        "fixes": 0,
+        "image": False,
+    },
+]
+DETAIL: dict[str, Any] = {
+    **HISTORY[0],
+    "examples": EXAMPLES["examples"],
+    "bars": EXAMPLES["bars"],
+    "figures": STATS["figures"],
+}
+SCORE_PATH = f"{PATH}/primus/scores/primus:000100134-7_1_1"
+
+
+def _store_scores(
+    factory: SessionFactory,
+    group: PublicStatsGroup,
+    scores: dict[str, dict[str, Any]],
+    images: dict[str, PublicStatsImage] | None = None,
+) -> None:
+    with session_scope(factory) as db:
+        SqlAlchemyPublicStatsRepository(db).replace_scores(group, scores, images)
+
+
+def test_only_the_corpus_groups_carry_their_history() -> None:
+    app, factory = _app()
+    _store(factory, "cadenza", [_group("cadenza", stats={**STATS, "history": HISTORY})])
+    _store(factory, "corpus", [_group("primus", "corpus", stats={**STATS, "history": HISTORY})])
+
+    cadenza, primus = TestClient(app).get(PATH).json()["groups"]
+
+    # Ninguna transcripción de Cadenza sale, ni siquiera en una lista.
+    assert cadenza["stats"]["history"] is None
+    assert primus["stats"]["history"] == HISTORY
+
+
+def test_it_serves_the_detail_of_a_corpus_score_with_its_examples() -> None:
+    app, factory = _app()
+    primus = _group("primus", "corpus", stats={**STATS, "history": HISTORY})
+    _store(factory, "corpus", [primus])
+    leaked = {**DETAIL, "examples": [{**DETAIL["examples"][0], "img": "recortes/x.png"}]}
+    _store_scores(factory, primus, {HISTORY[0]["id"]: leaked})
+    client = TestClient(app)
+
+    response = client.get(SCORE_PATH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["group_id"], body["id"], body["fixes"]) == ("primus", HISTORY[0]["id"], 1)
+    assert body["computed_at"].startswith("2026-11-19T12:00:00")
+    assert body["examples"][0]["fix"] == "C5 negra"
+    assert body["bars"]["b0"]["clef"] == "G2"
+    assert body["figures"]["1"]["name"] == "negra"
+    assert "recortes" not in response.text
+    assert response.headers["Cache-Control"] == "public, max-age=60"
+    again = client.get(SCORE_PATH, headers={"If-None-Match": response.headers["ETag"]})
+    assert again.status_code == 304
+
+
+def test_a_score_that_is_not_published_answers_404(caplog: pytest.LogCaptureFixture) -> None:
+    app, factory = _app()
+    cadenza = _group("cadenza")
+    old = _group("viejo", "corpus", format_version=PUBLIC_STATS_FORMAT_VERSION - 1)
+    _store(factory, "cadenza", [cadenza])
+    _store(factory, "corpus", [_group("primus", "corpus"), old])
+    # Una fila de detalle de un grupo de Cadenza no se publica aunque esté guardada.
+    _store_scores(factory, cadenza, {"cadenza:s-1": DETAIL})
+    _store_scores(factory, old, {"viejo:1": DETAIL})
+    client = TestClient(app)
+
+    with caplog.at_level(logging.WARNING, logger="cadenza.api"):
+        assert client.get(f"{PATH}/cadenza/scores/cadenza:s-1").status_code == 404
+        assert client.get(f"{PATH}/viejo/scores/viejo:1").status_code == 404
+    assert client.get(SCORE_PATH).status_code == 404
+    assert client.get(f"{PATH}/nadie/scores/x").status_code == 404
+    assert "source=cadenza" in caplog.text
+    assert "format_version" in caplog.text
+
+
+def test_the_contract_declares_the_score_detail_without_security() -> None:
+    app, _ = _app()
+    operation = app.openapi()["paths"][f"{PATH}/{{group_id}}/scores/{{score_id}}"]["get"]
+
+    assert "security" not in operation
+    assert {"200", "304", "404"} <= set(operation["responses"])
+
+
+PNG = PublicStatsImage(media_type="image/png", content=b"\x89PNG\r\n\x1a\n" + b"imagen")
+
+
+def test_it_serves_the_image_of_a_corpus_score() -> None:
+    app, factory = _app()
+    primus = _group("primus", "corpus")
+    _store(factory, "corpus", [primus])
+    _store_scores(
+        factory, primus, {HISTORY[0]["id"]: {**DETAIL, "image": True}}, {HISTORY[0]["id"]: PNG}
+    )
+    client = TestClient(app)
+
+    detail = client.get(SCORE_PATH).json()
+    response = client.get(f"{SCORE_PATH}/image")
+
+    assert detail["image"] is True
+    assert response.status_code == 200
+    assert response.content == PNG.content
+    assert response.headers["Content-Type"] == "image/png"
+    assert response.headers["Cache-Control"] == "public, max-age=86400"
+    again = client.get(f"{SCORE_PATH}/image", headers={"If-None-Match": response.headers["ETag"]})
+    assert again.status_code == 304
+
+
+def test_an_image_that_is_not_published_answers_404() -> None:
+    app, factory = _app()
+    cadenza = _group("cadenza")
+    primus = _group("primus", "corpus")
+    _store(factory, "cadenza", [cadenza])
+    _store(factory, "corpus", [primus])
+    # Aunque una fila de Cadenza la trajera, no se sirve; ni una que no es PNG ni JPEG.
+    _store_scores(factory, cadenza, {"cadenza:s-1": DETAIL}, {"cadenza:s-1": PNG})
+    svg = PublicStatsImage(media_type="image/svg+xml", content=b"<svg/>")
+    _store_scores(factory, primus, {HISTORY[0]["id"]: DETAIL, "x": DETAIL}, {"x": svg})
+    client = TestClient(app)
+
+    assert client.get(f"{PATH}/cadenza/scores/cadenza:s-1/image").status_code == 404
+    assert client.get(f"{SCORE_PATH}/image").status_code == 404  # sin imagen
+    assert client.get(f"{PATH}/primus/scores/x/image").status_code == 404
+    assert client.get(f"{PATH}/nadie/scores/x/image").status_code == 404

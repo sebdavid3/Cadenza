@@ -6,7 +6,10 @@ import {
   cellAlpha,
   durationMatrix,
   findings,
+  fold,
   groupInfo,
+  historyRows,
+  pageList,
   pct,
   shownGroups,
   stepName,
@@ -87,5 +90,31 @@ describe("las cifras de los errores de HOMR", () => {
       const alpha = cellAlpha(n, 400);
       expect(alpha <= 0.78 || alpha >= 0.9).toBe(true);
     }
+  });
+});
+
+describe("el historial y sus páginas", () => {
+  it("ofrece las páginas de los extremos y las vecinas, con huecos", () => {
+    expect(pageList(0, 3)).toEqual([0, 1, 2]);
+    expect(pageList(0, 10)).toEqual([0, 1, null, 8, 9]);
+    expect(pageList(4, 10)).toEqual([0, 1, 2, 3, 4, 5, null, 8, 9]);
+    expect(pageList(5, 12)).toEqual([0, 1, null, 4, 5, 6, null, 10, 11]);
+    // Un hueco de una sola página la enseña a ella.
+    expect(pageList(3, 10)).toEqual([0, 1, 2, 3, 4, null, 8, 9]);
+  });
+
+  it("busca sin acentos y ordena como el informe", () => {
+    expect(fold("Sesión ÁRBOL")).toBe("sesion arbol");
+    const rows = [
+      { id: "a", label: "a10", read: 20, fixes: 2 },
+      { id: "b", label: "a9", read: 2, fixes: 2 },
+      { id: "c", label: "b1", read: 30, fixes: 0 },
+      { id: "d", label: "B2", read: 10, fixes: 5 },
+    ];
+    expect(historyRows(rows, "", "rate").map((r) => r.id)).toEqual(["d", "a", "c", "b"]);
+    expect(historyRows(rows, "", "fixes").map((r) => r.id)).toEqual(["d", "b", "a", "c"]);
+    expect(historyRows(rows, "", "clean").map((r) => r.id)).toEqual(["c", "a", "b", "d"]);
+    expect(historyRows(rows, "", "name").map((r) => r.label)).toEqual(["a9", "a10", "b1", "B2"]);
+    expect(historyRows(rows, " b ", "name").map((r) => r.id)).toEqual(["b", "c", "d"]);
   });
 });

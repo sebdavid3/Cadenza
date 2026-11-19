@@ -1,10 +1,12 @@
 // Las cifras de la página de los errores de HOMR (#424, `/errores-de-homr`): lo que se calcula sobre lo que publica
-// `GET /stats/homr-errors` (#423, ADR-0073). Son las del informe local (#418, ADR-0069), sin sus
-// ejemplos: ni fotos ni nada de una partitura de usuario.
+// `GET /stats/homr-errors` (#423, ADR-0073). Son las del informe local (#418, ADR-0069): de
+// Cadenza, solo agregados, ni fotos ni nada de una partitura de usuario; de los corpus públicos,
+// también sus ejemplos y el historial de sus partituras.
 
 import type {
   DurationChangeRead,
   ErrorRateRead,
+  HomrErrorHistoryRowRead,
   HomrErrorStatsGroupRead,
   HomrErrorStatsRead,
   HomrErrorStatsValuesRead,
@@ -311,4 +313,76 @@ export function cellAlpha(n: number, max: number): number {
   const alpha = 0.12 + 0.88 * Math.sqrt(n / max);
   if (alpha <= INK_TEXT_MAX || alpha >= STRONG_ALPHA) return alpha;
   return alpha < (INK_TEXT_MAX + STRONG_ALPHA) / 2 ? INK_TEXT_MAX : STRONG_ALPHA;
+}
+
+// --- Páginas e historial ------------------------------------------------------------------------
+
+/** Las páginas que ofrece un paginador (desde 0), como en el informe: la primera, la segunda, las
+ * vecinas de la actual, la penúltima y la última, con un hueco (`null`, «…») entre medias. Un
+ * hueco de una sola página la enseña a ella. */
+export function pageList(current: number, pages: number): (number | null)[] {
+  const wanted = [...new Set([0, 1, current - 1, current, current + 1, pages - 2, pages - 1])]
+    .filter((page) => page >= 0 && page < pages)
+    .sort((a, b) => a - b);
+  const out: (number | null)[] = [];
+  wanted.forEach((page, index) => {
+    const before = wanted[index - 1];
+    if (before !== undefined && page - before === 2) out.push(page - 1);
+    else if (before !== undefined && page - before > 2) out.push(null);
+    out.push(page);
+  });
+  return out;
+}
+
+/** Para buscar sin acentos ni mayúsculas. */
+export function fold(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+}
+
+/** Notas que necesita una partitura para ir delante al ordenar por correcciones por nota: 1 de 2
+ * no es un 50 % que diga algo. */
+export const MIN_RATE_NOTES = 10;
+
+/** Filas por página que se pueden elegir en el historial. */
+export const HISTORY_SIZES = [25, 50, 100] as const;
+
+export const HISTORY_SORTS = [
+  { key: "rate", label: "Más correcciones por nota" },
+  { key: "fixes", label: "Más correcciones" },
+  { key: "clean", label: "Sin correcciones primero" },
+  { key: "name", label: "Por nombre" },
+] as const;
+
+export type HistorySort = (typeof HISTORY_SORTS)[number]["key"];
+
+const rateOf = (row: HomrErrorHistoryRowRead): number => (row.read ? row.fixes / row.read : 0);
+const NAMES = new Intl.Collator("es", { numeric: true });
+
+const ORDERS: Record<
+  HistorySort,
+  (a: HomrErrorHistoryRowRead, b: HomrErrorHistoryRowRead) => number
+> = {
+  rate: (a, b) =>
+    Number(b.read >= MIN_RATE_NOTES) - Number(a.read >= MIN_RATE_NOTES) ||
+    rateOf(b) - rateOf(a) ||
+    b.fixes - a.fixes,
+  fixes: (a, b) => b.fixes - a.fixes || rateOf(b) - rateOf(a),
+  clean: (a, b) => a.fixes - b.fixes || b.read - a.read,
+  name: (a, b) => NAMES.compare(a.label, b.label),
+};
+
+/** Las partituras del historial que coinciden con la búsqueda, en el orden elegido. */
+export function historyRows(
+  rows: HomrErrorHistoryRowRead[],
+  query: string,
+  sort: HistorySort,
+): HomrErrorHistoryRowRead[] {
+  const wanted = fold(query.trim());
+  const found = wanted
+    ? rows.filter((row) => fold(`${row.label} ${row.id}`).includes(wanted))
+    : rows;
+  return [...found].sort(ORDERS[sort]);
 }

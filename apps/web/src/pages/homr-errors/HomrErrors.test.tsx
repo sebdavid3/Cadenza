@@ -3,10 +3,21 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { useAuthStore } from "../../auth/store";
+import { ApiError } from "../../api/errors";
 import { routes } from "../../router";
 import type { HomrErrorStatsRead } from "../../types";
-import { group, payload, rate, UNPUBLISHED, values, withExamples } from "./fixtures";
+import {
+  group,
+  payload,
+  rate,
+  scoreDetail,
+  UNPUBLISHED,
+  values,
+  withExamples,
+  withHistory,
+} from "./fixtures";
 import { HomrErrors, type StatsLoader } from "./HomrErrors";
+import type { ScoreLoader } from "./selection";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -321,7 +332,7 @@ describe("los ejemplos de los corpus", () => {
 
     const panel = screen.getByRole("region", { name: "Figura equivocada" });
     expect(within(panel).getByText(/Calvo-Zaragoza y Rizo, 2018/)).toBeInTheDocument();
-    expect(within(panel).getByText(/no es una imagen del corpus/)).toBeInTheDocument();
+    expect(within(panel).getByText(/Cada compás lo graba Cadenza desde los datos/)).toBeVisible();
     expect(
       within(panel).getAllByRole("img", { name: /^Compás \d+: lo que leyó HOMR/ }),
     ).toHaveLength(4);
@@ -330,7 +341,7 @@ describe("los ejemplos de los corpus", () => {
     ).toBeInTheDocument();
     // La nota del ejemplo va en violeta: su grupo, marcado en cada pentagrama.
     expect(panel.querySelectorAll(".homr__drawn-focus").length).toBeGreaterThan(0);
-    // Ninguna imagen del corpus: los compases son SVG dibujados desde los datos.
+    // Sin historial que diga que su partitura tiene imagen, solo el compás dibujado (SVG).
     expect(container.querySelector("img")).toBeNull();
   });
 
@@ -381,7 +392,171 @@ describe("volver a una cifra", () => {
       "aria-current",
       "page",
     );
-    // Cada casilla de la matriz dice qué es, no solo su número.
-    expect(screen.getByRole("button", { name: "Leída corchea, correcta negra: 40" })).toBeVisible();
+    // Cada casilla de la matriz dice qué es, no solo su número, y cada eje dice lo que es.
+    expect(screen.getByRole("button", { name: "HOMR leyó corchea, era negra: 40" })).toBeVisible();
+    expect(screen.getByRole("columnheader", { name: "La figura que era" })).toBeVisible();
+    expect(screen.getByRole("rowheader", { name: "La que leyó HOMR" })).toBeVisible();
+    expect(screen.getByText(/la casilla de la fila «corchea» y la columna «negra»/)).toBeVisible();
+  });
+});
+
+describe("el historial de transcripciones de un corpus", () => {
+  const corpus = () => payload([group("primus", { stats: withHistory(withExamples(values())) })]);
+  const detailLoader = () =>
+    vi.fn<ScoreLoader>((_group, score) => Promise.resolve(scoreDetail(score)));
+  const table = () => screen.getByRole("region", { name: "Tabla del historial" });
+  const rowNames = () =>
+    within(table())
+      .getAllByRole("rowheader")
+      .map((cell) => cell.textContent);
+
+  it("lista sus partituras con buscador, orden y páginas", async () => {
+    render(<HomrErrors load={loader(corpus())} loadScore={detailLoader()} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    expect(screen.getByRole("heading", { name: "Historial de transcripciones" })).toBeVisible();
+    expect(screen.getByText("1–25 de 30 transcripciones")).toBeInTheDocument();
+    // Más correcciones por nota primero, pero la de 4 notas no va delante aunque tenga un 100 %.
+    expect(rowNames()[0]).toBe("00010104-1_1_1");
+    expect(rowNames()).not.toContain("00010103-1_1_1");
+
+    const pager = screen.getByRole("navigation", { name: "Páginas del historial" });
+    await userEvent.click(within(pager).getByRole("button", { name: "Página 2 de 2" }));
+    expect(rowNames()).toHaveLength(5);
+    expect(rowNames()).toContain("00010103-1_1_1");
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Orden" }), "clean");
+    expect(rowNames()[0]).toBe("00010107-1_1_1");
+    expect(within(table()).getByText("ninguna")).toHaveClass("homr__clean");
+
+    const search = screen.getByRole("searchbox", { name: "Buscar" });
+    await userEvent.type(search, "0010112");
+    expect(rowNames()).toEqual(["00010112-1_1_1"]);
+    expect(screen.getByText("1 transcripción de 30")).toBeInTheDocument();
+    await userEvent.clear(search);
+    await userEvent.type(search, "zzz");
+    expect(screen.getByText("Ninguna transcripción coincide con «zzz».")).toBeInTheDocument();
+  });
+
+  it("al elegir una partitura pide sus correcciones y las enseña", async () => {
+    const loadScore = detailLoader();
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    const pick = screen.getByRole("button", { name: "00010104-1_1_1" });
+    await userEvent.click(pick);
+
+    expect(loadScore).toHaveBeenCalledWith("primus", "primus:00010104-1_1_1", expect.anything());
+    expect(pick).toHaveAttribute("aria-current", "true");
+    const panel = screen.getByRole("region", { name: "00010104-1_1_1" });
+    expect(
+      await within(panel).findByText("00010104-1_1_1 · compás 3 · pentagrama 0-0"),
+    ).toBeVisible();
+    expect(within(panel).getByText("Historial de transcripciones")).toBeInTheDocument();
+    expect(panel.querySelectorAll(".homr__drawn-focus").length).toBeGreaterThan(0);
+  });
+
+  it("una partitura sin correcciones lo dice sin pedir nada", async () => {
+    const loadScore = detailLoader();
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Orden" }), "clean");
+    await userEvent.click(screen.getByRole("button", { name: "00010107-1_1_1" }));
+
+    const panel = screen.getByRole("region", { name: "00010107-1_1_1" });
+    expect(within(panel).getByText("HOMR la leyó sin ninguna corrección.")).toBeVisible();
+    expect(loadScore).not.toHaveBeenCalled();
+  });
+
+  it("si no se pueden cargar sus correcciones, deja volver a intentarlo", async () => {
+    const loadScore = vi
+      .fn<ScoreLoader>()
+      .mockRejectedValueOnce(new Error("caída"))
+      .mockImplementation((_group, score) => Promise.resolve(scoreDetail(score)));
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    await userEvent.click(screen.getByRole("button", { name: "00010104-1_1_1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Volver a intentarlo" }));
+
+    // El botón desaparece: el foco queda en el título del panel, no en la página.
+    expect(screen.getByRole("heading", { name: "00010104-1_1_1" })).toHaveFocus();
+    expect(await screen.findByText("00010104-1_1_1 · compás 3 · pentagrama 0-0")).toBeVisible();
+    expect(loadScore).toHaveBeenCalledTimes(2);
+  });
+
+  it("una partitura que ya no está lo dice, sin un reintento que no serviría", async () => {
+    const loadScore = vi.fn<ScoreLoader>().mockRejectedValue(new ApiError("not-found", 404));
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    await userEvent.click(screen.getByRole("button", { name: "00010104-1_1_1" }));
+
+    expect(await screen.findByText(/ya no está en el historial/)).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Volver a intentarlo" })).toBeNull();
+  });
+
+  it("toda la fila elige la partitura", async () => {
+    const loadScore = vi.fn<ScoreLoader>((_group, score) => Promise.resolve(scoreDetail(score)));
+    render(<HomrErrors load={loader(corpus())} loadScore={loadScore} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    const row = screen.getByRole("row", { name: /00010104-1_1_1/ });
+    await userEvent.click(within(row).getAllByRole("cell")[0] ?? row);
+
+    expect(within(row).getByRole("button")).toHaveAttribute("aria-current", "true");
+    expect(loadScore).toHaveBeenCalledTimes(1);
+  });
+
+  it("los grupos de Cadenza no tienen historial", async () => {
+    // Aunque llegara (la API ya lo quita), un grupo de Cadenza no enseña ninguna transcripción.
+    const stats = withHistory(withExamples(values()));
+    render(<HomrErrors load={loader(payload([group("cadenza", { stats })]))} />);
+    await screen.findByText(/calculadas el/);
+
+    expect(screen.queryByRole("heading", { name: "Historial de transcripciones" })).toBeNull();
+    expect(screen.queryByText("00010104-1_1_1")).toBeNull();
+    expect(screen.getByText(/nada de una transcripción concreta/)).toBeInTheDocument();
+  });
+});
+
+describe("la imagen del corpus de cada ejemplo", () => {
+  it("sale encima del compás dibujado si su partitura la tiene, como en el informe", async () => {
+    const base = withHistory(withExamples(values()));
+    // La partitura del primer ejemplo de «Figura equivocada» tiene imagen; las demás, no.
+    const history = (base.history ?? []).map((row, index) =>
+      index === 0 ? { ...row, label: "000100130-1_1_1", image: true } : row,
+    );
+    const stats = { ...base, history };
+    render(<HomrErrors load={loader(payload([group("primus", { stats })]))} />);
+    await screen.findByText(/Calculadas una vez/);
+
+    const panel = screen.getByRole("region", { name: "Figura equivocada" });
+    expect(within(panel).getAllByRole("img", { name: /^El íncipit/ })).toHaveLength(1);
+    const image = within(panel).getByRole("img", { name: "El íncipit 000100130-1_1_1 en PrIMuS" });
+    expect(image.getAttribute("src")).toMatch(
+      /\/stats\/homr-errors\/primus\/scores\/primus%3A00010100-1_1_1\/image$/,
+    );
+    expect(within(panel).getByText(/Arriba, la imagen del íncipit en PrIMuS/)).toBeVisible();
+  });
+
+  it("sale en cada corrección de una partitura del historial que la tiene", async () => {
+    const loadScore = vi.fn<ScoreLoader>((_group, score) =>
+      Promise.resolve({ ...scoreDetail(score), image: true }),
+    );
+    const stats = withHistory(withExamples(values()));
+    render(
+      <HomrErrors load={loader(payload([group("primus", { stats })]))} loadScore={loadScore} />,
+    );
+    await screen.findByText(/Calculadas una vez/);
+
+    await userEvent.click(screen.getByRole("button", { name: "00010104-1_1_1" }));
+
+    const panel = screen.getByRole("region", { name: "00010104-1_1_1" });
+    const image = await within(panel).findByRole("img", {
+      name: "El íncipit 00010104-1_1_1 en PrIMuS",
+    });
+    expect(image.getAttribute("src")).toMatch(/scores\/primus%3A00010104-1_1_1\/image$/);
   });
 });

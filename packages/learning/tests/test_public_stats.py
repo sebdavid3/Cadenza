@@ -18,12 +18,13 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from cadenza.api.schemas import HomrErrorStatsRead, HomrErrorStatsValuesRead
+from cadenza.api.schemas import HomrErrorScoreRead, HomrErrorStatsRead, HomrErrorStatsValuesRead
 from cadenza.application import DATA_CONSENT_VERSION, PublicStatsGroup
 from cadenza.learning import derive_edit_events
 from cadenza.learning.suggestions import file_sha256, read_corpus
 from cadenza.learning.tables import TABLES, corpus_tables
 from cadenza.persistence import (
+    PublicStatsScoreRecord,
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemyPublicStatsRepository,
@@ -34,6 +35,7 @@ from cadenza.persistence import (
     create_session_factory,
     session_scope,
 )
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from ml import public_stats, tables_report
@@ -111,6 +113,15 @@ def _compute(
 def _stored(db_url: str) -> dict[str, PublicStatsGroup]:
     with session_scope(_factory(db_url)) as db:
         return {g.id: g for g in SqlAlchemyPublicStatsRepository(db).list()}
+
+
+def _scores(db_url: str) -> dict[tuple[str, str], tuple[datetime, dict[str, Any]]]:
+    """El detalle guardado de cada partitura, por grupo e íncipit, con su hora de cálculo."""
+    with session_scope(_factory(db_url)) as db:
+        return {
+            (r.group_id, r.score_id): (r.computed_at.replace(tzinfo=UTC), r.detail)
+            for r in db.scalars(select(PublicStatsScoreRecord))
+        }
 
 
 def test_the_sessions_that_count_are_those_of_422_and_the_group_needs_five(db_url: str) -> None:
@@ -220,16 +231,23 @@ def test_a_corpus_is_computed_once_and_again_only_when_it_changes(
     # Un corpus lleva sus ejemplos con el compás dibujado, como el informe local (#424).
     assert first.stats["examples"] and first.stats["example_keys"] and first.stats["bars"]
 
+    scores = _scores(db_url)
+    assert {group for group, _ in scores} == {"primus"}
+    assert len(scores) == first.sessions
+
     _compute(db_url, corpus_dir, when=LATER, fresh=process)
     kept = _stored(db_url)
     assert kept["primus"].computed_at == WHEN  # precalculado: el mismo archivo no se repite
     assert kept["cadenza"].computed_at == LATER
+    assert _scores(db_url) == scores  # y su detalle sigue
 
     write_corpus(primus, works=4)
     _compute(db_url, corpus_dir, when=LATER, fresh=process)
     changed = _stored(db_url)["primus"]
     assert changed.computed_at == LATER
     assert changed.sessions > first.sessions
+    assert len(_scores(db_url)) == changed.sessions
+    assert {when for when, _ in _scores(db_url).values()} == {LATER}
 
     # Otro proceso (un despliegue, quizá con otro código) lo recalcula una vez.
     restarted: dict[str, str] = {}
@@ -240,6 +258,7 @@ def test_a_corpus_is_computed_once_and_again_only_when_it_changes(
     primus.unlink()
     _compute(db_url, corpus_dir, when=LATER, fresh=process)
     assert set(_stored(db_url)) == {"cadenza", "pruebas"}
+    assert _scores(db_url) == {}  # el detalle de sus partituras se va con él
 
 
 def test_a_bad_corpus_does_not_stop_the_live_stats(
@@ -407,6 +426,13 @@ def test_the_api_schema_publishes_every_computed_value(db_url: str, tmp_path: Pa
         dumped = values.model_dump(mode="json", exclude_unset=True)
         assert dumped == json.loads(json.dumps(group.stats))
     assert "groups" in HomrErrorStatsRead.model_fields
+    # Lo mismo con el detalle de cada partitura (sin lo que pone la API: grupo y hora).
+    for (group_id, score_id), (when, detail) in _scores(db_url).items():
+        score = HomrErrorScoreRead.model_validate(
+            {**detail, "group_id": group_id, "id": score_id, "computed_at": when}
+        )
+        dumped = score.model_dump(mode="json", exclude={"group_id", "computed_at"})
+        assert dumped == json.loads(json.dumps(detail))
 
 
 def test_a_corpus_publishes_its_examples_with_the_drawn_bar_and_no_image(
@@ -453,6 +479,29 @@ def test_a_corpus_publishes_its_examples_with_the_drawn_bar_and_no_image(
         ]
         assert [examples[i] for i in indices] == json.loads(json.dumps(expected)), key
 
+    # El historial, como el del informe: cada partitura con sus notas leídas y sus correcciones,
+    # y su detalle con los ejemplos que el informe enseña al elegirla.
+    history = stats["history"]
+    assert [h["id"] for h in history] == [r["incipit_id"] for r in tables["partituras"]]
+    assert any(h["fixes"] for h in history) and any(not h["fixes"] for h in history)
+    scores = _scores(db_url)
+    assert set(scores) == {("primus", h["id"]) for h in history}
+    for row in history:
+        assert [row["read"], row["fixes"]] == report["per_score"][row["id"]]
+        assert row["label"] == row["id"].removeprefix("primus:")
+        detail = scores[("primus", row["id"])][1]
+        expected = [
+            {f: report["examples"][i].get(f) for f in public_stats._EXAMPLE_FIELDS}
+            for i in report["example_keys"].get(f"score:{row['id']}", [])
+        ]
+        assert detail["examples"] == json.loads(json.dumps(expected)), row["id"]
+        assert bool(detail["examples"]) == bool(row["fixes"])
+        assert {x["bar"] for x in detail["examples"] if x["bar"]} == set(detail["bars"])
+        for example in detail["examples"]:
+            for beats in (example["read_beats"], example["fix_beats"]):
+                assert not beats or beats in detail["figures"]
+        assert "img" not in json.dumps(detail)
+
 
 def test_the_cadenza_groups_never_carry_examples_history_or_scores(db_url: str) -> None:
     _compute(db_url)
@@ -462,3 +511,116 @@ def test_the_cadenza_groups_never_carry_examples_history_or_scores(db_url: str) 
     assert set(cadenza) == {*public_stats.PUBLISHED, "figures"}
     for key in (*public_stats.EXAMPLES, "per_score", "history", "sessions"):
         assert key not in cadenza
+    # Ni el detalle de ninguna partitura: solo hay de los corpus.
+    assert _scores(db_url) == {}
+
+
+def _images(db_url: str) -> dict[str, tuple[str | None, bytes | None]]:
+    with session_scope(_factory(db_url)) as db:
+        return {
+            r.score_id: (r.image_type, r.image)
+            for r in db.scalars(select(PublicStatsScoreRecord))
+            if r.image is not None
+        }
+
+
+def test_a_corpus_score_carries_its_image_from_the_corpus_folder(
+    db_url: str, tmp_path: Path
+) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    write_corpus(corpus_dir / "primus.jsonl", works=3)
+    ids = [r["incipit_id"] for r in read_corpus(corpus_dir / "primus.jsonl")]
+    first, second, third = sorted(set(ids))[:3]
+    folder = corpus_dir / "primus"
+    folder.mkdir()
+    label = first.removeprefix("primus:")
+    png = b"\x89PNG\r\n\x1a\n" + b"imagen"
+    (folder / f"{label}.png").write_bytes(png)
+    # Otra con un archivo que no es una imagen; la tercera, sin nada.
+    (folder / f"{second.removeprefix('primus:')}.jpg").write_bytes(b"no soy un jpeg")
+
+    _compute(db_url, corpus_dir)
+
+    assert _images(db_url) == {first: ("image/png", png)}
+    history = {row["id"]: row for row in (_stored(db_url)["primus"].stats or {})["history"]}
+    assert history[first]["image"] is True
+    assert history[second]["image"] is False and history[third]["image"] is False
+    assert _scores(db_url)[("primus", first)][1]["image"] is True
+    # Ni la ruta ni el nombre del archivo se guardan en lo que se publica.
+    assert "primus/" not in json.dumps(_stored(db_url)["primus"].stats)
+
+
+def test_the_images_command_puts_each_score_image_next_to_its_corpus(tmp_path: Path) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    write_corpus(corpus_dir / "primus.jsonl", works=3)
+    write_corpus(corpus_dir / "camera-primus.jsonl", works=2)
+    primus_ids = sorted({r["incipit_id"] for r in read_corpus(corpus_dir / "primus.jsonl")})
+    camera_ids = sorted({r["incipit_id"] for r in read_corpus(corpus_dir / "camera-primus.jsonl")})
+    # PrIMuS tiene todas menos la primera; Camera-PrIMuS, solo la primera.
+    primus_dir = tmp_path / "primus"
+    for incipit in primus_ids[1:]:
+        folder = primus_dir / "package_aa" / incipit
+        folder.mkdir(parents=True)
+        (folder / f"{incipit}.png").write_bytes(b"png " + incipit.encode())
+    camera_dir = tmp_path / "Corpus"
+    (camera_dir / camera_ids[0]).mkdir(parents=True)
+    (camera_dir / camera_ids[0] / f"{camera_ids[0]}_distorted.jpg").write_bytes(b"jpg")
+
+    code = ml_main(
+        [
+            "public-stats-images",
+            "--corpus-dir",
+            str(corpus_dir),
+            "--primus-dir",
+            str(primus_dir),
+            "--camera-dir",
+            str(camera_dir),
+        ]
+    )
+
+    assert code == 0
+    assert sorted(p.name for p in (corpus_dir / "primus").iterdir()) == [
+        f"{incipit}.png" for incipit in primus_ids[1:]
+    ]
+    assert (
+        (corpus_dir / "primus" / f"{primus_ids[1]}.png")
+        .read_bytes()
+        .endswith(primus_ids[1].encode())
+    )
+    assert [p.name for p in (corpus_dir / "camera-primus").iterdir()] == [f"{camera_ids[0]}.jpg"]
+    assert public_stats.copy_images(corpus_dir, None, None) == {
+        "camera-primus": (0, len(camera_ids)),
+        "primus": (0, len(primus_ids)),
+    }
+
+
+def test_the_images_command_never_writes_into_results_or_data() -> None:
+    root = Path(public_stats.__file__).resolve().parents[1]
+    for name in ("results", "data"):
+        with pytest.raises(ValueError, match=f"no se escribe en {name}/"):
+            public_stats.copy_images(root / name / "corpus", None, None)
+
+
+def test_a_corpus_not_saved_is_computed_again_on_the_next_round(
+    db_url: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    corpus_dir = tmp_path / "corpus"
+    corpus_dir.mkdir()
+    write_corpus(corpus_dir / "primus.jsonl", works=3)
+    process: dict[str, str] = {}
+
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("la base se cayó al guardar")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(SqlAlchemyPublicStatsRepository, "replace_scores", broken)
+        with pytest.raises(RuntimeError):
+            _compute(db_url, corpus_dir, fresh=process)
+    # No quedó apuntado: la vuelta siguiente lo calcula y lo guarda, con el detalle.
+    assert process == {}
+    _compute(db_url, corpus_dir, when=LATER, fresh=process)
+    assert process == {"primus": file_sha256(corpus_dir / "primus.jsonl")}
+    assert _stored(db_url)["primus"].computed_at == LATER
+    assert _scores(db_url)

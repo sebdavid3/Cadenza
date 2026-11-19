@@ -14,8 +14,16 @@ import type {
   HomrErrorStatsRead,
   HomrErrorStatsValuesRead,
 } from "../../types";
-import { EXAMPLES_ID, ExamplesPanel, Pager, type Selection } from "./Examples";
+import { EXAMPLES_ID, ExamplesPanel, Pager } from "./Examples";
 import { FigureSymbol } from "./FigureSymbol";
+import { HistoryPanel, ScoreExamples } from "./History";
+import {
+  figureExamples,
+  loadScore as loadScoreDetail,
+  SCORE_PREFIX,
+  type ScoreLoader,
+  type Selection,
+} from "./selection";
 import "./homr-errors.css";
 import {
   cadenzaPending,
@@ -150,25 +158,29 @@ function TipBox({ tip }: { tip: Tip | null }) {
 
 export function HomrErrorsPage({
   load = loadStats,
+  loadScore = loadScoreDetail,
   refreshMs = REFRESH_MS,
 }: {
   load?: StatsLoader;
+  loadScore?: ScoreLoader;
   refreshMs?: number;
 }) {
   useDocumentTitle("Errores de HOMR");
   return (
     <>
       <SiteHeader showSections={false} />
-      <HomrErrors load={load} refreshMs={refreshMs} />
+      <HomrErrors load={load} loadScore={loadScore} refreshMs={refreshMs} />
     </>
   );
 }
 
 export function HomrErrors({
   load = loadStats,
+  loadScore = loadScoreDetail,
   refreshMs = REFRESH_MS,
 }: {
   load?: StatsLoader;
+  loadScore?: ScoreLoader;
   refreshMs?: number;
 }) {
   const { data, failed } = useHomrErrorStats(load, refreshMs);
@@ -197,7 +209,7 @@ export function HomrErrors({
           <p className="homr__lead">
             Qué notas lee mal HOMR y cómo se corrigen: con las correcciones de quienes usan Cadenza
             y con un corpus público. De Cadenza salen solo cifras de conjunto, nunca una foto ni una
-            partitura de nadie; del corpus, también ejemplos dibujados desde sus datos.
+            partitura de nadie; del corpus, también ejemplos con su imagen y su compás dibujado.
           </p>
         </div>
         {data ? (
@@ -234,9 +246,9 @@ export function HomrErrors({
             <p>
               «Printed Images of Music Staves» (Calvo-Zaragoza y Rizo, 2018): íncipits del catálogo
               RISM dibujados por ordenador, cada uno con su partitura correcta. Camera-PrIMuS son
-              los mismos con las distorsiones de una foto. Su página no indica licencia: aquí se
-              cita, y salen sus cifras y, de ejemplo, compases redibujados desde sus datos, nunca
-              sus imágenes. <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a>
+              los mismos con las distorsiones de una foto. Aquí se citan: salen sus cifras y, de
+              ejemplo, sus imágenes con el compás redibujado desde sus datos.{" "}
+              <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a>
             </p>
           </section>
           <section aria-labelledby="homr-about-cadenza">
@@ -289,6 +301,8 @@ export function HomrErrors({
           </nav>
           <GroupStats
             key={group.id}
+            id={group.id}
+            loadScore={loadScore}
             name={groupInfo(group.id).name}
             about={groupInfo(group.id).about}
             sessions={group.sessions ?? stats.scores}
@@ -360,6 +374,8 @@ interface Choosing {
 }
 
 const GroupStats = memo(function GroupStats({
+  id,
+  loadScore,
   name,
   about,
   sessions,
@@ -367,6 +383,8 @@ const GroupStats = memo(function GroupStats({
   computedAt,
   stats,
 }: {
+  id: string;
+  loadScore: ScoreLoader;
   name: string;
   about: string;
   sessions: number;
@@ -378,6 +396,8 @@ const GroupStats = memo(function GroupStats({
   const read = stats.read;
   const facts = findings(stats);
   const withExamples = source === "corpus" && Boolean(stats.example_keys);
+  // El historial, solo de los corpus: de Cadenza no sale nada de una transcripción concreta.
+  const history = withExamples ? (stats.history ?? null) : null;
   // Como en el informe, al empezar se ven los ejemplos de lo primero que dicen los datos.
   const [selected, setSelected] = useState<Selection | null>(() => {
     const first = withExamples ? facts.find((fact) => fact.key) : undefined;
@@ -463,13 +483,30 @@ const GroupStats = memo(function GroupStats({
       <section className="homr__panel" aria-labelledby="homr-durations">
         <h3 id="homr-durations">Figura leída y correcta</h3>
         <p className="homr__panel-note">
-          En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta.
-          Cuanto más violeta, más casos.
+          En las correcciones de figura. Cada fila es la figura que leyó HOMR y cada columna, la que
+          era: la casilla dice cuántas veces pasó, y cuanto más violeta, más.
+          {stats.durations[0] && (
+            <>
+              {" "}
+              Por ejemplo, la casilla de la fila «{stats.durations[0].read_name}» y la columna «
+              {stats.durations[0].fix_name}» (
+              <span className="homr__num">{fmt(stats.durations[0].n)}</span>) son las veces que HOMR
+              leyó «{stats.durations[0].read_name}» donde era «{stats.durations[0].fix_name}».
+            </>
+          )}
         </p>
         <DurationTable durations={stats.durations} figures={figures} choosing={choosing} />
       </section>
+
+      {history && onChoose && (
+        <HistoryPanel history={history} selected={selected} onChoose={onChoose} />
+      )}
     </>
   );
+  const scoreRow =
+    selected?.key.startsWith(SCORE_PREFIX) && history
+      ? history.find((row) => `${SCORE_PREFIX}${row.id}` === selected.key)
+      : undefined;
 
   return (
     <>
@@ -563,18 +600,31 @@ const GroupStats = memo(function GroupStats({
         {withExamples ? (
           <div className="homr__layout">
             <div className="homr__charts">{charts}</div>
-            <ExamplesPanel
-              key={selected?.key ?? ""}
-              stats={stats}
-              selected={selected}
-              corpus={name}
-            />
+            {selected && scoreRow ? (
+              <ScoreExamples
+                key={selected.key}
+                group={id}
+                row={scoreRow}
+                selected={selected}
+                corpus={name}
+                load={loadScore}
+              />
+            ) : (
+              <ExamplesPanel
+                key={selected?.key ?? ""}
+                content={figureExamples(id, stats, selected)}
+                selected={selected}
+                corpus={name}
+              />
+            )}
           </div>
         ) : (
           <>
             <p className="homr__band-note">
-              Los ejemplos, con su compás dibujado, solo se enseñan de los corpus públicos (PrIMuS y
-              Camera-PrIMuS). De las transcripciones de Cadenza salen solo cifras de conjunto.
+              Los ejemplos con su compás dibujado y el historial de transcripciones solo se enseñan
+              de los corpus públicos (PrIMuS y Camera-PrIMuS). De Cadenza salen solo cifras de
+              conjunto: nada de una transcripción concreta, como dice el permiso de uso de los
+              datos.
             </p>
             {charts}
           </>
@@ -798,11 +848,16 @@ function DurationTable({
       <table className="homr__matrix">
         <thead>
           <tr>
-            <th className="homr__corner" rowSpan={2} scope="col">
-              Leída, por filas
-              <br />
-              Correcta, por columnas
+            <td className="homr__corner" colSpan={2} rowSpan={3} />
+            <th
+              className="homr__axis homr__axis--top"
+              colSpan={matrix.fixes.length}
+              scope="colgroup"
+            >
+              La figura que era
             </th>
+          </tr>
+          <tr>
             {matrix.fixes.map((fix) => (
               <th key={fix} className="homr__matrix-name" scope="col">
                 {matrix.names[fix]}
@@ -818,8 +873,17 @@ function DurationTable({
           </tr>
         </thead>
         <tbody>
-          {matrix.reads.map((readBeats) => (
+          {matrix.reads.map((readBeats, index) => (
             <tr key={readBeats}>
+              {index === 0 && (
+                <th
+                  className="homr__axis homr__axis--side"
+                  rowSpan={matrix.reads.length}
+                  scope="rowgroup"
+                >
+                  <span>La que leyó HOMR</span>
+                </th>
+              )}
               <th scope="row">
                 <FigureSymbol figure={figures[readBeats]} />
                 {matrix.names[readBeats]}
@@ -829,7 +893,7 @@ function DurationTable({
                 if (!n) return <td key={fix} />;
                 const alpha = cellAlpha(n, matrix.max);
                 const share = Math.round(alpha * 100);
-                const title = `Leída ${matrix.names[readBeats] ?? ""}, correcta ${matrix.names[fix] ?? ""}`;
+                const title = `HOMR leyó ${matrix.names[readBeats] ?? ""}, era ${matrix.names[fix] ?? ""}`;
                 return (
                   <td
                     key={fix}
