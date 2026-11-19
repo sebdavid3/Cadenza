@@ -29,12 +29,12 @@ y tú decides cada corrección. Cada corrección enseña a la siguiente.
 ![mypy](https://img.shields.io/badge/mypy-estricto-0a0a0a?style=flat-square)
 [![Licencia](https://img.shields.io/badge/licencia-AGPL--3.0-0a0a0a?style=flat-square)](LICENSE)
 
-[Qué hace](#-qué-hace) ·
-[Cómo funciona](#-cómo-funciona) ·
-[Empezar](#-empezar-en-local) ·
-[Arquitectura](#-arquitectura) ·
-[Documentación](#-documentación) ·
-[Contribuir](#-contribuir)
+[Qué hace](#qué-hace) ·
+[Cómo funciona](#cómo-funciona) ·
+[Empezar](#empezar-en-local) ·
+[Arquitectura](#arquitectura) ·
+[Documentación](#documentación) ·
+[Contribuir](#contribuir)
 
 </div>
 
@@ -46,7 +46,7 @@ y tú decides cada corrección. Cada corrección enseña a la siguiente.
 
 ---
 
-## ▪ La idea
+## La idea
 
 En música, la **cadenza** es el momento en que la orquesta se detiene sobre un calderón y el solista toma la palabra. Por eso la última A del logo no tiene travesaño: tiene un punto, un calderón. Es el instante en que la máquina se para y **te toca a ti**.
 
@@ -57,19 +57,19 @@ Los lectores ópticos de música (OMR) leen bien una partitura, pero no perfecta
 
 ---
 
-## ▪ Qué hace
+## Qué hace
 
 <table>
 <tr>
 <td width="50%" valign="top">
 
-### 📷 Transcribe
+### Transcribe
 Sube una o varias imágenes (PNG o JPEG, hasta 20 MB) y sigue el avance de cada una mientras **HOMR** la lee en la GPU. Una página de voz y piano tarda de 16 a 20 segundos.
 
 </td>
 <td width="50%" valign="top">
 
-### 🔍 Señala
+### Señala
 Un motor de reglas marca los **posibles errores** de cada compás: compases que no suman, alteraciones repetidas, notas fuera de registro… explicados como lo diría un músico.
 
 </td>
@@ -77,13 +77,13 @@ Un motor de reglas marca los **posibles errores** de cada compás: compases que 
 <tr>
 <td valign="top">
 
-### ✏️ Corrige
+### Corrige
 Sobre la partitura, con la barra o el teclado: altura, figura, acordes, ligaduras, voces, clave, armadura, compás, dinámicas y articulaciones. Con **deshacer y rehacer** exactos.
 
 </td>
 <td valign="top">
 
-### 🎧 Escucha y exporta
+### Escucha y exporta
 La partitura suena con el compás resaltado junto a la foto original. Al terminar, descárgala en **MusicXML, MIDI o PDF**.
 
 </td>
@@ -91,7 +91,7 @@ La partitura suena con el compás resaltado junto a la foto original. Al termina
 <tr>
 <td colspan="2" valign="top">
 
-### ✨ Aprende
+### Aprende
 Cada corrección alimenta un corpus. Con él se entrena la **capa de sugerencias**, que propone el arreglo de cada posible error para que lo aceptes o lo rechaces de un clic. Está activa en producción desde el 2026-11-03.
 
 </td>
@@ -112,11 +112,11 @@ Cada corrección alimenta un corpus. Con él se entrena la **capa de sugerencias
 
 ---
 
-## ▪ Cómo funciona
+## Cómo funciona
 
 ```mermaid
 flowchart LR
-    img(["📷 Foto de la partitura"]) --> Q["Cola de transcripción"]
+    img(["Foto de la partitura"]) --> Q["Cola de transcripción"]
     Q --> OMR["HOMR · GPU"]
     OMR --> IR["ScoreIR<br/>con anclas"]
     IR --> V["Reglas musicales"]
@@ -148,7 +148,7 @@ La página pública **[Errores de HOMR](https://cadenza.sebdavid.dev/errores-de-
 
 ---
 
-## ▪ Empezar en local
+## Empezar en local
 
 <details open>
 <summary><b>Requisitos</b></summary>
@@ -239,7 +239,7 @@ La imagen trae HOMR con sus pesos, así que transcribe sin red; con `--build-arg
 
 ---
 
-## ▪ Arquitectura
+## Arquitectura
 
 Un **monolito modular hexagonal** ([ADR-0001](docs/adr/ADR-0001-monolito-modular-hexagonal.md)): un dominio puro en el centro, los casos de uso alrededor y adaptadores intercambiables para la notación, el OMR, la validación, la base de datos y la web.
 
@@ -261,36 +261,36 @@ cadenza/
 
 **Reglas que no se rompen**, comprobadas por los tests:
 
-- 🧱 El dominio solo usa la biblioteca estándar.
-- 🔌 La aplicación no importa FastAPI, SQLAlchemy, music21 ni el OMR.
-- 🎼 music21 solo vive en `interchange`.
-- 📜 El log de ediciones solo crece y nunca guarda una edición inválida.
-- 🔐 El autor de cada edición lo fija el servidor.
+- El dominio solo usa la biblioteca estándar.
+- La aplicación no importa FastAPI, SQLAlchemy, music21 ni el OMR.
+- music21 solo vive en `interchange`.
+- El log de ediciones solo crece y nunca guarda una edición inválida.
+- El autor de cada edición lo fija el servidor.
 
 La **API v1** se describe en [`openapi.json`](docs/api/openapi.json), generado desde el código junto a los tipos de la web, y solo admite cambios compatibles. Su guía de integración, con ejemplos reales, está en [`frontend-handoff.md`](docs/api/frontend-handoff.md).
 
 ---
 
-## ▪ Documentación
+## Documentación
 
-| | |
+| Documento | Para qué |
 |---|---|
-| 🧭 [`PROJECT_STATE.md`](docs/PROJECT_STATE.md) | **Lo primero que hay que leer:** fase, próximo paso, deuda y bitácora |
-| 🏛️ [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura, casos de uso, modelo de datos y estado real |
-| 📐 [`docs/adr/`](docs/adr/README.md) | Todas las decisiones de arquitectura, con su índice |
-| 🔗 [`docs/api/`](docs/api/frontend-handoff.md) | El contrato de la API v1 y su guía |
-| 🚀 [`operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
-| 🧪 [`ml/README.md`](ml/README.md) | El plano offline y los experimentos de la tesis |
-| 🔬 [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas sobre HOMR |
-| 🎨 [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) · [`docs/marca/`](docs/marca/GUIA-DE-USO.md) | El producto, su sistema de diseño y la guía del logo |
-| 📏 [`CONVENTIONS.md`](docs/CONVENTIONS.md) | Git, calidad, niveles de cambio y definición de terminado |
+| [`PROJECT_STATE.md`](docs/PROJECT_STATE.md) | **Lo primero que hay que leer:** fase, próximo paso, deuda y bitácora |
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura, casos de uso, modelo de datos y estado real |
+| [`docs/adr/`](docs/adr/README.md) | Todas las decisiones de arquitectura, con su índice |
+| [`docs/api/`](docs/api/frontend-handoff.md) | El contrato de la API v1 y su guía |
+| [`operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
+| [`ml/README.md`](ml/README.md) | El plano offline y los experimentos de la tesis |
+| [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas sobre HOMR |
+| [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) · [`docs/marca/`](docs/marca/GUIA-DE-USO.md) | El producto, su sistema de diseño y la guía del logo |
+| [`CONVENTIONS.md`](docs/CONVENTIONS.md) | Git, calidad, niveles de cambio y definición de terminado |
 
 > [!IMPORTANT]
 > `results/` es la evidencia de la tesis: una cifra solo cuenta si sale de una ejecución real, lo simulado se marca como tal y nada se cita sin regenerarlo antes ([`CLAUDE.md`](CLAUDE.md) §8).
 
 ---
 
-## ▪ Contribuir
+## Contribuir
 
 - **Un issue, una rama, un PR** hacia `dev`, con ramas `<tipo>/<número>-<descripción>`. `main` solo se actualiza promoviendo `dev`.
 - **Commits en español** con Conventional Commits: `fix(api): …`, `feat(web): …`.
@@ -307,7 +307,7 @@ Las reglas completas están en [`CLAUDE.md`](CLAUDE.md) y [`docs/CONVENTIONS.md`
 
 ---
 
-## ▪ Licencia y créditos
+## Licencia y créditos
 
 Cadenza se distribuye con la **[GNU Affero General Public License v3.0 o posterior](LICENSE)** ([#259](https://github.com/sebdavid3/Cadenza/issues/259)). Es la licencia de HOMR, que Cadenza importa y modifica en ejecución, y la aplicación se ofrece por red: por eso la web enlaza a este repositorio, para que quien la use pueda obtener su código.
 
