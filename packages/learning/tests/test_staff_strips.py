@@ -11,8 +11,26 @@ from fractions import Fraction
 from typing import Any
 
 import pytest
-from cadenza.domain import Event, EventKind, Measure, Part, ScoreIR, Staff, Tie
-from cadenza.learning.staff_strips import StripError, event_token, plan_strips, strip_sequence
+from cadenza.domain import (
+    Clef,
+    Event,
+    EventKind,
+    KeySignature,
+    Measure,
+    Part,
+    ScoreIR,
+    Staff,
+    Tie,
+    TimeSignature,
+)
+from cadenza.learning.staff_strips import (
+    Strip,
+    StripError,
+    event_token,
+    plan_strips,
+    strip_score,
+    strip_sequence,
+)
 
 PHOTO = (2745, 1380)
 
@@ -145,3 +163,88 @@ def test_event_tokens_and_the_sequence_of_a_strip() -> None:
     strips = plan_strips(_capture(_reading("paired", PAIRED)), _score(), PHOTO)
     assert strip_sequence(_score(), strips[0]) == "c1: F4:4 | c2: F4:4 | c3: F4:4"
     assert strip_sequence(_score(), strips[1]).count("||") == 1
+
+
+# --- La partitura de una tira (#420, ADR-0071) -------------------------------------------------
+
+
+def _with_attributes(score: ScoreIR) -> ScoreIR:
+    """La partitura de `_score` con la clave, la armadura y el compás en el compás 1, y un cambio
+    de clave de la mano izquierda en el compás 4."""
+
+    def opening(part: int, staff: int, measure: Measure) -> Measure:
+        if measure.number == 1:
+            clef = Clef("F", 4) if (part, staff) == (1, 1) else Clef("G", 2)
+            return Measure(
+                number=1,
+                events=measure.events,
+                clef=clef,
+                key_signature=KeySignature(-2),
+                time_signature=TimeSignature(4, 4),
+            )
+        if (part, staff, measure.number) == (1, 1, 4):
+            return Measure(number=4, events=measure.events, clef=Clef("G", 2))
+        return measure
+
+    return ScoreIR(
+        parts=tuple(
+            Part(
+                id=part.id,
+                staves=tuple(
+                    Staff(
+                        id=staff.id,
+                        measures=tuple(opening(p, s, m) for m in staff.measures),
+                    )
+                    for s, staff in enumerate(part.staves)
+                ),
+            )
+            for p, part in enumerate(score.parts)
+        )
+    )
+
+
+def _strip(staves: tuple[tuple[int, int], ...], measures: tuple[int, ...]) -> Strip:
+    return Strip(system=2, measures=measures, staves=staves, box=(0, 0, 10, 10), reading="alone")
+
+
+def test_the_score_of_a_strip_has_its_staves_its_measures_and_what_rules_there() -> None:
+    score = _with_attributes(_score())
+    excerpt = strip_score(score, _strip(((0, 0),), (4, 5, 6)))
+
+    assert [part.id for part in excerpt.parts] == ["voz"]
+    (staff,) = excerpt.parts[0].staves
+    assert staff.id == "voz-0"
+    assert [m.number for m in staff.measures] == [4, 5, 6]
+    first = staff.measures[0]
+    # La clave, la armadura y el compás del compás 1 rigen en el 4, aunque no se repitan.
+    assert first.clef == Clef("G", 2)
+    assert first.key_signature == KeySignature(-2)
+    assert first.time_signature == TimeSignature(4, 4)
+    assert first.events == score.parts[0].staves[0].measures[3].events
+    assert staff.measures[1] == score.parts[0].staves[0].measures[4]
+
+
+def test_a_grand_staff_keeps_both_staves_and_a_clef_change_wins() -> None:
+    score = _with_attributes(_score())
+    excerpt = strip_score(score, _strip(((1, 0), (1, 1)), (4, 5, 6)))
+
+    assert [part.id for part in excerpt.parts] == ["piano"]
+    upper, lower = excerpt.parts[0].staves
+    assert (upper.id, lower.id) == ("piano-0", "piano-1")
+    assert upper.measures[0].clef == Clef("G", 2)
+    # La mano izquierda cambia a clave de sol en el compás 4: rige la nueva, no la de fa.
+    assert lower.measures[0].clef == Clef("G", 2)
+    assert lower.measures[0].key_signature == KeySignature(-2)
+
+
+def test_the_first_system_is_left_as_it_is() -> None:
+    score = _with_attributes(_score())
+    excerpt = strip_score(score, _strip(((1, 1),), (1, 2, 3)))
+    assert excerpt.parts[0].staves[0].measures == score.parts[1].staves[1].measures[:3]
+
+
+def test_a_strip_whose_measures_are_not_in_the_score_is_refused() -> None:
+    with pytest.raises(StripError, match="compás 7"):
+        strip_score(_score(), _strip(((0, 0),), (5, 6, 7)))
+    with pytest.raises(StripError, match="parte"):
+        strip_score(_score(), _strip(((0, 0), (1, 0)), (1, 2, 3)))
