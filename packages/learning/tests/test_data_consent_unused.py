@@ -1,6 +1,6 @@
 """El permiso de uso de los datos solo se guarda (#378, ADR-0065).
 
-El dataset de correcciones (`ml build-dataset`) y la exportación del estudio (`exp_10`) dan lo
+El dataset de correcciones (`ml build-dataset`) da lo
 mismo con el permiso que sin él: las cuentas del registro público siguen fuera, lo hayan dado o no.
 (El corpus de la capa de sugerencias, `ml suggestions build-dataset`, y `ml export-tables`
 sí lo leen con `--include-self-registered`, como `ml export-staves`: enmienda de #400 en
@@ -23,13 +23,6 @@ from cadenza.application import (
 )
 from cadenza.domain import EditEvent, EditOp
 from cadenza.learning import RepositoryDatasetReader, TrainingSample
-from cadenza.persistence import (
-    SqlAlchemySessionRepository,
-    SqlAlchemyUserRepository,
-    create_memory_engine,
-    create_schema,
-    create_session_factory,
-)
 
 from .support import make_anchor, make_document
 
@@ -96,23 +89,3 @@ def test_the_correction_dataset_is_the_same_with_the_permission() -> None:
     with_permission = read(True)
     assert with_permission == read(False)
     assert {sample.document_id for sample in with_permission} == {"doc-estudio"}
-
-
-def test_the_effort_study_export_takes_the_same_sessions_with_the_permission() -> None:
-    from ml.experiments.exp_10_effort_study import _study_sessions
-
-    def chosen(consent: bool) -> list[tuple[str, str]]:
-        engine = create_memory_engine()
-        create_schema(engine)
-        factory = create_session_factory(engine)
-        with factory() as db:
-            users = SqlAlchemyUserRepository(db)
-            for user in _users(consent=consent):
-                users.add(user)
-            for session_id, owner in (("estudio", "ana"), ("registro", "visita")):
-                session, _ = _session(session_id, owner)
-                SqlAlchemySessionRepository(db).add(session, [])
-            db.commit()
-            return [(sess.id, user.id) for sess, user in _study_sessions(db, scores=["TS-01"])]
-
-    assert chosen(consent=True) == chosen(consent=False) == [("estudio", "ana")]

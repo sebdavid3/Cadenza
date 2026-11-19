@@ -225,7 +225,6 @@ uv run --no-sync python -m ml --help
 |---|---|
 | `ml suggestions build-dataset` · `train` · `evaluate` · `promote` | Corpus de correcciones y capa de sugerencias ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)) |
 | `ml export-staves` | Recorta cada pentagrama de la foto y lo empareja con lo que leyó HOMR y lo que quedó corregido: el par con que se entrenaría un lector ([ADR-0067](docs/adr/ADR-0067-captura-de-homr-y-recortes-de-los-pentagramas.md)) |
-| `ml export-effort` | Métricas de esfuerzo de las sesiones |
 | `ml build-dataset` · `select` · `train` · `evaluate` · `promote` · `run` | El dataset y el aprendizaje activo originales ([ADR-0008](docs/adr/ADR-0008-active-learning-model-registry.md)). `train` solo guarda los pesos de un entrenador de prueba, con métricas siempre marcadas como simuladas: reentrenar HOMR es trabajo futuro ([#103](https://github.com/sebdavid3/Cadenza/issues/103)) |
 
 Los experimentos de la tesis están en [`ml/experiments/`](ml/experiments), descritos en [`ml/README.md`](ml/README.md). Escriben en `results/` y leen los corpus de `data/`, dos carpetas que no se versionan.
@@ -286,9 +285,9 @@ Todo lo de la operación (salud, registros, copias, GPU y los interruptores de p
 | [`docs/adr/`](docs/adr) | Las decisiones de arquitectura, de ADR-0001 a ADR-0067, con su índice |
 | [`docs/api/frontend-handoff.md`](docs/api/frontend-handoff.md) | Guía de la API v1 para el frontend |
 | [`docs/infra/operacion_backend.md`](docs/infra/operacion_backend.md) | Despliegue, salud, registros, copias y GPU |
-| [`docs/experimentos/`](docs/experimentos) | Protocolo del estudio de esfuerzo y banco de partituras |
+| [`docs/experimentos/`](docs/experimentos) | Banco de partituras de prueba (TS-xx) y diccionario de las tablas de `ml export-tables` |
 | [`docs/investigaciones/`](docs/investigaciones) | Investigaciones técnicas (cajas y confianza de HOMR, Audiveris frente a HOMR) |
-| [`docs/phases/plan_de_cierre/`](docs/phases/plan_de_cierre/README.md) | Plan de cierre del proyecto |
+| [`docs/phases/plan_de_cierre/`](docs/phases/plan_de_cierre/README.md) | Plan de cierre del proyecto (histórico; el estudio quedó fuera, ADR-0070) |
 | [`PRODUCT.md`](PRODUCT.md) · [`DESIGN.md`](DESIGN.md) | El producto y su sistema de diseño |
 | [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) | Git, calidad, niveles de cambio y definición de terminado |
 
