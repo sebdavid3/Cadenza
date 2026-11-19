@@ -36,9 +36,10 @@ function Part({
 }
 
 /**
- * El texto completo del permiso de uso de los datos (#378, ADR-0065), versión del 9 de noviembre
- * de 2026, el mismo en la página `/uso-de-los-datos` y desplegado en el registro (#397). Lo aprobó
- * el responsable del proyecto el 2026-11-09: si cambia, cambia también `DATA_CONSENT_VERSION`.
+ * El texto completo del permiso de uso de los datos (#378, ADR-0065), versión del 19 de
+ * noviembre de 2026, el mismo en la página `/uso-de-los-datos` y desplegado en el registro (#397).
+ * Lo aprobó el responsable del proyecto el 2026-11-09; el 2026-11-19 se quitó el párrafo de las
+ * cuentas del estudio (#427, ADR-0070). Si cambia, cambia también `DATA_CONSENT_VERSION`.
  */
 export function DataUseText({ layout }: { layout: Layout }) {
   return (
@@ -110,11 +111,6 @@ export function DataUseText({ layout }: { layout: Layout }) {
         <p>
           Si este texto cambia, el permiso que diste para esta versión deja de valer hasta que leas
           el nuevo y lo vuelvas a dar.
-        </p>
-        <p>
-          Este permiso es el de las cuentas que se crean en el registro. Si tu cuenta te la dio el
-          equipo del proyecto para participar en el estudio, el uso de tus datos se rige por el
-          consentimiento que firmaste para el estudio.
         </p>
       </Part>
 

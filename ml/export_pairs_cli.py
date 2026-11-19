@@ -275,8 +275,8 @@ publique serán cifras de conjunto.
 - Cuentas del registro público: {registered} Las que no lo tienen (nunca lo dieron, lo \
 retiraron o lo dieron para otro texto) quedan siempre fuera: {refused} sesiones en esta \
 exportación.
-- Cuentas del estudio con participantes: les rige el consentimiento firmado para el estudio. \
-Cuentas del equipo: datos del propio proyecto.
+- Cuentas que no vienen del registro público (las del equipo, anteriores a ADR-0070, que dejó \
+el registro como única forma de crear una cuenta): no se les pide este permiso y entran.
 - Los pares no llevan el nombre de usuario: la sesión va por su identificador y la obra por la \
 partitura de prueba o el sha256 de la foto.
 - Quien retira su permiso deja de entrar desde ese momento: una exportación es una foto fija, \

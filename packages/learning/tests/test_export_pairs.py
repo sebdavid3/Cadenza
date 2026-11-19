@@ -3,7 +3,7 @@
 Una base SQLite temporal con una foto de dos sistemas de un pentagrama (como en
 `test_export_tables_recortes`): sesiones que entran, sin captura, sin finalizar, sin verificar,
 de tres páginas (una del banco subida también sin su partitura de prueba), con un cambio de
-clave, de una cuenta del equipo, de una del estudio y de cuentas del registro
+clave, de dos cuentas anteriores al registro (la del equipo y la semilla) y de cuentas del registro
 con el permiso vigente, con el de un texto anterior y sin él (nunca dado o retirado: retirarlo
 borra las dos columnas, ADR-0065 §1). Aparte, una página de voz y piano con el gran pentagrama.
 """
@@ -179,9 +179,10 @@ def base(tmp_path: Path) -> tuple[str, Path]:
     with session_scope(create_session_factory(engine)) as db:
         users = SqlAlchemyUserRepository(db)
         users.add(_user("ana"))  # una cuenta del equipo
-        users.add(_user("participante"))  # una del estudio: la crea el equipo, sin el permiso
+        users.add(_user("semilla"))  # otra anterior al registro, sin este permiso (ADR-0070)
         users.add(_user("visita", self_registered=True, consent=DATA_CONSENT_VERSION))
-        users.add(_user("antigua", self_registered=True, consent="2026-01-01"))
+        # El permiso del texto anterior (#427 subió la versión): ya no está vigente.
+        users.add(_user("antigua", self_registered=True, consent="2026-11-09"))
         users.add(_user("anonima", self_registered=True))
         store = FilesystemArtifactStore(artifacts, db)
         image, train_image, test_image = (
@@ -192,7 +193,7 @@ def base(tmp_path: Path) -> tuple[str, Path]:
             # s-foto, s-otra-foto y s-visita son de la misma foto: la misma obra.
             _session("s-foto", "ana", image),
             _session("s-otra-foto", "ana", image),
-            _session("s-train", "participante", train_image, test_score_id=TRAIN_PAGE),
+            _session("s-train", "semilla", train_image, test_score_id=TRAIN_PAGE),
             _session("s-test", "ana", test_image, test_score_id=TEST_PAGE),
             # La misma página del banco, subida sin su partitura de prueba: es la misma foto.
             _session("s-banco", "ana", test_image),
@@ -399,7 +400,7 @@ def test_registered_accounts_with_the_current_consent_enter_by_default(
     assert _export(output, *_db_args(base)) == 0
     info = _info(output)
     exported = {r["session_id"] for r in _rows(output / "pares.csv")}
-    # El permiso vigente, la cuenta del equipo y la del estudio (a la que no se le pide).
+    # El permiso vigente y las cuentas anteriores al registro (a las que no se les pide).
     assert {"s-visita", "s-foto", "s-train"} <= exported
     # Sin el permiso vigente (de otro texto, o nunca dado o retirado): fuera, solo contadas.
     for session_id in ("s-antigua", "s-anonima"):

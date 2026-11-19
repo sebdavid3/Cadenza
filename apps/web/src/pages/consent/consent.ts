@@ -7,9 +7,9 @@ import type { UserRead } from "../../types";
  * Es la misma que `DATA_CONSENT_VERSION` de la API, y una prueba lo comprueba. Si el texto cambia,
  * cambian las dos, y los permisos dados para el texto anterior dejan de estar vigentes.
  */
-export const DATA_CONSENT_VERSION = "2026-11-09";
+export const DATA_CONSENT_VERSION = "2026-11-19";
 
-/** La versión del texto en palabras: «9 de noviembre de 2026». */
+/** La versión del texto en palabras: «19 de noviembre de 2026». */
 export function consentVersionLabel(version: string = DATA_CONSENT_VERSION): string {
   const [year, month, day] = version.split("-").map(Number);
   return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1)).toLocaleDateString("es", {

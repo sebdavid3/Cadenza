@@ -121,3 +121,17 @@ def test_a_permission_given_for_an_older_text_is_not_current() -> None:
     )
 
     assert not has_current_data_consent(old)
+
+
+def test_a_permission_for_the_text_with_the_study_is_no_longer_current() -> None:
+    """La versión 2026-11-19 quitó el párrafo del estudio (#427): hay que volver a darlo."""
+    given = User(
+        id="u-1",
+        username="ana",
+        password_hash="-",
+        data_consent_at=NOW,
+        data_consent_version="2026-11-09",
+    )
+
+    assert DATA_CONSENT_VERSION == "2026-11-19"
+    assert not has_current_data_consent(given)
