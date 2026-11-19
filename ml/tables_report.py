@@ -20,6 +20,7 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
 from fractions import Fraction
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,9 @@ DOTS = ((0, Fraction(1)), (1, Fraction(3, 2)), (2, Fraction(7, 4)))
 Part = tuple[Fraction, int, int]
 """Una figura escrita: su figura base, sus puntillos y su grupo irregular (0 si no lo tiene)."""
 VS_KEY = {"in_key": "según la armadura", "against_key": "contra la armadura"}
+CLEF_SIGNS = {"G": "sol", "F": "fa", "C": "do"}
+USUAL_CLEF_LINE = {"G": "2", "F": "4"}
+"""La clave de sol en 2.ª y la de fa en 4.ª se nombran sin la línea, como se dice siempre."""
 REAL_TESTS = "pruebas"
 """El único grupo que se separa (#418): las sesiones de las pruebas reales de Cadenza, las de las
 cuentas del registro público (`partituras.origen = registro`)."""
@@ -136,6 +140,23 @@ def figure_symbol(beats: str) -> list[dict[str, Any]]:
         {"figure": FIGURES[base], "dots": dots, "tuplet": tuplet, "grace": False}
         for base, dots, tuplet in _parts(value) or []
     ]
+
+
+def clef_name(clef: str) -> str:
+    """La clave en lenguaje musical (#418): `G2` → «clave de sol», `F3` → «clave de fa en 3.ª»,
+    `C1` → «clave de do en 1.ª», `G2-1` → «clave de sol (octava baja)»."""
+    match = re.fullmatch(r"([GFC])(\d)([+-]\d)?", clef)
+    if match is None:
+        return f"clave {clef}" if clef else "sin clave"
+    sign, line, octave = match.groups()
+    name = f"clave de {CLEF_SIGNS[sign]}"
+    if USUAL_CLEF_LINE.get(sign) != line:
+        name += f" en {line}.ª"
+    if octave:
+        shift = int(octave)
+        times = "octava" if abs(shift) == 1 else f"{abs(shift)} octavas"
+        name += f" ({times} {'alta' if shift > 0 else 'baja'})"
+    return name
 
 
 def _read(folder: Path, name: str) -> list[Row]:
@@ -226,32 +247,138 @@ def _event(kind: str, pitch: str, beats: str) -> str:
     return f"{pitch} {figure_name(beats)}".strip()
 
 
-def _example(row: Row, label: str, *, missing: bool = False) -> dict[str, Any]:
-    """Un ejemplo: dónde está, su foto y qué leyó HOMR frente a lo correcto, con la duración de
-    cada lado para dibujar el símbolo de su figura."""
+Place = tuple[str, int | None, int | None]
+"""Dónde dibujar un ejemplo: el compás (`bars`) y la posición del evento en lo que leyó HOMR y
+en lo correcto (`None` si no está en ese lado)."""
+
+
+def _bar_key(row: Row) -> tuple[str, ...]:
+    return (row["incipit_id"], row["part"], row["staff"], row["measure"], row["voice"])
+
+
+class _Bars:
+    """Los compases de los ejemplos, para dibujarlos como partitura bajo la foto (#418): lo que
+    leyó HOMR y lo correcto, evento a evento, con la clave y la armadura de la lectura. Solo se
+    guardan los compases que algún ejemplo usa."""
+
+    def __init__(self, tables: dict[str, list[Row]]) -> None:
+        self.notas = tables["notas"]
+        self.faltantes = tables["faltantes"]
+        self.groups: dict[tuple[str, ...], tuple[list[int], list[int]]] = {}
+        for index, row in enumerate(self.notas):
+            self.groups.setdefault(_bar_key(row), ([], []))[0].append(index)
+        for index, row in enumerate(self.faltantes):
+            self.groups.setdefault(_bar_key(row), ([], []))[1].append(index)
+        self.bars: dict[str, dict[str, Any]] = {}
+        self.ids: dict[tuple[str, ...], str] = {}
+        self.read_at: dict[int, int] = {}
+        self.fix_at: dict[int, int] = {}
+        self.missing_at: dict[int, int] = {}
+
+    def _build(self, key: tuple[str, ...]) -> str:
+        if key in self.ids:
+            return self.ids[key]
+        read_rows, missing_rows = self.groups[key]
+        read_rows = sorted(read_rows, key=lambda i: int(self.notas[i]["event_index"] or 0))
+        missing_rows = sorted(
+            missing_rows, key=lambda i: int(self.faltantes[i]["event_index"] or 0)
+        )
+        read: list[list[Any]] = []
+        fixed: list[list[Any]] = []
+
+        def insert_missing(before: int | None) -> None:
+            while missing_rows:
+                position = int(self.faltantes[missing_rows[0]]["event_index"] or 0)
+                if before is not None and position > before:
+                    return
+                index = missing_rows.pop(0)
+                row = self.faltantes[index]
+                if row["ins_hidden"] == "true":
+                    continue
+                self.missing_at[index] = len(fixed)
+                fixed.append(
+                    [
+                        "r" if row["ins_kind"] == "rest" else "n",
+                        row["ins_pitch"],
+                        row["ins_duration_beats"],
+                        int(row["ins_is_chord"] == "true"),
+                    ]
+                )
+
+        for index in read_rows:
+            row = self.notas[index]
+            insert_missing(int(row["event_index"] or 0))
+            if row["read_hidden"] == "true":
+                continue
+            kind = "r" if row["read_kind"] == "rest" else "n"
+            chord = int(row["read_is_chord"] == "true")
+            self.read_at[index] = len(read)
+            read.append([kind, row["read_pitch"], row["read_duration_beats"], chord])
+            if row["resultado"] != "borrada":
+                self.fix_at[index] = len(fixed)
+                fixed.append(
+                    [
+                        kind,
+                        row["fix_pitch"] or row["read_pitch"],
+                        row["fix_duration_beats"] or row["read_duration_beats"],
+                        chord,
+                    ]
+                )
+        insert_missing(None)
+        first = self.notas[read_rows[0]] if read_rows else self.faltantes[self.groups[key][1][0]]
+        bar_id = f"b{len(self.bars)}"
+        self.bars[bar_id] = {
+            "clef": first["ctx_clef"],
+            "key": int(first["ctx_key_fifths"] or 0),
+            "read": read,
+            "fixed": fixed,
+        }
+        self.ids[key] = bar_id
+        return bar_id
+
+    def note(self, index: int) -> Place:
+        bar_id = self._build(_bar_key(self.notas[index]))
+        return bar_id, self.read_at.get(index), self.fix_at.get(index)
+
+    def missing(self, index: int) -> Place:
+        bar_id = self._build(_bar_key(self.faltantes[index]))
+        return bar_id, None, self.missing_at.get(index)
+
+
+def _example(
+    row: Row, label: str, *, missing: bool = False, place: Place | None = None
+) -> dict[str, Any]:
+    """Un ejemplo: dónde está, su foto, qué leyó HOMR frente a lo correcto (con la duración de
+    cada lado para el símbolo de su figura) y, si se sabe, su compás para dibujarlo. `kind` dice
+    qué pasó: `change` (se corrigió), `extra` (HOMR la leyó de más) o `missing` (no la leyó)."""
     read_beats = fix_beats = ""
     if missing:
-        read = "—"
+        kind, read = "missing", ""
         fix_beats = row["ins_duration_beats"]
         fixed = _event(row["ins_kind"], row["ins_pitch"], fix_beats)
     else:
         read_beats = row["read_duration_beats"]
         read = _event(row["read_kind"], row["read_pitch"], read_beats)
         if row["resultado"] == "borrada":
-            fixed = "—"
+            kind, fixed = "extra", ""
         else:
+            kind = "change"
             fix_beats = row["fix_duration_beats"] or read_beats
             fixed = _event(row["read_kind"], row["fix_pitch"] or row["read_pitch"], fix_beats)
-    return {
+    example: dict[str, Any] = {
         "score": label,
         "measure": row["measure"],
         "staff": f"{row['part']}-{row['staff']}",
         "img": row.get("recorte", ""),
+        "kind": kind,
         "read": read,
         "fix": fixed,
         "read_beats": read_beats,
         "fix_beats": fix_beats,
     }
+    if place is not None:
+        example["bar"], example["at_read"], example["at_fix"] = place
+    return example
 
 
 def _key_example(row: Row, label: str, img: str) -> dict[str, Any]:
@@ -304,7 +431,7 @@ def _rates(
     wrong: Callable[[int, Row], bool],
     label: Callable[[str], str],
     examples: _Examples,
-    labels: dict[str, str],
+    build: Callable[[int, Row], dict[str, Any]],
     prefix: str,
 ) -> list[dict[str, Any]]:
     totals: Counter[str] = Counter()
@@ -316,11 +443,7 @@ def _rates(
         totals[value] += 1
         if wrong(index, row):
             errors[value] += 1
-            examples.add(
-                f"{prefix}:{value}",
-                (str(index),),
-                lambda r=row: _example(r, labels.get(r["incipit_id"], r["incipit_id"])),
-            )
+            examples.add(f"{prefix}:{value}", (str(index),), lambda i=index, r=row: build(i, r))
     rates = [
         {
             "key": f"{prefix}:{value}",
@@ -340,15 +463,16 @@ def aggregate(
     only: set[str] | None,
     skip_reordered: bool,
     reordered: set[int],
+    bars: _Bars | None = None,
 ) -> dict[str, Any]:
     """Las cifras del informe para unas partituras (`incipit_id`; todas con `None`) y con o sin
-    los acordes reordenados."""
+    los acordes reordenados. Con `bars`, cada ejemplo lleva su compás para dibujarlo."""
 
     def keep(row: Row) -> bool:
         return only is None or row["incipit_id"] in only
 
     notas = [(i, r) for i, r in enumerate(tables["notas"]) if keep(r)]
-    faltantes = [r for r in tables["faltantes"] if keep(r)]
+    faltantes = [(i, r) for i, r in enumerate(tables["faltantes"]) if keep(r)]
     claves = [r for r in tables["clave_armadura"] if keep(r)]
     partituras = [r for r in tables["partituras"] if keep(r)]
     labels = {r["incipit_id"]: _score_label(r) for r in partituras}
@@ -367,6 +491,15 @@ def aggregate(
         """Con alguna corrección (una nota sin alinear no la tiene: no se sabe cuál es)."""
         return result(index, row) in ("corregida", "borrada")
 
+    def note_example(index: int, row: Row) -> dict[str, Any]:
+        place = bars.note(index) if bars is not None else None
+        return _example(row, labels.get(row["incipit_id"], row["incipit_id"]), place=place)
+
+    def missing_example(index: int, row: Row) -> dict[str, Any]:
+        place = bars.missing(index) if bars is not None else None
+        label = labels.get(row["incipit_id"], row["incipit_id"])
+        return _example(row, label, missing=True, place=place)
+
     examples = _Examples()
     outcome = Counter(result(i, r) for i, r in notas)
     ops: Counter[str] = Counter()
@@ -375,34 +508,27 @@ def aggregate(
     for index, row in notas:
         if skip_reordered and index in reordered:
             continue
-        label = labels.get(row["incipit_id"], row["incipit_id"])
+        build = partial(note_example, index, row)
         for op in filter(None, row["ops"].split("+")):
             ops[op] += 1
-            examples.add(f"op:{op}", (str(index),), lambda r=row, name=label: _example(r, name))
+            examples.add(f"op:{op}", (str(index),), build)
         if "SetPitch" in row["ops"]:
             a, b = diatonic(row["read_pitch"]), diatonic(row["fix_pitch"])
             if a is not None and b is not None:
                 step = max(-8, min(8, b - a))
                 steps[step] += 1
-                examples.add(
-                    f"step:{step}", (str(index),), lambda r=row, name=label: _example(r, name)
-                )
+                examples.add(f"step:{step}", (str(index),), build)
         if "SetDuration" in row["ops"] and row["fix_duration_beats"]:
             pair = (row["read_duration_beats"], row["fix_duration_beats"])
             durations[pair] += 1
-            examples.add(
-                f"dur:{pair[0]}>{pair[1]}",
-                (str(index),),
-                lambda r=row, name=label: _example(r, name),
-            )
+            examples.add(f"dur:{pair[0]}>{pair[1]}", (str(index),), build)
     if faltantes:
         ops["InsertEvent"] = len(faltantes)
-    for number, row in enumerate(faltantes):
-        label = labels.get(row["incipit_id"], row["incipit_id"])
+    for index, row in faltantes:
         examples.add(
             "op:InsertEvent",
-            ("faltante", str(number), row["incipit_id"]),
-            lambda r=row, name=label: _example(r, name, missing=True),
+            ("faltante", str(index)),
+            partial(missing_example, index, row),
         )
     for number, row in enumerate(claves):
         label = labels.get(row["incipit_id"], row["incipit_id"])
@@ -416,11 +542,17 @@ def aggregate(
             )
 
     by_vs_key = _rates(
-        notas, "ctx_accidental_vs_key", wrong, lambda v: VS_KEY.get(v, v), examples, labels, "vs"
+        notas,
+        "ctx_accidental_vs_key",
+        wrong,
+        lambda v: VS_KEY.get(v, v),
+        examples,
+        note_example,
+        "vs",
     )
-    by_clef = _rates(notas, "ctx_clef", wrong, lambda v: v, examples, labels, "clef")
+    by_clef = _rates(notas, "ctx_clef", wrong, clef_name, examples, note_example, "clef")
     by_duration = _rates(
-        notas, "read_duration_beats", wrong, figure_name, examples, labels, "readdur"
+        notas, "read_duration_beats", wrong, figure_name, examples, note_example, "readdur"
     )
 
     # Las correcciones de cada partitura, como `partituras.correcciones_netas`: una por operación
@@ -435,16 +567,14 @@ def aggregate(
         counts[1] += len(_ops(row))
         if wrong(index, row):
             examples.add(
-                f"score:{row['incipit_id']}",
-                (str(index),),
-                lambda r=row: _example(r, labels.get(r["incipit_id"], r["incipit_id"])),
+                f"score:{row['incipit_id']}", (str(index),), partial(note_example, index, row)
             )
-    for number, row in enumerate(faltantes):
+    for index, row in faltantes:
         per_score.setdefault(row["incipit_id"], [0, 0])[1] += 1
         examples.add(
             f"score:{row['incipit_id']}",
-            ("faltante", str(number), row["incipit_id"]),
-            lambda r=row: _example(r, labels.get(r["incipit_id"], r["incipit_id"]), missing=True),
+            ("faltante", str(index)),
+            partial(missing_example, index, row),
         )
     for row in claves:
         per_score.setdefault(row["incipit_id"], [0, 0])[1] += len(_ops(row))
@@ -552,17 +682,21 @@ def report_data(folder: Path) -> dict[str, Any]:
     real = {r["incipit_id"] for r in tables["partituras"] if _is_real_test(r)}
     if real:
         groups[REAL_TESTS] = real
+    bars = _Bars(tables)
     variants = {
-        f"{name}|{int(skip)}": aggregate(tables, only, skip, reordered)
+        f"{name}|{int(skip)}": aggregate(tables, only, skip, reordered, bars)
         for name, only in groups.items()
         for skip in (False, True)
     }
     sessions = session_strips(folder, tables["partituras"])
+    sources = Counter(r["source"] for r in tables["partituras"])
     return {
         "groups": [name for name in groups if name != "todas"],
+        "counts": {"primus": sources["primus"], "cadenza": sources["cadenza"], "real": len(real)},
         "variants": variants,
         "sessions": sessions,
         "figures": figures(tables, sessions),
+        "bars": bars.bars,
     }
 
 

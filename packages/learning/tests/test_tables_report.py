@@ -61,8 +61,15 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     assert _export(output, base, "--recortes", "--informe") == 0
     page = output / "informe.html"
     text = page.read_text(encoding="utf-8")
-    # Sin red: ni scripts, ni hojas de estilo, ni imágenes de fuera.
-    assert "http://" not in text and "https://" not in text
+    # Sin red: ni scripts, ni hojas de estilo, ni imágenes, ni fuentes de fuera. Los enlaces a
+    # HOMR y a PrIMuS solo se abren si se siguen.
+    assert not re.search(r"""(src|srcset)\s*=\s*["']?\s*(https?:)?//""", text)
+    assert not re.search(r"""url\(\s*["']?\s*(https?:)?//""", text)
+    assert not re.search(r"<link\b|@import|<iframe\b|fetch\(|XMLHttpRequest", text)
+    assert set(re.findall(r'href="(https?://[^"]+)"', text)) == {
+        "https://github.com/liebharc/homr",
+        "https://grfia.dlsi.ua.es/primus/",
+    }
 
     data = _data(page)
     # Sin cuentas del registro no hay pruebas reales que separar: solo «todas».
@@ -94,6 +101,16 @@ def test_the_report_agrees_with_the_csv_and_shows_the_photos(
     assert {r["read_duration_beats"] for r in notas} <= set(data["figures"])
     assert all(not re.search(r"\d", f["name"]) and f["symbol"] for f in data["figures"].values())
     assert all(x["read_beats"] or x["fix_beats"] for x in every["examples"])
+    # Cada ejemplo de una nota lleva su compás para dibujarlo: lo leído y lo correcto.
+    pitch = next(x for x in examples if x["kind"] == "change")
+    bar = data["bars"][pitch["bar"]]
+    assert bar["read"][pitch["at_read"]][1] == "C4" and bar["fixed"][pitch["at_fix"]][1] == "D4"
+    assert "clef" in bar and isinstance(bar["key"], int)  # sin clave leída se dibuja en la de sol
+    assert data["counts"] == {
+        "primus": 0,
+        "cadenza": len(_rows(output / "partituras.csv")),
+        "real": 0,
+    }
 
 
 def test_without_recortes_the_report_has_no_photos(
@@ -173,6 +190,67 @@ def test_only_the_real_tests_of_cadenza_are_split(
 )
 def test_each_duration_is_named_by_its_figure(beats: str, name: str) -> None:
     assert tables_report.figure_name(beats) == name
+
+
+@pytest.mark.parametrize(
+    ("clef", "name"),
+    [
+        ("G2", "clave de sol"),
+        ("G1", "clave de sol en 1.ª"),
+        ("F4", "clave de fa"),
+        ("F3", "clave de fa en 3.ª"),
+        ("C1", "clave de do en 1.ª"),
+        ("C3", "clave de do en 3.ª"),
+        ("G2-1", "clave de sol (octava baja)"),
+        ("G2+2", "clave de sol (2 octavas alta)"),
+        ("", "sin clave"),
+    ],
+)
+def test_each_clef_is_named_in_musical_language(clef: str, name: str) -> None:
+    assert tables_report.clef_name(clef) == name
+
+
+def test_a_bar_keeps_what_was_read_and_what_is_right_in_order() -> None:
+    def note(index: str, pitch: str, **fields: str) -> dict[str, str]:
+        return _row(event_index=index, read_pitch=pitch, ctx_key_fifths="-1", **fields)
+
+    tables = {
+        "notas": [
+            note("0", "C4"),
+            note("1", "E4", resultado="borrada", ops="DeleteEvent"),
+            note("2", "G4", resultado="corregida", ops="SetPitch", fix_pitch="A4"),
+        ],
+        # Faltaba un F4 delante del G4 (posición 2 de lo leído).
+        "faltantes": [
+            {
+                **_row(event_index="2"),
+                "ins_kind": "note",
+                "ins_pitch": "F4",
+                "ins_duration_beats": "1/2",
+                "ins_is_chord": "false",
+                "ins_hidden": "false",
+            }
+        ],
+        "clave_armadura": [],
+        "partituras": [
+            {"source": "cadenza", "incipit_id": "cadenza:s", "session_id": "s", "test_score_id": ""}
+        ],
+    }
+    bars = tables_report._Bars(tables)
+    bar_id, at_read, at_fix = bars.note(2)
+    bar = bars.bars[bar_id]
+    assert [e[1] for e in bar["read"]] == ["C4", "E4", "G4"]
+    assert [e[1] for e in bar["fixed"]] == ["C4", "F4", "A4"]
+    assert (at_read, at_fix) == (2, 2)
+    assert bars.note(1)[1:] == (1, None), "la leída de más no está en lo correcto"
+    assert bars.missing(0) == (bar_id, None, 1), "la que faltaba solo está en lo correcto"
+    assert bar["key"] == -1 and bar["clef"] == "G2"
+
+    every = tables_report.aggregate(tables, None, False, set(), bars)
+    kinds = {x["kind"] for x in every["examples"]}
+    assert kinds == {"change", "extra", "missing"}
+    extra = next(x for x in every["examples"] if x["kind"] == "extra")
+    assert extra["fix"] == "" and extra["read"] == "E4 negra"
 
 
 def test_the_symbol_of_a_figure_has_its_dots_tuplet_and_grace() -> None:
@@ -289,6 +367,9 @@ def _row(**fields: str) -> dict[str, str]:
         "read_pitch": "C4",
         "read_duration_beats": "1",
         "read_is_chord": "false",
+        "read_hidden": "false",
+        "event_index": "0",
+        "ctx_key_fifths": "0",
         "resultado": "bien",
         "ops": "",
         "fix_pitch": "",

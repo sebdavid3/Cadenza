@@ -40,6 +40,12 @@ svg.fig.grace { height: 1.45em; vertical-align: -0.3em; }
 .masthead .lead { font-size: 1.125rem; line-height: 1.45; max-width: 60ch; margin: 16px 0 0; }
 .masthead .meta { text-align: right; }
 @media (max-width: 900px) { .masthead { grid-template-columns: 1fr; } .masthead .meta { text-align: left; } }
+.about { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 0; border: var(--rule); margin-top: 8px; }
+.about section { padding: 14px 18px 16px; border-right: var(--rule); margin-right: -3px; }
+.about h2 { font: 700 1rem/1.1 var(--display); text-transform: uppercase; margin: 0 0 6px; }
+.about p { margin: 0; font-size: 0.9375rem; line-height: 1.45; max-width: 62ch; }
+.about a { color: var(--ink); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.about a:hover { color: var(--accent); }
 
 /* Barra de filtros */
 .bar { position: sticky; top: 0; z-index: 5; background: var(--paper); border-bottom: var(--rule); min-height: var(--bar-h);
@@ -102,6 +108,7 @@ svg.fig.grace { height: 1.45em; vertical-align: -0.3em; }
 .brow .track { height: 18px; border: 1px solid var(--rule-soft); position: relative; background: var(--paper); }
 .brow .fill { position: absolute; inset: -1px auto -1px -1px; background: var(--ink); min-width: 3px; }
 .brow .v { font-weight: 500; font-size: 0.9375rem; }
+.brow .name .sub { display: block; font-size: 0.75rem; color: var(--ink-faint); margin-top: 1px; }
 .brow:hover .fill { background: var(--paper) radial-gradient(var(--ink) 1.1px, transparent 1.3px) 0 0 / 5px 5px; outline: 2px solid var(--ink); }
 .brow:hover .name, .brow[aria-current="true"] .name { color: var(--ink); }
 .brow[aria-current="true"] .fill { background: var(--accent); outline: 0; }
@@ -168,6 +175,8 @@ table.top tr[aria-current="true"] td { background: var(--accent); color: var(--o
 .nophoto { padding: 14px; border-bottom: var(--rule); background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.2px); background-size: 5px 5px; }
 .nophoto span { background: var(--paper); padding: 2px 6px; }
 .ex .txt { padding: 10px 12px 12px; display: grid; gap: 6px; }
+.ex .drawn { border-bottom: 1px solid var(--rule-soft); padding: 4px 12px 0; background: var(--paper); }
+.ex .drawn svg { display: block; color: var(--ink); }
 .change { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .tok { font: 500 0.9375rem/1.4 var(--body); padding: 1px 6px; border: 2px solid transparent; white-space: nowrap; }
 .tok.del { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--ink-muted); }
@@ -222,17 +231,17 @@ footer { padding: 24px var(--gutter) 40px; }
   <div>
     <div class="label muted">Informe de la toma de datos · ml export-tables</div>
     <h1>Errores de HOMR</h1>
-    <p class="lead">Qué lee mal HOMR y cómo se corrige. En PrIMuS, las correcciones salen de comparar
-    lo leído con la partitura correcta; en Cadenza, son las que quedaron en cada sesión. Pincha
-    cualquier cifra para ver sus ejemplos con la foto de su compás.</p>
+    <p class="lead">Qué notas lee mal HOMR y cómo se corrigen. Cada cifra lleva a sus ejemplos: la foto
+    del compás y, debajo, el compás dibujado tal como lo leyó HOMR y como es en realidad.</p>
   </div>
   <div class="meta small">Commit __COMMIT__<br>__DATE__ UTC</div>
+  <div class="about" id="about"></div>
 </header>
 
 <nav class="bar" aria-label="Filtros">
   <span class="label muted" id="source-label" hidden>Partituras</span>
   <div class="toggle" id="source" role="group" aria-label="Partituras" hidden></div>
-  <label class="switch"><input type="checkbox" id="reorder"><span class="label">No contar los acordes solo reordenados</span></label>
+  <label class="switch" id="reorder-switch" hidden><input type="checkbox" id="reorder"><span class="label">No contar los acordes solo reordenados</span></label>
 </nav>
 
 <section class="band" aria-labelledby="h-findings">
@@ -248,18 +257,18 @@ footer { padding: 24px var(--gutter) 40px; }
 
 <div class="layout band">
   <main class="charts">
-    <div class="head"><h2>Dónde y cómo falla</h2><span class="label">Pincha para ver ejemplos</span></div>
+    <div class="head"><h2>Dónde y cómo falla</h2></div>
     <section class="panel">
       <h3>Qué pasó con cada nota leída</h3>
       <p class="small">Cada nota o silencio que leyó HOMR, comparado con la partitura correcta: en PrIMuS, la de
-      referencia; en Cadenza, la que dejó quien corrigió. Lo que HOMR no leyó («faltaba») no está aquí: va en «Qué se corrige».</p>
+      referencia; en Cadenza, la que dejó quien corrigió. Las notas que HOMR no leyó no están aquí: salen en «Qué se corrige».</p>
       <div class="defs" id="outcome-legend"></div>
       <div id="outcome"></div>
     </section>
     <div class="pair">
       <section class="panel">
         <h3>Qué se corrige</h3>
-        <p class="small">Correcciones por cada 100 notas leídas. «Faltaba» es lo que HOMR no leyó.</p>
+        <p class="small">Por cada 100 notas que leyó HOMR, cuántas correcciones de cada tipo hicieron falta.</p>
         <div id="ops"></div>
       </section>
       <section class="panel">
@@ -299,8 +308,7 @@ footer { padding: 24px var(--gutter) 40px; }
 <section class="band" aria-labelledby="h-sessions" id="sessions-band">
   <div class="head"><h2 id="h-sessions">Las tiras de cada sesión</h2><span class="count" id="sessions-count"></span></div>
   <div class="sessions-tools">
-    <label class="switch"><input type="checkbox" id="only-fixed" checked><span class="label">Solo las tiras corregidas</span></label>
-    <span class="small">Cada pentagrama de la foto con lo que leyó HOMR y lo que quedó, compás a compás. Tachado, lo que se quitó; en violeta, lo que entró; con raya discontinua, las mismas notas en otro orden.</span>
+    <span class="small">Los pentagramas de la foto en que se corrigió algo, con lo que leyó HOMR y lo que quedó en los compases que cambiaron. Tachado, lo que se quitó; en violeta, lo que entró; con raya discontinua, las mismas notas en otro orden.</span>
   </div>
   <div id="sessions"></div>
 </section>
@@ -312,13 +320,15 @@ footer { padding: 24px var(--gutter) 40px; }
 const DATA = __DATA__;
 // Solo se separan las pruebas reales de Cadenza (#418): las sesiones de las cuentas del registro público.
 const NAMES = { todas: "Todas", pruebas: "Pruebas reales" };
-const OPS = { SetPitch: "Altura", SetDuration: "Figura", SetAccidental: "Alteración",
-  DeleteEvent: "Sobraba", InsertEvent: "Faltaba", SetClef: "Clave", SetKey: "Armadura" };
-const OP_TEXT = { SetPitch: "la altura", SetDuration: "la figura", SetAccidental: "la alteración",
-  DeleteEvent: "una nota que sobraba", InsertEvent: "una nota que faltaba", SetClef: "la clave", SetKey: "la armadura" };
+const OPS = { SetPitch: "Altura equivocada", SetDuration: "Figura equivocada", SetAccidental: "Alteración equivocada",
+  DeleteEvent: "Nota leída de más", InsertEvent: "Nota que HOMR no leyó", SetClef: "Clave equivocada", SetKey: "Armadura equivocada" };
+// Cómo se dice en «Lo que dicen los datos» que una nota leída necesitó esta corrección.
+const OP_FINDING = { SetDuration: "tenían mal la figura", SetPitch: "tenían mal la altura",
+  SetAccidental: "tenían mal la alteración", DeleteEvent: "no estaban en la partitura: HOMR las leyó de más" };
+const MIN_HEADLINE = 200;  // notas que necesita un grupo para salir en «Lo que dicen los datos»
 const OUTCOMES = [
   ["corregida", "Corregida", "var(--ink)", "Está en la partitura correcta, pero hubo que cambiarle la altura, la alteración o la figura."],
-  ["borrada", "Sobraba", "url(#trama)", "HOMR leyó una nota o un silencio que no está en la partitura correcta: se borró."],
+  ["borrada", "Leída de más", "url(#trama)", "HOMR leyó una nota o un silencio que no está en la partitura correcta: se borró."],
   ["sin_alinear", "Sin alinear", "url(#rayado)", "Está en un compás que HOMR leyó de más: no hay compás correcto con que compararla, así que no se sabe si estaba bien."],
   ["bien", "Bien leída", "var(--paper-raised)", "Quedó igual en la partitura correcta: no hubo que tocarla."]];
 // --- El símbolo de cada figura ------------------------------------------------------------------
@@ -405,22 +415,25 @@ function findings(d) {
   const out = [];
   const read = d.read;
   const ops = Object.entries(d.ops).filter(([, n]) => n).sort((a, b) => b[1] - a[1]);
-  if (read && ops.length) {
-    const [k, n] = ops[0];
-    out.push({ big: `${(100 * n / read).toLocaleString("es", { maximumFractionDigits: 1 })}`, unit: "de cada 100",
-      text: `Lo que más se corrige es ${OP_TEXT[k] || k}: ${fmt(n)} correcciones en ${fmt(read)} notas leídas.`,
+  const top = ops.find(([k]) => OP_FINDING[k]);
+  if (read && top) {
+    const [k, n] = top;
+    out.push({ big: pct(n, read, 0),
+      text: `de las notas que leyó HOMR ${OP_FINDING[k]}: es lo que más se corrige (${fmt(n)} de ${fmt(read)}).`,
       key: `op:${k}`, title: OPS[k] || k, kicker: "Qué se corrige" });
   }
-  const dur = d.by_duration[0];
-  if (dur && dur.wrong) out.push({ big: pct(dur.wrong, dur.n, 0), text: `de las notas leídas como ${dur.label} tienen alguna corrección: es la figura que peor lee.`,
-    html: `de las notas leídas como ${figSym(dur.key.slice("readdur:".length))}${esc(dur.label)} tienen alguna corrección: es la figura que peor lee.`,
+  // Los grupos pequeños no salen aquí: un 50 % de 30 notas dice poco. Siguen en sus barras.
+  const big = rows => rows.filter(r => r.n >= MIN_HEADLINE && r.wrong);
+  const dur = big(d.by_duration)[0];
+  if (dur) out.push({ big: pct(dur.wrong, dur.n, 0), text: `de las notas leídas como ${dur.label} tienen alguna corrección (${fmt(dur.wrong)} de ${fmt(dur.n)}): es la figura que peor lee.`,
+    html: `de las notas leídas como ${figSym(dur.key.slice("readdur:".length))}${esc(dur.label)} tienen alguna corrección (${fmt(dur.wrong)} de ${fmt(dur.n)}): es la figura que peor lee.`,
     key: dur.key, title: dur.label, kicker: "Figura leída" });
   const against = d.by_vs_key.find(r => r.key === "vs:against_key"), inKey = d.by_vs_key.find(r => r.key === "vs:in_key");
-  if (against && inKey) out.push({ big: pct(against.wrong, against.n, 0), text: `de las notas con una alteración contra la armadura se corrigen, frente al ${pct(inKey.wrong, inKey.n, 0)} de las que van según la armadura.`,
+  if (against && inKey) out.push({ big: pct(against.wrong, against.n, 0), text: `de las notas con una alteración contra la armadura se corrigen (${fmt(against.wrong)} de ${fmt(against.n)}), frente al ${pct(inKey.wrong, inKey.n, 0)} de las que van según la armadura.`,
     key: against.key, title: "contra la armadura", kicker: "Alteración frente a la armadura" });
-  const clef = d.by_clef[0];
-  if (clef && clef.wrong && out.length < 4) out.push({ big: pct(clef.wrong, clef.n, 0), text: `de las notas en clave de ${clef.label} tienen alguna corrección, la clave en que más falla.`,
-    key: clef.key, title: `clave ${clef.label}`, kicker: "Clave" });
+  const clef = big(d.by_clef)[0];
+  if (clef && out.length < 4) out.push({ big: pct(clef.wrong, clef.n, 0), text: `de las notas en ${clef.label} tienen alguna corrección (${fmt(clef.wrong)} de ${fmt(clef.n)}): la clave en que más falla.`,
+    key: clef.key, title: clef.label, kicker: "Clave" });
   if (out.length < 4 && d.scores) out.push({ big: pct(d.clean_scores, d.scores, 0), text: `de las partituras salieron sin ningún error.`, key: "", title: "", kicker: "" });
   return out.slice(0, 4);
 }
@@ -429,7 +442,7 @@ function findings(d) {
 function hbars(rows, { max, labelWidth = "9.5rem" } = {}) {
   const top = max ?? Math.max(...rows.map(r => r.value), 1e-9);
   return `<div class="bars">` + rows.map(r => `<div class="brow" style="--lw:${labelWidth}" ${attrs(r.key, r.title || r.label, r.kicker || "", r.tip)}>
-      <span class="name">${r.icon || ""}${esc(r.label)}</span>
+      <span class="name">${r.icon || ""}${esc(r.label)}${r.sub ? `<span class="sub">${esc(r.sub)}</span>` : ""}</span>
       <span class="track"><span class="fill" style="width:${(100 * r.value / top).toFixed(2)}%"></span></span>
       <span class="v">${esc(r.text)}</span></div>`).join("") + `</div>`;
 }
@@ -452,7 +465,7 @@ function render() {
   const o = d.outcome;
   document.getElementById("tiles").innerHTML = [
     [fmt(d.scores), "Partituras"], [fmt(read), "Notas y silencios leídos"], [pct(o.bien || 0, read), "Bien leídos"],
-    [fmt(o.corregida || 0), "Corregidos"], [fmt(o.borrada || 0), "Sobraban"], [fmt(d.missing), "Faltaban"],
+    [fmt(o.corregida || 0), "Corregidos"], [fmt(o.borrada || 0), "Leídos de más"], [fmt(d.missing), "Que HOMR no leyó"],
   ].map(([n, l]) => `<div class="tile"><b>${n}</b><span class="label">${l}</span></div>`).join("");
 
   // Qué pasó con cada nota: barras apiladas al 100 %, por patrón.
@@ -498,6 +511,7 @@ function render() {
   // Contextos.
   const block = (title, rows, labelWidth) => rows.length ? `<div class="label muted" style="margin:0 0 6px">${esc(title)}</div>` +
     hbars(rows.map(r => ({ label: r.label, value: r.rate, text: pct(r.wrong, r.n, 0), key: r.key, kicker: title, title: r.label,
+      sub: `${fmt(r.wrong)} de ${fmt(r.n)} notas`,
       icon: r.key.startsWith("readdur:") ? figSym(r.key.slice("readdur:".length)) : "",
       tip: `<b>${esc(r.label)}</b>: ${fmt(r.wrong)} de ${fmt(r.n)} notas con corrección` })), { max: 1, labelWidth }) : "";
   document.getElementById("contexts").innerHTML =
@@ -541,10 +555,136 @@ function render() {
 }
 
 // --- Ejemplos -----------------------------------------------------------------------------------
+// Qué pasó, en palabras: se corrigió, HOMR la leyó de más o no la leyó.
 function changeHtml(x) {
   const read = `${x.read_beats ? figSym(x.read_beats) : ""}${esc(x.read)}`, fix = `${x.fix_beats ? figSym(x.fix_beats) : ""}${esc(x.fix)}`;
+  if (x.kind === "extra") return `<span class="label arrow">HOMR leyó de más</span><span class="tok del">${read}</span><span class="small">No está en la partitura: se borró.</span>`;
+  if (x.kind === "missing") return `<span class="label arrow">HOMR no leyó</span><span class="tok ins">${fix}</span>`;
   if (x.read === x.fix) return `<span class="tok">${read}</span>`;
   return `<span class="label arrow">HOMR</span><span class="tok del">${read}</span><span class="label arrow">→ correcto</span><span class="tok ins">${fix}</span>`;
+}
+
+// --- El compás dibujado ---------------------------------------------------------------------------
+// Lo que leyó HOMR y lo correcto, en dos pentagramas, a partir de las tablas: cabezas, plicas,
+// corchetes, puntillos, alteraciones y silencios, sin barras de unión ni ligaduras. La nota del
+// ejemplo va en violeta. La clave se escribe con su nombre sobre su línea.
+const SP = 7, STEPS = "CDEFGAB", SHARPS = "FCGDAEB", FLATS = "BEADGCF";
+const CLEF_REF = { G: 4 * 7 + 4, F: 3 * 7 + 3, C: 4 * 7 };
+function parsePitch(p) {
+  const m = /^([A-G])([#b]*)(-?\d+)$/.exec(p || "");
+  if (!m) return null;
+  return { step: m[1], alter: [...m[2]].reduce((a, c) => a + (c === "#" ? 1 : -1), 0), d: +m[3] * 7 + STEPS.indexOf(m[1]) };
+}
+function clefOf(clef) {
+  const m = /^([GFC])(\d)([+-]\d)?$/.exec(clef || "") || [null, "G", "2", null];
+  return { sign: m[1], linePos: 2 * (+m[2] - 1), d: CLEF_REF[m[1]] + (m[3] ? +m[3] * 7 : 0) };
+}
+const keyAlter = (step, fifths) => fifths > 0 ? (SHARPS.slice(0, fifths).includes(step) ? 1 : 0)
+  : fifths < 0 ? (FLATS.slice(0, -fifths).includes(step) ? -1 : 0) : 0;
+function accSvg(alter, x, y) {
+  const L = 'stroke="currentColor" fill="none"';
+  if (alter === 1) return `<g ${L}><line x1="${x - 1.6}" y1="${y - 7}" x2="${x - 1.6}" y2="${y + 6}" stroke-width="1"/><line x1="${x + 1.6}" y1="${y - 6}" x2="${x + 1.6}" y2="${y + 7}" stroke-width="1"/><line x1="${x - 3.4}" y1="${y - 1.4}" x2="${x + 3.4}" y2="${y - 3}" stroke-width="1.9"/><line x1="${x - 3.4}" y1="${y + 3}" x2="${x + 3.4}" y2="${y + 1.4}" stroke-width="1.9"/></g>`;
+  if (alter === -1) return `<g ${L}><line x1="${x - 2.4}" y1="${y - 9.5}" x2="${x - 2.4}" y2="${y + 3}" stroke-width="1.1"/><path d="M${x - 2.4} ${y - 0.4} c2 -2.6 6.2 -2.4 5 0.6 c-0.7 1.6 -3 2.4 -5 2.8" stroke-width="1.5"/></g>`;
+  if (alter === 0) return `<g ${L}><line x1="${x - 2}" y1="${y - 7}" x2="${x - 2}" y2="${y + 3.4}" stroke-width="1"/><line x1="${x + 2}" y1="${y - 3.4}" x2="${x + 2}" y2="${y + 7}" stroke-width="1"/><line x1="${x - 2}" y1="${y - 1.6}" x2="${x + 2}" y2="${y - 2.8}" stroke-width="1.9"/><line x1="${x - 2}" y1="${y + 2.8}" x2="${x + 2}" y2="${y + 1.6}" stroke-width="1.9"/></g>`;
+  if (alter === 2) return `<g ${L} stroke-width="1.7"><line x1="${x - 2.8}" y1="${y - 2.8}" x2="${x + 2.8}" y2="${y + 2.8}"/><line x1="${x - 2.8}" y1="${y + 2.8}" x2="${x + 2.8}" y2="${y - 2.8}"/></g>`;
+  if (alter === -2) return accSvg(-1, x - 2.6, y) + accSvg(-1, x + 2.6, y);
+  return "";
+}
+function restSvg(p, x, top) {
+  const mid = top + 2 * SP, L = 'stroke="currentColor" fill="none" stroke-linecap="round"';
+  let out = "";
+  if (p.figure === "redonda" || p.figure === "cuadrada" || p.figure === "longa") out = `<rect x="${x - 4.5}" y="${top + SP}" width="9" height="${SP / 2 + 0.5}" fill="currentColor"/>`;
+  else if (p.figure === "blanca") out = `<rect x="${x - 4.5}" y="${mid - SP / 2 - 0.5}" width="9" height="${SP / 2 + 0.5}" fill="currentColor"/>`;
+  else if (p.figure === "negra") out = `<path d="M${x - 1.5} ${top + 4} l4 5 l-4 4 l4 5 c-3 -1.6 -5.4 0.6 -2 4" ${L} stroke-width="1.8"/>`;
+  else {
+    const flags = FLAGS[p.figure] || 1;
+    out = `<line x1="${x + 3}" y1="${top + SP - 1}" x2="${x - 1}" y2="${top + 3 * SP + 2}" ${L} stroke-width="1.3"/>`;
+    for (let i = 0; i < flags; i++) {
+      const y = top + SP + 1 + i * SP * 0.8, xs = x + 3 - i * 1.4;
+      out += `<circle cx="${xs - 5}" cy="${y}" r="1.7" fill="currentColor"/><path d="M${xs - 5} ${y + 0.8} c1.6 1 3.4 0.4 ${5 - 0.2} -1.6" ${L} stroke-width="1.2"/>`;
+    }
+  }
+  for (let i = 0; i < p.dots; i++) out += `<circle cx="${x + 8 + i * 3.6}" cy="${mid - SP / 2}" r="1.4" fill="currentColor"/>`;
+  return out;
+}
+// Un grupo: un evento y las notas de su acorde, en la misma x.
+function groupSvg(group, x, top, ctx) {
+  const bottom = top + 4 * SP, yOf = pos => bottom - pos * SP / 2;
+  const first = group[0], fig = (DATA.figures[first.beats] || {}).symbol || [];
+  const p = fig[0] || { figure: "negra", dots: 0, tuplet: 0, grace: false };
+  if (first.kind === "r") return restSvg(p, x, top);
+  const L = 'stroke="currentColor" fill="none" stroke-linecap="round"';
+  const notes = group.map(e => ({ e, pitch: parsePitch(e.pitch) })).filter(n => n.pitch);
+  if (!notes.length) return "";
+  const poss = notes.map(n => ctx.clef.linePos + (n.pitch.d - ctx.clef.d));
+  const up = (Math.min(...poss) + Math.max(...poss)) / 2 < 4;
+  const scale = p.grace ? 0.7 : 1;
+  let out = "";
+  notes.forEach((n, i) => {
+    const pos = poss[i], y = yOf(pos);
+    for (let l = -2; l >= pos; l -= 2) out += `<line x1="${x - 7}" y1="${yOf(l)}" x2="${x + 7}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1"/>`;
+    for (let l = 10; l <= pos; l += 2) out += `<line x1="${x - 7}" y1="${yOf(l)}" x2="${x + 7}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1"/>`;
+    const alter = n.pitch.alter;
+    if (alter !== keyAlter(n.pitch.step, ctx.key)) out += accSvg(alter, x - 10, y);
+    const hollow = ["blanca", "redonda", "cuadrada", "longa"].includes(p.figure);
+    out += `<ellipse cx="${x}" cy="${y}" rx="${4.3 * scale}" ry="${3.1 * scale}" transform="rotate(-20 ${x} ${y})" fill="${hollow ? "none" : "currentColor"}" stroke="currentColor" stroke-width="${hollow ? 1.5 : 0}"/>`;
+    for (let k = 0; k < p.dots; k++) out += `<circle cx="${x + 8 + k * 3.6}" cy="${pos % 2 === 0 ? y - SP / 2 : y}" r="1.4" fill="currentColor"/>`;
+  });
+  if (p.figure !== "redonda" && p.figure !== "cuadrada") {
+    const ys = poss.map(yOf), len = 3.4 * SP * scale, sx = up ? x + 3.9 * scale : x - 3.9 * scale;
+    const from = up ? Math.max(...ys) : Math.min(...ys), to = up ? Math.min(...ys) - len : Math.max(...ys) + len;
+    out += `<line x1="${sx}" y1="${from}" x2="${sx}" y2="${to}" ${L} stroke-width="1.3"/>`;
+    const flags = FLAGS[p.figure] || 0;
+    for (let i = 0; i < flags; i++) {
+      out += up ? `<path d="M${sx} ${to + i * 4.2 * scale} c0.5 2.6 5.4 3.2 4.6 7.4" ${L} stroke-width="1.5"/>`
+        : `<path d="M${sx} ${to - i * 4.2 * scale} c0.5 -2.6 5.4 -3.2 4.6 -7.4" ${L} stroke-width="1.5"/>`;
+    }
+    if (p.grace) out += `<line x1="${sx - 4}" y1="${up ? to + 9 : to - 9}" x2="${sx + 5}" y2="${up ? to + 2 : to - 2}" ${L} stroke-width="1.3"/>`;
+  }
+  return out;
+}
+function staffSvg(events, focus, ctx, top, x0) {
+  const lines = [0, 1, 2, 3, 4].map(k => top + k * SP);
+  let out = "", x = x0;
+  // La clave, con su nombre sobre su línea; luego la armadura.
+  const clefY = top + 4 * SP - ctx.clef.linePos * SP / 2, word = { G: "sol", F: "fa", C: "do" }[ctx.clef.sign];
+  const clefSvg = `<rect x="${x - 1}" y="${clefY - 6}" width="${word.length * 6.6 + 4}" height="12" fill="var(--paper)"/><text x="${x + 1}" y="${clefY + 4}" style="font:600 11px var(--body);fill:currentColor">${word}</text>`;
+  x += word.length * 6.6 + 10;
+  let keySvg = "";
+  const order = ctx.key > 0 ? SHARPS : FLATS, model = ctx.key > 0 ? [38, 35, 39, 36, 33, 37, 34] : [34, 37, 33, 36, 32, 35, 31];
+  for (let i = 0; i < Math.abs(ctx.key); i++) {
+    let pos = ctx.clef.linePos + (model[i] - ctx.clef.d);
+    while (pos > 9.5) pos -= 7;
+    while (pos < -0.5) pos += 7;
+    keySvg += accSvg(ctx.key > 0 ? 1 : -1, x + 3, top + 4 * SP - pos * SP / 2);
+    x += 7;
+  }
+  x += 14;
+  const groups = [];
+  events.forEach((e, i) => { const ev = { kind: e[0], pitch: e[1], beats: e[2], chord: e[3], i }; if (ev.chord && groups.length) groups[groups.length - 1].push(ev); else groups.push([ev]); });
+  let notes = "";
+  groups.forEach(g => {
+    const fig = ((DATA.figures[g[0].beats] || {}).symbol || [])[0] || { dots: 0 };
+    const needsAcc = g.some(e => { const p = parsePitch(e.pitch); return p && p.alter !== keyAlter(p.step, ctx.key); });
+    if (needsAcc) x += 8;
+    const hit = g.some(e => e.i === focus);
+    const svg = groupSvg(g, x, top, ctx);
+    notes += hit ? `<rect x="${x - (needsAcc ? 16 : 9)}" y="${top - 2.5 * SP}" width="${(needsAcc ? 16 : 9) + 15}" height="${9 * SP}" fill="var(--accent)" opacity="0.14"/><g style="color:var(--accent)">${svg}</g>` : svg;
+    x += (fig.grace ? 15 : 24) + (fig.dots || 0) * 4;
+  });
+  const staff = lines.map(y => `<line x1="${x0 - 4}" y1="${y}" x2="${x + 4}" y2="${y}" stroke="currentColor" stroke-width="0.9" opacity="0.7"/>`).join("");
+  return { svg: staff + notes + clefSvg + keySvg, width: x + 6 };
+}
+function barHtml(x) {
+  const bar = x.bar && DATA.bars[x.bar];
+  if (!bar) return "";
+  const ctx = { clef: clefOf(bar.clef), key: bar.key }, label = 64, top1 = 4 * SP, gap = 11 * SP;
+  const a = staffSvg(bar.read, x.at_read, ctx, top1, label), b = staffSvg(bar.fixed, x.at_fix, ctx, top1 + gap, label);
+  const W = Math.max(a.width, b.width, 220), H = top1 + gap + 9 * SP;
+  const tag = (t, y) => `<text x="0" y="${y + 2 * SP + 4}" style="font:500 11px var(--body);fill:var(--ink-muted)">${t}</text>`;
+  const Z = 1.4;  // se dibuja a escala de pentagrama pequeño y se amplía para leerlo
+  return `<div class="drawn scroll"><svg viewBox="0 0 ${W} ${H}" width="${(W * Z).toFixed(0)}" height="${(H * Z).toFixed(0)}" role="img" aria-label="Compás ${esc(x.measure)}: lo que leyó HOMR y lo correcto">
+    ${tag("HOMR leyó", top1)}${tag("Correcto", top1 + gap)}${a.svg}${b.svg}</svg></div>`;
 }
 function photoHtml(img, alt) {
   return img ? `<div class="photo"><img loading="lazy" src="${esc(img)}" alt="${esc(alt)}"></div>`
@@ -554,15 +694,16 @@ function showExamples() {
   const d = variant(), list = document.getElementById("ex-list");
   if (!selected) {
     document.getElementById("ex-title").textContent = "Ejemplos";
-    document.getElementById("ex-note").textContent = "Pincha una cifra, una barra o una fila.";
+    document.getElementById("ex-note").textContent = "Elige una cifra, una barra o una fila para ver sus ejemplos.";
     list.innerHTML = ""; return;
   }
   const ids = d.example_keys[selected.key] || [];
   document.getElementById("ex-kicker").textContent = selected.kicker || "Ejemplos";
   document.getElementById("ex-title").textContent = selected.title;
-  document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? ", los 12 primeros" : ""}. Cada foto es el pentagrama entero del sistema; el compás es el que se indica.` : "Ningún ejemplo con este filtro.";
+  document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? ", los 12 primeros" : ""}. Cada foto es el pentagrama entero; debajo, su compás dibujado: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.` : "Ningún ejemplo con este filtro.";
   list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
     ${photoHtml(x.img, `Pentagrama ${x.staff}, sistema del compás ${x.measure}`)}
+    ${barHtml(x)}
     <div class="txt"><div class="small">${esc(x.score)} · compás ${esc(x.measure)} · pentagrama ${esc(x.staff)}</div>
     <div class="change">${changeHtml(x)}</div></div></article>`).join("");
 }
@@ -615,7 +756,8 @@ function side(voices, which) {
   }).join("")).join('<span class="voice">/</span>');
 }
 function renderSessions() {
-  const box = document.getElementById("sessions"), only = document.getElementById("only-fixed").checked;
+  // Solo los pentagramas y los compases en que se corrigió algo (#418).
+  const box = document.getElementById("sessions"), only = true;
   const sessions = (DATA.sessions || []).filter(s => source !== "pruebas" || s.real);
   if (!sessions.length) { box.innerHTML = `<p class="empty">Sin tiras: exporta con --recortes y la base.</p>`; document.getElementById("sessions-count").textContent = ""; return; }
   let shownStrips = 0;
@@ -663,7 +805,26 @@ addEventListener("resize", () => {
   clearTimeout(resizing);
   resizing = setTimeout(() => { if (innerWidth !== lastWidth) { lastWidth = innerWidth; render(); } }, 150);
 });
-document.getElementById("only-fixed").addEventListener("change", renderSessions);
+// «No contar los acordes solo reordenados» solo tiene sentido si los hay: al comparar con una
+// partitura de referencia, HOMR puede escribir las notas de un acorde en otro orden.
+document.getElementById("reorder-switch").hidden = !DATA.variants["todas|0"].reordered;
+// Sin filtros que ofrecer, la barra sobra.
+if (seg.hidden && document.getElementById("reorder-switch").hidden) {
+  document.querySelector("nav.bar").hidden = true;
+  document.documentElement.style.setProperty("--bar-h", "0px");
+}
+
+// Qué es HOMR y de dónde salen los datos: nada se da por sabido.
+const about = [`<section><h2>HOMR</h2><p>El programa de reconocimiento óptico de música (OMR) que usa Cadenza: lee la foto
+  de una partitura y la convierte en notas. Es de código abierto, de Christian Liebhardt, con licencia AGPL-3.0, y se basa en
+  redes neuronales de visión (<i>transformers</i>). <a href="https://github.com/liebharc/homr">github.com/liebharc/homr</a></p></section>`];
+if (DATA.counts.primus) about.push(`<section><h2>PrIMuS</h2><p>«Printed Images of Music Staves» (Calvo-Zaragoza y Rizo, 2018): un conjunto
+  público de 87.678 comienzos (incipits) de obras reales del catálogo RISM, cada uno con su imagen impresa y su partitura correcta.
+  Aquí hay ${plural(DATA.counts.primus, "incipit", "incipits")}: HOMR leyó cada imagen y lo que leyó se compara con su partitura correcta.
+  <a href="https://grfia.dlsi.ua.es/primus/">grfia.dlsi.ua.es/primus</a></p></section>`);
+if (DATA.counts.cadenza) about.push(`<section><h2>Cadenza</h2><p>${plural(DATA.counts.cadenza, "sesión", "sesiones")} de la plataforma${DATA.counts.real ? `, ${fmt(DATA.counts.real)} de las pruebas reales (cuentas del registro público)` : ""}:
+  alguien subió la foto, HOMR la leyó y la persona la corrigió. Aquí, lo correcto es lo que dejó al corregir.</p></section>`);
+document.getElementById("about").innerHTML = about.join("");
 render();
 </script>
 </body>
