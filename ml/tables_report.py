@@ -478,7 +478,7 @@ def _rates(
         totals[value] += 1
         if wrong(index, row):
             errors[value] += 1
-            examples.add(f"{prefix}:{value}", (str(index),), lambda i=index, r=row: build(i, r))
+            examples.add(f"{prefix}:{value}", (str(index),), partial(build, index, row))
     rates = [
         {
             "key": f"{prefix}:{value}",
@@ -573,7 +573,7 @@ def aggregate(
             examples.add(
                 f"op:{op}",
                 ("clave", str(number), row["incipit_id"]),
-                lambda r=row, name=label, i=img: _key_example(r, name, i),
+                partial(_key_example, row, label, img),
             )
 
     by_vs_key = _rates(
