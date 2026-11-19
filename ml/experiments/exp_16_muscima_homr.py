@@ -159,6 +159,11 @@ LIMITATIONS: dict[str, str] = {
         "Las correcciones son las del corrector ideal: la alineación de coste mínimo entre lo "
         "que leyó HOMR y la verdad, no las que haría una persona."
     ),
+    "implicit_tuplets": (
+        "Una partitura que marca solo el primer tresillo de una serie deja sin anotar los "
+        "demás, y la verdad los lee como corcheas: en la página 15 los compases 16 a 19 suman "
+        "de más en todas las copias. Ni el parecido entre copistas ni el compás lo detectan."
+    ),
     "measure_alignment": (
         "La derivación empareja los compases por su posición y no corrige cuántos hay: si HOMR "
         "lee otro número de compases, las correcciones de los compases desplazados son de "
@@ -295,7 +300,8 @@ def _measure_fill(score: ScoreIR) -> dict[str, int]:
             counts["measures_filled"] += int(
                 measure_length(measure) == time_signature.quarter_length
             )
-        elif usual is not None:
+        elif usual is not None and not all(e.kind is EventKind.REST for e in measure.events):
+            # Un compás de solo silencio suma, por construcción, lo que se le asignó.
             counts["measures_with_usual_length"] += 1
             counts["measures_filled_usual"] += int(measure_length(measure) == usual)
     return counts
@@ -409,8 +415,10 @@ def build(
                 row.update({"status": "derive_error", "error": derive_errors[item]})
                 rows.append(row)
                 continue
-            corpus.extend(measured.records)
             row.update(measured.row())
+            # Con otro número de compases, las correcciones son de alineación: no entran.
+            if row["measures_read"] == row["gt_measures"]:
+                corpus.extend(measured.records)
         rows.append(row)
         if position % 20 == 0:
             print(
@@ -617,6 +625,12 @@ def _summary(
             "derive_errors": dict(sorted(derive_errors.items())),
         },
         "correction_corpus": {
+            "scope": (
+                "registros de las imágenes en que HOMR lee tantos compases como la verdad; las "
+                "demás quedan fuera (sus correcciones serían de alineación)"
+            ),
+            "images": len(aligned),
+            "images_left_out_measure_count": len(derived) - len(aligned),
             "records": len(corpus),
             "by_kind": dict(Counter(r["record"] for r in corpus)),
             "by_split": dict(Counter(r["split"] for r in corpus)),

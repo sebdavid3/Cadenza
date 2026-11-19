@@ -30,6 +30,7 @@ from typing import Any, Protocol
 
 from cadenza.domain import ScoreIR, materialize
 from cadenza.learning import (
+    MetricsExtraMissing,
     build_correction_records,
     count_edits_by_op,
     derive_edit_events,
@@ -264,7 +265,11 @@ def measure_pair(
     if truth_file is not None:
         try:
             ned = omr_ned_pair(pred_file, truth_file).omr_ned
+        except MetricsExtraMissing:
+            # Sin musicdiff no hay medición: el experimento se detiene (CLAUDE.md §8.1).
+            raise
         except Exception as exc:
+            # musicdiff no lee el par: se registra con su tipo y no se pierde lo derivado.
             ned_error = f"{type(exc).__name__}: {exc}"
     return PairMeasure(
         verified=verified,

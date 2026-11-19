@@ -338,8 +338,10 @@ def build(
             derive_errors[item] = f"{type(exc).__name__}: {exc}"
             row.update({"status": "derive_error", "error": derive_errors[item]})
             continue
-        corpus.extend(measured.records)
         row.update(measured.row())
+        # Con otro número de compases, las correcciones son de alineación: no entran.
+        if row["pred_measures"] == row["gt_measures"]:
+            corpus.extend(measured.records)
 
     def values(key: str, scope: list[dict[str, Any]]) -> list[float]:
         return [float(r[key]) for r in scope if r[key] != ""]
@@ -409,6 +411,9 @@ def build(
         "omr_ned_errors": {r["id"]: r["omr_ned_error"] for r in rows if r.get("omr_ned_error")},
         "derive_errors": dict(sorted(derive_errors.items())),
         "correction_corpus": {
+            "scope": "registros de las regiones en que HOMR lee tantos compases como la verdad",
+            "regions": len(aligned(rows)),
+            "regions_left_out_measure_count": len(derived_rows) - len(aligned(rows)),
             "records": len(corpus),
             "by_kind": dict(Counter(r["record"] for r in corpus)),
             "by_split": dict(Counter(r["split"] for r in corpus)),

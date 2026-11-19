@@ -13,6 +13,7 @@ from cadenza.learning import (
     mung_to_score,
     parse_mung,
 )
+from cadenza.learning.muscima import usual_length
 
 from .muscima_support import GAP
 from .muscima_support import Page as _Page
@@ -522,3 +523,22 @@ def test_a_rest_that_touches_the_next_head_is_not_polyphony() -> None:
         ("rest", None, Fraction(1, 4)),
         ("note", "B4", Fraction(1, 4)),
     ]
+
+
+def test_the_usual_length_ignores_rest_only_measures_and_annotated_meters() -> None:
+    page = _Page()
+    staff = _Staff(page, top=200)
+    staff.clef("gClef", 10)
+    for m in range(2):
+        for i in range(2):
+            staff.note(0, 100 + 200 * m + 40 * i, head="noteheadHalf")
+        staff.separator(220 + 200 * m)
+    staff.rest("restWhole", 500)
+    staff.separator(560)
+    staff.time(580, 3, 4)
+    for i in range(3):
+        staff.note(0, 640 + 40 * i)
+    staff.separator(780)
+    measures = mung_to_score(page.nodes).parts[0].staves[0].measures
+    assert usual_length(measures) == Fraction(4)
+    assert _events(mung_to_score(page.nodes), 2) == [("rest", None, Fraction(4))]

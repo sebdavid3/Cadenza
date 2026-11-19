@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cadenza.learning import MetricsExtraMissing
 from cadenza.learning.tables import corpus_tables
 from cadenza.omr import OMRTranscriptionError
 
@@ -238,3 +239,38 @@ def test_a_derivation_error_is_recorded_and_its_image_left_out_of_the_corpus(
     assert subset["derived"] == 0
     assert set(subset["derive_errors"]) == {A, B}
     assert summary["correction_corpus"]["records"] == 0
+
+
+def test_an_image_with_another_measure_count_stays_out_of_the_corpus(tmp_path: Path) -> None:
+    data = _layout(tmp_path, {A: _melody(), B: _melody()})
+    exp_16.prepare(data)
+    manifest_path = data / "muscima" / "exp_16" / "manifest.json"
+    engine = _Engine(
+        {
+            A: melody_musicxml([("G", 4, 1), ("A", 4, 1), ("B", 4, 1), ("C", 5, 1)]),
+            B: melody_musicxml([("G", 4, 2), ("A", 4, 2)], [("B", 4, 2), ("C", 5, 2)]),
+        },
+        fail_on=set(),
+    )
+    external_corpus.transcribe(manifest_path, label="exp_16", engine=engine)
+
+    summary = exp_16.build(manifest_path, with_omr_ned=False)
+
+    corpus = summary["correction_corpus"]
+    assert (corpus["images"], corpus["images_left_out_measure_count"]) == (1, 1)
+    lines = (common.RESULTS_DIR / "muscima_correction_corpus.jsonl").read_text("utf-8")
+    assert {json.loads(line)["incipit_id"] for line in lines.splitlines()} == {A}
+    assert summary["converted_subset"]["ser"]["count"] == 2  # la SER se da para las dos
+
+
+def test_a_missing_metrics_extra_stops_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manifest_path, _ = _run(tmp_path)
+
+    def missing(*_: object, **__: object) -> None:
+        raise MetricsExtraMissing("falta musicdiff")
+
+    monkeypatch.setattr(external_corpus, "omr_ned_pair", missing)
+    with pytest.raises(MetricsExtraMissing):
+        exp_16.build(manifest_path, with_omr_ned=True)

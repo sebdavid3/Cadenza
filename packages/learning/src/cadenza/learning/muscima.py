@@ -657,11 +657,21 @@ def measure_length(measure: Measure) -> Fraction:
     )
 
 
+def _rest_only(measure: Measure) -> bool:
+    return all(e.kind is EventKind.REST for e in measure.events)
+
+
 def usual_length(measures: Iterable[Measure]) -> Fraction | None:
-    """Lo que suman más a menudo los compases sin redonda de silencio (None si no hay ninguno)."""
-    lengths = Counter(
-        measure_length(m) for m in measures if all(e.duration_beats is not None for e in m.events)
-    )
+    """Lo que suman más a menudo los compases sin compás anotado (los de antes del primero),
+    sin contar los que son solo silencio: una redonda de silencio dura lo que se le asigne.
+    None si no hay ninguno."""
+    lengths: Counter[Fraction] = Counter()
+    for measure in measures:
+        if measure.time_signature is not None:
+            break
+        if _rest_only(measure) or any(e.duration_beats is None for e in measure.events):
+            continue
+        lengths[measure_length(measure)] += 1
     return lengths.most_common(1)[0][0] if lengths else None
 
 
