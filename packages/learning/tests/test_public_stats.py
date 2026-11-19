@@ -312,7 +312,7 @@ def _partitura(index: int, origin: str, account: str) -> dict[str, str]:
 
 def _published(*groups: tuple[int, str, int]) -> dict[str, bool]:
     """Qué grupos se publican con tantas sesiones de tal origen repartidas en tantas cuentas."""
-    rows = []
+    rows: list[dict[str, str]] = []
     for sessions, origin, accounts in groups:
         rows += [
             _partitura(len(rows) + i, origin, f"{origin}-{i % accounts}") for i in range(sessions)
