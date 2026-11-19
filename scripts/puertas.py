@@ -158,6 +158,17 @@ def _docker_gates() -> list[Gate]:
             REPO,
             requires="docker copias",
         ),
+        Gate(
+            "docker estadísticas",
+            ("docker", "build", "-f", "Dockerfile.stats", "-t", "cadenza-stats:local", "."),
+            REPO,
+        ),
+        Gate(
+            "docker estadísticas: ayuda",
+            ("docker", "run", "--rm", "cadenza-stats:local", "--help"),
+            REPO,
+            requires="docker estadísticas",
+        ),
         Gate("compose", (*compose, "config", "--quiet"), REPO, compose_env),
         Gate(
             "compose con copias",
