@@ -165,6 +165,18 @@ def test_only_the_real_tests_of_cadenza_are_split(
     assert accounts and not accounts & values
     assert set(data["variants"]["pruebas|0"]["per_score"]) == real
 
+    # Ningún nombre de cuenta en ningún sitio de los datos de la página: ni como valor ni como
+    # campo `participante`.
+    def strings(value: Any) -> set[str]:
+        if isinstance(value, dict):
+            assert "participante" not in value
+            return set().union(*(strings(v) for v in value.values()), set(map(str, value)))
+        if isinstance(value, list):
+            return set().union(*(strings(v) for v in value)) if value else set()
+        return {value} if isinstance(value, str) else set()
+
+    assert not accounts & strings(data)
+
 
 @pytest.mark.parametrize(
     ("beats", "name"),
@@ -260,6 +272,105 @@ def test_a_bar_keeps_what_was_read_and_what_is_right_in_order() -> None:
     assert kinds == {"change", "extra", "missing"}
     extra = next(x for x in every["examples"] if x["kind"] == "extra")
     assert extra["fix"] == "" and extra["read"] == "E4 negra"
+
+
+def _missing(index: str, pitch: str, **fields: str) -> dict[str, str]:
+    """Una fila de `faltantes`: el evento que faltaba delante del leído de `event_index`."""
+    return {
+        **_row(event_index=index),
+        "ins_kind": "note",
+        "ins_pitch": pitch,
+        "ins_duration_beats": "1",
+        "ins_is_chord": "false",
+        "ins_hidden": "false",
+        **fields,
+    }
+
+
+def test_a_bar_skips_hidden_gaps_and_places_what_was_missing_at_the_end_or_in_a_chord() -> None:
+    tables = {
+        "notas": [
+            _row(event_index="0", read_pitch="C4"),
+            # Un hueco de la voz: no se dibuja ni en lo leído ni en lo correcto.
+            _row(event_index="1", read_kind="rest", read_pitch="", read_hidden="true"),
+            _row(event_index="2", read_pitch="E4"),
+        ],
+        "faltantes": [
+            # Faltaba una nota del acorde de E4 (delante de nada: al final de la voz) y un hueco.
+            _missing("3", "G4", ins_is_chord="true"),
+            _missing("3", "", ins_kind="rest", ins_hidden="true"),
+        ],
+        "clave_armadura": [],
+        "partituras": [
+            {"source": "cadenza", "incipit_id": "cadenza:s", "session_id": "s", "test_score_id": ""}
+        ],
+    }
+    bars = tables_report._Bars(tables)
+    bar_id, at_read, at_fix = bars.note(2)
+    bar = bars.bars[bar_id]
+    assert [e[1] for e in bar["read"]] == ["C4", "E4"]
+    assert [(e[1], e[3]) for e in bar["fixed"]] == [("C4", 0), ("E4", 0), ("G4", 1)]
+    assert (at_read, at_fix) == (1, 1)
+    assert bars.note(1) == (bar_id, None, None), "el hueco no tiene sitio en el dibujo"
+    assert bars.missing(0) == (bar_id, None, 2)
+    assert bars.missing(1) == (bar_id, None, None)
+
+    # Un compás que solo tiene notas que faltaban también se dibuja.
+    only_missing = {**tables, "notas": [], "faltantes": [_missing("0", "A4")]}
+    lone = tables_report._Bars(only_missing)
+    lone_id, _, at = lone.missing(0)
+    assert [e[1] for e in lone.bars[lone_id]["fixed"]] == ["A4"] and at == 0
+    assert lone.bars[lone_id]["read"] == []
+
+    # El hueco que faltaba se nombra como en las tiras, no como un silencio.
+    every = tables_report.aggregate(tables, None, False, set(), bars)
+    texts = {x["fix"] for x in every["examples"] if x["kind"] == "missing"}
+    assert "hueco de negra" in texts
+
+
+def test_a_score_whose_only_correction_is_the_key_shows_it_in_its_history() -> None:
+    tables = {
+        "notas": [_row(read_pitch="C4")],
+        "faltantes": [],
+        "clave_armadura": [
+            {
+                **_row(),
+                "ops": "SetKey",
+                "read_clef": "F3",
+                "fix_clef": "",
+                "read_key_fifths": "0",
+                "fix_key_fifths": "-2",
+            }
+        ],
+        "partituras": [
+            {"source": "cadenza", "incipit_id": "cadenza:s", "session_id": "s", "test_score_id": ""}
+        ],
+    }
+    every = tables_report.aggregate(tables, None, False, set())
+    assert every["per_score"] == {"cadenza:s": [1, 1]}
+    examples = [every["examples"][i] for i in every["example_keys"]["score:cadenza:s"]]
+    assert [(x["read"], x["fix"]) for x in examples] == [
+        (
+            "clave de fa en 3.ª, armadura sin alteraciones",
+            "clave de fa en 3.ª, armadura de 2 bemoles",
+        )
+    ]
+    assert every["example_keys"]["op:SetKey"] == every["example_keys"]["score:cadenza:s"]
+
+
+@pytest.mark.parametrize(
+    ("fifths", "name"),
+    [
+        ("0", "armadura sin alteraciones"),
+        ("1", "armadura de 1 sostenido"),
+        ("3", "armadura de 3 sostenidos"),
+        ("-1", "armadura de 1 bemol"),
+        ("-4", "armadura de 4 bemoles"),
+        ("", ""),
+    ],
+)
+def test_each_key_signature_is_named_in_words(fifths: str, name: str) -> None:
+    assert tables_report.key_name(fifths) == name
 
 
 def test_the_symbol_of_a_figure_has_its_dots_tuplet_and_grace() -> None:

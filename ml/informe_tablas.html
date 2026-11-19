@@ -141,24 +141,14 @@ table.matrix td[data-key] { border-color: transparent; }
 table.matrix td[data-key]:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
 /* Las celdas ya son violeta (más violeta, más casos): la elegida se marca con un marco de tinta. */
 table.matrix td[aria-current="true"] { outline: 3px solid var(--ink); outline-offset: 1px; }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 14px; }
-.legend span { display: inline-flex; align-items: center; gap: 8px; }
-.legend svg { width: 22px; height: 14px; }
 .defs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 14px 28px; margin: 0 0 20px; }
 .def { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
 .def svg { width: 22px; height: 14px; margin-top: 1px; }
 .def p { margin: 4px 0 0; font-size: 0.875rem; line-height: 1.4; color: var(--ink-muted); }
 svg.chart { display: block; width: 100%; height: auto; overflow: visible; }
 svg text { font: 13px var(--body); fill: var(--ink); }
-svg text.lbl { fill: var(--ink-muted); }
-svg text.val { font-weight: 500; }
 svg text.ax { font: 500 13px var(--body); fill: var(--ink-muted); }
-.hit { fill: transparent; }
 [data-key] { cursor: pointer; }
-g[data-key]:hover .mark { fill: url(#trama); stroke: var(--ink); stroke-width: 2; }
-g[data-key][aria-current="true"] .mark { fill: var(--accent); stroke: none; }
-g[data-key]:focus { outline: none; }
-g[data-key]:focus-visible .mark { stroke: var(--accent); stroke-width: 3; }
 .scroll { overflow-x: auto; }
 table.top { width: 100%; border-collapse: collapse; border: 0; padding: 0; display: table; }
 table.top th { font: 400 0.75rem/1.2 var(--label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-muted); text-align: left; padding: 8px 10px; border-bottom: var(--rule); }
@@ -203,14 +193,12 @@ table.top .clean { color: var(--ink-faint); }
 .tok.ins { background: var(--accent); color: var(--on-accent); }
 .tok.reord { border: 2px dashed var(--ink); }
 .arrow { font: 400 0.8125rem var(--label); color: var(--ink-muted); }
-.close { display: none; }
 @media (max-width: 1180px) {
   .layout { grid-template-columns: 1fr; }
   .charts { border-right: 0; }
   .examples { position: static; max-height: none; border-top: var(--rule); scroll-margin-top: var(--bar-h); }
   .examples .ex-head { position: static; }
   .examples .ex-list { grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
-  .close { display: inline-flex; }
 }
 
 /* Tiras de cada sesión */
@@ -230,12 +218,10 @@ table.measures th { font: 500 0.8125rem/1.4 var(--body); color: var(--ink-muted)
 table.measures td .tok { font-size: 0.875rem; padding: 0 4px; }
 .voice { color: var(--ink-faint); padding: 0 4px; }
 @media (max-width: 960px) { .strip { grid-template-columns: 1fr; } .strip .photo { border-right: 0; border-bottom: 1px solid var(--rule-soft); } }
-.empty { padding: 24px var(--gutter); color: var(--ink-muted); }
 
 /* Tooltip */
 .tip { position: fixed; z-index: 20; pointer-events: none; background: var(--ink); color: var(--paper); font-size: 0.875rem; padding: 6px 10px; max-width: 300px; opacity: 0; }
 .tip b { font-weight: 500; }
-footer { padding: 24px var(--gutter) 40px; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
 </style>
 </head>
@@ -576,7 +562,9 @@ function render() {
 
   renderHistory();
 
-  if (!selected || !d.example_keys[selected.key]) {
+  // Una partitura del historial sin correcciones sigue elegida aunque no tenga ejemplos.
+  const keepScore = selected && selected.key.startsWith("score:") && d.per_score[selected.key.slice("score:".length)];
+  if (!selected || (!d.example_keys[selected.key] && !keepScore)) {
     const first = fs.find(f => f.key);
     selected = first ? { key: first.key, title: first.title, kicker: first.kicker } : null;
   }
@@ -594,7 +582,12 @@ let historyQuery = "", historySort = "rate", historyPage = 1, historySize = 25;
 function pageList(current, pages) {
   const wanted = [...new Set([1, 2, current - 1, current, current + 1, pages - 1, pages])].filter(p => p >= 1 && p <= pages).sort((a, b) => a - b);
   const out = [];
-  wanted.forEach((p, i) => { if (i && p - wanted[i - 1] > 1) out.push(null); out.push(p); });
+  // Un hueco de una sola página la enseña a ella, no «…».
+  wanted.forEach((p, i) => {
+    if (i && p - wanted[i - 1] === 2) out.push(p - 1);
+    else if (i && p - wanted[i - 1] > 2) out.push(null);
+    out.push(p);
+  });
   return out;
 }
 const fold = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -708,8 +701,8 @@ function groupSvg(group, x, top, ctx) {
     const pos = poss[i], y = yOf(pos);
     for (let l = -2; l >= pos; l -= 2) out += `<line x1="${x - 7}" y1="${yOf(l)}" x2="${x + 7}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1"/>`;
     for (let l = 10; l <= pos; l += 2) out += `<line x1="${x - 7}" y1="${yOf(l)}" x2="${x + 7}" y2="${yOf(l)}" stroke="currentColor" stroke-width="1"/>`;
-    const alter = n.pitch.alter;
-    if (alter !== keyAlter(n.pitch.step, ctx.key)) out += accSvg(alter, x - 10, y);
+    // La alteración se escribe si cambia lo que rige en el compás (armadura o la anterior).
+    if (n.e.acc) out += accSvg(n.pitch.alter, x - 10, y);
     const hollow = ["blanca", "redonda", "cuadrada", "longa"].includes(p.figure);
     out += `<ellipse cx="${x}" cy="${y}" rx="${4.3 * scale}" ry="${3.1 * scale}" transform="rotate(-20 ${x} ${y})" fill="${hollow ? "none" : "currentColor"}" stroke="currentColor" stroke-width="${hollow ? 1.5 : 0}"/>`;
     for (let k = 0; k < p.dots; k++) out += `<circle cx="${x + 8 + k * 3.6}" cy="${pos % 2 === 0 ? y - SP / 2 : y}" r="1.4" fill="currentColor"/>`;
@@ -734,22 +727,37 @@ function staffSvg(events, focus, ctx, top, x0) {
   const clefY = top + 4 * SP - ctx.clef.linePos * SP / 2, word = { G: "sol", F: "fa", C: "do" }[ctx.clef.sign];
   const clefSvg = `<rect x="${x - 1}" y="${clefY - 6}" width="${word.length * 6.6 + 4}" height="12" fill="var(--paper)"/><text x="${x + 1}" y="${clefY + 4}" style="font:600 11px var(--body);fill:currentColor">${word}</text>`;
   x += word.length * 6.6 + 10;
+  // La armadura en las posiciones de la clave de sol, desplazadas por la clave (en la de fa,
+  // dos posiciones más abajo; en la de do en 3.ª, una), y dentro del pentagrama.
   let keySvg = "";
-  const order = ctx.key > 0 ? SHARPS : FLATS, model = ctx.key > 0 ? [38, 35, 39, 36, 33, 37, 34] : [34, 37, 33, 36, 32, 35, 31];
+  const model = ctx.key > 0 ? [38, 35, 39, 36, 33, 37, 34] : [34, 37, 33, 36, 32, 35, 31];
+  let shift = ((((ctx.clef.linePos - ctx.clef.d + 30) % 7) + 7) % 7);
+  if (shift > 3) shift -= 7;
   for (let i = 0; i < Math.abs(ctx.key); i++) {
-    let pos = ctx.clef.linePos + (model[i] - ctx.clef.d);
-    while (pos > 9.5) pos -= 7;
-    while (pos < -0.5) pos += 7;
+    let pos = 2 + (model[i] - 32) + shift;
+    if (pos > 9) pos -= 7;
+    if (pos < -1) pos += 7;
     keySvg += accSvg(ctx.key > 0 ? 1 : -1, x + 3, top + 4 * SP - pos * SP / 2);
     x += 7;
   }
   x += 14;
   const groups = [];
-  events.forEach((e, i) => { const ev = { kind: e[0], pitch: e[1], beats: e[2], chord: e[3], i }; if (ev.chord && groups.length) groups[groups.length - 1].push(ev); else groups.push([ev]); });
+  // Lo que rige en el compás para cada nota (letra y octava): la armadura y, después, la última
+  // alteración escrita. Solo se dibuja la que cambia lo que rige, como en una partitura.
+  const carry = {};
+  events.forEach((e, i) => {
+    const ev = { kind: e[0], pitch: e[1], beats: e[2], chord: e[3], i, acc: false };
+    const p = ev.kind === "n" ? parsePitch(ev.pitch) : null;
+    if (p) {
+      ev.acc = p.alter !== (carry[p.d] ?? keyAlter(p.step, ctx.key));
+      carry[p.d] = p.alter;
+    }
+    if (ev.chord && groups.length) groups[groups.length - 1].push(ev); else groups.push([ev]);
+  });
   let notes = "";
   groups.forEach(g => {
     const fig = ((DATA.figures[g[0].beats] || {}).symbol || [])[0] || { dots: 0 };
-    const needsAcc = g.some(e => { const p = parsePitch(e.pitch); return p && p.alter !== keyAlter(p.step, ctx.key); });
+    const needsAcc = g.some(e => e.acc);
     if (needsAcc) x += 8;
     const hit = g.some(e => e.i === focus);
     const svg = groupSvg(g, x, top, ctx);
@@ -762,13 +770,23 @@ function staffSvg(events, focus, ctx, top, x0) {
 function barHtml(x) {
   const bar = x.bar && DATA.bars[x.bar];
   if (!bar) return "";
-  const ctx = { clef: clefOf(bar.clef), key: bar.key }, label = 64, top1 = 4 * SP, gap = 11 * SP;
-  const a = staffSvg(bar.read, x.at_read, ctx, top1, label), b = staffSvg(bar.fixed, x.at_fix, ctx, top1 + gap, label);
-  const W = Math.max(a.width, b.width, 220), H = top1 + gap + 9 * SP;
+  const ctx = { clef: clefOf(bar.clef), key: bar.key }, label = 64;
+  // El sitio de cada pentagrama sale de sus notas: las que se van lejos (una clave mal leída)
+  // no se salen del dibujo ni se montan sobre el otro pentagrama.
+  const reach = events => {
+    const poss = events.map(e => parsePitch(e[1])).filter(Boolean).map(p => ctx.clef.linePos + (p.d - ctx.clef.d));
+    const above = Math.max(3.5 * SP, Math.max(0, Math.max(8, ...poss) - 8) * SP / 2 + 3.8 * SP);
+    const below = Math.max(3.5 * SP, Math.max(0, -Math.min(0, ...poss)) * SP / 2 + 3.8 * SP);
+    return { above, below };
+  };
+  const ra = reach(bar.read), rb = reach(bar.fixed);
+  const top1 = ra.above, top2 = top1 + 4 * SP + ra.below + rb.above, H = top2 + 4 * SP + rb.below;
+  const a = staffSvg(bar.read, x.at_read, ctx, top1, label), b = staffSvg(bar.fixed, x.at_fix, ctx, top2, label);
+  const W = Math.max(a.width, b.width, 220);
   const tag = (t, y) => `<text x="0" y="${y + 2 * SP + 4}" style="font:500 11px var(--body);fill:var(--ink-muted)">${t}</text>`;
   const Z = 1.4;  // se dibuja a escala de pentagrama pequeño y se amplía para leerlo
-  return `<div class="drawn scroll"><svg viewBox="0 0 ${W} ${H}" width="${(W * Z).toFixed(0)}" height="${(H * Z).toFixed(0)}" role="img" aria-label="Compás ${esc(x.measure)}: lo que leyó HOMR y lo correcto">
-    ${tag("HOMR leyó", top1)}${tag("Correcto", top1 + gap)}${a.svg}${b.svg}</svg></div>`;
+  return `<div class="drawn scroll"><svg viewBox="0 0 ${W} ${H.toFixed(1)}" width="${(W * Z).toFixed(0)}" height="${(H * Z).toFixed(0)}" role="img" aria-label="Compás ${esc(x.measure)}: lo que leyó HOMR y lo correcto">
+    ${tag("HOMR leyó", top1)}${tag("Correcto", top2)}${a.svg}${b.svg}</svg></div>`;
 }
 function photoHtml(img, alt) {
   return img ? `<div class="photo"><img loading="lazy" src="${esc(img)}" alt="${esc(alt)}"></div>`
@@ -792,7 +810,7 @@ function showExamples() {
       <div class="txt"><div class="small">${esc(h.label)} · ${esc(h.origin)}${h.date ? ` · ${esc(dateText(h.date))}` : ""}</div></div></article>` : "";
     return;
   }
-  document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? ", los 12 primeros" : ""}. Cada foto es el pentagrama entero; debajo, su compás dibujado: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.` : "Ningún ejemplo con este filtro.";
+  document.getElementById("ex-note").textContent = ids.length ? `${ids.length} ${ids.length === 1 ? "ejemplo" : "ejemplos"}${ids.length === 12 ? " (se enseñan como mucho 12)" : ""}. Cada foto es el pentagrama entero; debajo, su compás dibujado: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.` : "Ningún ejemplo con este filtro.";
   list.innerHTML = ids.map(i => d.examples[i]).map(x => `<article class="ex">
     ${photoHtml(x.img, `Pentagrama ${x.staff}, sistema del compás ${x.measure}`)}
     ${barHtml(x)}

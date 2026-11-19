@@ -57,7 +57,9 @@ FIGURES = {
     Fraction(1, 32): "garrapatea",
 }
 """Las figuras por su duración en negras, de la más larga a la más corta."""
-TUPLETS = {3: (2, "tresillo"), 5: (4, "quintillo"), 6: (4, "seisillo"), 7: (4, "septillo")}
+# Sin el seisillo: dura lo mismo que el tresillo de la figura siguiente (1/6 de negra es una
+# semicorchea de tresillo), así que nunca se elegiría.
+TUPLETS = {3: (2, "tresillo"), 5: (4, "quintillo"), 7: (4, "septillo")}
 """Grupos irregulares: notas del grupo → (notas normales que ocupan, nombre)."""
 DOTS = ((0, Fraction(1)), (1, Fraction(3, 2)), (2, Fraction(7, 4)))
 Part = tuple[Fraction, int, int]
@@ -239,10 +241,26 @@ def _score_label(row: Row) -> str:
     return row["incipit_id"]
 
 
-def _event(kind: str, pitch: str, beats: str) -> str:
+def _event(kind: str, pitch: str, beats: str, *, hidden: bool = False) -> str:
+    if hidden:
+        # Un silencio invisible que marca el hueco de una voz (ADR-0032): como en las tiras.
+        return f"hueco de {figure_name(beats)}"
     if kind == "rest":
         return f"silencio de {figure_name(beats)}"
     return f"{pitch} {figure_name(beats)}".strip()
+
+
+def key_name(fifths: str) -> str:
+    """La armadura en palabras: «armadura de 2 bemoles», «armadura sin alteraciones»."""
+    try:
+        value = int(fifths)
+    except ValueError:
+        return f"armadura {fifths}" if fifths else ""
+    if value == 0:
+        return "armadura sin alteraciones"
+    count, sign = abs(value), ("sostenido" if value > 0 else "bemol")
+    plural = sign if count == 1 else ("sostenidos" if value > 0 else "bemoles")
+    return f"armadura de {count} {plural}"
 
 
 Place = tuple[str, int | None, int | None]
@@ -353,10 +371,17 @@ def _example(
     if missing:
         kind, read = "missing", ""
         fix_beats = row["ins_duration_beats"]
-        fixed = _event(row["ins_kind"], row["ins_pitch"], fix_beats)
+        fixed = _event(
+            row["ins_kind"], row["ins_pitch"], fix_beats, hidden=row.get("ins_hidden") == "true"
+        )
     else:
         read_beats = row["read_duration_beats"]
-        read = _event(row["read_kind"], row["read_pitch"], read_beats)
+        read = _event(
+            row["read_kind"],
+            row["read_pitch"],
+            read_beats,
+            hidden=row.get("read_hidden") == "true",
+        )
         if row["resultado"] == "borrada":
             kind, fixed = "extra", ""
         else:
@@ -380,10 +405,11 @@ def _example(
 
 
 def _key_example(row: Row, label: str, img: str) -> dict[str, Any]:
-    """Un ejemplo de `clave_armadura`: la clave y la armadura leídas frente a las correctas."""
+    """Un ejemplo de `clave_armadura`: la clave y la armadura leídas frente a las correctas, en
+    lenguaje musical («clave de fa en 3.ª, armadura de 2 bemoles»)."""
 
     def describe(clef: str, fifths: str) -> str:
-        parts = [f"clave {clef}" if clef else "", f"armadura {fifths}" if fifths else ""]
+        parts = [clef_name(clef) if clef else "", key_name(fifths)]
         return ", ".join(p for p in parts if p) or "—"
 
     return {
@@ -391,10 +417,13 @@ def _key_example(row: Row, label: str, img: str) -> dict[str, Any]:
         "measure": row["measure"],
         "staff": f"{row['part']}-{row['staff']}",
         "img": img,
+        "kind": "change",
         "read": describe(row["read_clef"], row["read_key_fifths"]),
         "fix": describe(
             row["fix_clef"] or row["read_clef"], row["fix_key_fifths"] or row["read_key_fifths"]
         ),
+        "read_beats": "",
+        "fix_beats": "",
     }
 
 
@@ -574,8 +603,18 @@ def aggregate(
             ("faltante", str(index)),
             partial(missing_example, index, row),
         )
-    for row in claves:
+    # La clave y la armadura cuentan y también enseñan su ejemplo: una partitura con solo esa
+    # corrección no puede decir «sin ninguna corrección» en el historial.
+    for number, row in enumerate(claves):
         per_score.setdefault(row["incipit_id"], [0, 0])[1] += len(_ops(row))
+        if _ops(row):
+            label = labels.get(row["incipit_id"], row["incipit_id"])
+            img = photos.get((row["incipit_id"], row["part"], row["staff"], row["measure"]), "")
+            examples.add(
+                f"score:{row['incipit_id']}",
+                ("clave", str(number), row["incipit_id"]),
+                partial(_key_example, row, label, img),
+            )
 
     return {
         "scores": len(partituras),
