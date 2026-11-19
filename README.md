@@ -304,4 +304,13 @@ Las reglas completas están en [`CLAUDE.md`](CLAUDE.md) y [`docs/CONVENTIONS.md`
 
 El prototipo original se conserva congelado en `legacy/` y en la etiqueta `archive/legacy-mvp`.
 
-**Licencia.** El proyecto declara hoy una licencia propietaria (`pyproject.toml`). La licencia final, con las atribuciones de HOMR (AGPL-3.0), está pendiente ([#259](https://github.com/sebdavid3/Cadenza/issues/259)).
+## Licencia y atribuciones
+
+Cadenza se distribuye con la **GNU Affero General Public License v3.0 o posterior** (AGPL-3.0-or-later, archivo [`LICENSE`](LICENSE)), por decisión del responsable del 2026-11-19 ([#259](https://github.com/sebdavid3/Cadenza/issues/259)). Es la licencia de HOMR, que Cadenza importa como biblioteca y modifica en ejecución (sustituye `detect_title`), y la aplicación se ofrece por red. Por eso la web enlaza a este repositorio («Código», en la portada, el acceso, el registro y el uso de los datos): quien la usa puede obtener su código fuente.
+
+- **HOMR** 0.7.0 ([liebharc/homr](https://github.com/liebharc/homr)), AGPL-3.0: el motor de reconocimiento.
+- **PrIMuS y Camera-PrIMuS** (Calvo-Zaragoza y Rizo, 2018, [grfia.dlsi.ua.es/primus](https://grfia.dlsi.ua.es/primus/)): los corpus de las mediciones y del corpus de correcciones. Su página no indica licencia: se citan y no se redistribuyen (`data/` no se versiona).
+- **Fuentes:** Hanken Grotesk, Pixelify Sans y Silkscreen, con la SIL Open Font License 1.1 (en la web, por Fontsource; el informe de `ml` las incrusta con su licencia en `ml/informe_fuentes/`), y los contornos de Noto Music de la portada (OFL 1.1).
+- **Retratos del acceso:** cinco imágenes de Wikimedia Commons, con su fuente en [`apps/web/src/pages/login/retratos/README.md`](apps/web/src/pages/login/retratos/README.md).
+- **Sonido:** sintetizado con Tone.js, sin muestras de audio ([ADR-0046](docs/adr/ADR-0046-sonido-de-cada-instrumento-en-la-vista.md)).
+- Las demás dependencias conservan sus licencias (`uv.lock` y `apps/web/package-lock.json`).
