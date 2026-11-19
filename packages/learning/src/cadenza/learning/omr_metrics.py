@@ -86,24 +86,3 @@ def omr_ned_pair(predicted: Path, ground_truth: Path, *, detail: Any | None = No
         edit_distance=int(metrics.omr_edit_distance),
         omr_ned=float(metrics.omr_ned),
     )
-
-
-def omr_ned_batch(
-    predicted_dir: Path,
-    ground_truth_dir: Path,
-    output_dir: Path,
-    *,
-    detail: Any | None = None,
-) -> float:
-    """Calcula el OMR-NED agregado de dos carpetas de archivos homónimos.
-
-    Devuelve la puntuación global y escribe el desglose por categoría en
-    ``output_dir/output.csv`` (formato de musicdiff).
-    """
-
-    musicdiff = _load_musicdiff()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    overall, _csv_path = musicdiff.diff_ml_training(
-        str(predicted_dir), str(ground_truth_dir), str(output_dir), _detail(musicdiff, detail)
-    )
-    return float(overall)

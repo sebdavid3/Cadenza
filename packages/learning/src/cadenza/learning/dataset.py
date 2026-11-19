@@ -367,26 +367,6 @@ class DatasetBuilder:
 
         return tuple(sorted(samples, key=TrainingSample.key))
 
-    def read_from_repositories(
-        self,
-        session_repository: SessionRepository,
-        edit_event_repository: EditEventRepository,
-        *,
-        user_repository: UserRepository | None,
-        status: str = "finalized",
-        owner_id: str | None = None,
-        include_self_registered: bool = False,
-    ) -> tuple[TrainingSample, ...]:
-        """Conveniencia para invocar RepositoryDatasetReader sobre este builder."""
-        return RepositoryDatasetReader(self).read_dataset(
-            session_repository=session_repository,
-            edit_event_repository=edit_event_repository,
-            user_repository=user_repository,
-            status=status,
-            owner_id=owner_id,
-            include_self_registered=include_self_registered,
-        )
-
 
 class RepositoryDatasetReader:
     """Lector que construye un dataset a partir de sesiones y eventos persistidos (D16, ADR-0008).

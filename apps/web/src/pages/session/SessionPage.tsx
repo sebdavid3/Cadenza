@@ -12,7 +12,6 @@ import {
 import { useParams } from "react-router";
 import { api } from "../../api/instance";
 import { ApiError, errorMessage } from "../../api/errors";
-import { useAuthStore } from "../../auth/store";
 import "../../components/button.css";
 import { PixelIcon } from "../../components/PixelIcon";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -106,7 +105,6 @@ export function SessionPage() {
 
 function SessionView({ sessionId }: { sessionId: string }) {
   const shortId = sessionId.slice(0, 8);
-  const user = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
 
   const detail = useQuery(sessionDetailQuery(api, sessionId));
@@ -141,11 +139,11 @@ function SessionView({ sessionId }: { sessionId: string }) {
   // La última validación que se sabe hecha desde esta pestaña (ADR-0035).
   const knownValidated = useQuery(validatedSeqQuery(sessionId)).data ?? null;
 
-  const ownerId = detail.data?.owner_id ?? null;
   const finalized = detail.data?.status === "finalized";
-  // Solo edita, finaliza y reabre quien la transcribió (ADR-0012, ADR-0070).
-  const owned = user !== null && ownerId === user.id;
-  const editable = owned && !finalized;
+  // La API solo da las sesiones propias (ADR-0012, ADR-0070): cargada, se corrige si no está
+  // finalizada.
+  // Con el detalle a la vista (también si falla una recarga en segundo plano).
+  const editable = detail.data !== undefined && !finalized;
 
   const score = detail.data?.current_score ?? null;
   const { active, dismissed } = useMemo(() => splitFindings(findings.data ?? []), [findings.data]);
@@ -463,9 +461,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
       }`
     : `${
         finalized
-          ? owned
-            ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
-            : "Sesión finalizada: solo lectura."
+          ? "Sesión finalizada: solo lectura. Si se te pasó algo, reábrela para seguir corrigiendo."
           : "Solo lectura."
       } Compara la imagen original con la transcripción de HOMR${
         assisted
@@ -512,7 +508,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
               panelLabel="Datos y descargas de la sesión"
               pinned={menuPinned}
             >
-              {owned && detail.data && metadata && (
+              {detail.data && metadata && (
                 <ScoreDataPanel
                   metadata={metadata}
                   staves={(score?.parts ?? []).map((part) => part.staves.length)}
@@ -553,7 +549,7 @@ function SessionView({ sessionId }: { sessionId: string }) {
                 />
               </div>
             </HeaderPopover>
-            {owned && detail.data && (
+            {detail.data && (
               <LifecyclePanel
                 finalized={finalized}
                 assisted={assisted}

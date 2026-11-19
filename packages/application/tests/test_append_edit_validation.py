@@ -28,9 +28,6 @@ class InMemoryEditRepo(EditEventRepository):
     def __init__(self) -> None:
         self.events: dict[str, list[EditEvent]] = {}
 
-    def next_seq(self, session_id: str) -> int:
-        return len(self.events.get(session_id, [])) + 1
-
     def append(self, session_id: str, edit: EditEvent) -> EditEvent:
         events = self.events.setdefault(session_id, [])
         if any(e.seq == edit.seq for e in events):

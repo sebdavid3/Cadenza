@@ -160,7 +160,6 @@ from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
     SqlAlchemyEffortRepository,
-    SqlAlchemyModelRegistry,
     SqlAlchemyPreviewRepository,
     SqlAlchemySessionRepository,
     SqlAlchemyUserRepository,
@@ -558,27 +557,11 @@ def _job_read(view: JobView) -> TranscriptionJobRead:
     )
 
 
-def _effective_engine(request: Request, db: DbSession, artifact_store: ArtifactStore) -> OMREngine:
-    """El motor OMR de la petición: el de la app o, si hay una versión activa en el registro,
-    el construido con ella (#21)."""
+def _omr_engine(request: Request) -> OMREngine:
+    """El motor OMR de la app: HOMR en producción, el doble en las pruebas (ADR-0018)."""
 
-    app_settings: Settings = request.app.state.settings
-    model_registry = getattr(request.app.state, "model_registry", None) or SqlAlchemyModelRegistry(
-        db
-    )
-    active_version = model_registry.active()
     engine: OMREngine = request.app.state.omr_engine
-    if active_version is None or not hasattr(type(engine), "from_active_model"):
-        return engine
-    # Solo HOMR sabe construirse con una versión del registro; los dobles de las pruebas, no.
-    engine_type: Any = type(engine)
-    built: OMREngine = engine_type.from_active_model(
-        model_registry,
-        artifact_store,
-        use_gpu=app_settings.omr_use_gpu,
-        preprocessing=getattr(engine, "_preprocessing", None),
-    )
-    return built
+    return engine
 
 
 def get_db(request: Request) -> Iterator[DbSession]:
@@ -680,7 +663,6 @@ def create_app(
     token_service: TokenService | None = None,
     artifact_store: ArtifactStore | None = None,
     score_exporter: ScoreExporter | None = None,
-    model_registry: Any | None = None,
     score_cache: ScoreStateCache | None = None,
     suggestion_model: SuggestionModel | None = None,
     meter_stage: MeterStage | None = None,
@@ -933,12 +915,7 @@ def create_app(
 
     # HOMR es el único motor de producción (ADR-0018); las pruebas inyectan su doble.
     resolved_engine = (
-        omr_engine
-        if omr_engine is not None
-        else HOMREngine(
-            use_gpu=app_settings.omr_use_gpu,
-            preprocessing=app_settings.build_preprocessing_config(),
-        )
+        omr_engine if omr_engine is not None else HOMREngine(use_gpu=app_settings.omr_use_gpu)
     )
     app.state.omr_engine = resolved_engine
     app.state.meter_stage = (
@@ -964,7 +941,6 @@ def create_app(
     app.state.score_exporter = (
         score_exporter if score_exporter is not None else Music21ScoreExporter()
     )
-    app.state.model_registry = model_registry
     # Capa de sugerencias: global, apagada por defecto y cargada al arrancar (ADR-0036 §8, §12).
     app.state.suggestion_model = (
         (
@@ -1409,8 +1385,7 @@ def create_app(
             ) from exc
 
         content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
-        artifact_store = get_artifact_store(request, db)
-        effective_engine = _effective_engine(request, db, artifact_store)
+        effective_engine = _omr_engine(request)
 
         upload_name = _upload_temp_name(file.filename, content)
         factory: SessionFactory = request.app.state.session_factory
@@ -1527,7 +1502,7 @@ def create_app(
             ) from exc
 
         content = await _read_image_upload(file, app_settings.max_upload_size_bytes)
-        effective_engine = _effective_engine(request, db, get_artifact_store(request, db))
+        effective_engine = _omr_engine(request)
         upload_name = _upload_temp_name(file.filename, content)
         source_filename = file.filename
         factory: SessionFactory = request.app.state.session_factory
@@ -1818,8 +1793,7 @@ def create_app(
                     )
                 finally:
                     cap_db.commit()
-                # El almacén solo se usa al construir el motor (`resolve_path`).
-                return _effective_engine(request, cap_db, get_artifact_store(request, cap_db))
+                return _omr_engine(request)
 
         try:
             # La base, en un hilo: el DELETE, el COUNT y el commit no paran el bucle de eventos.
@@ -2663,11 +2637,7 @@ def create_app(
     return app
 
 
-def create_default_app(
-    settings: Settings | None = None,
-    *,
-    model_registry: Any | None = None,
-) -> FastAPI:
+def create_default_app(settings: Settings | None = None) -> FastAPI:
     """Factory para uvicorn: carga Settings tipada de entorno y conecta HOMR (ADR-0018)."""
 
     app_settings = settings or Settings()
@@ -2681,5 +2651,4 @@ def create_default_app(
     return create_app(
         create_session_factory(engine),
         settings=app_settings,
-        model_registry=model_registry,
     )

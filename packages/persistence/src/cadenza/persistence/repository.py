@@ -7,7 +7,7 @@ aplicación; `SqlAlchemyEditEventRepository` es una implementación intercambiab
 
 from cadenza.application import EditEventRepository, SequenceConflict
 from cadenza.domain import Anchor, EditEvent, EditOp
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
@@ -22,14 +22,6 @@ class SqlAlchemyEditEventRepository(EditEventRepository):
 
     def __init__(self, session: DbSession) -> None:
         self._session = session
-
-    def next_seq(self, session_id: str) -> int:
-        current = self._session.scalar(
-            select(func.coalesce(func.max(EditEventRecord.seq), 0)).where(
-                EditEventRecord.session_id == session_id
-            )
-        )
-        return int(current or 0) + 1
 
     def append(self, session_id: str, edit: EditEvent) -> EditEvent:
         row = EditEventRecord(

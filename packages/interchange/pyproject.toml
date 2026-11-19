@@ -6,11 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = ["cadenza-application", "cadenza-domain", "music21>=10"]
 
-# converter21 aporta a music21 los importadores de Humdrum (**kern) y MEI, que
-# usan los corpus de evaluación (PrIMuS en MEI, SMB en **kern).
-[project.optional-dependencies]
-converters = ["converter21>=4.0.1"]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
