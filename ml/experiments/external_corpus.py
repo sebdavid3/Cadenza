@@ -29,7 +29,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any, Protocol
 
-from cadenza.domain import ScoreIR, materialize
+from cadenza.domain import ScoreIR
 from cadenza.learning import (
     MetricsExtraMissing,
     build_correction_records,
@@ -37,6 +37,7 @@ from cadenza.learning import (
     derive_edit_events,
     is_structurally_equal,
     omr_ned_pair,
+    replay_edits,
     score_ser_pair,
 )
 from cadenza.omr import OMRTranscriptionError
@@ -257,7 +258,7 @@ def measure_pair(
     (musicdiff no lee el par) no descarta lo derivado: queda en `omr_ned_error`.
     """
     edits = derive_edit_events(predicted, truth, document_id=item)
-    verified = is_structurally_equal(materialize(predicted, edits), truth)
+    verified = is_structurally_equal(replay_edits(predicted, edits), truth)
     records = build_correction_records(
         predicted, truth, incipit_id=item, split=split, verified=verified
     )

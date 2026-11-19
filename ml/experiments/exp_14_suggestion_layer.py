@@ -105,7 +105,7 @@ from cadenza.application import (
     SuggestionModel,
     SuggestionPolicy,
 )
-from cadenza.domain import ScoreIR, materialize
+from cadenza.domain import ScoreIR
 from cadenza.interchange import Music21ScoreExporter, read_score
 from cadenza.learning import (
     SemanticMismatch,
@@ -113,6 +113,7 @@ from cadenza.learning import (
     derive_edit_events,
     is_structurally_equal,
     omr_ned_pair,
+    replay_edits,
     score_ser_pair,
     semantic_note_pitches,
     with_sounding_pitches,
@@ -303,7 +304,7 @@ def _check_test_records(
     incipit: str, predicted: ScoreIR, sounding: ScoreIR, records: Sequence[Mapping[str, Any]]
 ) -> None:
     edits = derive_edit_events(predicted, sounding, document_id=incipit)
-    verified = is_structurally_equal(materialize(predicted, edits), sounding)
+    verified = is_structurally_equal(replay_edits(predicted, edits), sounding)
     again = build_correction_records(
         predicted,
         sounding,
