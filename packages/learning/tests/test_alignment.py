@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
 
@@ -23,10 +24,12 @@ from cadenza.domain import (
     materialize,
 )
 from cadenza.learning import (
+    InvalidDerivedEdit,
     align_voice_events,
     count_edits_by_op,
     derive_edit_events,
     is_structurally_equal,
+    replay_edits,
     split_pitch,
 )
 
@@ -292,6 +295,149 @@ def test_derive_edit_events_multi_measure_complex() -> None:
 
     assert is_structurally_equal(materialized, gt)
     assert materialized == gt
+
+
+# ============================================================================
+# 3b. Acordes: las ediciones derivadas las acepta la API (#456)
+# ============================================================================
+
+
+def test_derive_deletes_chord_head_with_keep_chord() -> None:
+    """Borrar la primera nota de un acorde lleva `keep_chord` (ADR-0055 §3) y pasa la
+    validación de la API, no solo `materialize`."""
+
+    pred = _make_score([_make_measure(1, [_note("C4"), _note("E4", is_chord=True)])])
+    gt = _make_score([_make_measure(1, [_rest(1)])])
+
+    edits = derive_edit_events(pred, gt)
+
+    deletes = [e for e in edits if e.op is EditOp.DELETE_EVENT]
+    assert [d.after for d in deletes] == [{"keep_chord": True}, None]
+    assert is_structurally_equal(replay_edits(pred, edits), gt)
+
+
+def test_derive_insertion_inside_a_chord_is_valid() -> None:
+    """Una nota que falta entre las notas de un acorde leído no se inserta partiendo el
+    acorde: la API lo rechaza (ADR-0055 §2). Las ediciones derivadas pasan su validación."""
+
+    pred = _make_score([_make_measure(1, [_note("C4"), _note("G4", is_chord=True)])])
+    gt = _make_score([_make_measure(1, [_note("C4"), _note("D4"), _note("G4", is_chord=True)])])
+
+    edits = derive_edit_events(pred, gt)
+
+    assert is_structurally_equal(replay_edits(pred, edits), gt)
+
+
+def test_derive_chords_on_both_staves_of_a_piano_part() -> None:
+    """Varias voces y pentagramas con acordes: todas las ediciones son válidas en orden."""
+
+    def measure(number: int, events: list[Event]) -> Measure:
+        return _make_measure(number, events)
+
+    pred_staff_events = [
+        [_note("C4"), _note("E4", is_chord=True), _note("A4"), _note("C5", is_chord=True)],
+        [_note("C3", 2), _note("G3", 2, is_chord=True), _rest(2)],
+    ]
+    gt_staff_events = [
+        [_note("E4"), _note("A4"), _note("B4"), _note("C5", is_chord=True)],
+        [_note("G3", 2), _note("C3", 2), _note("E3", 2, is_chord=True)],
+    ]
+    pred = ScoreIR(
+        parts=(
+            Part(
+                id="p",
+                staves=tuple(
+                    Staff(id=f"p-staff-{i}", measures=(measure(1, ev),))
+                    for i, ev in enumerate(pred_staff_events)
+                ),
+            ),
+        )
+    )
+    gt = ScoreIR(
+        parts=(
+            Part(
+                id="p",
+                staves=tuple(
+                    Staff(id=f"p-staff-{i}", measures=(measure(1, ev),))
+                    for i, ev in enumerate(gt_staff_events)
+                ),
+            ),
+        )
+    )
+
+    edits = derive_edit_events(pred, gt)
+
+    assert is_structurally_equal(replay_edits(pred, edits), gt)
+
+
+def test_derive_skips_a_voice_no_api_edit_can_reach() -> None:
+    """Una verdad con una nota `is_chord` tras un silencio no se puede crear con ediciones de la
+    API: esa voz queda sin derivar, sin tumbar las demás ni lanzar."""
+
+    pred = _make_score(
+        [
+            _make_measure(1, [_note("C4")]),
+            _make_measure(2, [_note("D4")]),
+        ]
+    )
+    gt = _make_score(
+        [
+            _make_measure(1, [_rest(1), _note("E4", is_chord=True)]),
+            _make_measure(2, [_note("F4")]),
+        ]
+    )
+
+    edits = derive_edit_events(pred, gt)
+
+    assert {e.anchor.measure for e in edits} == {2}
+    replayed = replay_edits(pred, edits)
+    assert (
+        replayed.parts[0].staves[0].measures[1].events == gt.parts[0].staves[0].measures[1].events
+    )
+
+
+def test_replay_edits_rejects_what_the_api_rejects() -> None:
+    """`replay_edits` valida como la API: un borrado de la primera nota de un acorde sin
+    `keep_chord` no pasa, aunque `materialize` lo aplicaría."""
+
+    pred = _make_score([_make_measure(1, [_note("C4"), _note("E4", is_chord=True)])])
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="part-0-staff-0")
+    bad = EditEvent(
+        id="e1",
+        document_id="d",
+        seq=1,
+        anchor=anchor,
+        op=EditOp.DELETE_EVENT,
+        author="a",
+        created_at=datetime.now(UTC),
+        before={"kind": "note", "pitch": "C4", "duration_beats": Fraction(1)},
+        after=None,
+    )
+
+    materialize(pred, [bad])
+    with pytest.raises(InvalidDerivedEdit, match="keep_chord"):
+        replay_edits(pred, [bad])
+
+
+def test_replay_edits_rejects_a_stale_before() -> None:
+    """Un `before` que no es el del estado lo rechaza la API (`append_edit`): aquí también."""
+
+    pred = _make_score([_make_measure(1, [_note("C4")])])
+    anchor = Anchor(part=0, staff=0, measure=1, voice=0, event_index=0, staff_id="part-0-staff-0")
+    stale = EditEvent(
+        id="e1",
+        document_id="d",
+        seq=1,
+        anchor=anchor,
+        op=EditOp.SET_PITCH,
+        author="a",
+        created_at=datetime.now(UTC),
+        before={"pitch": "D4"},
+        after={"pitch": "E4"},
+    )
+
+    with pytest.raises(InvalidDerivedEdit, match="before"):
+        replay_edits(pred, [stale])
 
 
 # ============================================================================

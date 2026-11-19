@@ -58,7 +58,7 @@ from cadenza.validation.learned import (
     labels_from_correction,
 )
 
-from .alignment import derive_edit_events, is_structurally_equal
+from .alignment import derive_edit_events, is_structurally_equal, replay_edits
 from .config import compute_config_hash
 from .consent import ConsentTally, filter_by_consent
 from .correction_corpus import assign_split, build_correction_records
@@ -894,7 +894,7 @@ def correction_verified(raw: ScoreIR, final: ScoreIR, *, document_id: str) -> bo
     de PrIMuS (#255), que deja fuera del entrenamiento lo que la alineación no explica."""
     try:
         derived = derive_edit_events(raw, final, document_id=document_id)
-        return is_structurally_equal(materialize(raw, derived), final)
+        return is_structurally_equal(replay_edits(raw, derived), final)
     except (ValueError, IndexError):
         return False
 
