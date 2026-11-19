@@ -13,8 +13,9 @@ from .models import PublicStatsRecord
 
 
 def _utc(moment: datetime) -> datetime:
-    """SQLite devuelve las fechas sin zona: se leen como UTC, que es como se guardan."""
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+    """En UTC: SQLite devuelve las fechas sin zona (se guardan en UTC) y PostgreSQL, en la zona
+    de la conexión."""
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 def _to_group(record: PublicStatsRecord) -> PublicStatsGroup:

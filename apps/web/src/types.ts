@@ -496,7 +496,7 @@ export interface HomrErrorStatsGroupRead {
   source: "cadenza" | "corpus";
   /** Cuándo se calcularon sus cifras. */
   computed_at: string;
-  /** Sesiones que necesita para publicarse (0 en un corpus). */
+  /** Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus). */
   min_sessions: number;
   /** Si llega al mínimo y lleva sus cifras. */
   published: boolean;

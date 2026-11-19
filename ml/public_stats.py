@@ -27,7 +27,12 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Final
 
-from cadenza.application import PUBLIC_STATS_FORMAT_VERSION, PublicStatsGroup
+from cadenza.application import (
+    MIN_PUBLIC_ACCOUNTS,
+    MIN_PUBLIC_SESSIONS,
+    PUBLIC_STATS_FORMAT_VERSION,
+    PublicStatsGroup,
+)
 from cadenza.learning.suggestions import file_sha256, read_corpus
 from cadenza.learning.tables import TABLES, cell, corpus_tables, database_tables
 from cadenza.persistence import (
@@ -49,8 +54,10 @@ logger = logging.getLogger("ml.public_stats")
 
 Row = dict[str, str]
 
-MIN_SESSIONS: Final = 5
+MIN_SESSIONS: Final = MIN_PUBLIC_SESSIONS
 """Sesiones que necesita un grupo de Cadenza para publicarse (ADR-0073 §5)."""
+MIN_ACCOUNTS: Final = MIN_PUBLIC_ACCOUNTS
+"""Y de cuántas cuentas distintas."""
 EVERY_SECONDS: Final = 300
 """Cada cuánto recalcula el servicio (`CADENZA_STATS_EVERY_SECONDS` en el compose)."""
 RETRY_SECONDS: Final = 60
@@ -102,9 +109,11 @@ def group_stats(
 
 
 def read_only(db: DbSession) -> None:
-    """La transacción en curso, de solo lectura en PostgreSQL (ADR-0073 §1)."""
+    """La transacción en curso, en PostgreSQL de solo lectura y sobre una sola foto de la base
+    (ADR-0073 §1): con READ COMMITTED, cada consulta vería la suya, y una sesión finalizada a
+    mitad del cálculo entraría sin pasar por el filtro del permiso de la primera."""
     if db.get_bind().dialect.name == "postgresql":
-        db.execute(text("SET TRANSACTION READ ONLY"))
+        db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"))
 
 
 def cadenza_tables(factory: SessionFactory) -> dict[str, list[Row]]:
@@ -118,21 +127,31 @@ def cadenza_tables(factory: SessionFactory) -> dict[str, list[Row]]:
             user_repository=SqlAlchemyUserRepository(db),
             split_seed=0,
             test_fraction=0.2,
-            include_self_registered=True,
         )
     return as_csv_rows(tables)
+
+
+def _enough(rows: Sequence[Row]) -> bool:
+    """Si unas partituras llegan al mínimo: `MIN_SESSIONS` sesiones de `MIN_ACCOUNTS` cuentas."""
+    accounts = {r["participante"] for r in rows}
+    return len(rows) >= MIN_SESSIONS and len(accounts) >= MIN_ACCOUNTS
 
 
 def cadenza_groups(
     tables: dict[str, list[Row]], computed_at: datetime.datetime
 ) -> list[PublicStatsGroup]:
     """`cadenza` (todas las sesiones que cuentan) y `pruebas` (las de las cuentas del
-    registro), cada uno con sus cifras solo si llega a `MIN_SESSIONS` sesiones."""
+    registro), cada uno con sus cifras solo si llega al mínimo (`_enough`).
+
+    `pruebas` tampoco sale si lo que queda de `cadenza` sin ella no llega a `MIN_SESSIONS`
+    sesiones: restar un grupo del otro daría las cifras de esas pocas."""
     reordered = reordered_chords(tables["notas"])
-    partituras = tables["partituras"]
+    everyone = tables["partituras"]
+    registry = [r for r in everyone if r["origen"] == "registro"]
+    rest = len(everyone) - len(registry)
     members = {
-        LIVE: {r["incipit_id"] for r in partituras},
-        REAL_TESTS: {r["incipit_id"] for r in partituras if r["origen"] == "registro"},
+        LIVE: (everyone, _enough(everyone)),
+        REAL_TESTS: (registry, _enough(registry) and (rest == 0 or rest >= MIN_SESSIONS)),
     }
     return [
         PublicStatsGroup(
@@ -141,15 +160,21 @@ def cadenza_groups(
             computed_at=computed_at,
             format_version=PUBLIC_STATS_FORMAT_VERSION,
             min_sessions=MIN_SESSIONS,
-            sessions=len(ids),
-            stats=group_stats(tables, ids, reordered) if len(ids) >= MIN_SESSIONS else None,
+            sessions=len(rows),
+            stats=(
+                group_stats(tables, {r["incipit_id"] for r in rows}, reordered) if publish else None
+            ),
         )
-        for group_id, ids in members.items()
+        for group_id, (rows, publish) in members.items()
     ]
 
 
 def _corpus_group(path: Path, sha256: str, computed_at: datetime.datetime) -> PublicStatsGroup:
-    tables = as_csv_rows(corpus_tables(read_corpus(path)))
+    records = read_corpus(path)
+    if any(r.get("source") == LIVE for r in records):
+        # Un corpus de `build-dataset` trae sesiones de Cadenza: saldrían sin el mínimo.
+        raise ValueError("trae sesiones de Cadenza: sus cifras salen en vivo, no de un corpus")
+    tables = as_csv_rows(corpus_tables(records))
     stats = group_stats(tables, None, reordered_chords(tables["notas"]))
     return PublicStatsGroup(
         id=path.stem,
@@ -167,26 +192,33 @@ def corpus_groups(
     corpus_dir: Path,
     stored: Sequence[PublicStatsGroup],
     computed_at: datetime.datetime,
+    fresh: dict[str, str],
 ) -> list[PublicStatsGroup]:
-    """Un grupo por cada `<grupo>.jsonl` de la carpeta. El que ya está guardado con el mismo
-    sha256 y formato se conserva tal cual; uno que no se puede leer se salta con un aviso."""
+    """Un grupo por cada `<grupo>.jsonl` de la carpeta; uno que no se puede leer se salta con un
+    aviso.
+
+    `fresh` dice qué corpus (y con qué sha256) se calcularon ya en este proceso: solo esos se
+    conservan tal cual si no cambian. Así, cada arranque del servicio (cada despliegue) los
+    recalcula una vez con el código nuevo."""
     previous = {g.id: g for g in stored if g.source == CORPUS}
     groups: list[PublicStatsGroup] = []
     for path in sorted(corpus_dir.glob("*.jsonl")):
         if not _CORPUS_NAME.fullmatch(path.stem) or path.stem in (LIVE, REAL_TESTS):
             logger.warning("public_stats_corpus_skipped file=%s reason=name", path.name)
             continue
-        sha256 = file_sha256(path)
-        old = previous.get(path.stem)
-        if (
-            old is not None
-            and old.source_sha256 == sha256
-            and old.format_version == PUBLIC_STATS_FORMAT_VERSION
-        ):
-            groups.append(old)
-            continue
         try:
+            sha256 = file_sha256(path)
+            old = previous.get(path.stem)
+            if (
+                old is not None
+                and fresh.get(path.stem) == sha256
+                and old.source_sha256 == sha256
+                and old.format_version == PUBLIC_STATS_FORMAT_VERSION
+            ):
+                groups.append(old)
+                continue
             groups.append(_corpus_group(path, sha256, computed_at))
+            fresh[path.stem] = sha256
         except Exception as exc:  # un corpus roto no para las cifras en vivo
             logger.warning(
                 "public_stats_corpus_skipped file=%s reason=%s: %s",
@@ -206,16 +238,22 @@ def compute_once(
     corpus_dir: Path | None,
     *,
     now: Callable[[], datetime.datetime] = _now,
+    fresh: dict[str, str] | None = None,
 ) -> list[PublicStatsGroup]:
     """Un cálculo: lee (en solo lectura), calcula y guarda. Sin `corpus_dir`, los grupos de
-    corpus guardados no se tocan; con él, quedan los de sus archivos."""
+    corpus guardados no se tocan; con él, quedan los de sus archivos. `fresh` lo comparten los
+    cálculos de un mismo proceso (`corpus_groups`); sin él, los corpus se recalculan."""
     computed_at = now()
     live = cadenza_groups(cadenza_tables(factory), computed_at)
     corpus: list[PublicStatsGroup] | None = None
     if corpus_dir is not None:
         with session_scope(factory) as db:
             stored = SqlAlchemyPublicStatsRepository(db).list()
-        corpus = corpus_groups(corpus_dir, stored, computed_at) if corpus_dir.is_dir() else []
+        corpus = (
+            corpus_groups(corpus_dir, stored, computed_at, {} if fresh is None else fresh)
+            if corpus_dir.is_dir()
+            else []
+        )
     with session_scope(factory) as db:
         repository = SqlAlchemyPublicStatsRepository(db)
         repository.replace(LIVE, live)
@@ -268,16 +306,21 @@ def public_stats_command(args: argparse.Namespace) -> int:
         print("Error: --every es un número de segundos, 1 o más", file=sys.stderr)
         return 1
     _configure_logging()
-    stop = threading.Event()
-    # Como PID 1 del contenedor, SIGTERM no tiene acción por defecto: `docker stop` esperaría.
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    # Como PID 1 del contenedor, SIGTERM no tiene acción por defecto: `docker stop` esperaría
+    # y lo mataría. Así sale enseguida; un cálculo a medias no guarda nada (una transacción).
+    signal.signal(signal.SIGTERM, _terminate)
     logger.info("public_stats_started every=%s corpus_dir=%s", args.every, corpus_dir)
+    fresh: dict[str, str] = {}
 
     def compute() -> None:
-        compute_once(factory, corpus_dir)
+        compute_once(factory, corpus_dir, fresh=fresh)
 
-    run_forever(compute, every=args.every, stop=stop)
+    run_forever(compute, every=args.every, stop=threading.Event())
     return 0
+
+
+def _terminate(signum: int, frame: object) -> None:
+    raise SystemExit(0)
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

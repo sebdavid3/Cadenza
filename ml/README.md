@@ -432,7 +432,7 @@ Calcula las cifras de conjunto de las correcciones con el código del informe (`
 ejemplos ni fotos) y las guarda en la tabla `public_stats`, de donde las sirve
 `GET /stats/homr-errors`. Lee la base en solo lectura y cuenta las sesiones finalizadas del equipo
 y de las cuentas del registro con el permiso vigente (#422); los grupos `cadenza` y `pruebas` solo
-se publican con 5 sesiones o más. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS
+se publican con 5 sesiones de 3 cuentas o más. Cada `<grupo>.jsonl` de `--corpus-dir` (el corpus de PrIMuS
 de `exp_12` como `primus.jsonl`) se calcula una vez y solo se repite si cambia el archivo.
 
 ```powershell

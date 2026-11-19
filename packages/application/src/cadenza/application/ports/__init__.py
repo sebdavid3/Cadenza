@@ -25,6 +25,8 @@ from .model_registry import (
 )
 from .preview_repository import InMemoryPreviewRepository, PreviewData, PreviewRepository
 from .public_stats import (
+    MIN_PUBLIC_ACCOUNTS,
+    MIN_PUBLIC_SESSIONS,
     PUBLIC_STATS_FORMAT_VERSION,
     InMemoryPublicStatsRepository,
     PublicStatsGroup,
@@ -63,6 +65,8 @@ from .suggestion_model import (
 from .user_repository import InMemoryUserRepository, UserRepository
 
 __all__ = [
+    "MIN_PUBLIC_ACCOUNTS",
+    "MIN_PUBLIC_SESSIONS",
     "PUBLIC_STATS_FORMAT_VERSION",
     "ArtifactStore",
     "CachedScoreState",

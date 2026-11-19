@@ -878,7 +878,7 @@ def create_app(
             "las de las cuentas con el permiso de uso de los datos vigente) y de los corpus "
             "precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API "
             "sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza "
-            "no se publica hasta tener un mínimo de sesiones. Nunca lleva fotos, partituras, "
+            "no se publica hasta tener 5 sesiones de 3 cuentas. Nunca lleva fotos, partituras, "
             "títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y "
             "`ETag`: con `If-None-Match` y sin cambios, 304."
         ),

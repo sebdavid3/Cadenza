@@ -453,8 +453,8 @@ docker compose --profile batch run --rm ml-batch suggestions --help
 
 `GET /api/stats/homr-errors` sirve, sin cuenta, las cifras de conjunto de lo que corrigen las personas en las lecturas de HOMR: las del informe local (`ml export-tables --informe`) sin fotos ni ejemplos. La API no las calcula: las lee de la tabla `public_stats` (migración 0019), donde las deja el servicio `stats`. Ese servicio ejecuta `python -m ml.public_stats --every 300 --corpus-dir /app/corpus` y en cada vuelta:
 
-1. lee la base en una transacción de solo lectura, con el mismo filtro que las exportaciones (#422): las sesiones finalizadas del equipo y de las cuentas del registro con el permiso de uso de los datos vigente;
-2. calcula los grupos `cadenza` (todas) y `pruebas` (las del registro), cada uno publicado solo con 5 sesiones o más, y un grupo por cada `<grupo>.jsonl` de la carpeta de corpus, que solo se recalcula si cambia el archivo;
+1. lee la base en una transacción de solo lectura (`REPEATABLE READ, READ ONLY`), con el mismo filtro que las exportaciones (#422): las sesiones finalizadas del equipo y de las cuentas del registro con el permiso de uso de los datos vigente;
+2. calcula los grupos `cadenza` (todas) y `pruebas` (las del registro), cada uno publicado solo con 5 sesiones de 3 cuentas o más (y `pruebas`, solo si el resto no se queda entre 1 y 4 sesiones), y un grupo por cada `<grupo>.jsonl` de la carpeta de corpus, que se calcula al arrancar el servicio y después solo si cambia el archivo;
 3. sustituye las filas en `public_stats` y anota una línea `public_stats_computed cadenza=… pruebas=…` en su registro.
 
 Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
@@ -474,7 +474,9 @@ ssh r2d2 'mkdir -p /opt/docker/cadenza/data/stats-corpus'
 scp results/correction_corpus.jsonl r2d2:/opt/docker/cadenza/data/stats-corpus/primus.jsonl
 ```
 
-El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS, MUSCIMA++ y SMB, cuando tengan corpus, entran igual (`camera-primus.jsonl`…), y quitar un archivo quita su grupo. Un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, o un archivo que no se puede leer, se salta con un aviso (`public_stats_corpus_skipped`).
+El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS, MUSCIMA++ y SMB, cuando tengan corpus, entran igual (`camera-primus.jsonl`…), y quitar un archivo quita su grupo. Se salta con un aviso (`public_stats_corpus_skipped`), sin parar las cifras en vivo: un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, un archivo que no se puede leer y un corpus con sesiones de Cadenza (el de `ml suggestions build-dataset`: sus sesiones saldrían sin el mínimo).
+
+El servicio carga en memoria las tablas de todas las sesiones en cada cálculo. Si la base crece hasta pasar su tope de 1 GiB, el contenedor muere (`docker inspect` dice `OOMKilled`) y se reinicia sin afectar a la API: se sube `mem_limit` o se para el servicio.
 
 **Cambiar el ritmo:** `CADENZA_STATS_EVERY_SECONDS` en el `.env` y `$DC up -d stats`. **Pararlo:** `$DC stop stats`; la API sigue sirviendo el último cálculo, con su hora en `computed_at`. **En local**, una vez y sin bucle: `uv run --no-sync python -m ml.public_stats --db-url sqlite:///./cadenza.db [--corpus-dir carpeta]`.
 

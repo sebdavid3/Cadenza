@@ -163,6 +163,19 @@ def test_a_group_of_another_format_or_that_does_not_validate_is_left_out(
     assert "primus" in caplog.text
 
 
+def test_a_live_group_under_the_minimum_is_not_published_even_if_stored_with_stats(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app, factory = _app()
+    _store(factory, "cadenza", [_group("cadenza", sessions=4)])
+
+    with caplog.at_level(logging.WARNING, logger="cadenza.api"):
+        group = TestClient(app).get(PATH).json()["groups"][0]
+
+    assert (group["published"], group["sessions"], group["stats"]) == (False, None, None)
+    assert "min_sessions" in caplog.text
+
+
 def test_it_can_be_cached_and_answers_304_to_the_same_etag() -> None:
     app, factory = _app()
     _store(factory, "cadenza", [_group("cadenza")])

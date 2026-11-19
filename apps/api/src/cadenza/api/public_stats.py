@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from cadenza.application import (
+    MIN_PUBLIC_SESSIONS,
     PUBLIC_STATS_FORMAT_VERSION,
     PublicStatsGroup,
     PublicStatsRepository,
@@ -32,7 +33,17 @@ CACHE_CONTROL = "public, max-age=60"
 def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:
     """La respuesta con los grupos guardados que se pueden publicar."""
     published: list[HomrErrorStatsGroupRead] = []
+    live: list[HomrErrorStatsGroupRead] = []
     for group in groups:
+        stats = group.stats
+        if (
+            stats is not None
+            and group.source == "cadenza"
+            and group.sessions < max(group.min_sessions, MIN_PUBLIC_SESSIONS)
+        ):
+            # Quien calcula ya lo aplica; si una fila lo incumple, no se publica igual.
+            logger.warning("public_stats_group_unpublished id=%s reason=min_sessions", group.id)
+            stats = None
         if group.format_version != PUBLIC_STATS_FORMAT_VERSION:
             logger.warning(
                 "public_stats_group_skipped id=%s reason=format_version=%s",
@@ -41,19 +52,17 @@ def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:
             )
             continue
         try:
-            published.append(
-                HomrErrorStatsGroupRead.model_validate(
-                    {
-                        "id": group.id,
-                        "source": group.source,
-                        "computed_at": group.computed_at,
-                        "min_sessions": group.min_sessions,
-                        "published": group.published,
-                        # Por debajo del mínimo no se dice ni cuántas sesiones tiene.
-                        "sessions": group.sessions if group.published else None,
-                        "stats": group.stats,
-                    }
-                )
+            item = HomrErrorStatsGroupRead.model_validate(
+                {
+                    "id": group.id,
+                    "source": group.source,
+                    "computed_at": group.computed_at,
+                    "min_sessions": group.min_sessions,
+                    "published": stats is not None,
+                    # Por debajo del mínimo no se dice ni cuántas sesiones tiene.
+                    "sessions": group.sessions if stats is not None else None,
+                    "stats": stats,
+                }
             )
         except ValidationError as exc:
             logger.warning(
@@ -61,8 +70,13 @@ def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:
                 group.id,
                 exc.error_count(),
             )
-    live = [g.computed_at for g in groups if g.source == "cadenza"]
-    return HomrErrorStatsRead(computed_at=max(live) if live else None, groups=published)
+            continue
+        published.append(item)
+        if item.source == "cadenza":
+            live.append(item)
+    return HomrErrorStatsRead(
+        computed_at=max((g.computed_at for g in live), default=None), groups=published
+    )
 
 
 @dataclass(frozen=True, slots=True)

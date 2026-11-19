@@ -21,17 +21,17 @@ Hay tres límites:
 ## Decisión
 
 1. **Un servicio periódico del compose las calcula.** `stats` (`Dockerfile.stats`, imagen `cadenza-stats`) ejecuta `python -m ml.public_stats --every 300`: sin HOMR ni GPU, con `cadenza-learning`, `cadenza-persistence`, `ml/tables_report.py` y `ml/public_stats.py`. Cada vez recalcula todo, no por sesión. Así un permiso retirado sale en el siguiente cálculo, y un fallo se arregla solo en la vuelta siguiente.
-   - **Lee la base en solo lectura:** una transacción `READ ONLY` en PostgreSQL. Escribe en otra transacción, y solo en su tabla.
+   - **Lee la base en solo lectura y sobre una sola foto:** una transacción `REPEATABLE READ, READ ONLY` en PostgreSQL. Con `READ COMMITTED`, cada consulta vería la base de su momento, y una sesión finalizada a mitad del cálculo entraría sin pasar por el filtro del permiso. Escribe en otra transacción, y solo en su tabla.
    - **El código es el del informe:** `database_tables` y `corpus_tables` (`cadenza.learning.tables`), y `aggregate` y `reordered_chords` (`ml/tables_report.py`). Las filas pasan por `cell`, como en los CSV, así que las cifras son las que daría el informe con esas sesiones. `ml/tables_report.py` no cambia.
 2. **Dónde se guardan: la tabla `public_stats`** (migración 0019), una fila por grupo. Es el mismo camino que la capa de sugerencias (ADR-0036 §8): el plano offline escribe una tabla y la API la lee. Cada fila lleva `id`, `source` (`cadenza` o `corpus`), `computed_at`, `format_version`, `min_sessions`, `sessions`, `source_sha256` (el del corpus) y `stats` (JSON, nulo si el grupo no se publica). El puerto es `PublicStatsRepository` (`cadenza.application.public_stats`) y el adaptador, `SqlAlchemyPublicStatsRepository`.
-3. **Cada cuánto:** cada 5 minutos (`CADENZA_STATS_EVERY_SECONDS`, 300 por defecto). Los corpus (PrIMuS y, cuando lleguen, Camera-PrIMuS, MUSCIMA++ y SMB) van precalculados: cada `<grupo>.jsonl` de la carpeta montada (`CADENZA_STATS_CORPUS_DIR`) se calcula una vez y solo se repite si cambian su sha256 o el formato. Sin corpus, no hay grupo de corpus. Las cifras salen de la ejecución sobre el archivo, nunca escritas a mano (`CLAUDE.md` §8).
+3. **Cada cuánto:** cada 5 minutos (`CADENZA_STATS_EVERY_SECONDS`, 300 por defecto); un cálculo fallido se reintenta al minuto. Los corpus (PrIMuS y, cuando lleguen, Camera-PrIMuS, MUSCIMA++ y SMB) van precalculados: cada `<grupo>.jsonl` de la carpeta montada (`CADENZA_STATS_CORPUS_DIR`) se calcula al arrancar el servicio (en cada despliegue, por si cambió el código) y después solo si cambia su sha256. Sin corpus, no hay grupo de corpus. Un archivo que no se puede leer, o que trae sesiones de Cadenza (un corpus de `build-dataset`, que saltaría el mínimo del §5), se salta con un aviso y no para las cifras en vivo. Las cifras salen de la ejecución sobre el archivo, nunca escritas a mano (`CLAUDE.md` §8).
 4. **Qué sesiones cuentan:** las de `session_records` con el criterio de #422. Son las sesiones finalizadas de las cuentas del equipo y de las cuentas del registro con el permiso de la versión vigente del texto. Una cuenta sin permiso vigente nunca entra.
 5. **Grupos:**
    - `cadenza`: todas las sesiones que cuentan;
    - `pruebas`: solo las de las cuentas del registro (`origen = registro`, el filtro del informe);
    - uno por corpus (`primus`).
 
-   Un grupo de Cadenza se publica con **al menos 5 sesiones** (`MIN_SESSIONS`). Por debajo, la fila dice solo que no se publica, sin el recuento de sesiones ni cifras. Los acordes solo reordenados no se cuentan en ningún grupo (ADR-0069 §5), y se publica cuántos son.
+   Un grupo de Cadenza se publica con **al menos 5 sesiones de al menos 3 cuentas** (`MIN_PUBLIC_SESSIONS`, `MIN_PUBLIC_ACCOUNTS`): cinco sesiones de una sola persona serían sus cifras, no unas de conjunto. `pruebas` tampoco se publica si lo que queda de `cadenza` sin ella tiene entre 1 y 4 sesiones, porque restar un grupo del otro daría sus cifras. Por debajo, la fila dice solo que no se publica, sin el recuento de sesiones ni cifras, y la API vuelve a comprobar el mínimo de sesiones de cada fila. Los acordes solo reordenados no se cuentan en ningún grupo (ADR-0069 §5), y se publica cuántos son.
 6. **Qué se publica:** solo agregados musicales de cada grupo:
    - partituras y cuántas salieron sin ninguna corrección;
    - notas leídas, qué pasó con ellas (bien, corregida, leída de más, sin alinear) y las que faltaban;
@@ -45,13 +45,13 @@ Hay tres límites:
 ## Consecuencias
 
 ### Positivas
-- La portada enseña los errores de HOMR con 5 minutos de retraso como mucho, con el mismo código que el informe local.
+- La portada enseña los errores de HOMR con unos 7 minutos de retraso como mucho (los 5 del ciclo, lo que tarda el cálculo y las cachés de 60 s de la API y del navegador), con el mismo código que el informe local.
 - La API no importa `ml/` ni `cadenza.learning` y no calcula nada: lee una tabla pequeña.
 - Retirar el permiso tiene efecto en el siguiente cálculo, sin código aparte.
 
 ### Negativas / Riesgos
-- **Recalcular todo cuesta** una pasada por todas las sesiones finalizadas cada 5 minutos, con su materialización. Con cientos de sesiones son segundos. Si crece, se sube `CADENZA_STATS_EVERY_SECONDS`, sin código.
-- **Comparar dos cálculos seguidos** puede aislar la contribución de una sesión, si solo una se finalizó entre ellos. Lo que se aísla son cifras musicales (cuántas notas se corrigieron y de qué tipo), sin cuenta, título ni foto. Se acepta.
+- **Recalcular todo cuesta** una pasada por todas las sesiones finalizadas cada 5 minutos, con su materialización, y las tablas de todas en memoria (`database_tables` no va por partes). Con cientos de sesiones son segundos y cientos de MiB; el corpus de PrIMuS (1877 íncipits) llega a unos 330 MiB al calcularse. El servicio tiene un tope de 1 GiB: si la base crece hasta pasarlo, el contenedor muere y se reinicia sin tocar la API, y se sube el tope o `CADENZA_STATS_EVERY_SECONDS`, o se para el servicio, sin código.
+- **Comparar dos cálculos seguidos** puede aislar la contribución de una sesión, si solo una se finalizó entre ellos. Lo que se aísla son cifras musicales (cuántas notas se corrigieron y de qué tipo), sin cuenta, título ni foto. Se acepta. La resta entre los dos grupos de un mismo cálculo la impide el §5.
 - **El servicio escribe en la base** de producción, aunque solo en `public_stats`, con las mismas credenciales que la API: el compose no tiene otro usuario de PostgreSQL. La lectura sí va en solo lectura.
 - **Una imagen más que construir** en cada despliegue (`docker compose up -d --build`), ligera y sin GPU.
 

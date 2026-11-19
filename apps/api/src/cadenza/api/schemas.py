@@ -1199,7 +1199,11 @@ class HomrErrorStatsGroupRead(BaseModel):
     )
     computed_at: datetime = Field(..., description="Cuándo se calcularon sus cifras.")
     min_sessions: int = Field(
-        ..., ge=0, description="Sesiones que necesita para publicarse (0 en un corpus)."
+        ...,
+        ge=0,
+        description=(
+            "Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus)."
+        ),
     )
     published: bool = Field(..., description="Si llega al mínimo y lleva sus cifras.")
     sessions: int | None = Field(

@@ -59,7 +59,7 @@
           "Stats"
         ],
         "summary": "Cifras de conjunto de los errores de HOMR",
-        "description": "Sin cuenta. Las cifras de conjunto de lo que corrigen las personas en las transcripciones de HOMR, de las sesiones finalizadas que cuentan (las del equipo y las de las cuentas con el permiso de uso de los datos vigente) y de los corpus precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza no se publica hasta tener un mínimo de sesiones. Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y `ETag`: con `If-None-Match` y sin cambios, 304.",
+        "description": "Sin cuenta. Las cifras de conjunto de lo que corrigen las personas en las transcripciones de HOMR, de las sesiones finalizadas que cuentan (las del equipo y las de las cuentas con el permiso de uso de los datos vigente) y de los corpus precalculados (PrIMuS). Las calcula cada pocos minutos un servicio aparte; la API sirve el último cálculo y dice cuándo se hizo (`computed_at`). Un grupo de Cadenza no se publica hasta tener 5 sesiones de 3 cuentas. Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión (#423, ADR-0073). Con `Cache-Control` y `ETag`: con `If-None-Match` y sin cambios, 304.",
         "operationId": "get_homr_error_stats_endpoint_stats_homr_errors_get",
         "responses": {
           "200": {
@@ -4087,7 +4087,7 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Min Sessions",
-            "description": "Sesiones que necesita para publicarse (0 en un corpus)."
+            "description": "Sesiones que necesita para publicarse, de al menos 3 cuentas (0 en un corpus)."
           },
           "published": {
             "type": "boolean",

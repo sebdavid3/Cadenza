@@ -22,6 +22,7 @@ from cadenza.api.schemas import HomrErrorStatsRead, HomrErrorStatsValuesRead
 from cadenza.application import DATA_CONSENT_VERSION, PublicStatsGroup
 from cadenza.learning import derive_edit_events
 from cadenza.learning.suggestions import file_sha256
+from cadenza.learning.tables import TABLES
 from cadenza.persistence import (
     SessionFactory,
     SqlAlchemyEditEventRepository,
@@ -38,11 +39,12 @@ from sqlalchemy.orm import Session as DbSession
 from ml import public_stats, tables_report
 from ml.cli import main as ml_main
 
-from .suggestions_support import SPLIT_SEED, write_corpus
+from .suggestions_support import SPLIT_SEED, corpus_records, write_corpus
 from .test_export_tables import _as_stored, _read_and_final, _session, _user
 
 WHEN = datetime(2026, 11, 19, 12, 0, tzinfo=UTC)
 LATER = datetime(2026, 11, 19, 12, 5, tzinfo=UTC)
+LATEST = datetime(2026, 11, 19, 12, 10, tzinfo=UTC)
 TEAM = [f"s-equipo-{i}" for i in range(4)]
 REGISTRY = ["s-visita-1", "s-visita-2"]
 
@@ -97,9 +99,12 @@ def db_url(tmp_path: Path) -> str:
 
 
 def _compute(
-    db_url: str, corpus_dir: Path | None = None, when: datetime = WHEN
+    db_url: str,
+    corpus_dir: Path | None = None,
+    when: datetime = WHEN,
+    fresh: dict[str, str] | None = None,
 ) -> dict[str, PublicStatsGroup]:
-    groups = public_stats.compute_once(_factory(db_url), corpus_dir, now=lambda: when)
+    groups = public_stats.compute_once(_factory(db_url), corpus_dir, now=lambda: when, fresh=fresh)
     return {g.id: g for g in groups}
 
 
@@ -138,7 +143,6 @@ def test_the_stats_are_those_of_the_local_report_with_the_same_sessions(
             db_url,
             "--split-seed",
             str(SPLIT_SEED),
-            "--include-self-registered",
         ]
     )
     assert exported == 0
@@ -204,8 +208,9 @@ def test_a_corpus_is_computed_once_and_again_only_when_it_changes(
     corpus_dir = tmp_path / "corpus"
     corpus_dir.mkdir()
     primus = write_corpus(corpus_dir / "primus.jsonl", works=3)
+    process: dict[str, str] = {}  # los cálculos de un mismo proceso del servicio
 
-    _compute(db_url, corpus_dir)
+    _compute(db_url, corpus_dir, fresh=process)
     first = _stored(db_url)["primus"]
     assert first.source == "corpus"
     assert first.published and first.stats is not None
@@ -213,19 +218,25 @@ def test_a_corpus_is_computed_once_and_again_only_when_it_changes(
     assert first.sessions == first.stats["scores"] > 0
     assert first.stats["read"] > 0
 
-    _compute(db_url, corpus_dir, when=LATER)
+    _compute(db_url, corpus_dir, when=LATER, fresh=process)
     kept = _stored(db_url)
     assert kept["primus"].computed_at == WHEN  # precalculado: el mismo archivo no se repite
     assert kept["cadenza"].computed_at == LATER
 
     write_corpus(primus, works=4)
-    _compute(db_url, corpus_dir, when=LATER)
+    _compute(db_url, corpus_dir, when=LATER, fresh=process)
     changed = _stored(db_url)["primus"]
     assert changed.computed_at == LATER
     assert changed.sessions > first.sessions
 
+    # Otro proceso (un despliegue, quizá con otro código) lo recalcula una vez.
+    restarted: dict[str, str] = {}
+    _compute(db_url, corpus_dir, when=LATEST, fresh=restarted)
+    assert _stored(db_url)["primus"].computed_at == LATEST
+    assert restarted == {"primus": file_sha256(primus)}
+
     primus.unlink()
-    _compute(db_url, corpus_dir, when=LATER)
+    _compute(db_url, corpus_dir, when=LATER, fresh=process)
     assert set(_stored(db_url)) == {"cadenza", "pruebas"}
 
 
@@ -237,6 +248,12 @@ def test_a_bad_corpus_does_not_stop_the_live_stats(
     (corpus_dir / "roto.jsonl").write_text("{no es json\n", encoding="utf-8")
     write_corpus(corpus_dir / "Mal Nombre.jsonl", works=2)
     write_corpus(corpus_dir / "cadenza.jsonl", works=2)  # no puede tapar al grupo en vivo
+    (corpus_dir / "carpeta.jsonl").mkdir()  # no se puede leer
+    # Un corpus de build-dataset con sesiones de Cadenza saldría sin el mínimo de sesiones.
+    records = [*corpus_records(2), {**corpus_records(1)[0], "source": "cadenza"}]
+    (corpus_dir / "dataset.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8"
+    )
 
     with caplog.at_level(logging.WARNING, logger="ml.public_stats"):
         _compute(db_url, corpus_dir)
@@ -244,8 +261,9 @@ def test_a_bad_corpus_does_not_stop_the_live_stats(
     groups = _stored(db_url)
     assert set(groups) == {"cadenza", "pruebas"}
     assert groups["cadenza"].source == "cadenza"
-    assert "roto.jsonl" in caplog.text
-    assert "Mal Nombre.jsonl" in caplog.text
+    for name in ("roto.jsonl", "Mal Nombre.jsonl", "cadenza.jsonl", "carpeta.jsonl"):
+        assert name in caplog.text
+    assert "dataset.jsonl" in caplog.text and "sesiones de Cadenza" in caplog.text
 
 
 def test_without_a_corpus_folder_the_stored_corpus_groups_stay(db_url: str, tmp_path: Path) -> None:
@@ -277,7 +295,50 @@ def test_the_reading_is_read_only_in_postgresql() -> None:
 
     public_stats.read_only(cast(DbSession, _Db()))  # un doble mínimo de la sesión
 
-    assert executed == ["SET TRANSACTION READ ONLY"]
+    # Una sola foto de la base: una sesión finalizada a mitad no entra sin pasar el filtro.
+    assert executed == ["SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"]
+
+
+def _partitura(index: int, origin: str, account: str) -> dict[str, str]:
+    return {
+        **dict.fromkeys(TABLES["partituras"], ""),
+        "source": "cadenza",
+        "incipit_id": f"cadenza:s-{index}",
+        "session_id": f"s-{index}",
+        "origen": origin,
+        "participante": account,
+    }
+
+
+def _published(*groups: tuple[int, str, int]) -> dict[str, bool]:
+    """Qué grupos se publican con tantas sesiones de tal origen repartidas en tantas cuentas."""
+    rows = []
+    for sessions, origin, accounts in groups:
+        rows += [
+            _partitura(len(rows) + i, origin, f"{origin}-{i % accounts}") for i in range(sessions)
+        ]
+    tables: dict[str, list[dict[str, str]]] = {name: [] for name in TABLES}
+    tables["partituras"] = rows
+    return {g.id: g.published for g in public_stats.cadenza_groups(tables, WHEN)}
+
+
+def test_a_group_needs_five_sessions_of_three_accounts() -> None:
+    assert _published((5, "registro", 3)) == {"cadenza": True, "pruebas": True}
+    # Cinco sesiones de una o dos personas serían sus cifras, no unas de conjunto.
+    assert _published((9, "registro", 2)) == {"cadenza": False, "pruebas": False}
+    assert _published((4, "registro", 4)) == {"cadenza": False, "pruebas": False}
+
+
+def test_the_registry_group_is_not_published_if_the_rest_would_show_by_subtraction() -> None:
+    # cadenza menos pruebas daría las cifras de las dos sesiones del equipo.
+    assert _published((6, "registro", 3), (2, "equipo", 1)) == {
+        "cadenza": True,
+        "pruebas": False,
+    }
+    assert _published((6, "registro", 3), (5, "equipo", 1)) == {
+        "cadenza": True,
+        "pruebas": True,
+    }
 
 
 def test_the_loop_survives_a_failed_computation_and_stops_when_asked(

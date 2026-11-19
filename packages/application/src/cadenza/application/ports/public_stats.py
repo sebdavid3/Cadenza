@@ -14,6 +14,12 @@ from typing import Any, Final
 
 PUBLIC_STATS_FORMAT_VERSION: Final = 1
 """La versión de lo que lleva `PublicStatsGroup.stats`. La API no publica otra."""
+MIN_PUBLIC_SESSIONS: Final = 5
+"""Sesiones que necesita un grupo de Cadenza para publicarse (ADR-0073 §5). Lo aplica quien
+calcula y lo vuelve a comprobar la API."""
+MIN_PUBLIC_ACCOUNTS: Final = 3
+"""Cuentas distintas que necesita un grupo de Cadenza: cinco sesiones de una sola persona serían
+sus cifras, no unas de conjunto (ADR-0073 §5)."""
 
 
 @dataclass(frozen=True, slots=True)

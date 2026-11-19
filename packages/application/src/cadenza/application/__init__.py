@@ -35,6 +35,8 @@ from .exceptions import (
 )
 from .export import ExportedScore, ExportFormat
 from .ports import (
+    MIN_PUBLIC_ACCOUNTS,
+    MIN_PUBLIC_SESSIONS,
     PUBLIC_STATS_FORMAT_VERSION,
     ArtifactStore,
     CachedScoreState,
@@ -147,6 +149,8 @@ __all__ = [
     "DATA_CONSENT_VERSION",
     "EFFORT_CLASSES",
     "MAX_EFFORT_SEGMENTS",
+    "MIN_PUBLIC_ACCOUNTS",
+    "MIN_PUBLIC_SESSIONS",
     "PUBLIC_STATS_FORMAT_VERSION",
     "REJECTED",
     "SUGGESTION_FAMILIES",
