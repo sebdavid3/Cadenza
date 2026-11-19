@@ -69,11 +69,11 @@ CLEF_SIGNS = {"G": "sol", "F": "fa", "C": "do"}
 USUAL_CLEF_LINE = {"G": "2", "F": "4"}
 """La clave de sol en 2.ª y la de fa en 4.ª se nombran sin la línea, como se dice siempre."""
 REAL_TESTS = "pruebas"
-"""El grupo de las sesiones de las pruebas reales de Cadenza (#418), las de las cuentas del
-registro público (`partituras.origen = registro`)."""
+"""El único grupo que se separa (#418): las sesiones de las pruebas reales de Cadenza, las de las
+cuentas del registro público (`partituras.origen = registro`). Las fuentes (PrIMuS,
+Camera-PrIMuS, Cadenza) no se separan: cada partitura dice la suya en el historial (#421)."""
 SOURCE_NAMES = {"primus": "PrIMuS", "camera-primus": "Camera-PrIMuS", "cadenza": "Cadenza"}
-"""El nombre de cada fuente en el informe, en el orden en que salen sus grupos. Una que no está
-aquí se nombra por su `source`."""
+"""El nombre de cada fuente en el informe. Una que no está aquí se nombra por su `source`."""
 _TOKEN_BEATS = re.compile(r":([^:\s~]+)~?$")
 
 
@@ -722,29 +722,15 @@ def figures(tables: dict[str, list[Row]], sessions: list[dict[str, Any]]) -> dic
     }
 
 
-def _sources(partituras: list[Row]) -> list[str]:
-    """Las fuentes de las partituras: las conocidas en su orden, después las demás."""
-    present = {r["source"] for r in partituras}
-    known = [source for source in SOURCE_NAMES if source in present]
-    return known + sorted(present - set(known))
-
-
 def report_data(folder: Path) -> dict[str, Any]:
-    """Todas las variantes del informe: todas las partituras; si hay más de una fuente (PrIMuS,
-    Camera-PrIMuS, Cadenza…), las de cada una (#421); y, si las hay, solo las de las pruebas
-    reales de Cadenza (#418). Cada una con o sin los acordes reordenados; y las tiras de cada
+    """Todas las variantes del informe: todas las partituras y, si las hay, solo las de las
+    pruebas reales de Cadenza (#418), con o sin los acordes reordenados; y las tiras de cada
     sesión."""
     tables = {
         name: _read(folder, name) for name in ("partituras", "notas", "faltantes", "clave_armadura")
     }
     reordered = reordered_chords(tables["notas"])
     groups: dict[str, set[str] | None] = {"todas": None}
-    sources = _sources(tables["partituras"])
-    if len(sources) > 1:
-        for source in sources:
-            groups[source] = {
-                r["incipit_id"] for r in tables["partituras"] if r["source"] == source
-            }
     real = {r["incipit_id"] for r in tables["partituras"] if _is_real_test(r)}
     if real:
         groups[REAL_TESTS] = real
@@ -761,7 +747,6 @@ def report_data(folder: Path) -> dict[str, Any]:
     counts.update({s: n for s, n in by_source.items() if s not in counts})
     return {
         "groups": [name for name in groups if name != "todas"],
-        "names": {source: source_name(source) for source in sources},
         "counts": counts,
         "variants": variants,
         "sessions": sessions,

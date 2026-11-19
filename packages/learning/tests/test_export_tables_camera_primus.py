@@ -161,23 +161,19 @@ def _page_data(page: Path) -> dict[str, Any]:
     return data
 
 
-def test_the_report_names_each_corpus_and_separates_them(tmp_path: Path) -> None:
+def test_the_report_names_each_corpus_without_splitting_them(tmp_path: Path) -> None:
+    """El informe nombra y explica Camera-PrIMuS; el único filtro sigue siendo el de las pruebas
+    reales (ADR-0069, #418): la fuente de cada partitura está en el historial."""
     primus, camera = _corpora(tmp_path, works=3)
     output = tmp_path / "salida"
     args = ["--corpus", str(primus), "--corpus", str(camera), "--informe"]
     assert _export(output, *args) == 0
 
     data = _page_data(output / "informe.html")
-    assert data["groups"] == ["primus", CAMERA]
-    assert data["names"] == {"primus": "PrIMuS", CAMERA: "Camera-PrIMuS"}
+    assert data["groups"] == [] and set(data["variants"]) == {"todas|0", "todas|1"}
     assert data["counts"]["primus"] == data["counts"][CAMERA] == 6
-    # Cada grupo tiene sus partituras; juntas, todas.
-    variants = data["variants"]
-    assert variants["primus|0"]["scores"] == variants[f"{CAMERA}|0"]["scores"] == 6
-    assert variants["todas|0"]["scores"] == 12
-    assert variants["todas|0"]["read"] == (
-        variants["primus|0"]["read"] + variants[f"{CAMERA}|0"]["read"]
-    )
+    assert data["variants"]["todas|0"]["scores"] == 12
+    assert data["variants"]["todas|0"]["read"] == len(_rows(output / "notas.csv"))
     # En el historial, el mismo incipit sale dos veces, una por corpus, con su nombre.
     history = data["history"]
     assert len({h["id"] for h in history}) == 12
@@ -186,8 +182,6 @@ def test_the_report_names_each_corpus_and_separates_them(tmp_path: Path) -> None
     assert origins[raw] == "PrIMuS" and origins[f"{CAMERA}:{raw}"] == "Camera-PrIMuS"
     labels = {h["id"]: h["label"] for h in history}
     assert labels[raw] == labels[f"{CAMERA}:{raw}"] == raw
-    page = (output / "informe.html").read_text(encoding="utf-8")
-    assert "Camera-PrIMuS" in page and "_distorted" not in page
 
 
 def test_a_single_camera_primus_corpus_is_not_split_and_is_named(tmp_path: Path) -> None:
