@@ -22,7 +22,7 @@ from collections.abc import Callable, Iterable
 from fractions import Fraction
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 Row = dict[str, str]
 
@@ -435,6 +435,38 @@ def _key_example(row: Row, label: str, img: str) -> dict[str, Any]:
     }
 
 
+BARLINE_OPS: Final[dict[str, str]] = {"no_leida": "MissingBarline", "de_mas": "ExtraBarline"}
+"""La clave de `ops` de cada barra de compás mal leída (#466). No son operaciones de la API
+(ninguna mueve una barra, ADR-0075): solo cuentan los errores de las barras junto a los demás."""
+
+
+def _barline_example(row: Row, label: str, img: str) -> dict[str, Any]:
+    """Un ejemplo de `barras`: la barra que HOMR no leyó o leyó de más, entre qué eventos leídos."""
+
+    def neighbour(side: str) -> str:
+        kind = row[f"{side}_kind"]
+        if not kind:
+            return ""
+        return _event(kind, row[f"{side}_pitch"], row[f"{side}_duration_beats"])
+
+    before, after = neighbour("prev"), neighbour("next")
+    where = " y ".join(p for p in (before, after) if p)
+    place = f" entre {where}" if before and after else (f" junto a {where}" if where else "")
+    barline, none = f"barra de compás{place}", f"sin barra de compás{place}"
+    missing = row["barra"] == "no_leida"
+    return {
+        "score": label,
+        "measure": row["measure"],
+        "staff": f"{row['part']}-{row['staff']}",
+        "img": img,
+        "kind": "change",
+        "read": none if missing else barline,
+        "fix": barline if missing else none,
+        "read_beats": "",
+        "fix_beats": "",
+    }
+
+
 def _ops(row: Row) -> list[str]:
     return [op for op in row["ops"].split("+") if op]
 
@@ -509,6 +541,7 @@ def aggregate(
     notas = [(i, r) for i, r in enumerate(tables["notas"]) if keep(r)]
     faltantes = [(i, r) for i, r in enumerate(tables["faltantes"]) if keep(r)]
     claves = [r for r in tables["clave_armadura"] if keep(r)]
+    barras = [r for r in tables.get("barras", ()) if keep(r)]
     partituras = [r for r in tables["partituras"] if keep(r)]
     labels = {r["incipit_id"]: _score_label(r) for r in partituras}
     photos = {
@@ -576,6 +609,21 @@ def aggregate(
                 partial(_key_example, row, label, img),
             )
 
+    for number, row in enumerate(barras):
+        barline_op = BARLINE_OPS.get(row["barra"])
+        if barline_op is None:
+            continue
+        label = labels.get(row["incipit_id"], row["incipit_id"])
+        img = row.get("recorte", "") or photos.get(
+            (row["incipit_id"], row["part"], row["staff"], row["measure"]), ""
+        )
+        ops[barline_op] += 1
+        examples.add(
+            f"op:{barline_op}",
+            ("barra", str(number)),
+            partial(_barline_example, row, label, img),
+        )
+
     by_vs_key = _rates(
         notas,
         "ctx_accidental_vs_key",
@@ -623,6 +671,21 @@ def aggregate(
                 ("clave", str(number), row["incipit_id"]),
                 partial(_key_example, row, label, img),
             )
+
+    # Una barra de compás mal leída también es un error de la partitura, aunque no haya edición.
+    for number, row in enumerate(barras):
+        if row["barra"] not in BARLINE_OPS:
+            continue
+        per_score.setdefault(row["incipit_id"], [0, 0])[1] += 1
+        label = labels.get(row["incipit_id"], row["incipit_id"])
+        img = row.get("recorte", "") or photos.get(
+            (row["incipit_id"], row["part"], row["staff"], row["measure"]), ""
+        )
+        examples.add(
+            f"score:{row['incipit_id']}",
+            ("barra", str(number)),
+            partial(_barline_example, row, label, img),
+        )
 
     return {
         "scores": len(partituras),
@@ -729,6 +792,9 @@ def report_data(folder: Path) -> dict[str, Any]:
     tables = {
         name: _read(folder, name) for name in ("partituras", "notas", "faltantes", "clave_armadura")
     }
+    # `barras.csv` llega con #466: una exportación anterior no la tiene.
+    barras = folder / "barras.csv"
+    tables["barras"] = _read(folder, "barras") if barras.is_file() else []
     reordered = reordered_chords(tables["notas"])
     groups: dict[str, set[str] | None] = {"todas": None}
     real = {r["incipit_id"] for r in tables["partituras"] if _is_real_test(r)}

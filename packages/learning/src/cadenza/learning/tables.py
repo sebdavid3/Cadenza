@@ -4,8 +4,8 @@ El análisis no se hace en la plataforma: estas tablas se escriben como CSV (una
 se leen con pandas, R o una hoja de cálculo. El diccionario de cada columna está en
 `docs/experimentos/diccionario_tablas.md`.
 
-Las filas de `notas`, `faltantes`, `clave_armadura` y `sugerencias` son los registros del
-corpus de correcciones (`build_correction_records`, `session_records`) aplanados, sin
+Las filas de `notas`, `faltantes`, `barras`, `clave_armadura` y `sugerencias` son los registros
+del corpus de correcciones (`build_correction_records`, `session_records`) aplanados, sin
 recalcularlos: cada fila es exactamente lo que usa el entrenamiento de la capa de sugerencias.
 Lo mismo sirve para un corpus JSONL (el de PrIMuS de `exp_12` o el de `build-dataset`), de modo
 que las dos fuentes comparten columnas. `partituras`, `compases` y `avisos` necesitan la base:
@@ -60,6 +60,9 @@ _CONTEXT: Final[tuple[str, ...]] = (
     "next_duration_beats",
     "next_duration_beats_dec",
 )
+
+BARLINE_NAMES: Final[dict[str, str]] = {"missing": "no_leida", "extra": "de_mas"}
+"""El valor de `barras.barra` para cada `correction.barline` del corpus (#466)."""
 
 _STRIP: Final[tuple[str, ...]] = ("sistema", "recorte")
 """La tira de la foto del compás (`ml export-tables --recortes`, #414); vacías sin ella."""
@@ -123,6 +126,14 @@ TABLES: Final[dict[str, tuple[str, ...]]] = {
         "ins_tie",
         "ins_is_chord",
         "ins_hidden",
+        *_CONTEXT,
+        *_STRIP,
+    ),
+    "barras": (
+        *_KEY,
+        "verified",
+        *_ANCHOR,
+        "barra",
         *_CONTEXT,
         *_STRIP,
     ),
@@ -342,6 +353,18 @@ def _missing_row(record: Mapping[str, Any]) -> Row:
     return row
 
 
+def _barline_row(record: Mapping[str, Any]) -> Row:
+    """Una barra de compás mal leída (#466, ADR-0075): `barra` es `no_leida` (la verdad la tiene
+    delante del evento leído del ancla y HOMR no) o `de_mas` (abre el compás del ancla y no está en
+    la verdad)."""
+    row = {**_key_columns(record), "verified": record.get("verified")}
+    _anchor_columns(row, record.get("anchor"))
+    what = (record.get("correction") or {}).get("barline")
+    row["barra"] = BARLINE_NAMES.get(str(what), what)
+    _context_columns(row, record.get("context"))
+    return row
+
+
 def _measure_row(record: Mapping[str, Any]) -> Row:
     row = {**_key_columns(record), "verified": record.get("verified")}
     anchor = record.get("anchor") or {}
@@ -399,6 +422,8 @@ def _record_tables(records: Iterable[Mapping[str, Any]]) -> dict[str, list[Row]]
             tables["notas"].append(_note_row(record))
         elif kind == "insertion":
             tables["faltantes"].append(_missing_row(record))
+        elif kind == "barline":
+            tables["barras"].append(_barline_row(record))
         elif kind == "measure":
             tables["clave_armadura"].append(_measure_row(record))
         elif kind == "suggestion":
@@ -414,9 +439,11 @@ def _net_ops(record: Mapping[str, Any]) -> int:
 
 
 def _net_corrections(records: Iterable[Mapping[str, Any]]) -> int:
-    """Las correcciones netas: las ediciones que `derive_edit_events` deriva de la lectura al
-    estado final (cada una está en un registro y solo en uno). Un evento con la altura y la
-    figura corregidas cuenta dos; la clave y la armadura de un compás, dos."""
+    """Las correcciones netas: las de los registros del corpus, de la lectura al estado final. Un
+    evento con la altura y la figura corregidas cuenta dos; la clave y la armadura de un compás,
+    dos. Una barra de compás mal leída no cuenta: no hay edición que la mueva (ADR-0075). Si las
+    barras de la lectura y las del estado final coinciden, son las ediciones de
+    `derive_edit_events`, cada una en un registro y solo en uno."""
     return sum(_net_ops(record) for record in records)
 
 
@@ -664,7 +691,7 @@ def database_tables(
         corrected = _corrected_measures(measures)
 
         record_tables = _record_tables(corpus)
-        for name in ("notas", "faltantes", "clave_armadura"):
+        for name in ("notas", "faltantes", "barras", "clave_armadura"):
             tables[name].extend(record_tables[name])
         tables["compases"].extend(measures)
         tables["avisos"].extend(

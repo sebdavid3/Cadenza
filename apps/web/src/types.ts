@@ -632,13 +632,13 @@ export interface HomrErrorStatsValuesRead {
   clean_scores: number;
   /** Notas y silencios que leyó HOMR. */
   read: number;
-  /** Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un compás que sobraba). */
+  /** Qué pasó con lo leído: `bien`, `corregida`, `borrada` (leída de más) y `sin_alinear` (en un pentagrama que la partitura correcta no tiene). */
   outcome: Record<string, number>;
   /** Notas y silencios que HOMR no leyó. */
   missing: number;
   /** Notas de acordes que solo cambiaron de orden (no se cuentan). */
   reordered: number;
-  /** Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`… */
+  /** Correcciones por tipo: `SetPitch`, `SetDuration`, `SetAccidental`, `DeleteEvent`, `InsertEvent`, `SetClef`, `SetKey`… y las barras de compás mal leídas, que no son ediciones (#466): `MissingBarline` (no leída) y `ExtraBarline` (leída de más). */
   ops: Record<string, number>;
   /** Cuánto se movió la altura corregida, en pasos de pentagrama (de -8 a 8; los extremos suman los de más allá). */
   steps: Record<string, number>;

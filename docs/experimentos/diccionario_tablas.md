@@ -98,12 +98,12 @@ Todas las tablas empiezan por estas columnas:
 
 El **ancla** (`part`, `staff`, `measure`, `voice`, `event_index`) es la de ADR-0002: índices de
 parte y pentagrama desde 0, número del compás (`measure`, no su posición) y posición del evento
-en su voz dentro del compás. En `notas`, `faltantes` y `clave_armadura` es relativa a la lectura
+en su voz dentro del compás. En `notas`, `faltantes`, `barras` y `clave_armadura` es relativa a la lectura
 de HOMR (`seq` 0, ADR-0011); en `sugerencias` y `avisos`, al estado en que se generó (`at_seq`).
 
-### La foto: `sistema` y `recorte` (`notas`, `faltantes` y `compases`)
+### La foto: `sistema` y `recorte` (`notas`, `faltantes`, `barras` y `compases`)
 
-Las tres tablas terminan en dos columnas que llevan a la foto del compás (#414, ADR-0068). Solo
+Las cuatro tablas terminan en dos columnas que llevan a la foto del compás (#414, ADR-0068). Solo
 se llenan con `--recortes`; si no, o si la sesión no tiene recortes, quedan vacías.
 
 | Columna | Significado | Valores |
@@ -133,7 +133,7 @@ En PrIMuS y Camera-PrIMuS, `recorte` es la imagen del incipit entero.
 | `partes`, `pentagramas`, `compases` | Tamaño de la lectura de HOMR. | lectura |
 | `eventos_leidos`, `eventos_finales` | Eventos (notas, silencios y huecos de voz) de la lectura y del estado final. | lectura y `materialize` |
 | `ediciones_log` | Filas del log de ediciones, deshacer y rehacer incluidos. | `edit_events` |
-| `correcciones_netas` | Ediciones que derivan de la lectura al estado final (`derive_edit_events`): la suma de los `ops` de `notas`, `faltantes` y `clave_armadura`. Un evento con la altura y la figura corregidas cuenta dos. No incluye la indicación de compás. | calculado |
+| `correcciones_netas` | La suma de los `ops` de `notas`, `faltantes` y `clave_armadura`: si las barras de la lectura y del estado final coinciden, las ediciones que derivan de una al otro (`derive_edit_events`). Un evento con la altura y la figura corregidas cuenta dos. No incluye la indicación de compás ni las `barras` (ADR-0075). | calculado |
 | `compases_con_indicacion_corregida` | Compases cuya indicación de compás cambió (ver `compases`). | calculado |
 | `verified` | Si `materialize(lectura, derive_edit_events(lectura, final))` reproduce el estado final: solo entonces las correcciones de la sesión son etiquetas de confianza. | `session_records` |
 | `versiones_capa` | Versiones de la capa aprendida de las sugerencias guardadas en la sesión, unidas con `+`. | `suggestions.model_version` |
@@ -148,7 +148,7 @@ Camera-PrIMuS solo se rellenan las claves, `eventos_leidos`, `correcciones_netas
 | Columna | Significado |
 |---|---|
 | `verified` | El de su partitura. |
-| `aligned` | `false` si el evento está en un compás que la lectura tiene de más: no hay estado final con que compararlo. |
+| `aligned` | `false` si el evento está en un pentagrama que el estado final no tiene: no hay con qué compararlo. Desde #466 (ADR-0075) cada voz se alinea en todo el pentagrama, no compás a compás: un compás leído de más ya no deja sus eventos sin alinear. |
 | ancla | Ver arriba. |
 | `read_kind` | `note` o `rest`. |
 | `read_pitch` | Altura leída en notación científica (`C4`, `Bb3`, `F#5`); vacío en un silencio. |
@@ -156,7 +156,7 @@ Camera-PrIMuS solo se rellenan las claves, `eventos_leidos`, `correcciones_netas
 | `read_tie` | Ligadura de prolongación leída: `start`, `continue`, `stop` o vacío. |
 | `read_is_chord` | Si suena con la nota anterior (nota de acorde). |
 | `read_hidden` | Si es un hueco de voz (silencio invisible, ADR-0032). |
-| `resultado` | `bien` (sin corrección), `corregida`, `borrada` o `sin_alinear` (`aligned` falso). |
+| `resultado` | `bien` (sin corrección), `corregida`, `borrada` o `sin_alinear` (`aligned` falso). Una nota bien leída al otro lado de una barra que HOMR no leyó (o leyó de más) es `bien`: el error es la barra, en `barras`. |
 | `ops` | Operaciones de la corrección unidas con `+`, en el orden de `derive_edit_events`: `SetPitch`, `SetAccidental`, `SetDuration`, `DeleteEvent`. |
 | `fix_pitch` | Altura final, si cambió. |
 | `fix_accidental_before`, `fix_accidental_after` | Alteración leída y final con `SetAccidental`: `#`, `b`, `##`, `bb` o vacío (natural, sin signo). |
@@ -190,6 +190,19 @@ Un evento del estado final que la lectura no tiene, delante del evento leído de
 |---|---|
 | `ins_kind`, `ins_pitch`, `ins_duration_beats` (`_dec`), `ins_tie`, `ins_is_chord`, `ins_hidden` | El evento que faltaba, como en `read_*`. |
 | `ctx_*`, `prev_*`, `next_*` | El contexto del hueco, como en `notas`; las columnas de la alteración van vacías. |
+
+### `barras.csv`: una fila por barra de compás mal leída (registro `barline`, #466)
+
+Las barras de compás de la lectura y del estado final, alineadas con los eventos de todo el
+pentagrama (ADR-0075). No son ediciones: ninguna operación de la API mueve una barra, así que no
+suman a `correcciones_netas` y la sesión o el incipit con una barra mal leída y otro número de
+compases no queda `verified`. Se cuentan una vez por pentagrama, en la voz con más eventos.
+
+| Columna | Significado |
+|---|---|
+| ancla | `no_leida`: delante del evento leído donde iría (`event_index` puede ser el número de eventos: al final del compás). `de_mas`: el compás leído que abre, con `event_index` 0. |
+| `barra` | `no_leida` (el estado final la tiene y la lectura no) o `de_mas` (la lectura la tiene y el estado final no). Una barra en otro sitio es una de cada. |
+| `ctx_*`, `prev_*`, `next_*` | El contexto del sitio, como en `faltantes`: `prev` y `next` son los eventos leídos a cada lado. |
 
 ### `clave_armadura.csv`: una fila por compás con la clave o la armadura corregidas (registro `measure`)
 
@@ -306,8 +319,9 @@ indicación sin mover compases), así que el compás N leído es el compás N fi
   las cuentas del registro que lo tenían entonces, aunque lo hayan retirado después, y
   `--exclude-self-registered` no lo puede filtrar (sin la base, la opción falla). Para
   las sesiones de Cadenza, mejor la base (`--db-url`).
-- `notas` y `faltantes` alinean por voz dentro del compás: un evento cambiado de voz sale como
-  borrado y faltante.
+- `notas`, `faltantes` y `barras` alinean por voz en todo el pentagrama (ADR-0075): un evento
+  cambiado de voz sale como borrado y faltante. La clave y la armadura (`clave_armadura`) se
+  siguen comparando compás a compás.
 - La obra de una sesión se forma con las sesiones que entran en la exportación (#437): con
   `--include-unfinished` o `--exclude-self-registered`, o con una sesión nueva que une una foto
   a su partitura de prueba, una sesión puede cambiar de `work_id` y de lado. Dos exportaciones

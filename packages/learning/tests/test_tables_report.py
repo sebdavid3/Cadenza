@@ -11,13 +11,18 @@ import csv
 import json
 import re
 from collections import Counter
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import pytest
+from cadenza.domain import Event, EventKind, Measure, Part, ScoreIR, Staff
+from cadenza.learning import build_correction_records
+from cadenza.learning.tables import corpus_tables
 
 from ml import tables_report
 from ml.cli import main
+from ml.public_stats import as_csv_rows
 from ml.tables_report import diatonic, reordered_chords
 
 from .suggestions_support import SPLIT_SEED, write_corpus
@@ -562,3 +567,38 @@ def test_the_report_escapes_what_comes_from_the_tables(
     data = _data(output / "informe.html")
     labels = {x["score"] for v in data["variants"].values() for x in v["examples"]}
     assert any(label.startswith(hostile) for label in labels)  # el texto llega entero
+
+
+def test_a_barline_homr_did_not_read_is_counted_as_a_barline_not_as_notes() -> None:
+    """De los registros a las cifras (#466): la barra que HOMR no leyó cuenta como
+    `MissingBarline`, con su ejemplo, y las notas de los dos lados, como bien leídas."""
+
+    def note(pitch: str) -> Event:
+        return Event(kind=EventKind.NOTE, pitch=pitch, duration_beats=Fraction(1))
+
+    def score(*measures: tuple[Event, ...]) -> ScoreIR:
+        bars = tuple(Measure(number=n + 1, events=e) for n, e in enumerate(measures))
+        return ScoreIR(parts=(Part(id="p", staves=(Staff(id="s", measures=bars),)),))
+
+    truth = score((note("G4"),), (note("C5"), note("D5")))
+    predicted = score((note("G4"), note("C5"), note("D5")))
+    records = build_correction_records(
+        predicted, truth, incipit_id="primus:x", split="test", verified=False
+    )
+    for record in records:
+        record["source"] = "primus"
+    tables = as_csv_rows(corpus_tables(records))
+    assert [row["barra"] for row in tables["barras"]] == ["no_leida"]
+
+    every = tables_report.aggregate(tables, None, False, set())
+    assert every["ops"] == {"MissingBarline": 1}
+    assert every["outcome"] == {"bien": 3}
+    assert every["missing"] == 0
+    assert every["per_score"] == {"primus:x": [3, 1]}
+    assert every["clean_scores"] == 0
+    example = every["examples"][every["example_keys"]["op:MissingBarline"][0]]
+    assert (example["read"], example["fix"]) == (
+        "sin barra de compás entre G4 negra y C5 negra",
+        "barra de compás entre G4 negra y C5 negra",
+    )
+    assert every["example_keys"]["score:primus:x"] == every["example_keys"]["op:MissingBarline"]

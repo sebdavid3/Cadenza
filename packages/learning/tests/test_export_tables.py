@@ -574,6 +574,7 @@ def test_each_row_is_the_record_used_for_training(db_url: str) -> None:
     assert len(tables["notas"]) == kinds["event"]
     assert len(tables["faltantes"]) == kinds["insertion"]
     assert len(tables["clave_armadura"]) == kinds["measure"]
+    assert len(tables["barras"]) == kinds["barline"]
     assert len(tables["sugerencias"]) == kinds["suggestion"]
     events = [r for r in records if r["record"] == "event"]
     for record, row in zip(events, tables["notas"], strict=True):

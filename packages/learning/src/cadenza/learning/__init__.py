@@ -9,6 +9,7 @@ from .acquisition.uncertainty import ErrorDensityAcquisition, UncertaintyAcquisi
 from .alignment import (
     EditDistribution,
     InvalidDerivedEdit,
+    align_incipit_voice,
     align_voice_events,
     check_edit,
     classify_pitch_change,
@@ -117,6 +118,7 @@ __all__ = [
     "UncertaintyAcquisition",
     "ValidationEvaluationReport",
     "aggregate_validation_metrics",
+    "align_incipit_voice",
     "align_voice_events",
     "assign_split",
     "build_correction_records",
