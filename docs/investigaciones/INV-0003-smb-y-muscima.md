@@ -5,7 +5,7 @@
 - **Relacionado:** [ADR-0072](../adr/ADR-0072-smb-y-muscima-en-el-corpus-de-correcciones.md), [ADR-0036](../adr/ADR-0036-capa-de-sugerencias-aprendida.md), [ADR-0066](../adr/ADR-0066-homr-en-la-gpu-de-produccion.md), [#255](https://github.com/sebdavid3/Cadenza/issues/255)
 - **Estado:** MUSCIMA++ medido (`exp_16`). SMB sin datos: el responsable decidió el 2026-11-19 no esperar su acceso restringido; `exp_17` queda listo y sin ejecutar.
 
-> Las cifras de la §4 son de la ejecución del 2026-11-19 con el commit c73b608 (`results/muscima_homr_summary.json`, sin versionar). Antes de citarlas hay que regenerarlas con la §6 (`CLAUDE.md` §8.4).
+> Las cifras de la §4 son de la ejecución del 2026-11-19 con el commit ed0cb4a (`results/muscima_homr_summary.json`, sin versionar). Antes de citarlas hay que regenerarlas con la §6 (`CLAUDE.md` §8.4).
 
 ---
 
