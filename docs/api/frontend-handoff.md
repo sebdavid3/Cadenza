@@ -98,6 +98,7 @@ La API de Cadenza proporciona el ciclo de vida completo de digitalización y cor
 | **Mapa de Tiempo** | `GET /sessions/{id}/timing` | Cálculo determinista de mapa métrico para reproducción sincronizada: pulsos expresados como cadenas de fracciones exactas (`offset_beats`, `duration_beats`, `measure_offset_beats`, `total_beats`, `measure_offsets`) por evento, compás y voz. No incluye tempo ni segundos absolutos; la conversión a tiempo real la calcula el cliente a partir del tempo (BPM) seleccionado (ARCHITECTURE.md §6.1, #42). |
 | **Ciclo de Vida** | `POST /sessions/{id}/finalize`<br>`POST /sessions/{id}/reopen` | Cierre formal de sesión tras corrección (rechaza ediciones con `409 SessionClosed`). Reapertura permitida bajo auditoría (ADR-0014, #34). Finalizar valida como `POST /validate`: conserva los descartes de la validación vigente, devuelve solo los hallazgos activos y en una sesión no asistida no ejecuta las reglas; una sesión ya finalizada responde 409 (#187, ADR-0043). |
 | **Métricas de Esfuerzo** | `POST /sessions/{id}/effort`<br>`GET /sessions/{id}/effort`<br>`PUT /sessions/{id}/effort/segments/{segment_id}` | Persistencia de telemetría editorial: duración total, latencia hasta la primera corrección e intervenciones distribuidas por compás (ADR-0004, ADR-0009, #13). La vista usa el `PUT`: un registro por sesión (`accumulated`) que suma los tramos de tiempo de cada pestaña y cuenta en el servidor las intervenciones por compás y por clase, los descartes, las restauraciones y las respuestas a las sugerencias (#188, ADR-0050). |
+| **Cifras públicas** | `GET /stats/homr-errors` | Sin cuenta: las cifras de conjunto de los errores de HOMR que corrigen las personas, recalculadas cada pocos minutos (§5.12, ADR-0073). |
 | **Sistema y Metadatos** | `GET /version`<br>`GET /health` | Metadatos del contrato (`1.0.0`) y estado del sistema. Todas las respuestas inyectan la cabecera HTTP `X-API-Version: 1.0.0`. |
 
 ---
@@ -422,6 +423,14 @@ Ampliación compatible del contrato: ningún campo existente cambia. Son datos d
 - `UserRead` lleva `data_consent` (vigente: dado para la versión actual), `data_consent_at` y `data_consent_version`.
 - El texto vive en la web (`apps/web/src/pages/consent/`) con `DATA_CONSENT_VERSION`, la misma que la API; una prueba de `pytest` comprueba que coinciden. Si el texto cambia, cambian las dos.
 - El permiso solo se guarda: no cambia qué datos se usan.
+
+### 5.12. Las cifras de los errores de HOMR, en vivo (#423, ADR-0073)
+
+- **`GET /stats/homr-errors`**, sin token, devuelve `HomrErrorStatsRead`: `computed_at` (el último cálculo de las cifras de Cadenza, `null` si aún no lo hay) y `groups`, primero los de Cadenza y después los de los corpus.
+- Cada grupo (`HomrErrorStatsGroupRead`) dice su `id` (`cadenza`: todas las sesiones que cuentan; `pruebas`: las de las cuentas del registro; `primus`: el corpus de PrIMuS), su `source` (`cadenza`, en vivo, o `corpus`, precalculado), su `computed_at` y `min_sessions`. Con `published: false` no llegó al mínimo (5 sesiones de 3 cuentas): `sessions` y `stats` vienen `null`, y la web no ha de enseñar nada de él salvo que aún no hay cifras.
+- `stats` (`HomrErrorStatsValuesRead`) son las cifras del informe local (ADR-0069): partituras y cuántas salieron sin ninguna corrección, notas leídas y qué pasó con ellas (`outcome`), las que faltaban, las correcciones por tipo (`ops`), cuánto se movió la altura (`steps`), la figura leída frente a la correcta (`durations`) y la proporción corregida por alteración frente a la armadura, por clave y por figura leída (grupos de 30 notas o más). Las duraciones van en negras («1/2») solo como clave: su nombre y su símbolo están en `figures`, y la web no enseña la fracción.
+- Las cifras se recalculan cada 5 minutos: la respuesta lleva `Cache-Control: public, max-age=60` y `ETag` (con `If-None-Match` y sin cambios, **304**), así que basta pedirla al cargar la portada.
+- Nunca lleva fotos, partituras, títulos, cuentas ni datos de una sesión.
 
 ## 6. Estado Actual de `apps/web` (Fase 8)
 

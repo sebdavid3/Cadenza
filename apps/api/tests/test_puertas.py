@@ -126,6 +126,8 @@ def test_docker_runs_the_whole_docker_job_of_the_ci() -> None:
         "docker copias",
         "docker copias: pg_dump",
         "docker copias: ayuda",
+        "docker estadísticas",
+        "docker estadísticas: ayuda",
         "compose",
         "compose con copias",
     ]
