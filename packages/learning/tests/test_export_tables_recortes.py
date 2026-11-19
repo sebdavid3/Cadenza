@@ -2,8 +2,8 @@
 
 Una base SQLite temporal con una foto de dos sistemas de un pentagrama (dibujada aquí, como en
 `test_export_staves`) y sesiones que entran con su foto, sin captura (entra en las tablas, sin
-recorte) y de cuentas del registro con y sin el permiso de uso de los datos vigente. Un corpus de
-PrIMuS de dos incipits, con la imagen de uno solo.
+recorte) y de cuentas del registro con el permiso de uso de los datos vigente (entra por
+defecto, #422) y sin él. Un corpus de PrIMuS de dos incipits, con la imagen de uno solo.
 """
 
 from __future__ import annotations
@@ -229,9 +229,10 @@ def test_each_measure_of_the_tables_points_to_the_strip_of_its_photo(
     assert sin and all(r["recorte"] == "" and r["sistema"] == "" for r in sin)
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
     recortes = info["recortes"]
-    assert recortes["sessions"] == ["s-foto"]
+    # La visita tiene el permiso vigente: entra por defecto (#422).
+    assert recortes["sessions"] == ["s-foto", "s-visita"]
     assert recortes["left_out"]["s-sin-captura"].startswith("sin la captura de HOMR")
-    assert (recortes["strips"], recortes["strips_corrected"]) == (2, 1)
+    assert (recortes["strips"], recortes["strips_corrected"]) == (4, 1)
     assert len(recortes["pentagramas_sha256"]) == 64
     assert info["format_version"] == 2
 
@@ -256,7 +257,7 @@ def test_the_photos_follow_the_same_filter_as_the_tables(
     base: tuple[str, Path], tmp_path: Path
 ) -> None:
     output = tmp_path / "con-registro"
-    assert _export(output, *_db_args(base), "--recortes", "--include-self-registered") == 0
+    assert _export(output, *_db_args(base), "--recortes") == 0
     assert (output / "recortes" / "s-visita").is_dir()
     # Sin el permiso vigente: ni tablas ni fotos.
     assert not (output / "recortes" / "s-anonima").exists()
@@ -264,9 +265,17 @@ def test_the_photos_follow_the_same_filter_as_the_tables(
         assert "s-anonima" not in written.read_text(encoding="utf-8"), written.name
     assert not any("s-anonima" in str(p.relative_to(output)) for p in output.rglob("*"))
     info = json.loads((output / "run_info.json").read_text(encoding="utf-8"))
-    assert "s-anonima" in info["left_out"]
+    # Solo contada (#422): ni en las sesiones fuera de las tablas ni en las de los recortes.
+    assert "s-anonima" not in info["left_out"]
     assert "s-anonima" not in info["recortes"]["left_out"]
+    assert info["consent"]["sessions_without_current_consent"] == 1
     assert info["recortes"]["sessions"] == ["s-foto", "s-visita"]
+    # Las mismas tiras que `ml export-staves`, con el mismo filtro por defecto (ADR-0068).
+    db_url, artifacts = base
+    staves = tmp_path / "staves"
+    command = ["export-staves", "--output-dir", str(staves), "--db-url", db_url]
+    assert main([*command, "--artifacts-dir", str(artifacts)]) == 0
+    assert (output / "pentagramas.csv").read_bytes() == (staves / "pentagramas.csv").read_bytes()
 
 
 def test_primus_rows_point_to_the_image_of_their_incipit(tmp_path: Path) -> None:

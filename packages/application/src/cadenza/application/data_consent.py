@@ -4,7 +4,8 @@ El texto del permiso vive en la web (`apps/web/src/pages/consent/consent.ts`), c
 versión que esta: una prueba comprueba que coinciden. Al cambiar el texto, se cambian las dos, y
 los permisos dados para la versión anterior dejan de estar vigentes hasta que se vuelvan a dar.
 
-El permiso solo se guarda (cuándo y qué versión): usarlo para incluir datos será otro issue.
+Se guarda cuándo se dio y para qué versión. Desde #422, las exportaciones y los datasets de `ml`
+lo leen para decidir qué sesiones de las cuentas del registro entran (`cadenza.learning.consent`).
 """
 
 from __future__ import annotations

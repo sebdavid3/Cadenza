@@ -1,6 +1,6 @@
 # ADR-0068: Las tablas y los recortes de las fotos en una sola exportación
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Enmendado por [#422](https://github.com/sebdavid3/Cadenza/issues/422) (el filtro de las sesiones)
 - **Fecha:** 2026-11-12
 - **Decisores:** Responsable del proyecto (pidió el 2026-11-12 unir las dos exportaciones porque las fotos son importantes) y Equipo de Desarrollo
 - **Relacionado:** [ADR-0065](ADR-0065-permiso-de-uso-de-los-datos-al-registrarse.md), [ADR-0067](ADR-0067-captura-de-homr-y-recortes-de-los-pentagramas.md), [#400](https://github.com/sebdavid3/Cadenza/issues/400), [#403](https://github.com/sebdavid3/Cadenza/issues/403), [#414](https://github.com/sebdavid3/Cadenza/issues/414)
@@ -43,3 +43,12 @@ Las dos hablan de lo mismo (sesión, parte, pentagrama, compás), pero desde una
 - **Un comando nuevo que llamara a los dos.** Dos filtros que mantener a la par y dos `run_info.json`; se descartó.
 - **Meter las tablas en `export-staves`.** `export-staves` es de la base; las tablas leen también el corpus de PrIMuS.
 - **Una tabla de unión aparte.** Obligaría a unir siempre tres tablas para ver una foto; dos columnas bastan.
+
+## Enmienda de #422 (2026-11-19): el mismo filtro, con el permiso por defecto
+
+Decisión del responsable del 2026-11-19 ([#422](https://github.com/sebdavid3/Cadenza/issues/422), ADR-0065, enmienda de #422). El filtro de §1 sigue siendo uno solo para las tablas y las fotos, y pasa a ser el de todos los comandos de `ml` (`cadenza.learning.consent`):
+
+- De las cuentas del registro entran por defecto las que tienen el permiso vigente; `--exclude-self-registered` las deja todas fuera, y `--include-self-registered` se retira.
+- Las que deja fuera el permiso ya no van a `left_out` con el motivo «cuenta del registro sin el permiso de uso de los datos vigente» (el de la última consecuencia de arriba), ni a `recortes.left_out`: solo se cuentan en el bloque `consent` de `run_info.json`. En `filters`, `exclude_self_registered` sustituye a `include_self_registered`.
+- Una sesión sin su cuenta queda fuera de las tablas y de las fotos, con el motivo «sin la cuenta de su dueño».
+- El formato de las tablas no cambia (`format_version` 2).

@@ -16,12 +16,13 @@ el recorte del papel y los sistemas), escribe en `--output-dir`:
 - `run_info.json`: el commit, la fecha, los filtros, las sesiones que quedan fuera con su motivo,
   los recuentos y el sha256 del CSV (`"simulated": false`).
 
-De la base, por defecto solo las sesiones finalizadas y sin cuentas del registro público. Con
-`--include-self-registered` entran las del registro **con el permiso de uso de los datos vigente**
-(el de la versión actual del texto, ADR-0065; decisión del responsable del 2026-11-11). No tiene
-salida por defecto: la ruta se da siempre, ha de estar vacía (o no existir) y no puede caer en
-`results/` ni en `data/` del repositorio. Una sesión que falla por cualquier motivo queda fuera
-con él, sin parar la exportación.
+De la base, por defecto solo las sesiones finalizadas. De las cuentas del registro público, por
+defecto las que tienen **el permiso de uso de los datos vigente** (el de la versión actual del
+texto, ADR-0065; decisión del responsable del 2026-11-19, #422), y ninguna con
+`--exclude-self-registered`; sin el permiso vigente, nunca, y solo se cuentan
+(`cadenza.learning.consent`). No tiene salida por defecto: la ruta se da siempre, ha de estar
+vacía (o no existir) y no puede caer en `results/` ni en `data/` del repositorio. Una sesión que
+falla por cualquier motivo queda fuera con él, sin parar la exportación.
 """
 
 from __future__ import annotations
@@ -38,8 +39,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from cadenza.application import ArtifactNotFound, has_current_data_consent
+from cadenza.application import ArtifactNotFound
 from cadenza.domain import ScoreDocument, ScoreIR, materialize
+from cadenza.learning.consent import ConsentTally, filter_by_consent
 from cadenza.learning.staff_strips import Strip, StripError, plan_strips, strip_sequence
 from cadenza.persistence import (
     FilesystemArtifactStore,
@@ -53,6 +55,8 @@ from cadenza.persistence import (
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
+
+from ml.consent_cli import add_consent_options
 
 FORMAT_VERSION = 1
 
@@ -316,25 +320,21 @@ def export_staves_command(args: argparse.Namespace) -> int:
     if problem is not None:
         return _fail(problem)
     rows: list[dict[str, Any]] = []
-    left_out: dict[str, str] = {}
     exported: list[str] = []
+    consent = ConsentTally()
     factory = create_session_factory(create_engine_for_url(db_url))
     with session_scope(factory) as db:
         sessions = SqlAlchemySessionRepository(db)
         edits_repo = SqlAlchemyEditEventRepository(db)
         users = SqlAlchemyUserRepository(db)
         store = FilesystemArtifactStore(artifacts, db)
-        for session in sessions.list(status=None if args.include_unfinished else "finalized"):
-            owner = users.get(session.owner_id)
-            if owner is not None and owner.self_registered:
-                if not args.include_self_registered:
-                    left_out[session.id] = "cuenta del registro público"
-                    continue
-                if not has_current_data_consent(owner):
-                    left_out[session.id] = (
-                        "cuenta del registro sin el permiso de uso de los datos vigente"
-                    )
-                    continue
+        entering, left_out = filter_by_consent(
+            sessions.list(status=None if args.include_unfinished else "finalized"),
+            users,
+            exclude_self_registered=args.exclude_self_registered,
+            tally=consent,
+        )
+        for session in entering:
             try:
                 reason = export_session_strips(
                     session, edits_repo, store, output, args.laminas, rows
@@ -359,9 +359,10 @@ def export_staves_command(args: argparse.Namespace) -> int:
         "generated_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "origin": {"database": _safe_url(db_url), "artifacts_dir": Path(artifacts).name},
         "filters": {
-            "include_self_registered": args.include_self_registered,
+            "exclude_self_registered": args.exclude_self_registered,
             "include_unfinished": args.include_unfinished,
         },
+        "consent": consent.to_primitive(),
         "sessions": sorted(exported),
         "left_out": dict(sorted(left_out.items())),
         "strips": len(rows),
@@ -374,7 +375,10 @@ def export_staves_command(args: argparse.Namespace) -> int:
     print("[export-staves] Recortes escritos.")
     print(f"  sesiones   : {len(exported)}")
     print(f"  tiras      : {len(rows)} ({info['strips_corrected']} con correcciones)")
-    print(f"  fuera      : {len(left_out)}")
+    print(
+        f"  fuera      : {len(left_out)}, más {consent.without_current_consent} sin el permiso"
+        f" vigente y {consent.excluded_by_option} con --exclude-self-registered"
+    )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
     print(f"  salida     : {output}")
@@ -393,11 +397,7 @@ def add_parser(subparsers: Any) -> None:
         default=None,
         help="Directorio de los artefactos, con las fotos (o CADENZA_ARTIFACTS_DIR).",
     )
-    parser.add_argument(
-        "--include-self-registered",
-        action="store_true",
-        help="Incluir las cuentas del registro público con el permiso de uso de los datos.",
-    )
+    add_consent_options(parser)
     parser.add_argument(
         "--include-unfinished",
         action="store_true",

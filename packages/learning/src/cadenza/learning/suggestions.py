@@ -20,7 +20,6 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any, Final
 
-from cadenza.application import has_current_data_consent
 from cadenza.application.suggestions import suggest as suggest_with_layer
 from cadenza.domain import (
     Anchor,
@@ -61,6 +60,7 @@ from cadenza.validation.learned import (
 
 from .alignment import derive_edit_events, is_structurally_equal
 from .config import compute_config_hash
+from .consent import ConsentTally, filter_by_consent
 from .correction_corpus import assign_split, build_correction_records
 from .primus import primus_work_id
 from .validation_metrics import with_content_candidates
@@ -906,17 +906,19 @@ def session_records(
     user_repository: Any,
     split_seed: int,
     test_fraction: float,
-    include_self_registered: bool = False,
+    exclude_self_registered: bool = False,
     include_unfinished: bool = False,
+    consent: ConsentTally | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Los registros del corpus de las sesiones finalizadas, y las que se dejan fuera y por qué.
 
     Con `include_unfinished`, también las que no se finalizaron (para `ml export-tables`): su
     estado final es el último del log, no uno que la persona dio por bueno.
 
-    Las cuentas del registro público quedan fuera; con `include_self_registered` entran solo
-    las que tienen el permiso de uso de los datos de la versión vigente del texto (ADR-0065,
-    la misma regla que `ml export-staves`, ADR-0067).
+    Entran según el permiso de uso de los datos (`filter_by_consent`, #422, ADR-0065): las
+    cuentas del registro con el permiso del texto vigente entran por defecto, y ninguna con
+    `exclude_self_registered`. Las que deja fuera el permiso no van a la lista de las que se
+    dejan fuera: solo se cuentan en `consent`, si se da.
 
     Para cada sesión, `build_correction_records(estado 0, estado final)`, verificados con la
     misma comprobación que PrIMuS, con `source: cadenza` y la partición sobre su obra
@@ -926,20 +928,12 @@ def session_records(
     ignorada), para evaluar y analizar: no se entrena con ellas.
     """
     records: list[dict[str, Any]] = []
-    left_out: dict[str, str] = {}
-    entering: list[Any] = []
-    for session in session_repository.list(status=None if include_unfinished else "finalized"):
-        owner = user_repository.get(session.owner_id)
-        if owner is not None and owner.self_registered:
-            if not include_self_registered:
-                left_out[session.id] = "cuenta del registro público"
-                continue
-            if not has_current_data_consent(owner):
-                left_out[session.id] = (
-                    "cuenta del registro sin el permiso de uso de los datos vigente"
-                )
-                continue
-        entering.append(session)
+    entering, left_out = filter_by_consent(
+        session_repository.list(status=None if include_unfinished else "finalized"),
+        user_repository,
+        exclude_self_registered=exclude_self_registered,
+        tally=consent,
+    )
     works = shared_works(entering)
     for session in entering:
         work = works.get(session.id)
