@@ -166,7 +166,7 @@ def _final_score(raw: ScoreIR, edits: Any) -> ScoreIR:
     return materialize(raw, edits) if edits else raw
 
 
-def _open_photo(content: bytes) -> Image.Image:
+def open_photo(content: bytes) -> Image.Image:
     """La foto como la ve HOMR, que la lee con OpenCV: con la orientación EXIF aplicada (una foto
     de móvil) y en 8 bits (OpenCV escala los 16 bits; PIL los recortaría a 255)."""
 
@@ -206,7 +206,7 @@ def export_session_strips(
     if capture.get("format_version") != CAPTURE_FORMAT_VERSION:
         return f"captura de otro formato ({capture.get('format_version')!r})"
     try:
-        photo = _open_photo(store.get(session.image_artifact or ""))
+        photo = open_photo(store.get(session.image_artifact or ""))
     except (ArtifactNotFound, OSError, ValueError) as exc:
         return f"sin la imagen ({type(exc).__name__})"
     raw = document.score

@@ -3,6 +3,8 @@
 **Objetivo:** terminar Cadenza en tres semanas, con tres personas, con un alcance acordado y
 unos límites explícitos. Acordado con el responsable el 2026-10-25.
 
+> **Histórico desde el 2026-11-19: el estudio con participantes quedó fuera del alcance** (decisión del responsable, [ADR-0070](../../adr/ADR-0070-una-sola-clase-de-cuenta.md), [#429](https://github.com/sebdavid3/Cadenza/issues/429)). #251 a #254 y este seguimiento (#231) se cerraron como no planificados; lo que sigue del plan se queda como registro.
+
 > **Cambio del 2026-11-08: el estudio con participantes se aplaza** (decisión del responsable). Se hará con la vista de corrección rediseñada, con la foto y la partitura lado a lado y la barra en pestañas ([#341](https://github.com/sebdavid3/Cadenza/issues/341)), y con un piloto antes. El congelado del 8 de noviembre ([#252](https://github.com/sebdavid3/Cadenza/issues/252)) y las sesiones del 9 al 15 ([#253](https://github.com/sebdavid3/Cadenza/issues/253)) quedan sin efecto tal como estaban: las fechas nuevas del piloto, del congelado y del estudio las decide el responsable y se anotan aquí. Hasta entonces, lo que se fusione en `dev` se puede desplegar cuando esté listo. Lo que depende del estudio (#249 a #254, y A11 y A12 de la Fase 11) sigue preparado, pero sin fecha.
 
 Seguimiento en GitHub: [#231](https://github.com/sebdavid3/Cadenza/issues/231), con la lista

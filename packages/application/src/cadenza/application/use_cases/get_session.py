@@ -12,13 +12,14 @@ from cadenza.domain import (
     build_anchor_index,
 )
 
+from ..access import require_owner
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.score_state_cache import ScoreStateCache
 from ..ports.session_repository import PersistedFinding, SessionRepository
 from ..score_state import load_state, raw_score_of
 from ..stage_timing import timed_stage
-from ..user import Role, User
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -58,8 +59,8 @@ def get_session(
     Devuelve el número de secuencia actual (current_seq), el ScoreIR materializado
     y su índice de anclas con bbox y confidence heredadas del evento de origen (ADR-0011).
 
-    Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
-    sesiones (las ajenas responden como inexistentes); un investigador puede leer todas.
+    Aplica la regla de acceso (ADR-0012, ADR-0070): cada cuenta solo accede a sus propias
+    sesiones (las ajenas responden como inexistentes).
 
     Con `include_anchor_index=False` no se construye el índice de anclas (`anchor_index` es
     None), que la vista no usa y cuesta eventos por ediciones (#275). Con `score_cache`, el estado
@@ -71,8 +72,7 @@ def get_session(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session_data.owner_id, current_user, session_id)
 
     with timed_stage("db"):
         findings = session_repository.list_findings(session_id)

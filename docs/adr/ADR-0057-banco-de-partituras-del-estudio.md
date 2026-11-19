@@ -1,6 +1,6 @@
 # ADR-0057: El banco de partituras del estudio: imágenes y verdades regenerables desde un manifiesto
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado; sin efecto para el estudio desde [ADR-0070](ADR-0070-una-sola-clase-de-cuenta.md) ([#429](https://github.com/sebdavid3/Cadenza/issues/429)): el estudio quedó fuera, y el banco TS-xx se conserva como banco de partituras de prueba (lo usan el informe de ADR-0069 y una prueba de la captura de HOMR)
 - **Fecha:** 2026-11-02
 - **Decisores:** Equipo de Desarrollo (decisión técnica compatible con ADR-0010, ADR-0031, ADR-0032, ADR-0044 y ADR-0056, CLAUDE.md §8 y §9). El banco lo aprobó el responsable el 2026-11-01 (#247).
 - **Relacionado:** [ADR-0056](ADR-0056-conjunto-de-referencia-del-compas-tresillos-armaduras-y-voz-con-piano.md), [protocolo §2.3](../experimentos/protocolo_medicion_esfuerzo.md), [#244](https://github.com/sebdavid3/Cadenza/issues/244), [#247](https://github.com/sebdavid3/Cadenza/issues/247), [#250](https://github.com/sebdavid3/Cadenza/issues/250), [#239](https://github.com/sebdavid3/Cadenza/issues/239)

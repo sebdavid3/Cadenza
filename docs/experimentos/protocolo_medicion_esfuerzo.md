@@ -2,7 +2,7 @@
 
 **Proyecto:** Cadenza — Plataforma de Digitalización Asistida de Partituras  
 **Documento:** Protocolo Experimental de Estudio de Usuarios HITL  
-**Estado:** Formalizado y Aprobado  
+**Estado:** Formalizado y Aprobado; **fuera del alcance desde el 2026-11-19** ([ADR-0070](../adr/ADR-0070-una-sola-clase-de-cuenta.md)): el estudio con participantes no se hará, y `scripts/prepare_study_participant.py`, las cuentas de investigador y `exp_10` (#429) se retiraron; se conserva como registro  
 **Versión:** 1.0  
 **Fecha:** 2026-10-08  
 **Relacionado:** Objetivo Específico 5, [ADR-0004](../adr/ADR-0004-persistencia-postgresql-jsonb.md), [ADR-0007](../adr/ADR-0007-edit-events-inmutables.md), [ADR-0009](../adr/ADR-0009-capa-de-aplicacion.md), [ADR-0012](../adr/ADR-0012-autenticacion-e-identidad.md), [ADR-0013](../adr/ADR-0013-revalidacion-y-versionado-de-hallazgos.md), [ARCHITECTURE.md](../ARCHITECTURE.md) §5.3, Deuda D38.

@@ -77,14 +77,6 @@ class NotAuthenticated(ApplicationError):
         self.message = message
 
 
-class Forbidden(ApplicationError):
-    """Acceso prohibido: permisos o rol insuficiente para la operación (ADR-0012)."""
-
-    def __init__(self, message: str = "Permisos insuficientes") -> None:
-        super().__init__(message)
-        self.message = message
-
-
 class WeakPassword(ApplicationError):
     """La contraseña no cumple con la longitud mínima de seguridad (ADR-0012)."""
 

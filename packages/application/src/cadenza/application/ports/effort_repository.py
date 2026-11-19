@@ -98,10 +98,6 @@ class EffortRepository(ABC):
         """Devuelve todas las mediciones de esfuerzo de una sesión ordenadas por fecha."""
 
     @abstractmethod
-    def get_latest(self, session_id: str) -> EffortMetricsData | None:
-        """Devuelve la medición de esfuerzo más reciente de la sesión, o None."""
-
-    @abstractmethod
     def get_accumulated(
         self, session_id: str, *, for_update: bool = False
     ) -> EffortMetricsData | None:
@@ -136,10 +132,6 @@ class InMemoryEffortRepository(EffortRepository):
 
     def list_by_session(self, session_id: str) -> tuple[EffortMetricsData, ...]:
         return tuple(self.records.get(session_id, []))
-
-    def get_latest(self, session_id: str) -> EffortMetricsData | None:
-        entries = self.records.get(session_id, [])
-        return entries[-1] if entries else None
 
     def get_accumulated(
         self, session_id: str, *, for_update: bool = False

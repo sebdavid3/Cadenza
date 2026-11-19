@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -33,7 +33,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -42,16 +41,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -68,15 +57,8 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     )
 
     tokens = {
-        "t1": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "t2": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "inv": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "t1": app.state.token_service.create_access_token(user_id="user-t1"),
+        "t2": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     return TestClient(app), tokens
@@ -293,19 +275,12 @@ def test_undo_endpoint_authorization_adr0012(tmp_path: Path) -> None:
     res_unauth = client.post(f"/sessions/{session_id}/undo")
     assert res_unauth.status_code == 401
 
-    # 2. Transcriptor ajeno -> 404 (ADR-0012)
+    # 2. Otra cuenta -> 404 (ADR-0012)
     res_other_trans = client.post(
         f"/sessions/{session_id}/undo",
         headers={"Authorization": f"Bearer {tokens['t2']}"},
     )
     assert res_other_trans.status_code == 404
-
-    # 3. Investigador ajeno -> 403 (ADR-0012)
-    res_other_inv = client.post(
-        f"/sessions/{session_id}/undo",
-        headers={"Authorization": f"Bearer {tokens['inv']}"},
-    )
-    assert res_other_inv.status_code == 403
 
 
 def test_undo_endpoint_on_finalized_session_returns_409(tmp_path: Path) -> None:

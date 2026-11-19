@@ -14,7 +14,6 @@ from cadenza.application import (
     DATA_CONSENT_VERSION,
     InMemoryPasswordHasher,
     InMemoryUserRepository,
-    Role,
     StaleDataConsent,
     User,
     has_current_data_consent,
@@ -90,11 +89,7 @@ def test_the_permission_is_given_and_withdrawn_just_as_easily() -> None:
     assert not has_current_data_consent(withdrawn)
     assert repo.get(user.id) == withdrawn
     # Lo demás de la cuenta no cambia.
-    assert (withdrawn.username, withdrawn.role, withdrawn.self_registered) == (
-        "ana",
-        Role.TRANSCRIPTOR,
-        True,
-    )
+    assert (withdrawn.username, withdrawn.self_registered) == ("ana", True)
 
 
 def test_giving_it_again_keeps_the_first_date_and_needs_the_current_text() -> None:
@@ -121,9 +116,22 @@ def test_a_permission_given_for_an_older_text_is_not_current() -> None:
         id="u-1",
         username="ana",
         password_hash="-",
-        role=Role.TRANSCRIPTOR,
         data_consent_at=NOW,
         data_consent_version="2020-01-01",
     )
 
     assert not has_current_data_consent(old)
+
+
+def test_a_permission_for_the_text_with_the_study_is_no_longer_current() -> None:
+    """La versión 2026-11-19 quitó el párrafo del estudio (#427): hay que volver a darlo."""
+    given = User(
+        id="u-1",
+        username="ana",
+        password_hash="-",
+        data_consent_at=NOW,
+        data_consent_version="2026-11-09",
+    )
+
+    assert DATA_CONSENT_VERSION == "2026-11-19"
+    assert not has_current_data_consent(given)

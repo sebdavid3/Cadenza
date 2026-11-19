@@ -233,7 +233,7 @@
     }
   ],
   "estudio": {
-    "descripcion": "Matriz del cuadrado latino del protocolo §2.4 y sesiones que prepara scripts/prepare_study_participant.py para cada participante (#249): el calentamiento (§5.2) y los cuatro bloques. El participante ve solo el título y el nombre del archivo, neutros; la condición y el test_score_id quedan en la sesión, para exp_10.",
+    "descripcion": "Matriz del cuadrado latino del protocolo §2.4 y sesiones que preparaba scripts/prepare_study_participant.py para cada participante (#249; retirado con ADR-0070, el estudio quedó fuera): el calentamiento (§5.2) y los cuatro bloques. El participante ve solo el título y el nombre del archivo, neutros; la condición y el test_score_id quedan en la sesión, para exp_10.",
     "calentamiento": {
       "partitura": "calentamiento",
       "condicion": "assisted",

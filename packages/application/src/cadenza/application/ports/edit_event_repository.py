@@ -11,10 +11,6 @@ class EditEventRepository(ABC):
     """Contrato append-only: los eventos solo se agregan y consultan en orden de secuencia."""
 
     @abstractmethod
-    def next_seq(self, session_id: str) -> int:
-        """Devuelve el siguiente número de secuencia monotónico para la sesión."""
-
-    @abstractmethod
     def append(self, session_id: str, edit: EditEvent) -> EditEvent:
         """Persiste un evento de edición inmutable."""
 
@@ -28,9 +24,6 @@ class InMemoryEditEventRepository(EditEventRepository):
 
     def __init__(self) -> None:
         self.events: dict[str, list[EditEvent]] = {}
-
-    def next_seq(self, session_id: str) -> int:
-        return len(self.events.get(session_id, [])) + 1
 
     def append(self, session_id: str, edit: EditEvent) -> EditEvent:
         self.events.setdefault(session_id, []).append(edit)

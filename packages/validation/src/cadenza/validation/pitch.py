@@ -76,21 +76,3 @@ def midi_to_pitch(midi: int, *, prefer_flats: bool = False) -> str:
     names = _FLAT_NAMES if prefer_flats else _SHARP_NAMES
     name = names[semitone]
     return f"{name}{octave}"
-
-
-def pitch_step(pitch: str | None) -> str | None:
-    """Paso o letra base de la nota ('C'..'B')."""
-    parsed = parse_pitch(pitch)
-    return parsed[0] if parsed is not None else None
-
-
-def pitch_alter(pitch: str | None) -> int | None:
-    """Alteración numérica de la nota (-1 para bemol, 0 para natural, 1 para sostenido)."""
-    parsed = parse_pitch(pitch)
-    return parsed[1] if parsed is not None else None
-
-
-def pitch_octave(pitch: str | None) -> int | None:
-    """Octava científica de la nota."""
-    parsed = parse_pitch(pitch)
-    return parsed[2] if parsed is not None else None

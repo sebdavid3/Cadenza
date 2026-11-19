@@ -18,7 +18,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     PolicySuggestionModel,
-    Role,
     SuggestionModel,
     SuggestionPolicy,
     User,
@@ -323,7 +322,7 @@ def test_the_filtered_layer_keeps_the_version_of_its_model() -> None:
 def test_only_what_the_policy_shows_is_stored(tmp_path: Path) -> None:
     edits = InMemoryEditEventRepository()
     sessions = InMemorySessionRepository(edit_repository=edits)
-    owner = User(id="u1", username="ana", password_hash="h", role=Role.TRANSCRIPTOR)
+    owner = User(id="u1", username="ana", password_hash="h")
     model = PolicySuggestionModel(
         MixedModel(), SuggestionPolicy(min_level="high", families=frozenset({"accidental"}))
     )

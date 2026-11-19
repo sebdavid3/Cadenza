@@ -206,7 +206,6 @@ def test_postgres_live_unique_constraint_and_restrict_delete(postgres_engine: An
             id="u-pg-test",
             username="pg_tester",
             password_hash="fakehash",
-            role="transcriptor",
         )
         db.merge(user)
         session = Session(

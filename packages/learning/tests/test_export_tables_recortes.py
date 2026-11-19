@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from cadenza.application import DATA_CONSENT_VERSION, Role, SessionData, User
+from cadenza.application import DATA_CONSENT_VERSION, SessionData, User
 from cadenza.domain import (
     Anchor,
     EditEvent,
@@ -126,7 +126,6 @@ def _user(user_id: str, *, self_registered: bool = False, consent: str | None = 
         id=user_id,
         username=user_id,
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=self_registered,
     )
     if consent is not None:

@@ -30,8 +30,6 @@ export interface TieDecision {
   tie: { intent: TieIntent; from: AnchorPayload };
 }
 
-export type TieAfter = TieDecision["after"];
-
 /** Si llega una ligadura a la nota (`stop`, `continue`). */
 export const tieArrives = (tie: string | null | undefined) => tie === "stop" || tie === "continue";
 /** Si sale una ligadura de la nota (`start`, `continue`). */

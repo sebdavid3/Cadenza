@@ -16,6 +16,9 @@ Comandos implementados:
                     de la plataforma (`ml/export_tables_cli.py`).
   - export-staves : recorta cada pentagrama de las fotos y lo empareja con lo que leyó HOMR y
                     con lo corregido (`ml/export_staves_cli.py`, #403, ADR-0067).
+  - export-pairs  : pares imagen-partitura (la tira en PNG y su MusicXML leído y corregido),
+                    con la partición por obra y la ficha del dataset, para entrenar un lector
+                    (`ml/export_pairs_cli.py`, #420, ADR-0071).
 """
 
 from __future__ import annotations
@@ -889,43 +892,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-rejected", action="store_true", help="No fallar si la promoción es rechazada."
     )
 
-    # 7. export-effort (#33, D38)
-    p_effort = subparsers.add_parser(
-        "export-effort",
-        help="Exporta métricas del estudio de esfuerzo a formato tabular (#33).",
-    )
-    p_effort.add_argument(
-        "--db-url",
-        default=None,
-        help="URL de la base con las sesiones del estudio (obligatoria salvo con --smoke).",
-    )
-    p_effort.add_argument(
-        "--output-dir",
-        default=None,
-        help="Directorio de destino para los archivos CSV y JSON (por defecto, results/).",
-    )
-    p_effort.add_argument(
-        "--smoke",
-        action="store_true",
-        help=(
-            "Probar la exportación con datos sintéticos, marcados como simulados; exige un "
-            "--output-dir fuera de results/."
-        ),
-    )
-    p_effort.add_argument("--seed", type=int, default=42, help="Semilla.")
-    # Las mismas que `add_study_arguments` de exp_10, sin importar music21 al construir la CLI.
-    p_effort.add_argument(
-        "--bank-dir",
-        default=None,
-        help="Carpeta del banco del estudio con la verdad de cada partitura (por defecto, "
-        "banco_estudio/).",
-    )
-    p_effort.add_argument(
-        "--nasa-tlx",
-        default=None,
-        help="CSV del NASA-TLX por participante y bloque (formato en el protocolo §3.3).",
-    )
-
     # 8. suggestions (capa de sugerencias, ADR-0036)
     from ml import suggestions_cli
 
@@ -941,32 +907,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     export_staves_cli.add_parser(subparsers)
 
+    # Pares imagen-partitura para entrenar un lector (#420, ADR-0071)
+    from ml import export_pairs_cli
+
+    export_pairs_cli.add_parser(subparsers)
+
     return parser
-
-
-def export_effort_command(args: argparse.Namespace) -> int:
-    """Exporta métricas de esfuerzo a formato tabular (#33, D38)."""
-    repo_root = Path(__file__).resolve().parents[1]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
-
-    from ml.experiments.exp_10_effort_study import run_effort_study_export
-
-    try:
-        summary = run_effort_study_export(
-            db_url=args.db_url,
-            output_dir=args.output_dir,
-            smoke=args.smoke,
-            seed=args.seed,
-            bank_dir=args.bank_dir,
-            nasa_tlx_csv=args.nasa_tlx,
-        )
-    except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
-    print(f"Exportación de esfuerzo completada en: {args.output_dir or 'results/'}")
-    print(json.dumps(summary, indent=2, ensure_ascii=False))
-    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -985,8 +931,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return promote_command(args)
     if args.subcommand == "run":
         return run_command(args)
-    if args.subcommand == "export-effort":
-        return export_effort_command(args)
     if args.subcommand == "suggestions":
         from ml import suggestions_cli
 
@@ -999,6 +943,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ml import export_staves_cli
 
         return export_staves_cli.export_staves_command(args)
+    if args.subcommand == "export-pairs":
+        from ml import export_pairs_cli
+
+        return export_pairs_cli.export_pairs_command(args)
 
     parser.print_help()
     return 1

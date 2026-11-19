@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.interchange import read_score
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
@@ -35,7 +35,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t1",
                 username="transcriptor1",
                 password_hash="hash1",
-                role=Role.TRANSCRIPTOR,
                 active=True,
             )
         )
@@ -44,16 +43,6 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
                 id="user-t2",
                 username="transcriptor2",
                 password_hash="hash2",
-                role=Role.TRANSCRIPTOR,
-                active=True,
-            )
-        )
-        user_repo.add(
-            User(
-                id="user-inv",
-                username="investigador1",
-                password_hash="hash3",
-                role=Role.INVESTIGADOR,
                 active=True,
             )
         )
@@ -70,15 +59,8 @@ def _setup_api(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
     )
 
     tokens = {
-        "t1": app.state.token_service.create_access_token(
-            user_id="user-t1", role=Role.TRANSCRIPTOR
-        ),
-        "t2": app.state.token_service.create_access_token(
-            user_id="user-t2", role=Role.TRANSCRIPTOR
-        ),
-        "inv": app.state.token_service.create_access_token(
-            user_id="user-inv", role=Role.INVESTIGADOR
-        ),
+        "t1": app.state.token_service.create_access_token(user_id="user-t1"),
+        "t2": app.state.token_service.create_access_token(user_id="user-t2"),
     }
 
     return TestClient(app), tokens
@@ -111,19 +93,6 @@ def test_export_other_user_session_returns_404_for_transcriptor(tmp_path: Path) 
     # Transcriptor 2 intenta exportarla -> 404
     res = client.get(f"/sessions/{sid}/export?format=musicxml", headers=h_t2)
     assert res.status_code == 404
-
-
-def test_export_investigator_can_export_any_session(tmp_path: Path) -> None:
-    client, tokens = _setup_api(tmp_path)
-    h_t1 = {"Authorization": f"Bearer {tokens['t1']}"}
-    h_inv = {"Authorization": f"Bearer {tokens['inv']}"}
-
-    files = {"file": ("score.png", PNG_BYTES, "image/png")}
-    sid = client.post("/transcribe", files=files, headers=h_t1).json()["session_id"]
-
-    res = client.get(f"/sessions/{sid}/export?format=musicxml", headers=h_inv)
-    assert res.status_code == 200
-    assert "score-partwise" in res.text
 
 
 def test_export_unsupported_format_returns_422(tmp_path: Path) -> None:

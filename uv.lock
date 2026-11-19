@@ -197,7 +197,6 @@ dev = [
     { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
     { name = "cadenza-interchange", editable = "packages/interchange" },
-    { name = "cadenza-learning", editable = "packages/learning" },
     { name = "cadenza-learning", extras = ["metrics"], editable = "packages/learning" },
     { name = "cadenza-omr", editable = "packages/omr" },
     { name = "cadenza-persistence", editable = "packages/persistence" },
@@ -282,19 +281,12 @@ dependencies = [
     { name = "music21" },
 ]
 
-[package.optional-dependencies]
-converters = [
-    { name = "converter21" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "cadenza-application", editable = "packages/application" },
     { name = "cadenza-domain", editable = "packages/domain" },
-    { name = "converter21", marker = "extra == 'converters'", specifier = ">=4.0.1" },
     { name = "music21", specifier = ">=10" },
 ]
-provides-extras = ["converters"]
 
 [[package]]
 name = "cadenza-learning"

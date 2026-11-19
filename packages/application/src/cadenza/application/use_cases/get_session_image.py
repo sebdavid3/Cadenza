@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ..access import require_owner
 from ..exceptions import ArtifactNotFound, SessionNotFound
 from ..ports.artifact_store import ArtifactStore, detect_image_media_type
 from ..ports.session_repository import SessionRepository
-from ..user import Role, User
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -27,15 +28,14 @@ def get_session_image(
 ) -> SessionImageData:
     """Recupera la imagen de la sesión verificando permisos y presencia en el almacén.
 
-    Aplica la regla de acceso (ADR-0012): un transcriptor solo accede a sus propias
-    sesiones (las ajenas responden como inexistentes); un investigador puede leer todas.
+    Aplica la regla de acceso (ADR-0012, ADR-0070): cada cuenta solo accede a sus propias
+    sesiones (las ajenas responden como inexistentes).
     """
     session_data = session_repository.get(session_id)
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role != Role.INVESTIGADOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session_data.owner_id, current_user, session_id)
 
     if not session_data.image_artifact:
         raise SessionNotFound(session_id)

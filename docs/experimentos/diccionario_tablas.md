@@ -88,8 +88,8 @@ Todas las tablas empiezan por estas columnas:
 | `source` | De dónde sale la fila. | `cadenza` (una sesión de la plataforma) o `primus` (un incipit del corpus de `exp_12`). Un registro del corpus sin `source` es de PrIMuS. |
 | `incipit_id` | Identificador de la partitura en el corpus. Une todas las tablas. | `cadenza:<session_id>` o el identificador de PrIMuS. |
 | `session_id` | Sesión de Cadenza. | Vacío en PrIMuS. |
-| `work_id` | Página u obra de origen, la unidad de la partición. | `test_score:<id>` o `image:<sha256>` en Cadenza; el registro RISM en PrIMuS. |
-| `split` | Partición fija de #255 (ADR-0036 §10): todas las sesiones de una página caen del mismo lado. | `train` o `test`. |
+| `work_id` | Obra de origen, la unidad de la partición. En Cadenza, las sesiones que comparten partitura de prueba o foto, también encadenadas, son la misma obra (`shared_works`, #437): una página del banco subida sin su partitura de prueba va con ella. | `test_score:<id>` (la partitura de prueba menor del grupo) o, sin ninguna, `image:<sha256>` (la foto menor) en Cadenza; el registro RISM en PrIMuS. |
+| `split` | Partición fija de #255 (ADR-0036 §10 y su enmienda de #437): todas las sesiones de una obra caen del mismo lado, y ninguna foto está en las dos particiones. | `train` o `test`. |
 
 El **ancla** (`part`, `staff`, `measure`, `voice`, `event_index`) es la de ADR-0002: índices de
 parte y pentagrama desde 0, número del compás (`measure`, no su posición) y posición del evento
@@ -117,7 +117,6 @@ En PrIMuS, `recorte` es la imagen del incipit entero.
 | Columna | Significado | Origen |
 |---|---|---|
 | `participante` | Nombre de usuario de la cuenta dueña. En las cuentas del estudio es un seudónimo; en las del registro público (`--include-self-registered`) es el que eligió la persona y puede identificarla. | `users.username` |
-| `rol` | Rol de la cuenta. | `transcriptor` o `investigador` |
 | `origen` | `estudio` si la sesión tiene `test_score_id`; si no, `registro` si la cuenta es del registro público; si no, `equipo`. | calculado |
 | `condition` | Condición del estudio. | `assisted` o `unassisted` |
 | `test_score_id` | Partitura del banco del estudio (TS-01 a TS-04), si la hay. | `sessions` |
@@ -294,3 +293,9 @@ indicación sin mover compases), así que el compás N leído es el compás N fi
   sesiones de Cadenza, mejor la base (`--db-url`).
 - `notas` y `faltantes` alinean por voz dentro del compás: un evento cambiado de voz sale como
   borrado y faltante.
+- La obra de una sesión se forma con las sesiones que entran en la exportación (#437): con
+  `--include-unfinished` o `--include-self-registered`, o con una sesión nueva que une una foto
+  a su partitura de prueba, una sesión puede cambiar de `work_id` y de lado. Dos exportaciones
+  con filtros distintos no tienen por qué partir igual; dentro de una, ninguna foto está en las
+  dos particiones. Dos fotos distintas de la misma página impresa, sin partitura de prueba que
+  las una, siguen siendo dos obras.

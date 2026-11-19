@@ -401,6 +401,29 @@ motivo (sin captura, sin imagen, preprocesada o con cajas que no casan). Por def
 sesiones finalizadas y sin cuentas del registro; con `--include-self-registered`, las del registro
 con el permiso de uso de los datos vigente.
 
+### Pares imagen–partitura para entrenar un lector (`ml export-pairs`, #420, ADR-0071)
+
+Deja listos, para un reentrenamiento futuro (#103), los pares de cada tira de pentagrama: el PNG
+de la tira (el mismo recorte de `export-staves`), el MusicXML de lo que leyó HOMR y el MusicXML
+corregido, la etiqueta. Solo sesiones finalizadas cuya corrección se verifica; de las cuentas del
+registro, por defecto las del permiso vigente (#422), ninguna con `--exclude-self-registered` y
+nunca las que no lo tienen. La partición es la fija
+por obra de #255, así que la semilla es obligatoria. Sobre una copia, con la salida vacía y fuera
+de `results/` y `data/`:
+
+```powershell
+uv run --no-sync python -m ml export-pairs --output-dir <carpeta> --db-url <url de la copia> `
+  --artifacts-dir <artefactos de la copia> --split-seed <semilla> [--test-fraction 0.2] `
+  [--exclude-self-registered]
+```
+
+Escribe `train/` y `test/` con los tres archivos de cada par, `pares.csv` (una fila por par, con
+su obra, sus compases y el sha256 de sus archivos), `run_info.json` (filtros, sesiones fuera con
+su motivo, cuántas por no tener el permiso vigente, recuentos por partición,
+`"simulated": false`) y `README.md`, la ficha del dataset
+(origen, licencias, permiso, partición y limitaciones). Columnas y uso en
+[`docs/experimentos/pares_imagen_partitura.md`](../docs/experimentos/pares_imagen_partitura.md).
+
 ### Encadenamiento y trazabilidad de artefactos
 
 | Comando | Entrada | Salida | Metadatos persistidos |
@@ -453,7 +476,8 @@ uv run --no-sync python -m ml suggestions promote --model <modelo.json> --report
   --db-url <url> --artifacts-dir <dir de artefactos de la API> --version <versión>
 
 # 4. Bucle de aprendizaje: el corpus de exp_12, sin modificarlo, más las sesiones finalizadas
-#    de Cadenza (partidas por página de origen) y las respuestas a sus sugerencias.
+#    de Cadenza (partidas por obra: las que comparten partitura de prueba o foto, juntas, #437)
+#    y las respuestas a sus sugerencias.
 uv run --no-sync python -m ml suggestions build-dataset --corpus <corpus de exp_12> `
   --output <corpus ampliado.jsonl> --db-url <url> --split-seed <semilla de la partición>
 ```
@@ -529,19 +553,10 @@ Cada columna, su origen, sus valores y las limitaciones están en
 - **`exp_08` (línea base de oemer) se retiró en [#130](https://github.com/sebdavid3/Cadenza/issues/130)**
   sin haber ejecutado oemer: `oemer_baseline.csv`, `oemer_baseline_summary.json` y
   `exp_08_run_info.json` registran 100 fallos por falta de predicciones y no se citan.
-- **`exp_10` solo exporta sesiones reales** (`--db-url`). Sin base de datos, o con una sin
-  sesiones del estudio, falla en vez de rellenar con datos sintéticos. `--smoke` genera
-  datos sintéticos para probar la exportación, marcados con `"simulated": true` también en
-  su `exp_10_run_info.json`, y se niega a escribir en `results/`: exige un `--output-dir`
-  fuera de él. Los `effort_study_*` y `exp_10_run_info.json` que hay en `results/` (del
-  2026-10-12) son de una ejecución sintética anterior y no se citan; el estudio real llega
-  con [#253](https://github.com/sebdavid3/Cadenza/issues/253).
-- **`exp_10` mide la fidelidad residual y une el NASA-TLX**
-  ([#250](https://github.com/sebdavid3/Cadenza/issues/250)): solo toma TS-01 a TS-04 de
-  cuentas de transcriptor, compara el estado final de cada sesión con la verdad del banco del
-  estudio (`--bank-dir`, comprobada con su sha256; sin ella falla) y lee el NASA-TLX de un CSV
-  por participante y bloque (`--nasa-tlx`). Formato y columnas, en el §3.3 y el §6.2 del
-  protocolo.
+- **`exp_10` (exportación del estudio de esfuerzo) se retiró en [#429](https://github.com/sebdavid3/Cadenza/issues/429)**, con `ml export-effort`,
+  al quedar fuera del alcance el estudio con participantes (ADR-0070). Los `effort_study_*` y
+  `exp_10_run_info.json` que hay en `results/` (del 2026-10-12) son de una ejecución sintética y
+  no se citan.
 
 Archivar o borrar esas salidas de `results/` lo decide el responsable (`CLAUDE.md` §9).
 

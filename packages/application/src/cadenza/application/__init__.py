@@ -3,10 +3,7 @@
 from .data_consent import DATA_CONSENT_VERSION, has_current_data_consent
 from .effort import (
     EFFORT_CLASSES,
-    MeasureInterventionComparison,
     compute_interventions_from_edits,
-    contrast_interventions,
-    count_reversions_from_edits,
     effort_class,
     interventions_by_class,
     merge_segment,
@@ -18,7 +15,6 @@ from .exceptions import (
     ArtifactNotFound,
     DuplicateUsername,
     FindingNotFound,
-    Forbidden,
     InvalidEdit,
     InvalidEffortSegment,
     InvalidSessionMetadata,
@@ -115,7 +111,6 @@ from .use_cases import (
     claim_preview,
     create_preview,
     create_session_from_document,
-    create_user,
     dismiss_finding,
     ensure_preview_capacity,
     export_score,
@@ -127,7 +122,6 @@ from .use_cases import (
     hash_claim_token,
     list_findings,
     list_sessions,
-    list_users,
     normalize_condition,
     record_effort,
     record_effort_segment,
@@ -141,9 +135,8 @@ from .use_cases import (
     transcribe_score,
     undo_edit,
     update_session_metadata,
-    update_user,
 )
-from .user import Role, User
+from .user import User
 
 __all__ = [
     "ACCEPTED",
@@ -169,7 +162,6 @@ __all__ = [
     "FinalizeResult",
     "FindingAction",
     "FindingNotFound",
-    "Forbidden",
     "InMemoryArtifactStore",
     "InMemoryEditEventRepository",
     "InMemoryEffortRepository",
@@ -185,7 +177,6 @@ __all__ = [
     "InvalidEdit",
     "InvalidEffortSegment",
     "InvalidSessionMetadata",
-    "MeasureInterventionComparison",
     "ModelRegistry",
     "ModelVersionData",
     "NewSuggestion",
@@ -205,7 +196,6 @@ __all__ = [
     "RecognitionStage",
     "ReopenResult",
     "RevalidateResult",
-    "Role",
     "ScoreExporter",
     "ScoreStateCache",
     "ScoreStateKey",
@@ -244,11 +234,8 @@ __all__ = [
     "collect_stage_timings",
     "compute_interventions_from_edits",
     "compute_sha256",
-    "contrast_interventions",
-    "count_reversions_from_edits",
     "create_preview",
     "create_session_from_document",
-    "create_user",
     "detect_image_media_type",
     "dismiss_finding",
     "effort_class",
@@ -265,7 +252,6 @@ __all__ = [
     "is_image_content",
     "list_findings",
     "list_sessions",
-    "list_users",
     "merge_segment",
     "normalize_condition",
     "record_effort",
@@ -283,5 +269,4 @@ __all__ = [
     "transcribe_score",
     "undo_edit",
     "update_session_metadata",
-    "update_user",
 ]

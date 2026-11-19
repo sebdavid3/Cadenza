@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 import argon2
 import argon2.exceptions
 import jwt
-from cadenza.application import NotAuthenticated, PasswordHasher, Role, TokenPayload, TokenService
+from cadenza.application import NotAuthenticated, PasswordHasher, TokenPayload, TokenService
 from fastapi import HTTPException, status
 
 
@@ -66,7 +66,6 @@ class JwtTokenService(TokenService):
     def create_access_token(
         self,
         user_id: str,
-        role: Role,
         expires_in_seconds: int | None = None,
     ) -> str:
         now = datetime.now(UTC)
@@ -77,7 +76,6 @@ class JwtTokenService(TokenService):
 
         payload = {
             "sub": user_id,
-            "role": role.value,
             "exp": int(exp.timestamp()),
             "iat": int(now.timestamp()),
         }
@@ -87,12 +85,11 @@ class JwtTokenService(TokenService):
         try:
             payload = jwt.decode(token, self._secret_key, algorithms=[self._algorithm])
             user_id = str(payload.get("sub", ""))
-            role_str = str(payload.get("role", ""))
             exp_int = payload.get("exp")
-            if not user_id or not role_str:
+            if not user_id:
                 raise NotAuthenticated("Token inválido")
             exp = datetime.fromtimestamp(exp_int, tz=UTC) if exp_int else None
-            return TokenPayload(sub=user_id, role=Role(role_str), exp=exp)
+            return TokenPayload(sub=user_id, exp=exp)
         except jwt.ExpiredSignatureError as err:
             raise NotAuthenticated("Token caducado") from err
         except (jwt.PyJWTError, ValueError) as err:
@@ -177,27 +174,6 @@ class LoginRateLimiter:
             failures = self._recent(key, now)
             if len(failures) >= self.max_attempts:
                 self._raise_limited(failures, now)
-            failures.append(now)
-            self._failures[key] = failures
-
-    def check(self, key: str) -> None:
-        """Verifica si la clave ha superado el límite de intentos permitidos."""
-        if self.max_attempts <= 0:
-            return
-        now = time.time()
-        with self._lock:
-            failures = self._recent(key, now)
-            if len(failures) >= self.max_attempts:
-                self._raise_limited(failures, now)
-
-    def record_failure(self, key: str) -> None:
-        """Registra un intento fallido para la clave especificada."""
-        if self.max_attempts <= 0:
-            return
-        now = time.time()
-        with self._lock:
-            self._purge(now)
-            failures = self._recent(key, now)
             failures.append(now)
             self._failures[key] = failures
 

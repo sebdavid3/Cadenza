@@ -12,7 +12,6 @@ from cadenza.application import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     SessionData,
     SessionStatus,
     User,
@@ -34,7 +33,7 @@ from cadenza.domain import (
     materialize,
 )
 
-USER = User(id="u1", username="transcriptor1", password_hash="h", role=Role.TRANSCRIPTOR)
+USER = User(id="u1", username="transcriptor1", password_hash="h")
 KIND = EditOp.SET_EVENT_KIND
 
 

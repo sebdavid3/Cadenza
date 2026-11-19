@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import DATA_CONSENT_VERSION, Role, User
+from cadenza.application import DATA_CONSENT_VERSION, User
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
     create_memory_engine,
@@ -40,9 +40,7 @@ def _app(*, enabled: bool = True) -> FastAPI:
 
 
 def _token(app: FastAPI, user_id: str) -> str:
-    token: str = app.state.token_service.create_access_token(
-        user_id=user_id, role=Role.TRANSCRIPTOR
-    )
+    token: str = app.state.token_service.create_access_token(user_id=user_id)
     return token
 
 
@@ -155,7 +153,7 @@ def test_accounts_created_by_a_researcher_can_give_it_too() -> None:
     app = _app(enabled=False)
     with app.state.session_factory() as db:
         SqlAlchemyUserRepository(db).add(
-            User(id="usr-p", username="participante", password_hash="-", role=Role.TRANSCRIPTOR)
+            User(id="usr-p", username="participante", password_hash="-")
         )
         db.commit()
     client = TestClient(app, headers={"Authorization": f"Bearer {_token(app, 'usr-p')}"})
@@ -177,7 +175,6 @@ def test_a_permission_for_an_older_text_is_no_longer_current() -> None:
                 id="usr-v",
                 username="veterana",
                 password_hash="-",
-                role=Role.TRANSCRIPTOR,
                 data_consent_at=NOW,
                 data_consent_version="2020-01-01",
             )
@@ -200,7 +197,7 @@ def test_the_web_shows_the_same_version_of_the_text() -> None:
     assert match.group(1) == DATA_CONSENT_VERSION
 
 
-def test_changing_the_password_or_the_account_keeps_the_permission() -> None:
+def test_changing_the_password_keeps_the_permission() -> None:
     app = _app()
     client = TestClient(app)
     user = _register(client, "ana", data_consent_version=DATA_CONSENT_VERSION)
@@ -213,20 +210,6 @@ def test_changing_the_password_or_the_account_keeps_the_permission() -> None:
         headers=headers,
     )
     assert changed.status_code == 200, changed.text
-    with app.state.session_factory() as db:
-        SqlAlchemyUserRepository(db).add(
-            User(id="inv-1", username="investigadora", password_hash="-", role=Role.INVESTIGADOR)
-        )
-        db.commit()
-    researcher = app.state.token_service.create_access_token(
-        user_id="inv-1", role=Role.INVESTIGADOR
-    )
-    edited = client.patch(
-        f"/users/{user['id']}",
-        json={"active": True},
-        headers={"Authorization": f"Bearer {researcher}"},
-    )
-    assert edited.status_code == 200, edited.text
 
     me = client.get("/auth/me", headers=headers).json()
     assert me["data_consent"] is True

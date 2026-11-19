@@ -16,13 +16,11 @@ import pytest
 from cadenza.application import (
     UNCHANGED,
     CachedScoreState,
-    Forbidden,
     InMemoryEditEventRepository,
     InMemoryScoreExporter,
     InMemoryScoreStateCache,
     InMemorySessionRepository,
     InvalidSessionMetadata,
-    Role,
     ScoreStateKey,
     SessionData,
     SessionNotFound,
@@ -66,13 +64,12 @@ VOICE_AND_PIANO = ScoreMetadata(
 )
 
 
-def _user(user_id: str, role: Role = Role.TRANSCRIPTOR) -> User:
-    return User(id=user_id, username=user_id, password_hash="h", role=role, active=True)
+def _user(user_id: str) -> User:
+    return User(id=user_id, username=user_id, password_hash="h", active=True)
 
 
 OWNER = _user("owner")
 OTHER = _user("other")
-RESEARCHER = _user("researcher", Role.INVESTIGADOR)
 
 
 def _score(parts: int = 2) -> ScoreIR:
@@ -256,14 +253,6 @@ def test_other_transcriptor_does_not_see_the_session() -> None:
     with pytest.raises(SessionNotFound):
         update_session_metadata(
             "sess-1", session_repository=sessions, current_user=OTHER, title="x"
-        )
-
-
-def test_researcher_cannot_change_others_session() -> None:
-    sessions, _ = _repos()
-    with pytest.raises(Forbidden):
-        update_session_metadata(
-            "sess-1", session_repository=sessions, current_user=RESEARCHER, title="x"
         )
 
 

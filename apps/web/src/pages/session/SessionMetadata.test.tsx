@@ -49,13 +49,6 @@ vi.mock("./pdf", async (importOriginal) => ({
   },
 }));
 
-const LUIS: UserRead = { ...ANA, id: "0b7f6c1e-1111-4bbb-8ccc-000000000002", username: "luis" };
-const INVESTIGADORA: UserRead = {
-  ...ANA,
-  id: "0b7f6c1e-2222-4bbb-8ccc-000000000003",
-  username: "inv",
-  role: "investigador",
-};
 const ID = "3e951fef-8a58-489e-abc9-68cfc3cd405b";
 
 /** Una voz de un pentagrama y un piano de dos, sin compases: basta para nombrar las partes. */
@@ -117,7 +110,6 @@ function api(
     },
     [`GET /sessions/${ID}/image`]: png,
     [`GET /sessions/${ID}/timing`]: () => jsonResponse(TIMING),
-    "GET /users": () => jsonResponse([ANA, LUIS, INVESTIGADORA]),
     ...(patch
       ? {
           [`PATCH /sessions/${ID}`]: (init: RequestInit | undefined) =>
@@ -562,13 +554,5 @@ describe("nombre y datos de la sesión en su vista (#240)", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Guardar" })).not.toHaveAttribute("aria-disabled");
     });
-  });
-
-  it("nadie más que quien la transcribió puede cambiarlos", async () => {
-    api(detail({ owner_id: LUIS.id, title: "Ajena" }));
-    renderPage(INVESTIGADORA);
-
-    expect(await screen.findByRole("heading", { level: 1, name: "Ajena" })).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Cambiar los datos" })).toBeNull();
   });
 });

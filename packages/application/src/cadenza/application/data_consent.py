@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from .user import User
 
-DATA_CONSENT_VERSION = "2026-11-09"
+DATA_CONSENT_VERSION = "2026-11-19"
 """Versión vigente del texto del permiso: la fecha en que se redactó."""
 
 

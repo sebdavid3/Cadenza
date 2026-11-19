@@ -16,7 +16,7 @@ from typing import Any
 
 import pytest
 from cadenza.api import Settings, create_app
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import OMRTranscriptionError
 from cadenza.omr.testing import FakeOMREngine
@@ -64,9 +64,7 @@ class Api:
         with self.factory() as db:
             repo = SqlAlchemyUserRepository(db)
             for user_id in ("ana", "luis"):
-                repo.add(
-                    User(id=user_id, username=user_id, password_hash="-", role=Role.TRANSCRIPTOR)
-                )
+                repo.add(User(id=user_id, username=user_id, password_hash="-"))
             db.commit()
         self.omr = _CountingOMR()
         values: dict[str, Any] = {
@@ -83,9 +81,7 @@ class Api:
         self.client = TestClient(self.app)
 
     def token(self, user_id: str) -> str:
-        token: str = self.app.state.token_service.create_access_token(
-            user_id=user_id, role=Role.TRANSCRIPTOR
-        )
+        token: str = self.app.state.token_service.create_access_token(user_id=user_id)
         return token
 
     def preview(self, **form: Any) -> Any:

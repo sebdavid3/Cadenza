@@ -18,7 +18,7 @@ import pytest
 from cadenza.api import Settings, create_app
 from cadenza.api.transcription_jobs import JobFailure, JobProgress, JobStage, TranscriptionJobs
 from cadenza.api.transcription_slots import TranscriptionSlots
-from cadenza.application import Role, TranscribeResult, User
+from cadenza.application import TranscribeResult, User
 from cadenza.domain import ScoreDocument
 from cadenza.omr import OMREngine, OMRTranscriptionError
 from cadenza.omr.progress import OMRProgress, Reading, report
@@ -108,7 +108,6 @@ def _db(path: Path) -> Any:
                     id=user_id,
                     username=user_id,
                     password_hash="-",
-                    role=Role.TRANSCRIPTOR,
                     active=True,
                 )
             )
@@ -132,7 +131,7 @@ def _app(
 
 
 def _client(app: FastAPI, user_id: str) -> TestClient:
-    token = app.state.token_service.create_access_token(user_id=user_id, role=Role.TRANSCRIPTOR)
+    token = app.state.token_service.create_access_token(user_id=user_id)
     return TestClient(app, headers={"Authorization": f"Bearer {token}"})
 
 

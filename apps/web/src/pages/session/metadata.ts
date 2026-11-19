@@ -33,8 +33,6 @@ export function metadataErrorMessage(error: unknown): string {
         return "No se guardaron los datos: el servidor no los aceptó. Revisa el nombre, el compositor y los instrumentos.";
       case "not-found":
         return "No se guardaron los datos: la sesión ya no existe o no tienes acceso a ella.";
-      case "forbidden":
-        return "No se guardaron los datos: solo quien transcribió la sesión puede cambiarlos.";
       default:
         break;
     }

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from fractions import Fraction
 
 import pytest
-from cadenza.application import Role, User
+from cadenza.application import User
 from cadenza.application.ports import (
     InMemoryEditEventRepository,
     InMemorySessionRepository,
@@ -21,7 +21,6 @@ from cadenza.domain import (
     Severity,
 )
 from cadenza.learning import (
-    DatasetBuilder,
     RepositoryDatasetReader,
     dataset_hash,
 )
@@ -295,19 +294,12 @@ def test_read_dataset_with_real_database() -> None:
         assert len(hash_result) == 64
         assert hash_result == dataset_hash(samples)
 
-        # El método de conveniencia en DatasetBuilder produce exactamente lo mismo
-        builder_samples = DatasetBuilder().read_from_repositories(
-            session_repo, edit_repo, user_repository=users, status="finalized"
-        )
-        assert builder_samples == samples
-
 
 def _user(user_id: str, *, self_registered: bool) -> User:
     return User(
         id=user_id,
         username=user_id,
         password_hash=secrets.token_hex(8),
-        role=Role.TRANSCRIPTOR,
         self_registered=self_registered,
     )
 

@@ -6,12 +6,13 @@ from dataclasses import dataclass
 
 from cadenza.validation import ValidationEngine
 
+from ..access import require_owner
 from ..current_validation import store_current_validation
 from ..exceptions import SessionNotFound
 from ..ports.edit_event_repository import EditEventRepository
 from ..ports.session_repository import PersistedFinding, SessionRepository
 from ..ports.suggestion_model import SuggestionModel
-from ..user import Role, User
+from ..user import User
 
 
 @dataclass(frozen=True)
@@ -46,8 +47,7 @@ def revalidate(
     if session_data is None:
         raise SessionNotFound(session_id)
 
-    if current_user.role == Role.TRANSCRIPTOR and session_data.owner_id != current_user.id:
-        raise SessionNotFound(session_id)
+    require_owner(session_data.owner_id, current_user, session_id)
 
     validation = store_current_validation(
         session_data,

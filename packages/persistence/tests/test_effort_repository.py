@@ -23,7 +23,6 @@ def test_effort_repository_add_and_query() -> None:
             id="u1",
             username="user1",
             password_hash="hash",
-            role="transcriptor",
         )
         db.add(user)
         session = Session(
@@ -70,12 +69,7 @@ def test_effort_repository_add_and_query() -> None:
         assert all_metrics[0].id == "eff-1"
         assert all_metrics[1].id == "eff-2"
 
-        # 4. get_latest
-        latest = repo.get_latest("s1")
-        assert latest is not None
-        assert latest.id == "eff-2"
-        assert latest.duration_ms == 60000
+        assert all_metrics[1].duration_ms == 60000
 
-        # 5. Sesión sin métricas devuelve tupla vacía y None
+        # 4. Sesión sin métricas devuelve tupla vacía
         assert repo.list_by_session("non-existent") == ()
-        assert repo.get_latest("non-existent") is None

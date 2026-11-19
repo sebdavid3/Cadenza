@@ -65,7 +65,7 @@ describe("vista de acceso", () => {
     renderUrl("/entrar");
 
     expect(screen.queryByRole("link", { name: "Créala" })).toBeNull();
-    expect(screen.getByText(/las cuentas las crea un investigador/i)).toBeVisible();
+    expect(screen.getByText(/ahora no se pueden crear cuentas/i)).toBeVisible();
   });
 
   it("pide los dos campos antes de llamar a la API y lleva el foco al que falta", async () => {
@@ -114,7 +114,8 @@ describe("vista de acceso", () => {
 
     expect(router.state.location.pathname).toBe("/transcripcion");
     expect(await screen.findByText("ana")).toBeVisible();
-    expect(screen.getByText("Transcriptor")).toBeVisible();
+    // Sin roles, la cabecera no dice de qué clase es la cuenta (ADR-0070).
+    expect(screen.queryByText(/transcriptor|investigador/i)).toBeNull();
   });
 
   it("con credenciales incorrectas avisa, vacía la contraseña y la enfoca", async () => {

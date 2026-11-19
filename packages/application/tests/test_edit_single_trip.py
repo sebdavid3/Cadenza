@@ -15,7 +15,6 @@ from cadenza.application import (
     InMemoryScoreStateCache,
     InMemorySessionRepository,
     InvalidEdit,
-    Role,
     ScoreStateKey,
     SequenceConflict,
     SessionData,
@@ -81,16 +80,9 @@ class _FailingExporter(InMemoryScoreExporter):
         raise RuntimeError("music21 no pudo")
 
 
-class _NoNextSeq(InMemoryEditEventRepository):
-    """El `seq` de la edición nueva sale del log leído, sin otra consulta (#275)."""
-
-    def next_seq(self, session_id: str) -> int:
-        raise AssertionError("append_edit no debe pedir next_seq")
-
-
-def _setup() -> tuple[InMemorySessionRepository, _NoNextSeq, User]:
+def _setup() -> tuple[InMemorySessionRepository, InMemoryEditEventRepository, User]:
     sessions = InMemorySessionRepository()
-    edits = _NoNextSeq()
+    edits = InMemoryEditEventRepository()
     sessions.add(
         SessionData(
             id="sess-1",
@@ -102,7 +94,7 @@ def _setup() -> tuple[InMemorySessionRepository, _NoNextSeq, User]:
         ),
         findings=(),
     )
-    user = User(id="user-1", username="t1", password_hash="hash", role=Role.TRANSCRIPTOR)
+    user = User(id="user-1", username="t1", password_hash="hash")
     return sessions, edits, user
 
 
