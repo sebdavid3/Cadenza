@@ -3,10 +3,7 @@
 from .data_consent import DATA_CONSENT_VERSION, has_current_data_consent
 from .effort import (
     EFFORT_CLASSES,
-    MeasureInterventionComparison,
     compute_interventions_from_edits,
-    contrast_interventions,
-    count_reversions_from_edits,
     effort_class,
     interventions_by_class,
     merge_segment,
@@ -180,7 +177,6 @@ __all__ = [
     "InvalidEdit",
     "InvalidEffortSegment",
     "InvalidSessionMetadata",
-    "MeasureInterventionComparison",
     "ModelRegistry",
     "ModelVersionData",
     "NewSuggestion",
@@ -238,8 +234,6 @@ __all__ = [
     "collect_stage_timings",
     "compute_interventions_from_edits",
     "compute_sha256",
-    "contrast_interventions",
-    "count_reversions_from_edits",
     "create_preview",
     "create_session_from_document",
     "detect_image_media_type",

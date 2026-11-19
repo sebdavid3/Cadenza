@@ -85,7 +85,7 @@ class Repos:
         )
 
     def edit(self, measure: int, op: EditOp, *, reverts: str | None = None) -> EditEvent:
-        seq = self.edits.next_seq(SESSION)
+        seq = len(self.edits.list_events(SESSION)) + 1
         return self.edits.append(
             SESSION,
             EditEvent(

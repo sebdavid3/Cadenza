@@ -116,8 +116,6 @@ export type EditorStatus =
    * se ve o ya tiene respuesta. No se guardó nada ni se reintenta: hay que revalidar.
    */
   | { kind: "stale-suggestion"; request: EditorRequest }
-  /** 403: la sesión no es de quien la ve (ADR-0012). */
-  | { kind: "forbidden"; request: EditorRequest }
   /** 404: la sesión ya no existe o no se tiene acceso. */
   | { kind: "missing"; request: EditorRequest }
   /**
@@ -136,7 +134,6 @@ export type EditorStatus =
 const BLOCKING = new Set<EditorStatus["kind"]>([
   "saving",
   "outdated",
-  "forbidden",
   "missing",
   "unknown",
   "unsynced",
@@ -157,7 +154,6 @@ const LASTING = new Set<EditorStatus["kind"]>([
   "outdated",
   "rejected",
   "stale-suggestion",
-  "forbidden",
   "missing",
   "unknown",
   "unsynced",
@@ -209,14 +205,14 @@ function failure(
   switch (kind) {
     case "aborted":
       return null;
-    // El servidor lo rechazó: no se guardó nada.
+    // El servidor lo rechazó: no se guardó nada. La API ya no responde 403 a una sesión
+    // (ADR-0070); si llegara, tampoco se guardó nada.
     case "validation":
     case "payload-too-large":
     case "unsupported-media-type":
     case "rate-limited":
-      return { kind: "rejected", request };
     case "forbidden":
-      return { kind: "forbidden", request };
+      return { kind: "rejected", request };
     case "not-found":
       return { kind: "missing", request };
     // El cliente ya cierra la sesión del navegador ante un 401 (ADR-0020).

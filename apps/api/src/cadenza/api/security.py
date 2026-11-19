@@ -177,27 +177,6 @@ class LoginRateLimiter:
             failures.append(now)
             self._failures[key] = failures
 
-    def check(self, key: str) -> None:
-        """Verifica si la clave ha superado el límite de intentos permitidos."""
-        if self.max_attempts <= 0:
-            return
-        now = time.time()
-        with self._lock:
-            failures = self._recent(key, now)
-            if len(failures) >= self.max_attempts:
-                self._raise_limited(failures, now)
-
-    def record_failure(self, key: str) -> None:
-        """Registra un intento fallido para la clave especificada."""
-        if self.max_attempts <= 0:
-            return
-        now = time.time()
-        with self._lock:
-            self._purge(now)
-            failures = self._recent(key, now)
-            failures.append(now)
-            self._failures[key] = failures
-
     def reset(self, key: str) -> None:
         """Limpia el historial de fallos tras un inicio de sesión exitoso."""
         with self._lock:

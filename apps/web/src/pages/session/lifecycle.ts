@@ -59,22 +59,20 @@ export type LifecycleStatus =
  */
 export type LifecycleOutcome = "done" | "failed" | "closed" | "ignored";
 
-const VERBS: Record<LifecycleAction, { done: string; it: string }> = {
-  finalize: { done: "finalizó", it: "finalizarla" },
-  reopen: { done: "reabrió", it: "reabrirla" },
+const VERBS: Record<LifecycleAction, { done: string }> = {
+  finalize: { done: "finalizó" },
+  reopen: { done: "reabrió" },
 };
 
 /** Qué decir de un error que no es un 409 ni un 404, o null si no hay nada que decir. */
 function failureText(action: LifecycleAction, error: unknown): string | null {
   const kind = error instanceof ApiError ? error.kind : "unexpected";
-  const { done, it } = VERBS[action];
+  const { done } = VERBS[action];
   switch (kind) {
     // Cancelada, o un 401, ante el que el cliente ya cierra la sesión del navegador (ADR-0020).
     case "aborted":
     case "unauthorized":
       return null;
-    case "forbidden":
-      return `No se ${done}: solo la persona que hizo la transcripción puede ${it}.`;
     // Sin respuesta, o con una que no lo confirma: pudo hacerse. Volver a intentarlo es seguro: si
     // ya se finalizó, el servidor responde 409 y la vista lo dice.
     case "network":
@@ -389,5 +387,3 @@ export function useLifecycle(api: ApiClient, sessionId: string, options: Lifecyc
     reopen,
   };
 }
-
-export type Lifecycle = ReturnType<typeof useLifecycle>;

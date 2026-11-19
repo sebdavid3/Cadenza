@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from cadenza.api import Settings, create_app
-from cadenza.application import User, compute_interventions_from_edits, contrast_interventions
+from cadenza.application import User, compute_interventions_from_edits
 from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     SqlAlchemyUserRepository,
@@ -181,7 +181,7 @@ def test_record_effort_validation_errors(tmp_path: Path) -> None:
     assert res3.status_code == 422
 
 
-def test_contrast_effort_with_session_edits(tmp_path: Path) -> None:
+def test_effort_interventions_match_session_edits(tmp_path: Path) -> None:
     client, tokens = _setup_api(tmp_path)
     session_id = _create_session(client, tokens["t1"])
 
@@ -252,11 +252,3 @@ def test_contrast_effort_with_session_edits(tmp_path: Path) -> None:
     # Verificar función de cálculo
     computed = compute_interventions_from_edits(edits_logged)
     assert computed == {"1": 2}
-
-    # Contrastar
-    comparison = contrast_interventions(reported_interventions, edits_logged)
-    assert len(comparison) == 1
-    assert comparison[0].measure == "1"
-    assert comparison[0].matches
-    assert comparison[0].reported_count == 2
-    assert comparison[0].logged_count == 2

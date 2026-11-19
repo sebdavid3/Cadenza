@@ -37,7 +37,6 @@ dev = [
     "cadenza-application",
     "cadenza-domain",
     "cadenza-interchange",
-    "cadenza-learning",
     "cadenza-omr",
     "cadenza-persistence",
     "cadenza-validation",

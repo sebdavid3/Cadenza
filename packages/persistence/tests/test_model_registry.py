@@ -10,21 +10,15 @@ from cadenza.application import (
     ModelVersionData,
     PromotionRejected,
     PromotionThreshold,
-    User,
-    transcribe_score,
 )
-from cadenza.omr import HOMREngine
-from cadenza.omr.testing import FakeOMREngine
 from cadenza.persistence import (
     ArtifactRecord,
     FilesystemArtifactStore,
     SqlAlchemyModelRegistry,
-    SqlAlchemySessionRepository,
     create_memory_engine,
     create_schema,
     create_session_factory,
 )
-from cadenza.validation import ValidationEngine
 from sqlalchemy.orm import Session as DbSession
 from sqlalchemy.orm import sessionmaker
 
@@ -201,76 +195,3 @@ def test_model_weights_linked_to_artifact_store(
 
         promoted = registry.promote("v2.0-finetuned")
         assert promoted.promoted is True
-
-        # Verificar que HOMREngine.from_active_model resuelve la versión y pesos
-        engine = HOMREngine.from_active_model(registry, store, use_gpu=False)
-        assert engine._model_version == "v2.0-finetuned"
-        assert engine._weights_path is not None
-        assert engine._weights_path.is_file()
-
-
-def test_transcribe_score_uses_active_model_version(
-    tmp_path: Path, session_factory: sessionmaker[DbSession], sample_artifact: str
-) -> None:
-    img_path = tmp_path / "test.png"
-    img_path.write_bytes(b"\x89PNG\r\n\x1a\nfakeimage")
-
-    user = User(
-        id="user-1",
-        username="transcriptor",
-        password_hash="fake-hash",
-    )
-    validator = ValidationEngine([])
-
-    with session_factory() as db:
-        session_repo = SqlAlchemySessionRepository(db)
-        registry = SqlAlchemyModelRegistry(db)
-
-        # 1. Sin versión promovida -> usa versión de fábrica
-        engine_default = FakeOMREngine.from_active_model(registry)
-        res1 = transcribe_score(
-            img_path,
-            omr_engine=engine_default,
-            validator=validator,
-            session_repository=session_repo,
-            current_user=user,
-            session_id="sess-default",
-        )
-        assert res1.session_id == "sess-default"
-        s1 = session_repo.get("sess-default")
-        assert s1 is not None
-        assert s1.model_version == "fake-1"
-        assert isinstance(s1.document, dict)
-        prov1 = s1.document.get("provenance")
-        assert isinstance(prov1, dict)
-        assert prov1.get("model_version") == "fake-1"
-
-        # 2. Con versión promovida -> usa la versión activa
-        registry.register(
-            ModelVersionData(
-                version="promoted-v2.5",
-                artifact_hash=sample_artifact,
-                dataset_hash="d_hash",
-                config_hash="c_hash",
-                metrics=EvaluationMetrics(ser=0.01, omr_ned=0.01),
-            )
-        )
-        registry.promote("promoted-v2.5")
-
-        engine_active = FakeOMREngine.from_active_model(registry)
-        res2 = transcribe_score(
-            img_path,
-            omr_engine=engine_active,
-            validator=validator,
-            session_repository=session_repo,
-            current_user=user,
-            session_id="sess-active",
-        )
-        assert res2.session_id == "sess-active"
-        s2 = session_repo.get("sess-active")
-        assert s2 is not None
-        assert s2.model_version == "promoted-v2.5"
-        assert isinstance(s2.document, dict)
-        prov2 = s2.document.get("provenance")
-        assert isinstance(prov2, dict)
-        assert prov2.get("model_version") == "promoted-v2.5"
