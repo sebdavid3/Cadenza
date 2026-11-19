@@ -305,6 +305,17 @@ La columna izquierda de `/entrar` y `/registro` (#392). Es la trama de tinta de 
 - **Pie de lámina:** arriba a la izquierda, en el mismo eje, un bloque de papel con el nombre en rótulo y, en texto pequeño de tinta gastada, las fechas, la técnica, el autor y el año del retrato. Aparece al terminar la impresión y se oculta bajo 860 px.
 - **Movimiento:** el único momento animado de la vista. Al cargar la imagen, el retrato se imprime por bandas de filas de arriba abajo, en 1400 ms y 28 saltos, como el cabezal de una imprenta: cada salto pinta solo su banda, y lo que falta deja ver la trama de CSS. Con `prefers-reduced-motion` aparece entero.
 - **Accesibilidad:** el retrato y su pie son decorativos (`aria-hidden`). Sin canvas o sin la imagen, queda la trama de CSS; con colores forzados el navegador quita la trama, el panel queda liso y el retrato no se descarga.
+### Errores de HOMR, en vivo
+La página pública `/errores-de-homr` (#424), con las cifras de conjunto de lo que se corrige de HOMR. Es la versión web del informe local (#418) y está enlazada desde la cabecera, no en la portada.
+- **Cabecera de la página:** el título en display a `clamp(2.5rem, 5vw, 4.25rem)`, la entradilla a 1,25rem y, en texto pequeño de tinta gastada, cuándo se calcularon las cifras. Debajo, tres celdas enmarcadas con su filete solapado: qué son HOMR, PrIMuS y Camera-PrIMuS (con la cita y su enlace) y qué sesiones de Cadenza cuentan.
+- **Aviso sin cifras de Cadenza:** su título en display a 1,125rem y el texto llano debajo, sin barra lateral ni marco.
+- **Conmutador de grupos:** el segmentado de la demostración (filete solapado; pulsado, bloque de tinta), con los grupos publicados.
+- **Cifras:** siempre en Hanken Grotesk (500, cifras tabulares), también las grandes de «Lo que dicen los datos» y las de cabecera: en el bitmap, «50 %» se leía «80 %». Los rótulos de cada cifra, en Silkscreen de tinta gastada.
+- **Qué pasó con cada nota:** una barra al 100 % por patrón, con macizo de tinta (corregida), trama de puntos (sobraba), rayado (sin alinear) y papel claro (bien leída), y debajo lo que significa cada palabra.
+- **Barras:** de tinta sobre papel claro, con el nombre y la cifra en texto. Las figuras se nombran y se dibujan con su símbolo en vectores (cabeza, plica, corchetes y puntillos, con `currentColor`), nunca como fracción.
+- **Matriz de la figura leída frente a la correcta:** cada celda lleva el violeta del acento con más opacidad cuantos más casos tiene, del 12 % al 100 %, con el número en papel sobre los oscuros. Es la única gradación del sistema, pedida por el responsable para el informe (#418). Los nombres de las filas quedan fijos al desplazar la matriz en horizontal.
+- **Listas largas:** paginadas («Anterior», «Página 1 de 2», «Siguiente»), nunca un «ver más».
+
 ### Permiso de uso de los datos
 El aviso breve, el texto completo y su página (#378, #397). La redacción la aprobó el responsable y vive en un solo componente (`DataUseText`), que se compone de dos maneras.
 - **Aviso:** texto pequeño de tinta gastada a 52ch, sin filete ni marco. En «Tu cuenta» enlaza a la página.

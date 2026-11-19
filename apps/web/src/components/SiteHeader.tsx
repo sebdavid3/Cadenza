@@ -29,6 +29,9 @@ export function SiteHeader({
             </a>
           </>
         )}
+        <Link className="label" to="/errores-de-homr">
+          Errores de HOMR
+        </Link>
         <a className="label" href={REPOSITORY_URL}>
           Código
         </a>

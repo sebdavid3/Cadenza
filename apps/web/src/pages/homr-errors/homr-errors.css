@@ -1,0 +1,556 @@
+/* Los errores de HOMR, en vivo (#424): su propia vista pública, con las cifras del informe (#418).
+   Las cifras van siempre en Hanken Grotesk (en el bitmap, «50 %» se leía «80 %»); los titulares y
+   rótulos, en bitmap. El violeta solo en la matriz de figuras: cuanto más, más casos. */
+
+.homr {
+  padding: var(--space-8) var(--gutter) var(--space-9);
+}
+
+.homr ul,
+.homr ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.homr__intro {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.homr__page-title {
+  margin-bottom: var(--space-3);
+  font-family: var(--font-display);
+  font-size: clamp(2.5rem, 5vw, 4.25rem);
+  font-weight: 700;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.homr__lead {
+  max-width: 60ch;
+  font-size: 1.25rem;
+  font-weight: 500;
+  line-height: 1.36;
+}
+
+.homr__when,
+.homr__small {
+  max-width: 64ch;
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+/* Qué son HOMR, PrIMuS y Cadenza: celdas enmarcadas con su filete solapado. */
+.homr__about {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  margin-top: var(--space-6);
+  border: var(--rule);
+}
+
+.homr__about section {
+  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border-right: var(--rule);
+  border-bottom: var(--rule);
+}
+
+.homr__about-title,
+.homr__notice-title {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.homr__about p {
+  max-width: 62ch;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.homr a {
+  color: var(--color-ink);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* El aviso de que aún no hay cifras de Cadenza: texto llano bajo su título, sin barra lateral. */
+.homr__notice {
+  margin-top: var(--space-7);
+}
+
+.homr__notice p,
+.homr__empty {
+  max-width: 60ch;
+  font-size: 1.0625rem;
+}
+
+.homr__empty {
+  margin-top: var(--space-7);
+}
+
+/* Qué cifras se ven: conmutador segmentado con el filete solapado. */
+.homr__groups {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: var(--space-7);
+}
+
+.homr__groups button {
+  min-height: 44px;
+  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
+  padding: var(--space-2) var(--space-4);
+  border: var(--rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-label);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-quick) var(--ease-out),
+    color var(--duration-quick) var(--ease-out);
+}
+
+.homr__groups button[aria-pressed="true"],
+.homr__groups button:hover {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.homr__scope {
+  max-width: 72ch;
+  margin-top: var(--space-5);
+}
+
+.homr__scope .label {
+  margin-right: var(--space-2);
+  padding: 2px var(--space-2);
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+
+.homr__scope-count,
+.homr__number,
+.homr__big,
+.homr__tile dd,
+.homr__matrix td,
+.homr__steps-axis,
+.homr__pager-text {
+  font-family: var(--font-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.homr__scope-count,
+.homr__number {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.homr__block {
+  margin-top: var(--space-8);
+}
+
+.homr__title {
+  margin-bottom: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.homr__block > .homr__small + * {
+  margin-top: var(--space-4);
+}
+
+/* Lo que dicen los datos: la cifra grande y su frase. */
+.homr__findings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  margin-top: var(--space-4);
+  border: var(--rule);
+}
+
+.homr__finding {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border-right: var(--rule);
+  border-bottom: var(--rule);
+}
+
+.homr__kicker,
+.homr__tile dt,
+.homr__rates-title {
+  color: var(--color-ink-muted);
+}
+
+.homr__big {
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.homr__finding-text {
+  max-width: 40ch;
+}
+
+.homr__block > .homr__small:last-child {
+  margin-top: var(--space-4);
+}
+
+/* Las cifras de cabecera. */
+.homr__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  margin-top: var(--space-7);
+  border: var(--rule);
+}
+
+.homr__tile {
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin: 0 calc(var(--rule-width) * -1) calc(var(--rule-width) * -1) 0;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-right: var(--rule);
+  border-bottom: var(--rule);
+}
+
+.homr__tile dd {
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 500;
+  line-height: 1.05;
+}
+
+/* Qué pasó con cada nota: una barra al 100 %, por patrón, y lo que significa cada palabra. */
+.homr__stack {
+  display: flex;
+  height: 32px;
+  border: var(--rule);
+}
+
+.homr__stack-part {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.homr__stack-part--corregida {
+  background: var(--color-ink);
+}
+
+.homr__stack-part--borrada {
+  background: var(--halftone-ink);
+  background-color: var(--color-paper);
+}
+
+.homr__stack-part--sin_alinear {
+  background: repeating-linear-gradient(45deg, var(--color-ink) 0 2px, var(--color-paper) 2px 6px);
+}
+
+.homr__stack-part--bien {
+  background: var(--color-paper-raised);
+}
+
+.homr__outcomes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--space-4) var(--space-6);
+  margin-top: var(--space-4);
+}
+
+.homr__outcome dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.homr__outcome dd {
+  max-width: 52ch;
+  margin-top: var(--space-1);
+  color: var(--color-ink-muted);
+  font-size: var(--text-small);
+}
+
+.homr__swatch {
+  display: inline-block;
+  width: 22px;
+  height: 14px;
+  border: 2px solid var(--color-ink);
+}
+
+/* Dos bloques por fila; uno bajo 900 px. */
+.homr__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-8);
+}
+
+/* Dónde se equivoca más: sus tres listas, una al lado de otra mientras quepan. */
+.homr__where {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  align-items: start;
+  gap: var(--space-6) var(--space-8);
+}
+
+.homr__where .homr__rates + .homr__rates {
+  margin-top: 0;
+}
+
+/* Barras horizontales: nombre, barra y cifra. */
+.homr__bars {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.homr__bar {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr) 4.25rem;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.homr__bar-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-2);
+  font-size: 0.9375rem;
+  line-height: 1.25;
+}
+
+.homr__bar-sub {
+  flex-basis: 100%;
+  color: var(--color-ink-muted);
+  font-size: 0.8125rem;
+}
+
+.homr__bar-track {
+  height: 16px;
+  background: var(--color-paper-raised);
+}
+
+.homr__bar-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-ink);
+}
+
+.homr__bar .homr__number {
+  text-align: right;
+}
+
+.homr__rates + .homr__rates {
+  margin-top: var(--space-6);
+}
+
+.homr__rates-title {
+  margin-bottom: var(--space-3);
+}
+
+/* Paginación de una lista larga, en lugar de un «ver más». */
+.homr__pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.homr__pager-button {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  font-size: 0.875rem;
+}
+
+.homr__pager-button:disabled {
+  border-style: dashed;
+  background: var(--color-paper);
+  color: var(--color-ink-muted);
+  cursor: default;
+}
+
+.homr__pager-text {
+  font-size: var(--text-small);
+}
+
+/* Cuánto se movió la altura: una columna por paso de pentagrama, de -8 a +8. */
+.homr__steps {
+  margin: 0;
+}
+
+.homr__steps-cols {
+  display: grid;
+  grid-template-columns: repeat(17, minmax(0, 1fr));
+  align-items: end;
+  gap: 2px;
+  height: 9rem;
+  border-bottom: var(--rule);
+}
+
+.homr__steps-col {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.homr__steps-fill {
+  display: block;
+  width: 100%;
+  background: var(--color-ink);
+}
+
+.homr__steps-axis {
+  display: grid;
+  grid-template-columns: repeat(17, minmax(0, 1fr));
+  gap: 2px;
+  margin-top: var(--space-1);
+  color: var(--color-ink-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.homr__steps-zero {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+
+.homr__steps-caption {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+  color: var(--color-ink-muted);
+}
+
+/* Figura leída y correcta: la matriz, en violeta según los casos (#418). */
+.homr__scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.homr__scroll:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.homr__matrix {
+  border-collapse: collapse;
+  border: var(--rule);
+}
+
+.homr__matrix th,
+.homr__matrix td {
+  border: 1px solid var(--color-ink);
+}
+
+.homr__matrix th {
+  padding: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  vertical-align: bottom;
+}
+
+.homr__matrix thead th {
+  min-width: 4.5rem;
+  text-align: center;
+}
+
+/* Los nombres de las filas quedan a la vista al desplazar la matriz en horizontal. */
+.homr__matrix tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-paper);
+  white-space: nowrap;
+}
+
+.homr__matrix thead th .figure-symbol {
+  display: block;
+  margin: 0 auto var(--space-1);
+}
+
+.homr__matrix-name {
+  display: block;
+}
+
+.homr__matrix tbody th .homr__matrix-name {
+  display: inline;
+}
+
+.homr__corner {
+  vertical-align: middle;
+}
+
+.homr__corner .label {
+  color: var(--color-ink-muted);
+  font-size: 0.6875rem;
+}
+
+.homr__matrix td {
+  min-width: 3.25rem;
+  height: 2.75rem;
+  padding: 0 var(--space-2);
+  font-weight: 500;
+  text-align: center;
+}
+
+.homr__cell--strong {
+  color: var(--color-on-accent);
+}
+
+.figure-symbol {
+  display: inline-block;
+  width: auto;
+  height: 1.75em;
+  margin-right: var(--space-1);
+  vertical-align: middle;
+  overflow: visible;
+}
+
+.figure-symbol__tuplet {
+  fill: currentColor;
+  font: 600 9px var(--font-text);
+}
+
+@media (max-width: 900px) {
+  .homr__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .homr {
+    padding-block: var(--space-6) var(--space-8);
+  }
+
+  .homr__bar {
+    grid-template-columns: minmax(0, 1fr) 4.25rem;
+    row-gap: var(--space-1);
+  }
+
+  .homr__bar-name {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (forced-colors: active) {
+  .homr__stack-part--corregida,
+  .homr__bar-fill,
+  .homr__steps-fill {
+    background: CanvasText;
+  }
+}
