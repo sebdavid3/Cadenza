@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Errores de HOMR</title>
+<!-- De qué código y cuándo sale el informe; no se enseña, pero queda para saber de dónde viene. -->
+<meta name="cadenza-informe" content="commit __COMMIT__ · __DATE__ UTC">
 <!-- Plantilla de `ml export-tables --informe` (#415, #418, ADR-0069): sin red ni dependencias.
      Sistema visual de Cadenza (DESIGN.md): papel, tinta, filetes de 3 px y un solo acento violeta
      para lo elegido y lo que falló; los estados, por patrón. -->
@@ -137,7 +139,8 @@ table.matrix th.corner { text-align: left; vertical-align: bottom; font: 400 0.7
 table.matrix td { width: 34px; height: 34px; min-width: 34px; text-align: center; font-size: 0.8125rem; font-weight: 500; border: 1px solid var(--rule-soft); padding: 0; }
 table.matrix td[data-key] { border-color: transparent; }
 table.matrix td[data-key]:hover { outline: 2px solid var(--ink); outline-offset: 1px; }
-table.matrix td[aria-current="true"] { background: var(--accent) !important; color: var(--on-accent) !important; }
+/* Las celdas ya son violeta (más violeta, más casos): la elegida se marca con un marco de tinta. */
+table.matrix td[aria-current="true"] { outline: 3px solid var(--ink); outline-offset: 1px; }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0 0 14px; }
 .legend span { display: inline-flex; align-items: center; gap: 8px; }
 .legend svg { width: 22px; height: 14px; }
@@ -234,7 +237,6 @@ footer { padding: 24px var(--gutter) 40px; }
     <p class="lead">Qué notas lee mal HOMR y cómo se corrigen. Cada cifra lleva a sus ejemplos: la foto
     del compás y, debajo, el compás dibujado tal como lo leyó HOMR y como es en realidad.</p>
   </div>
-  <div class="meta small">Commit __COMMIT__<br>__DATE__ UTC</div>
   <div class="about" id="about"></div>
 </header>
 
@@ -285,7 +287,7 @@ footer { padding: 24px var(--gutter) 40px; }
       </section>
       <section class="panel">
         <h3>Figura leída y correcta</h3>
-        <p class="small">En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta. Más tinta, más casos.</p>
+        <p class="small">En las correcciones de figura. Filas: la figura que leyó HOMR; columnas: la correcta. Cuanto más violeta, más casos.</p>
         <div class="scroll" id="durations"></div>
       </section>
     </div>
@@ -313,7 +315,6 @@ footer { padding: 24px var(--gutter) 40px; }
   <div id="sessions"></div>
 </section>
 
-<footer class="small">Generado en local desde la carpeta de la exportación. Las fotos se abren por su ruta relativa y nada sale del equipo.</footer>
 <div class="tip" id="tip" role="tooltip"></div>
 
 <script>
@@ -535,7 +536,7 @@ function render() {
       reads.map(r => `<tr><th scope="row">${figSym(r)}${esc(name[r])}</th>` + fixes.map(f => {
         const n = get(r, f); if (!n) return `<td></td>`;
         const a = 0.12 + 0.88 * Math.sqrt(n / max);
-        return `<td style="background:rgba(10,10,10,${a.toFixed(2)});color:${a > 0.5 ? "var(--paper)" : "var(--ink)"}" ${attrs(`dur:${r}>${f}`, `Leída ${name[r]}, correcta ${name[f]}`, "Figura leída y correcta", `Leída <b>${esc(name[r])}</b>, correcta <b>${esc(name[f])}</b>: ${fmt(n)}`)}>${fmt(n)}</td>`;
+        return `<td style="background:rgba(122,44,240,${a.toFixed(2)});color:${a > 0.55 ? "var(--on-accent)" : "var(--ink)"}"${attrs(`dur:${r}>${f}`, `Leída ${name[r]}, correcta ${name[f]}`, "Figura leída y correcta", `Leída <b>${esc(name[r])}</b>, correcta <b>${esc(name[f])}</b>: ${fmt(n)}`)}>${fmt(n)}</td>`;
       }).join("") + `</tr>`).join("") + `</tbody></table>`;
   }
 
@@ -759,7 +760,10 @@ function renderSessions() {
   // Solo los pentagramas y los compases en que se corrigió algo (#418).
   const box = document.getElementById("sessions"), only = true;
   const sessions = (DATA.sessions || []).filter(s => source !== "pruebas" || s.real);
-  if (!sessions.length) { box.innerHTML = `<p class="empty">Sin tiras: exporta con --recortes y la base.</p>`; document.getElementById("sessions-count").textContent = ""; return; }
+  // Sin tiras corregidas que enseñar, la sección no aparece.
+  const band = document.getElementById("sessions-band");
+  band.hidden = !sessions.some(s => s.strips.some(st => st.corrected));
+  if (band.hidden) { box.innerHTML = ""; return; }
   let shownStrips = 0;
   box.innerHTML = sessions.map(s => {
     const strips = s.strips.filter(st => !only || st.corrected);
@@ -783,7 +787,7 @@ function renderSessions() {
           <span class="flag ${st.corrected ? "on" : ""}">${st.corrected ? "Corregida" : "Sin cambios"}</span></div>
           <div class="scroll"><table class="measures">${rows.join("") || `<tr><td class="small">Sin cambios en estos compases.</td></tr>`}</table></div></div></div>`;
       }).join("") + `</article>`;
-  }).join("") || `<p class="empty">Ninguna tira corregida.</p>`;
+  }).join("");
   document.getElementById("sessions-count").textContent = `${plural(sessions.length, "sesión", "sesiones")} · ${plural(shownStrips, "tira", "tiras")}`;
 }
 
