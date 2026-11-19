@@ -173,9 +173,15 @@ table.top tr[aria-current="true"] td { background: var(--accent); color: var(--o
 .history-tools input, .history-tools select { font: 400 1rem/1.3 var(--body); color: var(--ink); background: var(--paper-raised); border: var(--rule); min-height: 44px; padding: 8px 12px; border-radius: 0; width: 100%; }
 .history-tools input:focus-visible, .history-tools select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .history-tools .small { margin: 0 0 12px; }
-.more-btn { font: 700 0.8125rem/1 var(--label); letter-spacing: 0.05em; text-transform: uppercase; min-height: 44px; padding: 0 18px; margin-top: 14px;
+/* Paginación: anterior, las páginas cercanas, la primera y la última, y siguiente. */
+.pager { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 16px; }
+.pager button { font: 500 0.9375rem/1 var(--body); font-variant-numeric: tabular-nums; min-width: 44px; min-height: 44px; padding: 0 12px;
   background: var(--paper); color: var(--ink); border: var(--rule); cursor: pointer; }
-.more-btn:hover { background: var(--ink); color: var(--paper); }
+.pager button:hover:not([disabled]):not([aria-current="page"]) { background: var(--paper-raised); }
+.pager button[aria-current="page"] { background: var(--ink); color: var(--paper); cursor: default; }
+.pager button[disabled] { opacity: 0.35; cursor: default; }
+.pager .gap { min-width: 24px; text-align: center; color: var(--ink-muted); }
+.pager .step { font-weight: 500; }
 table.top .clean { color: var(--ink-faint); }
 
 /* Ejemplos */
@@ -317,10 +323,12 @@ footer { padding: 24px var(--gutter) 40px; }
             <option value="clean">Sin correcciones primero</option>
             <option value="name">Por nombre</option>
           </select></label>
+        <label class="size"><span class="label muted">Por página</span>
+          <select id="history-size"><option>25</option><option>50</option><option>100</option></select></label>
         <span class="small" id="history-count"></span>
       </div>
       <div class="scroll" id="history"></div>
-      <button type="button" class="more-btn" id="history-more" hidden>Ver más</button>
+      <nav class="pager" id="history-pager" aria-label="Páginas del historial"></nav>
     </section>
   </main>
   <aside class="examples" id="examples" aria-live="polite" aria-labelledby="ex-title">
@@ -580,8 +588,15 @@ function render() {
 // --- Ejemplos -----------------------------------------------------------------------------------
 // --- Historial de transcripciones --------------------------------------------------------------
 // Todas las partituras, con buscador y orden; elegir una enseña sus correcciones en el panel.
-const HISTORY_PAGE = 25, MIN_RATE_NOTES = 10;
-let historyQuery = "", historySort = "rate", historyShown = HISTORY_PAGE;
+const MIN_RATE_NOTES = 10;
+let historyQuery = "", historySort = "rate", historyPage = 1, historySize = 25;
+// Las páginas que se ofrecen: la primera, la última y las vecinas de la actual, con «…» entre medias.
+function pageList(current, pages) {
+  const wanted = [...new Set([1, 2, current - 1, current, current + 1, pages - 1, pages])].filter(p => p >= 1 && p <= pages).sort((a, b) => a - b);
+  const out = [];
+  wanted.forEach((p, i) => { if (i && p - wanted[i - 1] > 1) out.push(null); out.push(p); });
+  return out;
+}
 const fold = s => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 const dateText = iso => { const t = new Date(`${iso}T12:00:00`); return isNaN(t) ? iso : t.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric" }); };
 function renderHistory() {
@@ -598,7 +613,10 @@ function renderHistory() {
     clean: (a, b) => a.fixes - b.fixes || b.read - a.read,
     name: (a, b) => a.label.localeCompare(b.label, "es", { numeric: true }),
   }[historySort];
-  const sorted = [...found].sort(order), shown = sorted.slice(0, historyShown);
+  const sorted = [...found].sort(order);
+  const pages = Math.max(1, Math.ceil(sorted.length / historySize));
+  historyPage = Math.min(Math.max(1, historyPage), pages);
+  const start = (historyPage - 1) * historySize, shown = sorted.slice(start, start + historySize);
   const dates = rows.some(h => h.date);
   document.getElementById("history-count").textContent = q
     ? `${plural(found.length, "transcripción", "transcripciones")} de ${fmt(rows.length)}`
@@ -609,9 +627,15 @@ function renderHistory() {
       ${dates ? `<td>${h.date ? esc(dateText(h.date)) : ""}</td>` : ""}<td class="n">${fmt(h.read)}</td>
       <td class="n${h.fixes ? "" : " clean"}">${h.fixes ? fmt(h.fixes) : "ninguna"}</td><td class="n">${h.fixes ? pct(h.fixes, h.read, 0) : ""}</td></tr>`).join("") +
     `</tbody></table>` : `<p class="small">Ninguna transcripción coincide con «${esc(historyQuery.trim())}».</p>`;
-  const more = document.getElementById("history-more");
-  more.hidden = sorted.length <= historyShown;
-  more.textContent = `Ver ${fmt(Math.min(HISTORY_PAGE, sorted.length - historyShown))} más`;
+  if (shown.length && pages > 1) document.getElementById("history-count").textContent =
+    `${fmt(start + 1)}–${fmt(start + shown.length)} de ${plural(found.length, "transcripción", "transcripciones")}${q ? ` (de ${fmt(rows.length)})` : ""}`;
+  const pager = document.getElementById("history-pager");
+  pager.hidden = pages <= 1;
+  pager.innerHTML = pages <= 1 ? "" :
+    `<button type="button" class="step" data-page="${historyPage - 1}" ${historyPage === 1 ? "disabled" : ""} aria-label="Página anterior">← Anterior</button>` +
+    pageList(historyPage, pages).map(p => p === null ? `<span class="gap" aria-hidden="true">…</span>`
+      : `<button type="button" data-page="${p}" ${p === historyPage ? 'aria-current="page"' : ""} aria-label="Página ${p}">${fmt(p)}</button>`).join("") +
+    `<button type="button" class="step" data-page="${historyPage + 1}" ${historyPage === pages ? "disabled" : ""} aria-label="Página siguiente">Siguiente →</button>`;
   markSelected();
 }
 
@@ -871,9 +895,18 @@ seg.addEventListener("click", e => {
   render();
 });
 document.getElementById("reorder").addEventListener("change", render);
-document.getElementById("history-q").addEventListener("input", e => { historyQuery = e.target.value; historyShown = HISTORY_PAGE; renderHistory(); });
-document.getElementById("history-sort").addEventListener("change", e => { historySort = e.target.value; historyShown = HISTORY_PAGE; renderHistory(); });
-document.getElementById("history-more").addEventListener("click", () => { historyShown += HISTORY_PAGE; renderHistory(); });
+document.getElementById("history-q").addEventListener("input", e => { historyQuery = e.target.value; historyPage = 1; renderHistory(); });
+document.getElementById("history-sort").addEventListener("change", e => { historySort = e.target.value; historyPage = 1; renderHistory(); });
+document.getElementById("history-size").addEventListener("change", e => { historySize = +e.target.value; historyPage = 1; renderHistory(); });
+document.getElementById("history-pager").addEventListener("click", e => {
+  const b = e.target.closest("button[data-page]");
+  if (!b || b.disabled || b.getAttribute("aria-current")) return;
+  historyPage = +b.dataset.page;
+  renderHistory();
+  // Que la tabla nueva empiece a la vista, sin quedarse al pie de la página anterior.
+  const panel = document.getElementById("history-panel");
+  if (panel.getBoundingClientRect().top < 0) panel.scrollIntoView({ block: "start" });
+});
 // Sin fechas (PrIMuS) no tiene sentido ordenar por fecha.
 if (!DATA.history.some(h => h.date)) document.querySelector('#history-sort option[value="date"]').remove();
 let resizing = 0, lastWidth = innerWidth;
