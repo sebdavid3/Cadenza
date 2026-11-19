@@ -842,9 +842,8 @@ def promotion_decision(
 # --- El bucle de aprendizaje: las sesiones finalizadas de Cadenza -------------------------------
 
 
-def page_of(session: Any) -> str | None:
-    """La página de origen de una sesión: la partitura de prueba o el sha256 de su imagen. Es la
-    obra sobre la que se parte entre `train` y `test` (ADR-0036 §10; `ml export-pairs`, #420)."""
+def _page_of(session: Any) -> str | None:
+    """La página de origen de una sesión: la partitura de prueba o el sha256 de su imagen."""
     if session.test_score_id:
         return f"test_score:{session.test_score_id}"
     image = session.image_artifact or (session.document.get("provenance") or {}).get(
@@ -859,7 +858,7 @@ def shared_works(sessions: Iterable[Any]) -> dict[str, str]:
     banco subida sin `test_score_id` va con su partitura de prueba, porque su foto es la misma).
 
     La obra de un grupo es su partitura de prueba (la menor, si une varias) o, sin ninguna, su
-    foto (la menor): la de `page_of` cuando la sesión no comparte nada. Las sesiones sin
+    foto (la menor): la de `_page_of` cuando la sesión no comparte nada. Las sesiones sin
     partitura de prueba ni foto no salen.
     """
 
@@ -946,7 +945,7 @@ def session_records(
                     "cuenta del registro sin el permiso de uso de los datos vigente"
                 )
                 continue
-        page = page_of(session)
+        page = _page_of(session)
         if page is None:
             left_out[session.id] = "sin página de origen (test_score_id ni imagen)"
             continue

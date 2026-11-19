@@ -16,9 +16,9 @@ ADR-0067), escribe en `--output-dir`:
 Entran solo las sesiones finalizadas cuya corrección se verifica (`correction_verified`). De las
 cuentas del registro público, por defecto las que tienen el permiso de uso de los datos vigente
 (ADR-0065; decisión del responsable del 2026-11-19, la de #422), y ninguna con
-`--exclude-self-registered`; sin el permiso vigente, nunca. La partición es la fija por obra de #255: `split_seed` es
-obligatoria. No reentrena nada (#103). No tiene salida por defecto: la ruta se da siempre, ha de
-estar vacía y no puede caer en `results/` ni en `data/` del repositorio.
+`--exclude-self-registered`; sin el permiso vigente, nunca. La partición es la fija por obra de
+#255: `split_seed` es obligatoria. No reentrena nada (#103). No tiene salida por defecto: la ruta
+se da siempre, ha de estar vacía y no puede caer en `results/` ni en `data/` del repositorio.
 """
 
 from __future__ import annotations
@@ -217,6 +217,7 @@ def dataset_card(info: dict[str, Any]) -> str:
         " responsable del 2026-11-19, #422)."
     )
     refused = consent["sessions_without_current_consent"]
+    optioned = consent["sessions_excluded_by_option"]
     table = "\n".join(
         f"| `{split}` | {part['pairs']} | {part['pairs_corrected']} | {part['sessions']} |"
         f" {part['works']} |"
@@ -274,7 +275,7 @@ publique serán cifras de conjunto.
 
 - Cuentas del registro público: {registered} Las que no lo tienen (nunca lo dieron, lo \
 retiraron o lo dieron para otro texto) quedan siempre fuera: {refused} sesiones en esta \
-exportación.
+exportación. Con `--exclude-self-registered` quedaron fuera {optioned} más.
 - Cuentas que no vienen del registro público (las del equipo, anteriores a ADR-0070, que dejó \
 el registro como única forma de crear una cuenta): no se les pide este permiso y entran.
 - Los pares no llevan el nombre de usuario: la sesión va por su identificador y la obra por la \
@@ -293,8 +294,10 @@ fracción de prueba.
 (`image:<sha256>`), y las sesiones que comparten una u otra son la misma obra, también \
 encadenadas: una página del banco subida sin partitura de prueba va con ella, porque su foto es \
 la misma. Todas las tiras de una obra van a la misma carpeta.
-- Si la muestra crece, una obra solo cambia de lado si una sesión nueva la une a otra (una foto \
-que se sube después con su partitura de prueba).
+- Una obra puede cambiar de lado entre dos exportaciones si cambia la sesión que la unía a otra: \
+una nueva (una foto que se sube después con su partitura de prueba) o una que se va (su cuenta \
+retiró el permiso, o `--exclude-self-registered`). Un modelo se evalúa con la `test` de la misma \
+exportación con la que se entrenó.
 - No hay partición de validación: se saca de `train` agrupando por `work_id`.
 
 | Partición | Pares | Con correcciones | Sesiones | Obras |
@@ -440,7 +443,10 @@ def export_pairs_command(args: argparse.Namespace) -> int:
         part = counts["by_split"][split]
         print(f"  {split:<10} : {part['pairs']} pares de {part['works']} obras")
     print(f"  corregidos : {counts['pairs_corrected']}")
-    print(f"  fuera      : {len(left_out)}, más {without_consent} sin el permiso vigente")
+    print(
+        f"  fuera      : {len(left_out)}, más {without_consent} sin el permiso vigente y"
+        f" {excluded} con --exclude-self-registered"
+    )
     for session_id, reason in sorted(left_out.items()):
         print(f"    {session_id}: {reason}")
     print(f"  salida     : {output}")

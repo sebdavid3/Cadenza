@@ -202,6 +202,8 @@ def base(tmp_path: Path) -> tuple[str, Path]:
             _session("s-visita", "visita", image),
             _session("s-antigua", "antigua", image),
             _session("s-anonima", "anonima", image),
+            # Su cuenta no está (la clave ajena no se comprueba en SQLite): queda fuera.
+            _session("s-sin-cuenta", "nadie", image),
         ):
             sessions.add(session, [])
         # En s-foto se corrigió la altura del compás 2 (sistema 1).
@@ -427,6 +429,9 @@ def test_an_option_leaves_out_every_registered_account(
         info["consent"]["sessions_without_current_consent"],
         info["consent"]["sessions_excluded_by_option"],
     ) == (2, 1)
+    assert "Con `--exclude-self-registered` quedaron fuera 1 más" in (
+        output / "README.md"
+    ).read_text(encoding="utf-8")
     exported = {r["session_id"] for r in _rows(output / "pares.csv")}
     assert {"s-foto", "s-train"} <= exported
 
@@ -450,6 +455,7 @@ def test_sessions_without_capture_unfinished_or_unverified_are_left_out(
     exported = {r["session_id"] for r in _rows(output / "pares.csv")}
 
     assert info["left_out"]["s-sin-captura"].startswith("sin la captura de HOMR")
+    assert info["left_out"]["s-sin-cuenta"] == "sin la cuenta de su dueño"
     assert info["left_out"]["s-otra-foto"].startswith("la corrección no se verifica")
     assert "s-abierta" not in exported and "s-abierta" not in info["left_out"]
     assert exported == {"s-foto", "s-train", "s-test", "s-banco", "s-visita"}

@@ -21,6 +21,13 @@ uv run --no-sync python -m ml export-pairs --output-dir <carpeta> `
 
 - `--split-seed` es obligatoria: es la semilla de la partición de #255 (la de
   `correction_corpus_split.json`), la misma de `ml export-tables` y de la capa de sugerencias.
+  Pero la obra no es la misma: aquí las sesiones que comparten partitura de prueba o foto son
+  una sola obra, y allí cada sesión va por su página. Una página del banco subida sin su
+  partitura de prueba puede caer en lados distintos en las dos exportaciones.
+- Una obra puede cambiar de lado entre dos exportaciones si cambia la sesión que la unía a otra
+  (una nueva, o una que se va porque su cuenta retiró el permiso o por
+  `--exclude-self-registered`): un modelo se evalúa con la `test` de la misma exportación con
+  la que se entrenó.
 - Por defecto entran las cuentas del registro público con el permiso de uso de los datos
   vigente (ADR-0065; decisión del responsable del 2026-11-19, #422); `--exclude-self-registered`
   las deja fuera. Las que no tienen el permiso vigente quedan fuera siempre.
