@@ -85,7 +85,7 @@ flowchart LR
    - El servidor valida su contenido, fija su autor y guarda el estado previo, así que **deshacer** devuelve siempre el estado exacto ([ADR-0007](docs/adr/ADR-0007-edit-events-inmutables.md), [ADR-0011](docs/adr/ADR-0011-semantica-de-anclas-ante-ediciones.md), [ADR-0017](docs/adr/ADR-0017-validacion-del-contenido-de-las-ediciones.md)).
 4. **Aprendizaje.**
    - El plano offline trabaja sobre una copia de la base: construye el corpus de correcciones, exporta tablas y recortes para analizar los errores de HOMR y entrena la **capa de sugerencias**.
-   - Esa capa propone el arreglo de cada posible error, y la persona lo aplica o lo rechaza ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)). Está preparada, pero aún no tiene un modelo promovido.
+   - Esa capa propone el arreglo de cada posible error, y la persona lo aplica o lo rechaza ([ADR-0036](docs/adr/ADR-0036-capa-de-sugerencias-aprendida.md)). Está activa en producción desde el 2026-11-03, solo con las sugerencias de alteración de confianza alta.
    - Los dos planos solo se comunican por datos guardados ([ADR-0003](docs/adr/ADR-0003-separacion-planos-computo.md)).
 
 ---
