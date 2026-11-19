@@ -78,6 +78,133 @@
         }
       }
     },
+    "/stats/homr-errors/{group_id}/scores/{score_id}": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Detalle de una partitura del historial de un corpus",
+        "description": "Sin cuenta. Las cifras de una partitura del historial de un corpus público (`history` de su grupo) y sus correcciones de ejemplo con el compás dibujado, como en el informe local. Solo de los corpus: las partituras de Cadenza no tienen historial ni detalle (ADR-0073, enmienda de #424). Con `Cache-Control` y `ETag`.",
+        "operationId": "get_homr_error_score_endpoint_stats_homr_errors__group_id__scores__score_id__get",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "score_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Score Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HomrErrorScoreRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Sin cambios desde ese ETag"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/stats/homr-errors/{group_id}/scores/{score_id}/image": {
+      "get": {
+        "tags": [
+          "Stats"
+        ],
+        "summary": "Imagen de una partitura del historial de un corpus",
+        "description": "Sin cuenta. La imagen del corpus de una partitura de su historial (PrIMuS: la del íncipit; Camera-PrIMuS: su versión distorsionada), si la tiene (`image` en su detalle), para enseñarla con sus ejemplos como el informe local. Solo de los corpus públicos, que se citan (ADR-0073, enmienda de #424). PNG o JPEG, con `Cache-Control` y `ETag`.",
+        "operationId": "get_homr_error_score_image_endpoint_stats_homr_errors__group_id__scores__score_id__image_get",
+        "parameters": [
+          {
+            "name": "group_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Group Id"
+            }
+          },
+          {
+            "name": "score_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Score Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "La imagen",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {}
+            }
+          },
+          "404": {
+            "description": "Recurso no encontrado o no accesible para el usuario actual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Sin cambios desde ese ETag"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "tags": [
@@ -4233,7 +4360,129 @@
           "fix_beats"
         ],
         "title": "HomrErrorExampleRead",
-        "description": "Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y\nqué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza ni con imagen."
+        "description": "Un ejemplo de una cifra de un corpus público (ADR-0073, enmienda de #424): dónde está y\nqué leyó HOMR frente a lo correcto. Nunca de una partitura de Cadenza; la imagen de su\npartitura, si la tiene, se pide aparte (`image` en `history`)."
+      },
+      "HomrErrorHistoryRowRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Su íncipit («primus:000100134-7_1_1»): la clave del detalle."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Su nombre en la página, el íncipit sin el corpus."
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Read",
+            "description": "Notas y silencios que leyó HOMR."
+          },
+          "fixes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fixes",
+            "description": "Sus correcciones: una por operación, con las notas que HOMR no leyó, la clave y la armadura."
+          },
+          "image": {
+            "type": "boolean",
+            "title": "Image",
+            "description": "Si tiene la imagen del corpus, en `GET /stats/homr-errors/{group_id}/scores/{id}/image`.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "read",
+          "fixes"
+        ],
+        "title": "HomrErrorHistoryRowRead",
+        "description": "Una partitura del historial de un corpus público: su nombre, sus notas leídas y sus\ncorrecciones. Su detalle, en `GET /stats/homr-errors/{group_id}/scores/{id}`."
+      },
+      "HomrErrorScoreRead": {
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "title": "Group Id",
+            "description": "El corpus («primus», «camera-primus»)."
+          },
+          "id": {
+            "type": "string",
+            "title": "Id",
+            "description": "Su íncipit, como en `history`."
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Su nombre en la página."
+          },
+          "computed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Computed At",
+            "description": "Cuándo se calculó."
+          },
+          "read": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Read",
+            "description": "Notas y silencios que leyó HOMR."
+          },
+          "fixes": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fixes",
+            "description": "Sus correcciones, como en `history`."
+          },
+          "image": {
+            "type": "boolean",
+            "title": "Image",
+            "description": "Si tiene la imagen del corpus (`.../image`).",
+            "default": false
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/HomrErrorExampleRead"
+            },
+            "type": "array",
+            "title": "Examples",
+            "description": "Sus correcciones de ejemplo, como en el informe local; vacía sin ninguna."
+          },
+          "bars": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DrawnBarRead"
+            },
+            "type": "object",
+            "title": "Bars",
+            "description": "Los compases dibujados de los ejemplos."
+          },
+          "figures": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FigureRead"
+            },
+            "type": "object",
+            "title": "Figures",
+            "description": "El nombre y el símbolo de cada duración que sale en sus ejemplos."
+          }
+        },
+        "type": "object",
+        "required": [
+          "group_id",
+          "id",
+          "label",
+          "computed_at",
+          "read",
+          "fixes",
+          "examples",
+          "bars",
+          "figures"
+        ],
+        "title": "HomrErrorScoreRead",
+        "description": "El detalle de una partitura del historial de un corpus público (ADR-0073, enmienda de\n#424): sus cifras y sus ejemplos (hasta 12) con el compás dibujado. Nunca de Cadenza."
       },
       "HomrErrorStatsGroupRead": {
         "properties": {
@@ -4480,6 +4729,21 @@
             ],
             "title": "Bars",
             "description": "Solo en los corpus: los compases dibujados de los ejemplos."
+          },
+          "history": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/HomrErrorHistoryRowRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History",
+            "description": "Solo en los corpus: el historial de sus partituras, como en el informe local. Null en los de Cadenza, que nunca dicen nada de una transcripción."
           }
         },
         "type": "object",

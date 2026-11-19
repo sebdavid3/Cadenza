@@ -457,7 +457,7 @@ docker compose --profile batch run --rm ml-batch suggestions --help
 2. calcula los grupos `cadenza` (todas) y `pruebas` (las del registro), cada uno publicado solo con 5 sesiones de 3 cuentas o más (y `pruebas`, solo si el resto no se queda entre 1 y 4 sesiones), y un grupo por cada `<grupo>.jsonl` de la carpeta de corpus, que se calcula al arrancar el servicio y después solo si cambia el archivo;
 3. sustituye las filas en `public_stats` y anota una línea `public_stats_computed cadenza=… pruebas=…` en su registro.
 
-Los grupos de corpus llevan además sus ejemplos con el compás dibujado (formato 2, enmienda de #424 a ADR-0073), unos 390 KiB por corpus; los de Cadenza, nunca. Tras desplegar un formato nuevo, la página no enseña cifras hasta el primer cálculo, al minuto de arrancar el servicio. Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
+Los grupos de corpus llevan además sus ejemplos con el compás dibujado y su historial (formato 3, enmiendas de #424 a ADR-0073), unos 540 KiB por corpus; los de Cadenza, nunca. El detalle de cada partitura de un corpus, con su imagen si la hay, va en `public_stats_scores` (migración 0020): unos 3 MB de JSON por corpus, más 4 MB de imágenes de PrIMuS y 47 MB de Camera-PrIMuS. Tras desplegar un formato nuevo, la página no enseña cifras hasta el primer cálculo, al minuto de arrancar el servicio. Un cálculo que falla (la base aún sin migrar tras un despliegue, por ejemplo) se anota (`public_stats_failed`) y se reintenta al minuto. Retirar el permiso saca las sesiones de esa cuenta en el siguiente cálculo. `deploy/desplegar.sh` construye y arranca el servicio con los demás (`up -d --build`).
 
 Comprobarlo en el servidor:
 
@@ -472,6 +472,15 @@ curl -s http://127.0.0.1:8380/api/stats/homr-errors | head -c 400; echo   # comp
 ```bash
 ssh r2d2 'mkdir -p /opt/docker/cadenza/data/stats-corpus'
 scp results/correction_corpus.jsonl r2d2:/opt/docker/cadenza/data/stats-corpus/primus.jsonl
+```
+
+**Las imágenes de cada partitura** (decisión del responsable del 2026-11-19, ADR-0073) van junto al corpus, en `<grupo>/<íncipit>.png` (o `.jpg`). `ml public-stats-images` las copia en el portátil desde las descargas de PrIMuS y Camera-PrIMuS (solo lee `data/`), y se suben con la carpeta. El servicio las toma al recalcular el corpus, es decir, al arrancar, y una partitura sin imagen solo enseña su compás dibujado:
+
+```bash
+uv run --no-sync python -m ml.cli public-stats-images --corpus-dir <carpeta de corpus> \
+  --primus-dir data/primus --camera-dir data/camera_primus/Corpus
+scp -r <carpeta de corpus>/primus <carpeta de corpus>/camera-primus r2d2:/opt/docker/cadenza/data/stats-corpus/
+ssh r2d2 'cd /opt/docker/cadenza && docker compose -f docker-compose.prod.yml --env-file .env restart stats'
 ```
 
 El archivo ha de poder leerlo el UID 10001 (el modo 644 de `scp` basta). Camera-PrIMuS ([#421](https://github.com/sebdavid3/Cadenza/issues/421)), cuando tenga corpus, entra igual (`camera-primus.jsonl`), y quitar un archivo quita su grupo. Se salta con un aviso (`public_stats_corpus_skipped`), sin parar las cifras en vivo: un nombre fuera de `[a-z0-9_-]` o igual a `cadenza` o `pruebas`, un archivo que no se puede leer y un corpus con sesiones de Cadenza (el de `ml suggestions build-dataset`: sus sesiones saldrían sin el mínimo).

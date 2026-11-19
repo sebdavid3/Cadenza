@@ -8,6 +8,7 @@ from cadenza.application import (
     PUBLIC_STATS_FORMAT_VERSION,
     InMemoryPublicStatsRepository,
     PublicStatsGroup,
+    PublicStatsImage,
 )
 
 WHEN = datetime(2026, 11, 19, 12, 0, tzinfo=UTC)
@@ -40,3 +41,20 @@ def test_the_in_memory_repository_replaces_by_source_and_lists_cadenza_first() -
 
 def test_a_group_without_stats_is_not_published() -> None:
     assert not _group("pruebas", "cadenza", None).published
+
+
+def test_the_in_memory_repository_keeps_the_detail_of_a_score_while_its_group_is_there() -> None:
+    repo = InMemoryPublicStatsRepository()
+    primus = _group("primus", "corpus", {"read": 3})
+    repo.replace("corpus", [primus])
+    png = PublicStatsImage(media_type="image/png", content=b"png")
+    repo.replace_scores(primus, {"primus:1": {"fixes": 2}}, {"primus:1": png})
+    assert repo.get_image("primus", "primus:1") == png
+
+    score = repo.get_score("primus", "primus:1")
+    assert score is not None
+    assert (score.source, score.detail) == ("corpus", {"fixes": 2})
+    assert repo.get_score("primus", "primus:2") is None
+    repo.replace("corpus", [])
+    assert repo.get_score("primus", "primus:1") is None
+    assert repo.get_image("primus", "primus:1") is None

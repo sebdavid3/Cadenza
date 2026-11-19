@@ -422,3 +422,20 @@ class PublicStatsRecord(Base):
     sessions: Mapped[int] = mapped_column(Integer, nullable=False)
     source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     stats: Mapped[dict[str, Any] | None] = mapped_column(NullableJsonDocument, nullable=True)
+
+
+class PublicStatsScoreRecord(Base):
+    """El detalle de una partitura del historial de un corpus (#424, ADR-0073): sus cifras y sus
+    ejemplos con el compás dibujado, que la página pide al elegirla, y la imagen del corpus si
+    la hay (`image`, que no se carga con el resto). Lo escribe el servicio `stats` solo para los
+    corpus; los grupos de Cadenza no tienen (migración 0020)."""
+
+    __tablename__ = "public_stats_scores"
+
+    group_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    score_id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    format_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    detail: Mapped[dict[str, Any]] = mapped_column(JsonDocument, nullable=False)
+    image_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    image: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True, deferred=True)

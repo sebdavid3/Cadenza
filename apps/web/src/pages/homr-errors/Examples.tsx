@@ -1,12 +1,14 @@
 import { useState, type ReactNode } from "react";
-import type { FigureRead, HomrErrorExampleRead, HomrErrorStatsValuesRead } from "../../types";
+import type { FigureRead, HomrErrorExampleRead } from "../../types";
 import { DrawnBar } from "./DrawnBar";
 import { FigureSymbol } from "./FigureSymbol";
-import { EXAMPLES_PAGE_SIZE, plural } from "./stats";
+import type { ExamplesContent, Selection } from "./selection";
+import { EXAMPLES_PAGE_SIZE, fmt, pageList, plural } from "./stats";
 
-// Los ejemplos de una cifra de un corpus público (#424, ADR-0073), como el panel del informe
-// local: dónde está cada uno, su compás dibujado desde los datos (nunca una imagen del corpus) y
-// lo que leyó HOMR frente a lo correcto. Paginados, nunca con un «ver más».
+// Los ejemplos de una cifra o de una partitura del historial de un corpus público (#424,
+// ADR-0073), como el panel del informe local: dónde está cada uno, su compás dibujado desde los
+// datos (nunca una imagen del corpus) y lo que leyó HOMR frente a lo correcto. Paginados, nunca
+// con un «ver más».
 
 /** El panel de los ejemplos: en una vista estrecha va debajo, y al elegir se lleva a la vista. */
 export const EXAMPLES_ID = "homr-ejemplos";
@@ -29,14 +31,9 @@ export function WithNumbers({ text }: { text: string }) {
   );
 }
 
-export interface Selection {
-  key: string;
-  title: string;
-  kicker: string;
-}
-
-/** Paginación como la del informe: «Anterior», los números de página y «Siguiente». En un
- * extremo, el paso queda con aria-disabled en vez de desactivarse: así no pierde el foco. */
+/** Paginación como la del informe: «Anterior», los números de página (con «…» si son muchas) y
+ * «Siguiente». En un extremo, el paso queda con aria-disabled en vez de desactivarse: así no
+ * pierde el foco. */
 export function Pager({
   label,
   page,
@@ -61,19 +58,25 @@ export function Pager({
       >
         Anterior
       </button>
-      {Array.from({ length: pages }, (_, index) => (
-        <button
-          key={index}
-          type="button"
-          aria-current={index === page ? "page" : undefined}
-          aria-label={`Página ${String(index + 1)} de ${String(pages)}`}
-          onClick={() => {
-            onPage(index);
-          }}
-        >
-          {index + 1}
-        </button>
-      ))}
+      {pageList(page, pages).map((index, at) =>
+        index === null ? (
+          <span key={`hueco-${String(at)}`} className="homr__pager-gap" aria-hidden="true">
+            …
+          </span>
+        ) : (
+          <button
+            key={index}
+            type="button"
+            aria-current={index === page ? "page" : undefined}
+            aria-label={`Página ${String(index + 1)} de ${String(pages)}`}
+            onClick={() => {
+              onPage(index);
+            }}
+          >
+            {fmt(index + 1)}
+          </button>
+        ),
+      )}
       <button
         type="button"
         className="homr__pager-step"
@@ -162,20 +165,18 @@ function Change({
 }
 
 export function ExamplesPanel({
-  stats,
+  content,
   selected,
   corpus,
 }: {
-  stats: HomrErrorStatsValuesRead;
+  content: ExamplesContent;
   selected: Selection | null;
   corpus: string;
 }) {
   const [page, setPage] = useState(0);
-  const ids = selected ? (stats.example_keys?.[selected.key] ?? []) : [];
-  const examples = ids.flatMap((i) => {
-    const example = stats.examples?.[i];
-    return example ? [example] : [];
-  });
+  const { examples, bars, figures } = content;
+  const imageOf = content.imageOf ?? (() => null);
+  const withImages = examples.some((example) => imageOf(example) !== null);
   const pages = Math.ceil(examples.length / EXAMPLES_PAGE_SIZE);
   // Cada cifra elegida monta el panel de nuevo (`key`): empieza en la primera página.
   const current = Math.min(page, Math.max(0, pages - 1));
@@ -188,26 +189,44 @@ export function ExamplesPanel({
           <WithNumbers text={selected?.title ?? "Ejemplos"} />
         </h3>
         <p className="homr__panel-note">
-          {!selected
-            ? "Elige una cifra, una barra, una columna o una casilla para ver sus ejemplos."
-            : examples.length
-              ? `${plural(examples.length, "ejemplo", "ejemplos")}${examples.length === 12 ? " (como mucho, 12)" : ""}. Cada compás lo dibuja Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018), no es una imagen del corpus: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.`
-              : "Ningún ejemplo de esta cifra."}
+          {examples.length
+            ? `${plural(examples.length, "ejemplo", "ejemplos")}. ${
+                withImages
+                  ? `Arriba, la imagen del íncipit en ${corpus} (Calvo-Zaragoza y Rizo, 2018); debajo, su compás dibujado por Cadenza desde los datos`
+                  : `Cada compás lo dibuja Cadenza desde los datos de ${corpus} (Calvo-Zaragoza y Rizo, 2018)`
+              }: arriba lo que leyó HOMR y abajo lo correcto, con la nota del ejemplo en violeta.`
+            : content.empty}
         </p>
+        {content.retry && (
+          <button type="button" className="homr__retry" onClick={content.retry}>
+            Volver a intentarlo
+          </button>
+        )}
       </div>
       {shown.length > 0 && (
         <ol className="homr__ex-list" role="list">
           {shown.map((example, index) => {
-            const bar = example.bar ? stats.bars?.[example.bar] : undefined;
+            const bar = example.bar ? bars[example.bar] : undefined;
+            const image = imageOf(example);
             return (
               <li key={`${String(current)}-${String(index)}`} className="homr__ex">
+                {image && (
+                  <div className="homr__ex-photo">
+                    <img
+                      src={image}
+                      alt={`El íncipit ${example.score} en ${corpus}`}
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
+                )}
                 {bar && (
                   <DrawnBar
                     bar={bar}
                     atRead={example.at_read}
                     atFix={example.at_fix}
                     measure={example.measure}
-                    figures={stats.figures}
+                    figures={figures}
                   />
                 )}
                 <div className="homr__ex-text">
@@ -215,7 +234,7 @@ export function ExamplesPanel({
                     {example.score} · compás {example.measure} · pentagrama {example.staff}
                   </p>
                   <p className="homr__ex-change">
-                    <Change example={example} figures={stats.figures} />
+                    <Change example={example} figures={figures} />
                   </p>
                 </div>
               </li>

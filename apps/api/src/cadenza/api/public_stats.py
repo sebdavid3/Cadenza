@@ -1,7 +1,8 @@
 """`GET /stats/homr-errors`: las cifras de los errores de HOMR, en vivo (#423, ADR-0073).
 
 La API no calcula nada: lee los grupos que el servicio `stats` (plano offline) dejó en
-`public_stats` y los publica solo con los campos de su esquema. Una fila de otro formato o que no
+`public_stats` (y el detalle de cada partitura de un corpus, en `public_stats_scores`) y los
+publica solo con los campos de su esquema. Una fila de otro formato o que no
 valida se queda fuera y se anota. La respuesta se guarda en memoria `stats_cache_seconds` y lleva
 `Cache-Control` y `ETag`, así que las visitas a la portada apenas llegan a la base.
 """
@@ -18,18 +19,23 @@ from cadenza.application import (
     MIN_PUBLIC_SESSIONS,
     PUBLIC_STATS_FORMAT_VERSION,
     PublicStatsGroup,
+    PublicStatsImage,
     PublicStatsRepository,
+    PublicStatsScore,
 )
 from pydantic import ValidationError
 
-from .schemas import HomrErrorStatsGroupRead, HomrErrorStatsRead
+from .schemas import HomrErrorScoreRead, HomrErrorStatsGroupRead, HomrErrorStatsRead
 
 logger = logging.getLogger("cadenza.api.public_stats")
 
 CACHE_CONTROL = "public, max-age=60"
 """Para el navegador y cualquier caché por el camino: las cifras cambian cada 5 minutos."""
-CORPUS_ONLY = frozenset({"examples", "example_keys", "bars"})
-"""Lo que solo llevan los grupos de corpus: los ejemplos con su compás dibujado."""
+IMAGE_CACHE_CONTROL = "public, max-age=86400"
+"""La imagen de una partitura de un corpus no cambia: solo con otro archivo del corpus."""
+IMAGE_TYPES = frozenset({"image/png", "image/jpeg"})
+CORPUS_ONLY = frozenset({"examples", "example_keys", "bars", "history"})
+"""Lo que solo llevan los grupos de corpus: los ejemplos con su compás dibujado y el historial."""
 
 
 def build_stats(groups: Sequence[PublicStatsGroup]) -> HomrErrorStatsRead:
@@ -91,9 +97,64 @@ class StatsResponse:
     etag: str
 
 
+def _response(body: bytes) -> StatsResponse:
+    return StatsResponse(body=body, etag=_etag(body))
+
+
+def _etag(body: bytes) -> str:
+    return f'"{hashlib.sha256(body).hexdigest()[:32]}"'
+
+
+@dataclass(frozen=True, slots=True)
+class ImageResponse:
+    body: bytes
+    media_type: str
+    etag: str
+
+
+def render_image(
+    score: PublicStatsScore | None, image: PublicStatsImage | None
+) -> ImageResponse | None:
+    """La imagen de una partitura, solo si su detalle se publica y es una imagen de verdad."""
+    if render_score(score) is None or image is None:
+        return None
+    if image.media_type not in IMAGE_TYPES:
+        logger.warning("public_stats_image_skipped type=%s", image.media_type)
+        return None
+    return ImageResponse(body=image.content, media_type=image.media_type, etag=_etag(image.content))
+
+
 def render(groups: Sequence[PublicStatsGroup]) -> StatsResponse:
-    body = build_stats(groups).model_dump_json().encode("utf-8")
-    return StatsResponse(body=body, etag=f'"{hashlib.sha256(body).hexdigest()[:32]}"')
+    return _response(build_stats(groups).model_dump_json().encode("utf-8"))
+
+
+def render_score(score: PublicStatsScore | None) -> StatsResponse | None:
+    """El detalle de una partitura de un corpus, o None si no se publica: no está, es de un grupo
+    de Cadenza, de otro formato o no valida."""
+    if score is None:
+        return None
+    reason = None
+    if score.source != "corpus":
+        # Quien calcula nunca lo escribe; si una fila lo trajera, no se publica igual.
+        reason = f"source={score.source}"
+    elif score.format_version != PUBLIC_STATS_FORMAT_VERSION:
+        reason = f"format_version={score.format_version}"
+    if reason is None:
+        try:
+            item = HomrErrorScoreRead.model_validate(
+                {
+                    **score.detail,
+                    "group_id": score.group_id,
+                    "id": score.score_id,
+                    "computed_at": score.computed_at,
+                }
+            )
+        except ValidationError as exc:
+            reason = f"invalid errors={exc.error_count()}"
+        else:
+            return _response(item.model_dump_json().encode("utf-8"))
+    logger.warning("public_stats_score_skipped group=%s reason=%s", score.group_id, reason)
+    return None
 
 
 def etag_matches(if_none_match: str | None, etag: str) -> bool:
