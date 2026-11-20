@@ -1535,12 +1535,15 @@ actualiza sola.
 
 La cabecera resume lo más relevante y da los totales
 (Figura~\ref{fig:errores-cifras}). Para el corpus de PrIMuS, HOMR leyó
-33\,115 notas y silencios en 1\,877 íncipits; el 84,9\,\% quedó igual que
-en la referencia, 3\,966 hubo que corregirlos, 1\,032 sobraban y 835 no se
-leyeron. Estos totales cuentan todos los íncipits leídos, y no solo
+33\,115 notas y silencios en 1\,877 íncipits; el 86\,\% quedó igual que
+en la referencia, 3\,986 hubo que corregirlos, 660 sobraban y 739 no se
+leyeron. Cada lectura se compara con la referencia en orden, de principio a
+fin, y no compás por compás: si HOMR no leyó una barra de compás, las notas
+de los dos lados siguen contando como bien leídas y el error se registra
+como barra no leída (89 en PrIMuS, y 5 barras de más). Estos totales cuentan todos los íncipits leídos, y no solo
 aquellos cuya secuencia de correcciones se verifica, que son los de la
 Tabla~\ref{tab:tipos-error}.
-% fuente: GET /api/stats/homr-errors, grupo «primus» (scores 1877, read 33115, outcome.bien 28107, .corregida 3966, .borrada 1032, missing 835), consultado el 2026-11-19; lo calcula el servicio stats a partir del corpus de exp_12. Coincide con results/correction_corpus_summary.json:edit_distribution.all_derived (Total 5992 = 3317 + 1032 + 835 + 589 + 201 + 10 + 8).
+% fuente: /errores-de-homr, grupo «primus» (1877 íncipits, 33.115 leídos, 86 % bien, 3986 corregidos, 660 sobraban, 739 no leídos; 89 barras no leídas y 5 de más), consultado el 2026-11-19 tras desplegar 44b1741 y copiar el corpus de exp_12 regenerado con el formato 2 (#466, ADR-0075: alineación del íncipit entero). Antes, con la alineación compás a compás: 84,9 %, 3966, 1032 y 835.
 
 \begin{figure*}[!t]
     \centering
@@ -1653,12 +1656,12 @@ referencia y se conservaron solo las secuencias verificadas, es decir,
 aquellas que al aplicarse reproducen la referencia. En el corpus de PrIMuS
 se verificó el 96,9\,\% de los íncipits leídos (1\,818 de 1\,877), con
 4\,994 correcciones, 2,75 de media por íncipit; en la muestra de
-Camera-PrIMuS, el 68,9\,\% (1\,544 de 2\,242), con 4\,559 correcciones.
-% fuente: results/correction_corpus_summary.json (verification.verified_count 1818, .rate 0.9686; edit_distribution.verified.counts.Total 4994; average_edits_per_verified_incipit 2.75); results/camera_primus_correction_corpus_summary.json (verification.verified_count 1544, .rate 0.6887; Total 4559)
+Camera-PrIMuS, el 68,8\,\% (1\,543 de 2\,242), con 4\,549 correcciones.
+% fuente: results/correction_corpus_summary.json (verification.verified_count 1818, .rate 0.9686; edit_distribution.verified.counts.Total 4994; average_edits_per_verified_incipit 2.75); results/camera_primus_correction_corpus_summary.json (verification.verified_count 1543, .rate 0.6882; Total 4549; regenerado el 2026-11-19 con 44b1741)
 La Tabla~\ref{tab:tipos-error} muestra cómo se reparten por tipo.
 
 % fuente: results/correction_corpus_summary.json:edit_distribution.verified.proportions (SetDuration 0.6231, InsertEvent 0.1288, DeleteEvent 0.1217, SetPitch 0.0849, SetAccidental 0.0402, SetClef 0.0008, SetKey 0.0004)
-% fuente: results/camera_primus_correction_corpus_summary.json:edit_distribution.verified.proportions (SetDuration 0.4339, InsertEvent 0.1551, DeleteEvent 0.1397, SetPitch 0.1698, SetAccidental 0.0783, SetClef 0.0075, SetKey 0.0158)
+% fuente: results/camera_primus_correction_corpus_summary.json:edit_distribution.verified.proportions (SetDuration 0.4346, InsertEvent 0.1545, DeleteEvent 0.1392, SetPitch 0.1699, SetAccidental 0.0785, SetClef 0.0075, SetKey 0.0158)
 \begin{table}[htbp]
 \caption{Correcciones verificadas por tipo}
 \label{tab:tipos-error}
@@ -1668,11 +1671,11 @@ La Tabla~\ref{tab:tipos-error} muestra cómo se reparten por tipo.
 \hline
 \textbf{Tipo de corrección} & \textbf{PrIMuS} & \textbf{Camera-PrIMuS} \\
 \hline
-Cambiar la figura & 62,3\,\% & 43,4\,\% \\
+Cambiar la figura & 62,3\,\% & 43,5\,\% \\
 \hline
 Insertar un evento & 12,9\,\% & 15,5\,\% \\
 \hline
-Borrar un evento & 12,2\,\% & 14,0\,\% \\
+Borrar un evento & 12,2\,\% & 13,9\,\% \\
 \hline
 Cambiar la altura & 8,5\,\% & 17,0\,\% \\
 \hline
@@ -1682,7 +1685,7 @@ Cambiar la armadura & 0,04\,\% & 1,6\,\% \\
 \hline
 Cambiar la clave & 0,08\,\% & 0,7\,\% \\
 \hline
-\textbf{Correcciones} & \textbf{4\,994} & \textbf{4\,559} \\
+\textbf{Correcciones} & \textbf{4\,994} & \textbf{4\,549} \\
 \hline
 \end{tabular}
 \end{table}
