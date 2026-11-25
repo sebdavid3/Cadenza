@@ -80,6 +80,15 @@ carlosrojano@uninorte.edu.co}
 }
 
 \maketitle
+
+\begin{abstract}
+El reconocimiento óptico de música (OMR) facilita la digitalización de partituras impresas, pero sus errores limitan el uso directo de las transcripciones y exigen revisión manual. Presentamos Cadenza, una plataforma web que integra HOMR 0.7.0, validación con reglas de teoría musical, corrección interactiva sobre la partitura y sugerencias aprendidas de las correcciones. Implementada con arquitectura modular, API FastAPI e interfaz React, exporta partituras a MusicXML y MIDI. La evaluación combinó una revisión sistemática PRISMA 2020 con pruebas sobre corpus impresos; se seleccionaron 31 estudios de 458 registros. En PrIMuS (2\,000 íncipits), HOMR falló en el 6,1\,\%; la tasa de error simbólico (SER) y la distancia normalizada OMR-NED medias fueron 0,134 y 0,234. En Camera-PrIMuS (3\,000 imágenes distorsionadas), falló en el 25,3\,\%, con SER de 0,193 y OMR-NED de 0,333. Una etapa de corrección de la indicación de compás redujo la SER de 0,134 a 0,097 en PrIMuS. Entre 79 hallazgos de prueba cuyo arreglo correcto estaba entre los candidatos, las sugerencias lo ubicaron primero en el 86,1\,\% de los casos, frente al 67,1\,\% del orden de las reglas. Los resultados muestran el potencial del flujo integrado, pero también su sensibilidad a imágenes degradadas y la cobertura incompleta de las reglas. Las correcciones se derivaron de referencias, no de participantes; no se evaluó la usabilidad con usuarios.
+\end{abstract}
+
+\begin{IEEEkeywords}
+reconocimiento óptico de música, partituras digitales, validación musical, corrección interactiva, aprendizaje activo
+\end{IEEEkeywords}
+
 % ---------------------------------------------------------------------
 % FIGURA 1: árbol del problema (flotante a página completa).
 % Se declara aquí arriba para que LaTeX la ubique al inicio de las
